@@ -24,6 +24,7 @@ import {
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { LoadingState } from '@/components/common/LoadingState';
 import { PortalBackground } from '@/components/common/PortalBackground';
+import { CitySuggestInput } from '@/components/common/CitySuggestInput';
 import { EventFormConfig } from '../events/EventManageModal';
 
 interface EventItem {
@@ -1047,16 +1048,16 @@ export function EventsPortalPage() {
                     </span>
                   </div>
 
-                  {/* 4. City / Regency */}
+                  {/* 4. City / Regency with Auto-Suggest */}
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Kota / Domisili *</label>
-                    <input
-                      type="text"
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Kota / Domisili * <span className="font-normal text-slate-400 text-[10px]">(Ketik untuk saran otomatis)</span>
+                    </label>
+                    <CitySuggestInput
                       required
-                      placeholder="Contoh: Kota Bandung, Cimahi, Kab. Bandung..."
+                      placeholder="Ketik nama kota/kabupaten domisili (cth: Bandung, Cimahi, Jakarta...)"
                       value={regCity}
-                      onChange={(e) => setRegCity(e.target.value)}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      onChange={(val) => setRegCity(val)}
                     />
                   </div>
 

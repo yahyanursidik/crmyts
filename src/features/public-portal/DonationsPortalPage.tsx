@@ -18,6 +18,7 @@ import {
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { LoadingState } from '@/components/common/LoadingState';
 import { PortalBackground } from '@/components/common/PortalBackground';
+import { CitySuggestInput } from '@/components/common/CitySuggestInput';
 
 interface ProgramItem {
   id: string;
@@ -735,13 +736,13 @@ export function DonationsPortalPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Kota / Domisili Objek</label>
-                    <input
-                      type="text"
-                      placeholder="Contoh: Bandung / Bogor / Sukabumi"
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Kota / Domisili Objek <span className="font-normal text-slate-400 text-[10px]">(Ketik untuk saran)</span>
+                    </label>
+                    <CitySuggestInput
+                      placeholder="Contoh: Bandung, Bogor, Sukabumi..."
                       value={waqfCity}
-                      onChange={(e) => setWaqfCity(e.target.value)}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      onChange={(val) => setWaqfCity(val)}
                     />
                   </div>
                 </div>

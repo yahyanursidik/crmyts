@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, AlertTriangle, Check, Loader2, Phone, User, Mail, MapPin } from 'lucide-react';
+import { X, AlertTriangle, Check, Loader2, Phone, IdCard, Mail } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { normalizePhoneE164, formatPhoneDisplay } from '@/lib/phone';
+import { CitySuggestInput } from '@/components/common/CitySuggestInput';
 
 interface PersonFormModalProps {
   isOpen: boolean;
@@ -258,7 +259,7 @@ export const PersonFormModal: React.FC<PersonFormModalProps> = ({
                   Nama Lengkap <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
-                  <User className="w-4 h-4 text-surface-400 absolute left-3 top-2.5" />
+                  <IdCard className="w-4 h-4 text-surface-400 absolute left-3 top-2.5" />
                   <input
                     type="text"
                     required
@@ -328,16 +329,22 @@ export const PersonFormModal: React.FC<PersonFormModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-surface-700 mb-1">Kota / Kabupaten</label>
-                <div className="relative">
-                  <MapPin className="w-4 h-4 text-surface-400 absolute left-3 top-2.5" />
-                  <input
-                    type="text"
-                    value={cityRegency}
-                    onChange={(e) => setCityRegency(e.target.value)}
-                    placeholder="Bandung / Cimahi"
-                    className="w-full pl-9 pr-3 py-2 border border-surface-300 rounded-md text-xs focus:ring-2 focus:ring-brand-700 focus:outline-none"
-                  />
-                </div>
+                <CitySuggestInput
+                  placeholder="Ketik kota (Bandung, Cimahi, dll)"
+                  value={cityRegency}
+                  showPopularChips={false}
+                  onChange={(val) => {
+                    if (val.includes(',')) {
+                      const parts = val.split(',').map((s) => s.trim());
+                      const cityName = parts[0] || val;
+                      const provName = parts[1] || '';
+                      setCityRegency(cityName);
+                      if (provName && !province) setProvince(provName);
+                    } else {
+                      setCityRegency(val);
+                    }
+                  }}
+                />
               </div>
 
               <div>

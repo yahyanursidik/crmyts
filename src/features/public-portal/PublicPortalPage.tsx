@@ -16,11 +16,11 @@ import {
   Calendar,
   Clock,
   Ticket,
-  UserCheck,
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { LoadingState } from '@/components/common/LoadingState';
 import { PortalBackground } from '@/components/common/PortalBackground';
+import { CitySuggestInput } from '@/components/common/CitySuggestInput';
 
 interface ProgramItem {
   id: string;
@@ -541,7 +541,7 @@ export function PublicPortalPage() {
 
                           <h3 className="font-bold text-base text-slate-900">{ev.title}</h3>
                           <p className="text-xs font-semibold text-emerald-800 flex items-center gap-1.5">
-                            <UserCheck className="w-4 h-4" /> Pemateri: {ev.speaker}
+                            <Sparkles className="w-4 h-4 text-amber-600" /> Pemateri: {ev.speaker}
                           </p>
                           <p className="text-xs text-slate-500 flex items-center gap-1.5">
                             <MapPin className="w-4 h-4 text-slate-400" /> {ev.locationName}
@@ -639,16 +639,17 @@ export function PublicPortalPage() {
                     />
                   </div>
 
-                  {/* City */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* City with Auto-Suggest */}
+                  <div className="space-y-3">
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Kota / Domisili</label>
-                      <input
-                        type="text"
-                        placeholder="Contoh: Bandung"
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Kota / Domisili * <span className="font-normal text-slate-400 text-[10px]">(Ketik untuk saran otomatis)</span>
+                      </label>
+                      <CitySuggestInput
+                        required
+                        placeholder="Ketik kota/kabupaten domisili (cth: Bandung, Cimahi, Jakarta...)"
                         value={regCity}
-                        onChange={(e) => setRegCity(e.target.value)}
-                        className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                        onChange={(val) => setRegCity(val)}
                       />
                     </div>
                     <div>
@@ -1002,13 +1003,13 @@ export function PublicPortalPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Kota / Domisili Objek</label>
-                    <input
-                      type="text"
-                      placeholder="Contoh: Bandung / Bogor / Sukabumi"
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Kota / Domisili Objek <span className="font-normal text-slate-400 text-[10px]">(Ketik untuk saran)</span>
+                    </label>
+                    <CitySuggestInput
+                      placeholder="Contoh: Bandung, Bogor, Sukabumi..."
                       value={waqfCity}
-                      onChange={(e) => setWaqfCity(e.target.value)}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      onChange={(val) => setWaqfCity(val)}
                     />
                   </div>
                 </div>
@@ -1119,7 +1120,7 @@ export function PublicPortalPage() {
             <div className="p-4 bg-teal-50/80 border border-teal-200 rounded-2xl text-left space-y-1.5 text-xs">
               <span className="font-black text-teal-950 block text-sm">{eventSuccess.event.title}</span>
               <p className="text-slate-600 flex items-center gap-1">
-                <UserCheck className="w-3.5 h-3.5 text-teal-700" /> Pemateri: {eventSuccess.event.speaker}
+                <Sparkles className="w-3.5 h-3.5 text-amber-600" /> Pemateri: {eventSuccess.event.speaker}
               </p>
               <p className="text-slate-600 flex items-center gap-1">
                 <MapPin className="w-3.5 h-3.5 text-teal-700" /> Lokasi: {eventSuccess.event.locationName}
