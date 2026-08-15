@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router';
 import { ShieldCheck, Filter, History, Download, Eye, FileText, RefreshCw } from 'lucide-react';
+import { useTheme } from '@/lib/themeContext';
 
 interface AuditLogItem {
   id: string;
@@ -28,6 +30,7 @@ interface ExportLogItem {
 }
 
 export function AuditLogPage() {
+  const { currentTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<'audit' | 'exports'>('audit');
   const [logs, setLogs] = useState<AuditLogItem[]>([]);
   const [exportsList, setExportsList] = useState<ExportLogItem[]>([]);
@@ -80,6 +83,57 @@ export function AuditLogPage() {
     }
   };
 
+  const handleExportLogsCsv = () => {
+    if (activeTab === 'audit') {
+      if (filteredLogs.length === 0) {
+        alert('Tidak ada data audit log untuk diekspor');
+        return;
+      }
+      const headers = ['ID Audit', 'Waktu', 'Aksi / Operasi', 'Entitas Target', 'ID Entitas', 'Aktor / Staf', 'Email Aktor', 'Alasan Audit'];
+      const rows = filteredLogs.map((l) => [
+        `"${l.id}"`,
+        `"${new Date(l.createdAt).toLocaleString('id-ID')}"`,
+        `"${l.action}"`,
+        `"${l.entityType}"`,
+        `"${l.entityId || '-'}"`,
+        `"${l.actorName}"`,
+        `"${l.actorEmail}"`,
+        `"${(l.reason || '').replace(/"/g, '""')}"`,
+      ]);
+      const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', `audit-trail-aktivitas-${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else {
+      if (exportsList.length === 0) {
+        alert('Tidak ada data kepatuhan ekspor untuk diekspor');
+        return;
+      }
+      const headers = ['ID Ekspor', 'Waktu Ekspor', 'Tipe Berkas', 'Staf Pengunduh', 'Email Staf', 'Jumlah Baris', 'Alasan Kepatuhan'];
+      const rows = exportsList.map((e) => [
+        `"${e.id}"`,
+        `"${new Date(e.createdAt).toLocaleString('id-ID')}"`,
+        `"${e.exportType}"`,
+        `"${e.actorName}"`,
+        `"${e.actorEmail}"`,
+        `"${e.rowCount}"`,
+        `"${(e.reason || '').replace(/"/g, '""')}"`,
+      ]);
+      const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', `audit-trail-ekspor-${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
   const filteredLogs = logs.filter((log) => {
     const matchesSearch =
       log.action.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -107,13 +161,21 @@ export function AuditLogPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap self-start md:self-auto">
+          <button
+            onClick={handleExportLogsCsv}
+            className="px-3.5 py-2 text-xs font-bold rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 shadow-2xs transition-all flex items-center gap-1.5 active:scale-95"
+            title="Ekspor daftar rekam jejak audit ke file CSV"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-500" />
+            <span>Ekspor CSV</span>
+          </button>
           <button
             onClick={() => { fetchAuditLogs(); fetchExportLogs(); }}
-            className="px-3.5 py-2 text-sm font-medium border border-slate-300 rounded-lg text-slate-700 bg-white hover:bg-slate-50 flex items-center gap-2 transition-colors"
+            className={`px-3.5 py-2 text-xs font-bold rounded-xl ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} shadow-xs transition-all flex items-center gap-1.5 active:scale-95`}
           >
-            <RefreshCw className="w-4 h-4" />
-            Segarkan
+            <RefreshCw className="w-3.5 h-3.5 text-gold-300" />
+            <span>Segarkan</span>
           </button>
         </div>
       </div>
@@ -210,7 +272,17 @@ export function AuditLogPage() {
                         </span>
                       </td>
                       <td className="py-3 px-4 text-slate-600">
-                        <span className="font-mono text-xs text-slate-500">{item.entityType}</span>
+                        {item.entityType === 'person' && item.entityId ? (
+                          <Link
+                            to={`/people/${item.entityId}`}
+                            className="font-mono text-xs text-emerald-800 hover:text-emerald-950 hover:underline font-semibold"
+                            title={`Lihat Profil Jamaah ID: ${item.entityId}`}
+                          >
+                            {item.entityType} ↗
+                          </Link>
+                        ) : (
+                          <span className="font-mono text-xs text-slate-500">{item.entityType}</span>
+                        )}
                       </td>
                       <td className="py-3 px-4">
                         <div className="font-medium text-slate-900">{item.actorName}</div>
@@ -355,7 +427,7 @@ export function AuditLogPage() {
             <div className="flex justify-end pt-2">
               <button
                 onClick={() => setDetailModal(null)}
-                className="px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                className={`px-4 py-2 text-sm font-semibold rounded-xl ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} shadow-xs transition-all active:scale-95`}
               >
                 Tutup Inspeksi
               </button>
