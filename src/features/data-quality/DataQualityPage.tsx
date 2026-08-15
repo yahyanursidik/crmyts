@@ -1,20 +1,23 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router';
 import { apiClient } from '@/lib/apiClient';
 import { 
   ShieldCheck, 
   GitMerge, 
   Phone, 
-  User, 
+  IdCard, 
   Clock, 
   Check, 
   ArrowRight, 
   Sparkles, 
   Layers, 
   RefreshCw, 
-  EyeOff
+  EyeOff,
+  Download,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
 import { MergeCompareModal } from './MergeCompareModal';
+import { useTheme } from '@/lib/themeContext';
 
 interface AnomalyData {
   summary: {
@@ -189,6 +192,48 @@ export const DataQualityPage: React.FC = () => {
     }
   };
 
+  const { currentTheme } = useTheme();
+
+  const handleExportCsv = () => {
+    if (!data) return;
+    const rows: string[][] = [];
+    const headers = ['Kategori Anomali', 'ID Jamaah', 'Nama Lengkap', 'Nilai Masalah', 'Saran / Keterangan', 'Petugas PIC'];
+
+    // Invalid phones
+    data.anomalies.invalidPhones.forEach((p) => {
+      rows.push(['"Format HP Tidak Valid"', `"${p.id}"`, `"${p.fullName}"`, `"${p.phoneRaw}"`, `"${p.suggestedE164}"`, `"${p.ownerName}"`]);
+    });
+
+    // Incomplete profiles
+    data.anomalies.incompleteProfiles.forEach((p) => {
+      rows.push(['"Profil Belum Lengkap"', `"${p.id}"`, `"${p.fullName}"`, `"${p.phoneE164 || '-'}"`, `"Belum ada: ${p.missingFields.join(', ')}"`, `"${p.ownerName}"`]);
+    });
+
+    // Missing source
+    data.anomalies.missingSource.forEach((p) => {
+      rows.push(['"Sumber Data Hilang"', `"${p.id}"`, `"${p.fullName}"`, `"${p.phoneE164 || '-'}"`, '"Belum ada source code registrasi"', `"${p.cityRegency || '-'}"`]);
+    });
+
+    // Stale sensitive notes
+    data.anomalies.staleNotes.forEach((p) => {
+      rows.push(['"Catatan Usang >180 Hari"', `"${p.personId}"`, `"${p.personName}"`, `"${p.createdAt}"`, `"${p.ageDays} hari tanpa pembaruan (${p.sensitivityLevel})"`, `"${p.authorName}"`]);
+    });
+
+    if (rows.length === 0) {
+      alert('Tidak ada data anomali untuk diekspor');
+      return;
+    }
+
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `anomali-kualitas-data-${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   if (loading) return <LoadingState message="Memindai 7 aturan anomali kualitas data jamaah..." />;
   if (error) return <div className="p-6 bg-red-50 text-red-700 rounded-xl border border-red-200 text-xs">{error}</div>;
   if (!data) return null;
@@ -215,12 +260,19 @@ export const DataQualityPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={handleExportCsv}
+            className="btn-secondary py-1.5 px-3 text-xs inline-flex items-center gap-1.5 shadow-2xs"
+            title="Ekspor daftar seluruh anomali data ke CSV"
+          >
+            <Download className="w-3.5 h-3.5 text-surface-500" /> Ekspor CSV Anomali
+          </button>
           <button
             onClick={loadData}
-            className="btn-secondary py-1.5 px-3 text-xs inline-flex items-center gap-1.5"
+            className={`py-1.5 px-3 text-xs font-bold rounded-xl ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} shadow-xs transition-all inline-flex items-center gap-1.5 active:scale-95`}
           >
-            <RefreshCw className="w-3.5 h-3.5" /> Pindai Ulang
+            <RefreshCw className="w-3.5 h-3.5 text-gold-300" /> Pindai Ulang
           </button>
         </div>
       </div>
@@ -298,7 +350,7 @@ export const DataQualityPage: React.FC = () => {
               : 'text-surface-600 hover:text-surface-900 hover:bg-surface-100'
           }`}
         >
-          <User className="w-3.5 h-3.5" />
+          <IdCard className="w-3.5 h-3.5" />
           Profil Belum Lengkap ({data.summary.incompleteProfilesCount})
         </button>
 
@@ -513,7 +565,7 @@ export const DataQualityPage: React.FC = () => {
         <div className="bg-white rounded-xl border border-surface-200 shadow-sm p-5 space-y-4">
           <div className="flex items-center justify-between pb-2 border-b border-surface-100">
             <div className="flex items-center gap-2">
-              <User className="w-4 h-4 text-amber-600" />
+              <IdCard className="w-4 h-4 text-amber-600" />
               <h3 className="font-bold text-surface-900 font-display text-sm">
                 Profil Utama Belum Lengkap (Missing Core Fields)
               </h3>
@@ -535,12 +587,12 @@ export const DataQualityPage: React.FC = () => {
                   </div>
                 </div>
 
-                <a
-                  href={`/people/${inc.id}`}
+                <Link
+                  to={`/people/${inc.id}`}
                   className="btn-secondary py-1 px-3 text-xs text-surface-700"
                 >
                   Lengkapi Profil
-                </a>
+                </Link>
               </div>
             ))}
           </div>
