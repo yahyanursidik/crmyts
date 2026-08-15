@@ -19,6 +19,9 @@ import {
   Briefcase, 
   GraduationCap,
   Award,
+  Sparkles,
+  FileText,
+  PhoneCall,
 } from 'lucide-react';
 import { formatPhoneDisplay, getWhatsAppLink } from '@/lib/phone';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -139,6 +142,7 @@ export const PersonDetailPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<'timeline' | 'events' | 'interactions' | 'tasks' | 'donations' | 'waqf' | 'sensitive'>('timeline');
+  const [timelineFilter, setTimelineFilter] = useState<'all' | 'attendance' | 'interaction' | 'donation' | 'waqf' | 'task'>('all');
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [interactionModalOpen, setInteractionModalOpen] = useState(false);
   const [certModalData, setCertModalData] = useState<{
@@ -400,55 +404,268 @@ export const PersonDetailPage: React.FC = () => {
       </div>
 
       {/* Tab 1: Unified Timeline */}
-      {activeTab === 'timeline' && (
-        <div className="bg-white rounded-xl border border-surface-200 shadow-sm p-6">
-          <div className="flex items-center justify-between pb-4 border-b border-surface-100">
-            <h2 className="text-sm font-bold text-surface-900 font-display">Linimasa Perjalanan Jamaah (Journey Timeline)</h2>
-            <span className="text-xs text-surface-500">{data.timeline.length} catatan aktivitas</span>
-          </div>
+      {activeTab === 'timeline' && (() => {
+        // 1. Calculate specific milestones requested by management:
+        const firstAttendance = data.attendances.length > 0
+          ? [...data.attendances].sort((a, b) => new Date(a.event.startAt).getTime() - new Date(b.event.startAt).getTime())[0]
+          : null;
 
-          {data.timeline.length === 0 ? (
-            <p className="text-xs text-surface-500 py-8 text-center">Belum ada jejak aktivitas yang tercatat untuk jamaah ini.</p>
-          ) : (
-            <div className="mt-6 flow-root">
-              <ul className="-mb-8">
-                {data.timeline.map((item, idx) => (
-                  <li key={item.id}>
-                    <div className="relative pb-8">
-                      {idx !== data.timeline.length - 1 && (
-                        <span className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-surface-200" aria-hidden="true" />
-                      )}
-                      <div className="relative flex space-x-3 items-start">
-                        <div className="w-8 h-8 rounded-full bg-brand-50 border border-brand-200 flex items-center justify-center shrink-0">
-                          {item.type === 'attendance' && <Calendar className="w-4 h-4 text-blue-600" />}
-                          {item.type === 'interaction' && <MessageSquare className="w-4 h-4 text-brand-700" />}
-                          {item.type === 'donation' && <Coins className="w-4 h-4 text-emerald-600" />}
-                          {item.type === 'task' && <CheckSquare className="w-4 h-4 text-amber-600" />}
-                          {item.type === 'waqf' && <Building2 className="w-4 h-4 text-purple-600" />}
-                        </div>
-                        <div className="min-w-0 flex-1 pt-1.5 flex justify-between space-x-4">
-                          <div>
-                            <p className="text-xs font-bold text-surface-900">{item.title}</p>
-                            <p className="text-xs text-surface-600 mt-0.5">{item.description}</p>
-                          </div>
-                          <div className="text-right text-[11px] whitespace-nowrap text-surface-400 flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {new Date(item.date).toLocaleDateString('id-ID', {
-                              day: 'numeric',
-                              month: 'short',
-                              year: 'numeric',
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+        const firstDonation = data.donations.length > 0
+          ? [...data.donations].sort((a, b) => new Date(a.donationDate).getTime() - new Date(b.donationDate).getTime())[0]
+          : null;
+
+        const latestInteraction = data.interactions.length > 0
+          ? [...data.interactions].sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())[0]
+          : null;
+
+        const firstWaqf = data.waqfCases.length > 0
+          ? [...data.waqfCases].sort((a, b) => new Date(a.openedAt).getTime() - new Date(b.openedAt).getTime())[0]
+          : null;
+
+        const latestReport = data.interactions.find(
+          (i) =>
+            i.channel === 'email' ||
+            i.summary.toLowerCase().includes('laporan') ||
+            (i.outcome && i.outcome.toLowerCase().includes('laporan'))
+        ) || null;
+
+        const filteredTimeline = data.timeline.filter((item) => {
+          if (timelineFilter === 'all') return true;
+          return item.type === timelineFilter;
+        });
+
+        return (
+          <div className="space-y-6">
+            {/* 1. Milestone Highlights Card */}
+            <div className="bg-gradient-to-br from-cream-100 to-cream-200 border border-gold-300/70 rounded-2xl p-5 shadow-xs space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-gold-600" />
+                  <h3 className="text-xs font-bold text-brand-950 uppercase tracking-wider font-display">
+                    Milestone & Jejak Kunci Jamaah (360° View)
+                  </h3>
+                </div>
+                <span className="text-[10px] font-bold text-brand-900 bg-gold-400/25 px-2.5 py-0.5 rounded-full border border-gold-400/40">
+                  Ringkasan Eksekutif
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
+                {/* Milestone 1: Hadir Kajian Pertama */}
+                <div className="p-3 bg-white rounded-xl border border-cream-300 shadow-2xs space-y-1">
+                  <div className="flex items-center gap-1.5 text-blue-700 font-bold text-[11px]">
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>Kajian Pertama Kali</span>
+                  </div>
+                  {firstAttendance ? (
+                    <>
+                      <p className="font-bold text-surface-900 line-clamp-1">{firstAttendance.event.title}</p>
+                      <p className="text-[10px] text-surface-500">
+                        {new Date(firstAttendance.event.startAt).toLocaleDateString('id-ID', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                        })}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-[11px] text-surface-400 italic">Belum ada riwayat hadir</p>
+                  )}
+                </div>
+
+                {/* Milestone 2: Donasi Pertama */}
+                <div className="p-3 bg-white rounded-xl border border-cream-300 shadow-2xs space-y-1">
+                  <div className="flex items-center gap-1.5 text-emerald-700 font-bold text-[11px]">
+                    <Coins className="w-3.5 h-3.5" />
+                    <span>Donasi Pertama Kali</span>
+                  </div>
+                  {firstDonation ? (
+                    <>
+                      <p className="font-bold text-emerald-800 font-mono">
+                        Rp {firstDonation.amountRupiah.toLocaleString('id-ID')}
+                      </p>
+                      <p className="text-[10px] text-surface-500">
+                        {new Date(firstDonation.donationDate).toLocaleDateString('id-ID', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                        })} • {firstDonation.program?.name || 'Infaq'}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-[11px] text-surface-400 italic">Belum pernah berinfaq</p>
+                  )}
+                </div>
+
+                {/* Milestone 3: Sapaan CS & Respon Terakhir */}
+                <div className="p-3 bg-white rounded-xl border border-cream-300 shadow-2xs space-y-1">
+                  <div className="flex items-center gap-1.5 text-brand-800 font-bold text-[11px]">
+                    <PhoneCall className="w-3.5 h-3.5" />
+                    <span>Sapaan CS Terakhir</span>
+                  </div>
+                  {latestInteraction ? (
+                    <>
+                      <p className="font-bold text-surface-900 line-clamp-1">{latestInteraction.summary}</p>
+                      <p className="text-[10px] text-brand-900 font-medium line-clamp-1 bg-cream-100 px-1 py-0.5 rounded border border-cream-300">
+                        Respon: {latestInteraction.outcome || 'Tercatat'}
+                      </p>
+                      <p className="text-[10px] text-surface-400">
+                        {new Date(latestInteraction.occurredAt).toLocaleDateString('id-ID', {
+                          day: 'numeric',
+                          month: 'short',
+                        })} ({latestInteraction.channel})
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-[11px] text-surface-400 italic">Belum dihubungi CS</p>
+                  )}
+                </div>
+
+                {/* Milestone 4: Minat Wakaf */}
+                <div className="p-3 bg-white rounded-xl border border-cream-300 shadow-2xs space-y-1">
+                  <div className="flex items-center gap-1.5 text-purple-700 font-bold text-[11px]">
+                    <Building2 className="w-3.5 h-3.5" />
+                    <span>Minat / Akad Wakaf</span>
+                  </div>
+                  {firstWaqf ? (
+                    <>
+                      <p className="font-bold text-purple-900 capitalize">Wakaf {firstWaqf.waqfType}</p>
+                      <p className="text-[10px] text-purple-700">
+                        Tahap: {firstWaqf.currentStage} • {new Date(firstWaqf.openedAt).toLocaleDateString('id-ID', { month: 'short', year: 'numeric' })}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-[11px] text-surface-400 italic">Tidak ada kasus wakaf</p>
+                  )}
+                </div>
+
+                {/* Milestone 5: Laporan Terakhir */}
+                <div className="p-3 bg-white rounded-xl border border-cream-300 shadow-2xs space-y-1">
+                  <div className="flex items-center gap-1.5 text-amber-700 font-bold text-[11px]">
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Laporan Terakhir</span>
+                  </div>
+                  {latestReport ? (
+                    <>
+                      <p className="font-bold text-surface-900 line-clamp-1">{latestReport.summary}</p>
+                      <p className="text-[10px] text-surface-500">
+                        {new Date(latestReport.occurredAt).toLocaleDateString('id-ID', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                        })}
+                      </p>
+                    </>
+                  ) : latestInteraction ? (
+                    <>
+                      <p className="font-medium text-surface-800 line-clamp-1">Via Sapaan CS</p>
+                      <p className="text-[10px] text-surface-500">
+                        {new Date(latestInteraction.occurredAt).toLocaleDateString('id-ID', {
+                          day: 'numeric',
+                          month: 'short',
+                        })}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-[11px] text-surface-400 italic">Belum ada pengiriman</p>
+                  )}
+                </div>
+              </div>
             </div>
-          )}
-        </div>
-      )}
+
+            {/* 2. Unified Timeline Stream & Filter Pills */}
+            <div className="bg-white rounded-xl border border-surface-200 shadow-sm p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-surface-100 gap-3">
+                <div>
+                  <h2 className="text-sm font-bold text-surface-900 font-display">Linimasa Lengkap Aktivitas Jamaah</h2>
+                  <span className="text-xs text-surface-500">Menampilkan {filteredTimeline.length} dari {data.timeline.length} jejak interaksi</span>
+                </div>
+
+                {/* Filter Pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                  {[
+                    { id: 'all', label: 'Semua' },
+                    { id: 'attendance', label: 'Kajian' },
+                    { id: 'interaction', label: 'Sapaan CS' },
+                    { id: 'donation', label: 'Donasi' },
+                    { id: 'waqf', label: 'Wakaf' },
+                    { id: 'task', label: 'Tugas' },
+                  ].map((f) => (
+                    <button
+                      key={f.id}
+                      onClick={() => setTimelineFilter(f.id as any)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                        timelineFilter === f.id
+                          ? 'bg-brand-900 text-white shadow-2xs'
+                          : 'bg-surface-100 text-surface-600 hover:bg-surface-200'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {filteredTimeline.length === 0 ? (
+                <p className="text-xs text-surface-500 py-8 text-center">Tidak ada catatan pada filter aktivitas ini.</p>
+              ) : (
+                <div className="mt-6 flow-root">
+                  <ul className="-mb-8">
+                    {filteredTimeline.map((item, idx) => {
+                      const isFirstDonation = item.type === 'donation' && firstDonation && item.id.includes(firstDonation.id);
+
+                      return (
+                        <li key={item.id}>
+                          <div className="relative pb-8">
+                            {idx !== filteredTimeline.length - 1 && (
+                              <span className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-surface-200" aria-hidden="true" />
+                            )}
+                            <div className="relative flex space-x-3 items-start">
+                              <div className="w-8 h-8 rounded-full bg-brand-50 border border-brand-200 flex items-center justify-center shrink-0">
+                                {item.type === 'attendance' && <Calendar className="w-4 h-4 text-blue-600" />}
+                                {item.type === 'interaction' && <MessageSquare className="w-4 h-4 text-brand-700" />}
+                                {item.type === 'donation' && <Coins className="w-4 h-4 text-emerald-600" />}
+                                {item.type === 'task' && <CheckSquare className="w-4 h-4 text-amber-600" />}
+                                {item.type === 'waqf' && <Building2 className="w-4 h-4 text-purple-600" />}
+                              </div>
+                              <div className="min-w-0 flex-1 pt-1.5 flex justify-between space-x-4">
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="text-xs font-bold text-surface-900">{item.title}</p>
+                                    {isFirstDonation && (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.2 rounded-full text-[9px] font-extrabold uppercase bg-emerald-100 text-emerald-900 border border-emerald-300">
+                                        ⭐ Donasi Pertama
+                                      </span>
+                                    )}
+                                    {item.status && (
+                                      <span className="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-surface-100 text-surface-700 border border-surface-200">
+                                        {item.status}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-surface-600">{item.description}</p>
+                                </div>
+                                <div className="text-right text-[11px] whitespace-nowrap text-surface-400 flex items-center gap-1 shrink-0">
+                                  <Clock className="w-3 h-3" />
+                                  {new Date(item.date).toLocaleDateString('id-ID', {
+                                    day: 'numeric',
+                                    month: 'short',
+                                    year: 'numeric',
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Tab 2: Events / Kajian */}
       {activeTab === 'events' && (
