@@ -407,7 +407,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#fbfaf6]">
         {/* Topbar Header */}
-        <header className="h-16 bg-white/95 backdrop-blur-md border-b border-cream-300 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs">
+        <header className={`h-16 ${currentTheme.colors.topbarBg} backdrop-blur-md border-b ${currentTheme.colors.topbarBorder} px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs`}>
           <div className="flex items-center gap-3">
             {/* Mobile Drawer Trigger */}
             <button
@@ -435,11 +435,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               title="Kelola Jadwal Kajian, Kuota, Parkir & Form Builder"
               className={`py-1.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-2xs ${
                 location.pathname.startsWith('/events')
-                  ? 'bg-brand-800 text-white border-brand-900 shadow-xs'
+                  ? `${currentTheme.colors.topbarActiveNavBg} ${currentTheme.colors.topbarActiveNavText}`
                   : 'bg-cream-100 hover:bg-cream-200 text-brand-950 border-cream-300'
               }`}
             >
-              <Calendar className="w-3.5 h-3.5 text-brand-700" />
+              <Calendar className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Kelola Kajian</span>
             </Link>
 
@@ -449,11 +449,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               title="Kelola & Verifikasi Donasi Infaq"
               className={`py-1.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-2xs ${
                 location.pathname.startsWith('/donations') || location.pathname.startsWith('/donors-pipeline')
-                  ? 'bg-brand-800 text-white border-brand-900 shadow-xs'
+                  ? `${currentTheme.colors.topbarActiveNavBg} ${currentTheme.colors.topbarActiveNavText}`
                   : 'bg-cream-100 hover:bg-cream-200 text-brand-950 border-cream-300'
               }`}
             >
-              <HeartHandshake className="w-3.5 h-3.5 text-brand-700" />
+              <HeartHandshake className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Kelola Donasi</span>
             </Link>
 
@@ -463,11 +463,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               title="Kelola 7 Tahapan Pipeline Wakaf"
               className={`py-1.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-2xs ${
                 location.pathname.startsWith('/waqf')
-                  ? 'bg-amber-800 text-white border-amber-900 shadow-xs'
+                  ? `${currentTheme.colors.topbarActiveNavBg} ${currentTheme.colors.topbarActiveNavText}`
                   : 'bg-amber-50 hover:bg-amber-100 text-amber-950 border-amber-200'
               }`}
             >
-              <Landmark className="w-3.5 h-3.5 text-amber-700" />
+              <Landmark className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Kelola Wakaf</span>
             </Link>
 
@@ -485,7 +485,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             {/* 5. Catat Sapaan Quick Action */}
             <button
               onClick={() => setQuickInteractionOpen(true)}
-              className="py-1.5 px-3 bg-gradient-to-r from-gold-400 to-amber-500 hover:from-gold-300 hover:to-amber-400 text-amber-950 font-black text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 border border-amber-500/40 active:scale-95"
+              className={`py-1.5 px-3 ${currentTheme.colors.topbarCtaBg} ${currentTheme.colors.topbarCtaText} text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 active:scale-95`}
             >
               <Plus className="w-3.5 h-3.5" />
               <span className="hidden md:inline">Catat Sapaan</span>

@@ -10,6 +10,7 @@ export interface ThemeConfig {
   description: string;
   sidebarStyle: SidebarStyle;
   colors: {
+    // Sidebar
     sidebarBg: string;
     sidebarHeaderBg: string;
     sidebarBorder: string;
@@ -22,6 +23,28 @@ export interface ThemeConfig {
     sidebarActiveRing: string;
     sidebarCtaBg: string;
     sidebarCtaText: string;
+
+    // Topbar & Navigation
+    topbarBg: string;
+    topbarBorder: string;
+    topbarCtaBg: string;
+    topbarCtaText: string;
+    topbarActiveNavBg: string;
+    topbarActiveNavText: string;
+
+    // Global Action Buttons & Banners
+    primaryBtnBg: string;
+    primaryBtnHover: string;
+    primaryBtnText: string;
+    bannerGradient: string;
+    bannerBtnBg: string;
+    bannerBtnText: string;
+    bannerSecondaryBtnBg: string;
+    bannerSecondaryBtnText: string;
+    activeFilterBg: string;
+    activeFilterText: string;
+
+    // Canvas & Cards
     canvasBg: string;
     cardBg: string;
     cardBorder: string;
@@ -52,6 +75,25 @@ export const THEME_PRESETS: Record<ThemeId, ThemeConfig> = {
       sidebarActiveRing: 'ring-brand-400/50',
       sidebarCtaBg: 'bg-brand-600 hover:bg-brand-500',
       sidebarCtaText: 'text-white',
+
+      topbarBg: 'bg-white/95',
+      topbarBorder: 'border-cream-300',
+      topbarCtaBg: 'bg-brand-700 hover:bg-brand-600 border border-brand-500/40 shadow-xs',
+      topbarCtaText: 'text-white font-bold',
+      topbarActiveNavBg: 'bg-brand-800 border-brand-900 shadow-xs',
+      topbarActiveNavText: 'text-white',
+
+      primaryBtnBg: 'bg-brand-800 hover:bg-brand-900',
+      primaryBtnHover: 'hover:bg-brand-900',
+      primaryBtnText: 'text-white',
+      bannerGradient: 'bg-gradient-to-r from-brand-900 to-emerald-950 border border-brand-800 text-white',
+      bannerBtnBg: 'bg-gold-500 hover:bg-gold-400',
+      bannerBtnText: 'text-gold-950 font-black',
+      bannerSecondaryBtnBg: 'bg-brand-800/90 hover:bg-brand-700 text-white border border-brand-600',
+      bannerSecondaryBtnText: 'text-white',
+      activeFilterBg: 'bg-brand-800 text-white shadow-2xs',
+      activeFilterText: 'text-white',
+
       canvasBg: 'bg-[#fbfaf6]',
       cardBg: 'bg-white',
       cardBorder: 'border-cream-300',
@@ -80,6 +122,25 @@ export const THEME_PRESETS: Record<ThemeId, ThemeConfig> = {
       sidebarActiveRing: 'ring-brand-900/30',
       sidebarCtaBg: 'bg-brand-800 hover:bg-brand-900',
       sidebarCtaText: 'text-white',
+
+      topbarBg: 'bg-[#ffffff]/95',
+      topbarBorder: 'border-cream-300',
+      topbarCtaBg: 'bg-brand-800 hover:bg-brand-900 border border-brand-950/20 shadow-xs',
+      topbarCtaText: 'text-white font-bold',
+      topbarActiveNavBg: 'bg-brand-800 border-brand-950 shadow-xs',
+      topbarActiveNavText: 'text-white',
+
+      primaryBtnBg: 'bg-brand-800 hover:bg-brand-900',
+      primaryBtnHover: 'hover:bg-brand-900',
+      primaryBtnText: 'text-white',
+      bannerGradient: 'bg-gradient-to-r from-[#28482a] to-[#1c321d] border border-brand-700 text-white',
+      bannerBtnBg: 'bg-white hover:bg-cream-100',
+      bannerBtnText: 'text-brand-950 font-black',
+      bannerSecondaryBtnBg: 'bg-brand-900/70 hover:bg-brand-900 text-white border border-brand-600',
+      bannerSecondaryBtnText: 'text-white',
+      activeFilterBg: 'bg-brand-800 text-white shadow-2xs',
+      activeFilterText: 'text-white',
+
       canvasBg: 'bg-[#fbfaf6]',
       cardBg: 'bg-white',
       cardBorder: 'border-cream-300',
@@ -108,10 +169,29 @@ export const THEME_PRESETS: Record<ThemeId, ThemeConfig> = {
       sidebarActiveRing: 'ring-gold-400/40',
       sidebarCtaBg: 'bg-gradient-to-r from-gold-500 to-amber-600 hover:from-gold-400 hover:to-amber-500',
       sidebarCtaText: 'text-gold-950',
+
+      topbarBg: 'bg-white/95',
+      topbarBorder: 'border-cream-300',
+      topbarCtaBg: 'bg-gradient-to-r from-gold-500 to-amber-600 hover:from-gold-400 hover:to-amber-500 border border-gold-500 shadow-xs',
+      topbarCtaText: 'text-gold-950 font-black',
+      topbarActiveNavBg: 'bg-[#081209] border-black shadow-xs',
+      topbarActiveNavText: 'text-gold-300',
+
+      primaryBtnBg: 'bg-[#081209] hover:bg-[#122414]',
+      primaryBtnHover: 'hover:bg-[#122414]',
+      primaryBtnText: 'text-white',
+      bannerGradient: 'bg-gradient-to-r from-[#081209] to-[#122414] border border-[#1e3d21] text-white',
+      bannerBtnBg: 'bg-gold-400 hover:bg-gold-300',
+      bannerBtnText: 'text-gold-950 font-black',
+      bannerSecondaryBtnBg: 'bg-[#122414] hover:bg-[#1e3d21] text-gold-200 border border-gold-600/40',
+      bannerSecondaryBtnText: 'text-gold-200',
+      activeFilterBg: 'bg-[#081209] text-gold-300 shadow-2xs border border-gold-500/30',
+      activeFilterText: 'text-gold-300',
+
       canvasBg: 'bg-[#f8f6f0]',
       cardBg: 'bg-white',
       cardBorder: 'border-cream-300',
-      primaryBrand: '#1e3d21',
+      primaryBrand: '#081209',
       accentGold: '#f7c244',
       accentAmber: '#d87114',
     },
@@ -136,6 +216,25 @@ export const THEME_PRESETS: Record<ThemeId, ThemeConfig> = {
       sidebarActiveRing: 'ring-amber-400/40',
       sidebarCtaBg: 'bg-amber-600 hover:bg-amber-500',
       sidebarCtaText: 'text-white',
+
+      topbarBg: 'bg-white/95',
+      topbarBorder: 'border-amber-100',
+      topbarCtaBg: 'bg-amber-700 hover:bg-amber-600 border border-amber-600/40 shadow-xs',
+      topbarCtaText: 'text-white font-bold',
+      topbarActiveNavBg: 'bg-amber-800 border-amber-900 shadow-xs',
+      topbarActiveNavText: 'text-white',
+
+      primaryBtnBg: 'bg-amber-700 hover:bg-amber-800',
+      primaryBtnHover: 'hover:bg-amber-800',
+      primaryBtnText: 'text-white',
+      bannerGradient: 'bg-gradient-to-r from-amber-900 to-[#1a1411] border border-amber-700 text-white',
+      bannerBtnBg: 'bg-amber-500 hover:bg-amber-400',
+      bannerBtnText: 'text-white font-black',
+      bannerSecondaryBtnBg: 'bg-amber-950/70 hover:bg-amber-900 text-amber-100 border border-amber-600',
+      bannerSecondaryBtnText: 'text-amber-100',
+      activeFilterBg: 'bg-amber-700 text-white shadow-2xs',
+      activeFilterText: 'text-white',
+
       canvasBg: 'bg-[#faf8f5]',
       cardBg: 'bg-white',
       cardBorder: 'border-amber-100',
@@ -187,6 +286,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', themeId);
     document.documentElement.setAttribute('data-sidebar-style', currentTheme.sidebarStyle);
+    document.documentElement.style.setProperty('--theme-primary-brand', currentTheme.colors.primaryBrand);
   }, [themeId, currentTheme]);
 
   return (

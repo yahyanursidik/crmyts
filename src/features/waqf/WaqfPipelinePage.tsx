@@ -19,6 +19,7 @@ import { getWhatsAppLink } from '@/lib/phone';
 import { LoadingState } from '@/components/common/LoadingState';
 import { CreateWaqfModal } from './CreateWaqfModal';
 import { TransitionWaqfModal, WAQF_STAGE_DETAILS } from './TransitionWaqfModal';
+import { useTheme } from '@/lib/themeContext';
 
 interface WaqfCaseItem {
   id: string;
@@ -72,52 +73,47 @@ const STAGES_CONFIG = [
 ];
 
 export const WaqfPipelinePage: React.FC = () => {
-  const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban');
+  const { currentTheme } = useTheme();
   const [cases, setCases] = useState<WaqfCaseItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
+  const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban');
+  const [stageFilter, setStageFilter] = useState<string>('');
   const [search, setSearch] = useState('');
-  const [stageFilter, setStageFilter] = useState('');
+
+  // Modals
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [transitionModalOpen, setTransitionModalOpen] = useState(false);
   const [selectedCase, setSelectedCase] = useState<WaqfCaseItem | null>(null);
 
-  const fetchWaqfCases = async () => {
+  const fetchCases = async () => {
     try {
       setLoading(true);
       setError(null);
-
-      const params = new URLSearchParams();
-      if (stageFilter) params.append('stage', stageFilter);
-
-      const res = await apiClient<WaqfCaseItem[]>(`/waqf?${params.toString()}`);
+      const res = await apiClient<WaqfCaseItem[]>('/waqf');
       setCases(res.data);
     } catch (err: any) {
-      setError(err.message || 'Gagal memuat kasus wakaf');
+      setError(err.message || 'Gagal memuat pipeline kasus wakaf');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchWaqfCases();
-  }, [stageFilter]);
+    fetchCases();
+  }, []);
 
   const filteredCases = cases.filter((c) => {
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return (
-      c.person?.fullName?.toLowerCase().includes(q) ||
-      c.waqfType.toLowerCase().includes(q) ||
-      c.notesSummary?.toLowerCase().includes(q)
-    );
+    const matchStage = !stageFilter || c.currentStage === stageFilter;
+    const matchSearch = 
+      !search.trim() ||
+      c.person?.fullName.toLowerCase().includes(search.toLowerCase()) ||
+      c.notesSummary?.toLowerCase().includes(search.toLowerCase()) ||
+      c.person?.cityRegency?.toLowerCase().includes(search.toLowerCase());
+    return matchStage && matchSearch;
   });
 
-  const totalPortfolioValue = cases.reduce(
-    (sum, c) => sum + (c.estimatedValueRupiah ? Number(c.estimatedValueRupiah) : 0),
-    0
-  );
+  const totalPortfolioValue = cases.reduce((acc, c) => acc + (c.estimatedValueRupiah || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -126,7 +122,7 @@ export const WaqfPipelinePage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-surface-900 tracking-tight font-display flex items-center gap-2">
             <Landmark className="w-6 h-6 text-brand-800" />
-            Pipeline & Stewardship Amanah Wakaf
+            Pipeline & Tata Kelola Wakaf
           </h1>
           <p className="text-xs text-surface-500 mt-1">
             Pengelolaan 7 tahapan amanah wakaf tanah, bangunan, dan aset dakwah Yayasan Tarbiyah Sunnah.
@@ -156,27 +152,27 @@ export const WaqfPipelinePage: React.FC = () => {
 
           <button
             onClick={() => setCreateModalOpen(true)}
-            className="btn-primary"
+            className={`px-4 py-2 ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 active:scale-95`}
           >
-            <Plus className="w-4 h-4 mr-1.5" /> Inisiasi Wakaf Baru
+            <Plus className="w-4 h-4 mr-1 text-gold-300" /> Inisiasi Wakaf Baru
           </button>
         </div>
       </div>
 
       {/* Portal Publik Konsultasi Wakaf Direct Banner */}
-      <div className="p-4 bg-gradient-to-r from-emerald-950 to-teal-900 text-white rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 border border-emerald-800">
+      <div className={`p-4 ${currentTheme.colors.bannerGradient} rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4`}>
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-800/80 border border-emerald-600 flex items-center justify-center shrink-0 shadow-inner">
-            <Globe className="w-5 h-5 text-emerald-200" />
+          <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center shrink-0 shadow-inner">
+            <Globe className="w-5 h-5 text-gold-300" />
           </div>
           <div>
             <h4 className="text-sm font-bold flex items-center gap-2">
               <span>Portal Konsultasi Wakaf Publik</span>
-              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-amber-400 text-amber-950">
+              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-gold-400 text-gold-950">
                 /donasi#wakaf
               </span>
             </h4>
-            <p className="text-xs text-emerald-200/90">
+            <p className="text-xs text-white/90">
               Wakif dan masyarakat dapat mempelajari proyek wakaf strategis dan mengajukan inisiasi konsultasi wakaf secara mandiri.
             </p>
           </div>
@@ -187,7 +183,7 @@ export const WaqfPipelinePage: React.FC = () => {
             href="/donasi#wakaf"
             target="_blank"
             rel="noreferrer"
-            className="py-2 px-3.5 bg-emerald-500 hover:bg-emerald-400 text-emerald-950 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 active:scale-95"
+            className={`py-2 px-3.5 ${currentTheme.colors.bannerBtnBg} ${currentTheme.colors.bannerBtnText} rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 active:scale-95`}
           >
             <span>Buka Portal Wakaf</span>
             <Globe className="w-3.5 h-3.5" />
@@ -197,7 +193,7 @@ export const WaqfPipelinePage: React.FC = () => {
               navigator.clipboard.writeText(`${window.location.origin}/donasi#wakaf`);
               alert('Link Portal Konsultasi Wakaf (/donasi#wakaf) berhasil disalin!');
             }}
-            className="py-2 px-3 bg-emerald-800/80 hover:bg-emerald-700 text-emerald-100 rounded-xl text-xs font-bold transition-all border border-emerald-700 flex items-center gap-1.5"
+            className={`py-2 px-3 ${currentTheme.colors.bannerSecondaryBtnBg} rounded-xl text-xs font-bold transition-all flex items-center gap-1.5`}
           >
             <Copy className="w-3.5 h-3.5" />
             <span>Salin Link</span>
@@ -474,14 +470,14 @@ export const WaqfPipelinePage: React.FC = () => {
       <CreateWaqfModal
         isOpen={createModalOpen}
         onClose={() => setCreateModalOpen(false)}
-        onSuccess={fetchWaqfCases}
+        onSuccess={fetchCases}
       />
 
       {/* Transition Stage Modal */}
       <TransitionWaqfModal
         isOpen={transitionModalOpen}
         onClose={() => setTransitionModalOpen(false)}
-        onSuccess={fetchWaqfCases}
+        onSuccess={fetchCases}
         waqfCase={selectedCase}
       />
     </div>

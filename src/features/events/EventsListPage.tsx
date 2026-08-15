@@ -19,6 +19,7 @@ import {
 import { LoadingState } from '@/components/common/LoadingState';
 import { EventManageModal, EventFormConfig } from './EventManageModal';
 import { EventSubmissionsModal } from './EventSubmissionsModal';
+import { useTheme } from '@/lib/themeContext';
 
 interface EventItem {
   id: string;
@@ -65,6 +66,7 @@ const VENUE_RULES_PRESETS = [
 ];
 
 export const EventsListPage: React.FC = () => {
+  const { currentTheme } = useTheme();
   const [events, setEvents] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -239,28 +241,28 @@ export const EventsListPage: React.FC = () => {
         <div className="flex items-center gap-2.5">
           <button
             onClick={() => setShowModal(true)}
-            className="px-4 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm active:scale-95"
+            className={`px-4 py-2 ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm active:scale-95`}
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-4 h-4 text-gold-300" />
             <span>+ Jadwalkan Kajian Baru</span>
           </button>
         </div>
       </div>
 
       {/* 2. Portal Pendaftaran Kajian Publik Direct Banner */}
-      <div className="p-4 bg-gradient-to-r from-teal-900 to-emerald-950 text-white rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 border border-teal-800">
+      <div className={`p-4 ${currentTheme.colors.bannerGradient} rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4`}>
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-teal-800/80 border border-teal-600 flex items-center justify-center shrink-0 shadow-inner">
-            <Globe className="w-5 h-5 text-teal-200" />
+          <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center shrink-0 shadow-inner">
+            <Globe className="w-5 h-5 text-gold-300" />
           </div>
           <div>
             <h4 className="text-sm font-bold flex items-center gap-2">
               <span>Portal Pendaftaran Kajian Publik</span>
-              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-400 text-emerald-950">
+              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-gold-400 text-gold-950">
                 /kajian
               </span>
             </h4>
-            <p className="text-xs text-teal-200/90">
+            <p className="text-xs text-white/90">
               Jamaah umum dapat melihat jadwal kajian, sisa kuota ikhwan/akhwat, aturan majelis, dan mendaftar online langsung di portal ini.
             </p>
           </div>
@@ -271,7 +273,7 @@ export const EventsListPage: React.FC = () => {
             href="/kajian"
             target="_blank"
             rel="noreferrer"
-            className="py-2 px-3.5 bg-emerald-500 hover:bg-emerald-400 text-emerald-950 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 active:scale-95"
+            className={`py-2 px-3.5 ${currentTheme.colors.bannerBtnBg} ${currentTheme.colors.bannerBtnText} rounded-xl text-xs transition-all shadow-xs flex items-center gap-1.5 active:scale-95`}
           >
             <span>Buka Portal Kajian</span>
             <Globe className="w-3.5 h-3.5" />
@@ -281,7 +283,7 @@ export const EventsListPage: React.FC = () => {
               navigator.clipboard.writeText(`${window.location.origin}/kajian`);
               alert('Link Portal Pendaftaran Kajian (/kajian) berhasil disalin!');
             }}
-            className="py-2 px-3 bg-teal-800/80 hover:bg-teal-700 text-teal-100 rounded-xl text-xs font-bold transition-all border border-teal-700 flex items-center gap-1.5"
+            className={`py-2 px-3 ${currentTheme.colors.bannerSecondaryBtnBg} rounded-xl text-xs font-bold transition-all flex items-center gap-1.5`}
           >
             <Copy className="w-3.5 h-3.5" />
             <span>Salin Link</span>
@@ -295,7 +297,7 @@ export const EventsListPage: React.FC = () => {
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Total Terjadwal</span>
           <div className="flex items-baseline justify-between">
             <span className="text-2xl font-black text-slate-900">{totalEvents}</span>
-            <span className="text-xs font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full">Majelis</span>
+            <span className="text-xs font-bold text-brand-800 bg-brand-50 px-2 py-0.5 rounded-full">Majelis</span>
           </div>
         </div>
 
@@ -310,8 +312,8 @@ export const EventsListPage: React.FC = () => {
         <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-1">
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Total Jamaah Terdaftar</span>
           <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-black text-teal-900">{totalRegisteredAll}</span>
-            <span className="text-xs font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full">Jamaah</span>
+            <span className="text-2xl font-black text-brand-950">{totalRegisteredAll}</span>
+            <span className="text-xs font-bold text-brand-800 bg-brand-50 px-2 py-0.5 rounded-full">Jamaah</span>
           </div>
         </div>
 
@@ -333,7 +335,7 @@ export const EventsListPage: React.FC = () => {
               onClick={() => setCategoryFilter(cat)}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
                 categoryFilter === cat
-                  ? 'bg-teal-800 text-white shadow-2xs'
+                  ? currentTheme.colors.activeFilterBg
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
@@ -518,9 +520,9 @@ export const EventsListPage: React.FC = () => {
                 <div className="flex items-center justify-between gap-2">
                   <button
                     onClick={() => setSelectedManageEventId(ev.id)}
-                    className="flex-1 py-2 bg-brand-800 hover:bg-brand-900 text-white text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center justify-center gap-1.5 active:scale-95"
+                    className={`flex-1 py-2 ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center justify-center gap-1.5 active:scale-95`}
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
+                    <Sparkles className="w-3.5 h-3.5 text-gold-300" />
                     <span>Kelola & Form Builder</span>
                   </button>
 

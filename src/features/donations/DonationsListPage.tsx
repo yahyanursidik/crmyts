@@ -26,6 +26,7 @@ import { CreateDonationModal } from './CreateDonationModal';
 import { VerifyDonationModal } from './VerifyDonationModal';
 import { BankReconciliationModal } from './BankReconciliationModal';
 import { Landmark } from 'lucide-react';
+import { useTheme } from '@/lib/themeContext';
 
 interface DonationItem {
   id: string;
@@ -75,6 +76,7 @@ const STATUS_BADGES: Record<string, { label: string; bg: string; text: string; b
 };
 
 export const DonationsListPage: React.FC = () => {
+  const { currentTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<'donations' | 'donors'>('donations');
   const { data: permissions = [] } = usePermissions<PermissionCode[]>({});
 
@@ -179,28 +181,28 @@ export const DonationsListPage: React.FC = () => {
           {canCreateDonation && (
             <button
               onClick={() => setCreateModalOpen(true)}
-              className="btn-primary"
+              className={`px-4 py-2 ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 active:scale-95`}
             >
-              <Plus className="w-4 h-4 mr-1.5" /> Catat Donasi Baru
+              <Plus className="w-4 h-4 mr-1 text-gold-300" /> Catat Donasi Baru
             </button>
           )}
         </div>
       </div>
 
       {/* Portal Publik Donasi & Wakaf Direct Banner */}
-      <div className="p-4 bg-gradient-to-r from-emerald-900 to-teal-950 text-white rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 border border-emerald-800">
+      <div className={`p-4 ${currentTheme.colors.bannerGradient} rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4`}>
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-800/80 border border-emerald-600 flex items-center justify-center shrink-0 shadow-inner">
-            <Globe className="w-5 h-5 text-emerald-200" />
+          <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center shrink-0 shadow-inner">
+            <Globe className="w-5 h-5 text-gold-300" />
           </div>
           <div>
             <h4 className="text-sm font-bold flex items-center gap-2">
               <span>Portal Donasi & Wakaf Publik</span>
-              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-400 text-emerald-950">
+              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-gold-400 text-gold-950">
                 /donasi
               </span>
             </h4>
-            <p className="text-xs text-emerald-200/90">
+            <p className="text-xs text-white/90">
               Halaman publik untuk donatur melihat nomor rekening resmi BSI, program infaq aktif, proyek wakaf, dan konfirmasi transfer online.
             </p>
           </div>
@@ -211,7 +213,7 @@ export const DonationsListPage: React.FC = () => {
             href="/donasi"
             target="_blank"
             rel="noreferrer"
-            className="py-2 px-3.5 bg-emerald-500 hover:bg-emerald-400 text-emerald-950 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 active:scale-95"
+            className={`py-2 px-3.5 ${currentTheme.colors.bannerBtnBg} ${currentTheme.colors.bannerBtnText} rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 active:scale-95`}
           >
             <span>Buka Portal Donasi</span>
             <Globe className="w-3.5 h-3.5" />
@@ -221,7 +223,7 @@ export const DonationsListPage: React.FC = () => {
               navigator.clipboard.writeText(`${window.location.origin}/donasi`);
               alert('Link Portal Donasi & Wakaf (/donasi) berhasil disalin!');
             }}
-            className="py-2 px-3 bg-emerald-800/80 hover:bg-emerald-700 text-emerald-100 rounded-xl text-xs font-bold transition-all border border-emerald-700 flex items-center gap-1.5"
+            className={`py-2 px-3 ${currentTheme.colors.bannerSecondaryBtnBg} rounded-xl text-xs font-bold transition-all flex items-center gap-1.5`}
           >
             <Copy className="w-3.5 h-3.5" />
             <span>Salin Link</span>
