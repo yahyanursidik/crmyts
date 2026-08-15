@@ -221,21 +221,21 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
       {/* Main Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 bg-[#162817] text-white flex flex-col transition-all duration-300 ease-in-out lg:static lg:translate-x-0 border-r border-[#223b24] shadow-xl ${
+        className={`fixed inset-y-0 left-0 z-50 bg-[#122214] text-white flex flex-col transition-all duration-300 ease-in-out lg:static lg:translate-x-0 border-r border-[#1f3622] shadow-2xl ${
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         } ${isCollapsed ? 'lg:w-20' : 'lg:w-72'} w-72`}
       >
         {/* Brand Header */}
-        <div className="h-16 flex items-center justify-between px-3.5 border-b border-[#223b24] bg-[#101e11]">
+        <div className="h-16 flex items-center justify-between px-3.5 border-b border-[#1f3622] bg-[#0c180e]">
           {isCollapsed ? (
             <div className="w-full flex items-center justify-center">
-              <div className="p-1 rounded-xl bg-[#fbfaf6] shadow-xs border border-cream-300">
+              <div className="p-1.5 rounded-xl bg-[#fbfaf6] shadow-xs border border-cream-300">
                 <BrandEmblem className="w-7 h-7" />
               </div>
             </div>
           ) : (
             <div className="flex items-center gap-2 overflow-hidden">
-              <BrandLogo variant="horizontal" theme="dark" emblemSize="w-8 h-8" badge="PROD" subtitle="Tarbiyah Sunnah" />
+              <BrandLogo variant="horizontal" theme="dark" emblemSize="w-8 h-8" badge="PROD" subtitle="Sistem CRM & Dakwah" />
             </div>
           )}
 
@@ -243,7 +243,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           <button
             onClick={toggleCollapse}
             title={isCollapsed ? 'Perluas Menu (Ctrl+B)' : 'Ciutkan Menu (Ctrl+B)'}
-            className="hidden lg:flex p-1.5 text-gold-300/80 hover:text-white hover:bg-[#223b24] rounded-lg transition-colors shrink-0"
+            className="hidden lg:flex p-1.5 text-surface-400 hover:text-white hover:bg-[#1f3622] rounded-lg transition-colors shrink-0"
           >
             {isCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
           </button>
@@ -251,7 +251,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           {/* Mobile Close Button */}
           <button
             onClick={() => setMobileMenuOpen(false)}
-            className="lg:hidden text-gold-300 hover:text-white p-1.5 rounded-lg hover:bg-[#223b24]"
+            className="lg:hidden text-surface-400 hover:text-white p-1.5 rounded-lg hover:bg-[#1f3622]"
           >
             <X className="w-5 h-5" />
           </button>
@@ -259,19 +259,19 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
         {/* Quick Action Button (Expanded only) */}
         {!isCollapsed && (
-          <div className="px-4 pt-4 pb-2">
+          <div className="px-3.5 pt-4 pb-1.5">
             <button
               onClick={() => setQuickInteractionOpen(true)}
-              className="w-full py-2.5 px-3 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 active:scale-95 border border-amber-400/30"
+              className="w-full py-2.5 px-3 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 active:scale-95 border border-brand-400/40"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4 text-gold-300" />
               <span>Catat Sapaan Jamaah</span>
             </button>
           </div>
         )}
 
         {/* Navigation Menu Groups */}
-        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-5 scrollbar-thin scrollbar-thumb-brand-900">
+        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-4 scrollbar-thin scrollbar-thumb-brand-950">
           {NAV_GROUPS.map((group) => {
             const isAdmin =
               user?.roles?.includes(ROLES.CRM_ADMIN) ||
@@ -289,11 +289,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               <div key={group.category} className="space-y-1">
                 {/* Category Header */}
                 {!isCollapsed ? (
-                  <h3 className="px-3 text-[10px] font-extrabold uppercase tracking-wider text-gold-400/90 select-none">
+                  <h3 className="px-3 text-[10px] font-extrabold uppercase tracking-wider text-[#8fad92] select-none">
                     {group.category}
                   </h3>
                 ) : (
-                  <div className="border-t border-[#223b24] my-2" />
+                  <div className="border-t border-[#1f3622] my-2" />
                 )}
 
                 {/* Nav Items */}
@@ -312,28 +312,36 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                         title={isCollapsed ? `${item.name}${item.description ? ` (${item.description})` : ''}` : undefined}
                         className={`group flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
                           isActive
-                            ? 'bg-[#395c32] text-white shadow-sm ring-1 ring-gold-400/40 font-bold'
-                            : 'text-[#c2dac4] hover:bg-[#223b24] hover:text-white'
+                            ? 'bg-brand-700/80 text-white shadow-sm ring-1 ring-brand-400/50 font-bold'
+                            : 'text-[#bfd9c1] hover:bg-[#1c331e] hover:text-white'
                         } ${isCollapsed ? 'justify-center py-2.5' : ''}`}
                       >
                         <item.icon
                           className={`w-4 h-4 shrink-0 transition-transform group-hover:scale-110 ${
-                            isActive ? 'text-gold-300' : 'text-brand-300'
+                            isActive ? 'text-gold-400' : 'text-brand-400'
                           }`}
                         />
 
                         {!isCollapsed && (
-                          <div className="flex-1 min-w-0 flex items-center justify-between gap-1">
+                          <div className="flex-1 min-w-0 flex items-center justify-between gap-1.5">
                             <div className="min-w-0">
                               <span className="block truncate text-sm leading-snug">{item.name}</span>
                               {item.description && (
-                                <span className="block truncate text-[11px] text-[#9fc4a2] font-normal leading-tight">
+                                <span className="block truncate text-[11px] text-[#93ba97] font-normal leading-tight">
                                   {item.description}
                                 </span>
                               )}
                             </div>
                             {item.badge && (
-                              <span className="px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide rounded bg-gold-400 text-gold-950 shadow-2xs shrink-0">
+                              <span
+                                className={`px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider rounded-full shadow-2xs shrink-0 border ${
+                                  item.badge === 'Infaq'
+                                    ? 'bg-gold-500/20 text-gold-300 border-gold-400/40'
+                                    : item.badge === '7 Tahap'
+                                    ? 'bg-amber-500/20 text-amber-300 border-amber-400/40'
+                                    : 'bg-brand-800 text-brand-200 border-brand-500/40'
+                                }`}
+                              >
                                 {item.badge}
                               </span>
                             )}
@@ -357,19 +365,19 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         </nav>
 
         {/* User Profile & Footer */}
-        <div className="p-3 border-t border-[#223b24] bg-[#101e11]">
+        <div className="p-3 border-t border-[#1f3622] bg-[#0c180e]">
           <div className={`flex items-center ${isCollapsed ? 'justify-center flex-col gap-2' : 'justify-between'}`}>
             <div className="flex items-center gap-3 overflow-hidden">
               <div
                 title={user?.name || 'Staf YTS'}
-                className="w-10 h-10 rounded-full bg-brand-700 border-2 border-gold-400/50 flex items-center justify-center font-bold text-sm text-white uppercase shrink-0 shadow-inner"
+                className="w-9 h-9 rounded-full bg-brand-700 border-2 border-brand-500/50 flex items-center justify-center font-bold text-xs text-white uppercase shrink-0 shadow-inner"
               >
                 {user?.name ? user.name.charAt(0) : 'U'}
               </div>
               {!isCollapsed && (
                 <div className="overflow-hidden">
-                  <p className="text-sm font-semibold text-white truncate leading-tight">{user?.name || 'Staf YTS'}</p>
-                  <p className="text-xs text-gold-300/80 truncate mt-0.5">
+                  <p className="text-xs font-bold text-white truncate leading-tight">{user?.name || 'Staf YTS'}</p>
+                  <p className="text-[11px] text-[#93ba97] truncate mt-0.5 font-medium">
                     {user?.roles && user.roles.length > 0 ? user.roles.join(', ') : 'Operasional'}
                   </p>
                 </div>
@@ -379,9 +387,9 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             <button
               onClick={() => logout()}
               title="Keluar dari Sistem (Logout)"
-              className="p-2 text-gold-300/70 hover:text-red-300 hover:bg-red-950/40 rounded-xl transition-colors shrink-0"
+              className="p-1.5 text-surface-400 hover:text-red-300 hover:bg-red-950/40 rounded-xl transition-colors shrink-0"
             >
-              <LogOut className="w-5 h-5" />
+              <LogOut className="w-4 h-4" />
             </button>
           </div>
         </div>
