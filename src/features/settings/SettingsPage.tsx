@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
-  User,
+  IdCard,
   Shield,
   Building2,
   Tags,
   Server,
   KeyRound,
-  UserPlus,
   CheckCircle2,
   AlertTriangle,
   RefreshCw,
@@ -17,6 +16,7 @@ import {
   Check,
   Palette,
   RotateCcw,
+  Download,
 } from 'lucide-react';
 import { useTheme, THEME_PRESETS, ThemeId } from '@/lib/themeContext';
 
@@ -61,7 +61,7 @@ interface TagItem {
 
 export function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'profile' | 'users' | 'foundation' | 'taxonomy' | 'system' | 'theme'>('profile');
-  const { themeId, setThemeId, resetToDefault } = useTheme();
+  const { themeId, setThemeId, resetToDefault, currentTheme } = useTheme();
   
   // Profile State
   const [profile, setProfile] = useState<any>(null);
@@ -247,6 +247,31 @@ export function SettingsPage() {
     }
   };
 
+  const handleExportUsersCsv = () => {
+    if (users.length === 0) {
+      alert('Tidak ada data staf untuk diekspor');
+      return;
+    }
+    const headers = ['ID Staf', 'Nama Lengkap', 'Email', 'Peran Akses', 'Status Akun', 'Login Terakhir', 'Tanggal Dibuat'];
+    const rows = users.map((u) => [
+      `"${u.id}"`,
+      `"${u.fullName}"`,
+      `"${u.email}"`,
+      `"${u.roles.map((r) => r.name).join(', ')}"`,
+      `"${u.isActive ? 'Aktif' : 'Non-aktif'}"`,
+      `"${u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString('id-ID') : '-'}"`,
+      `"${new Date(u.createdAt).toLocaleString('id-ID')}"`,
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `daftar-staf-internal-${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleSaveFoundation = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!foundation) return;
@@ -340,7 +365,7 @@ export function SettingsPage() {
               : 'border-transparent text-slate-500 hover:text-slate-700'
           }`}
         >
-          <User className="w-4 h-4" />
+          <IdCard className="w-4 h-4" />
           Profil & Keamanan Akun
         </button>
         <button
@@ -510,13 +535,23 @@ export function SettingsPage() {
               </p>
             </div>
 
-            <button
-              onClick={() => setNewUserModal(true)}
-              className="px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors flex items-center gap-2"
-            >
-              <UserPlus className="w-4 h-4" />
-              Tambah Staf Baru
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={handleExportUsersCsv}
+                className="px-3.5 py-2 text-xs font-bold rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 shadow-2xs transition-all flex items-center gap-1.5 active:scale-95"
+                title="Ekspor daftar staf ke CSV"
+              >
+                <Download className="w-3.5 h-3.5 text-slate-500" />
+                <span>Ekspor CSV</span>
+              </button>
+              <button
+                onClick={() => setNewUserModal(true)}
+                className={`px-4 py-2 text-sm font-semibold rounded-xl ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} shadow-xs transition-all flex items-center gap-2 active:scale-95`}
+              >
+                <Plus className="w-4 h-4" />
+                Tambah Staf Baru
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -1010,13 +1045,13 @@ export function SettingsPage() {
                 <button
                   type="button"
                   onClick={() => setNewUserModal(false)}
-                  className="px-4 py-2 text-sm font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors"
+                  className="px-4 py-2 text-sm font-semibold rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                  className={`px-4 py-2 text-sm font-semibold rounded-xl ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} shadow-xs transition-all active:scale-95`}
                 >
                   Daftarkan Staf
                 </button>
@@ -1060,13 +1095,13 @@ export function SettingsPage() {
                 <button
                   type="button"
                   onClick={() => setNewProgramModal(false)}
-                  className="px-4 py-2 text-sm font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors"
+                  className="px-4 py-2 text-sm font-semibold rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                  className={`px-4 py-2 text-sm font-semibold rounded-xl ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} shadow-xs transition-all active:scale-95`}
                 >
                   Simpan Program
                 </button>
