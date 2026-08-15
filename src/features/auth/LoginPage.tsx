@@ -34,23 +34,9 @@ export const LoginPage: React.FC = () => {
 
   // Quick-Login Helper for Demo and Instant Admin Access
   const handleQuickLogin = (demoRole: string) => {
-    const roleLabels: Record<string, string> = {
-      crm_admin: 'Admin Yayasan Tarbiyah Sunnah',
-      finance_verifier: 'Staff Keuangan (Finance)',
-    };
-    const mockUser = {
-      id: `usr_${demoRole}_001`,
-      authSubject: `mock_${demoRole}`,
-      email: `${demoRole}@tarbiyahsunnah.id`,
-      name: roleLabels[demoRole] || `Staf ${demoRole.toUpperCase()}`,
-      fullName: roleLabels[demoRole] || `Staf ${demoRole.toUpperCase()}`,
-      isActive: true,
-      roles: [demoRole],
-      permissions: ['dashboard.view', 'persons.list', 'events.view', 'tasks.view_own'],
-    };
-    localStorage.setItem('crm_user_token', `demo_token_${Date.now()}`);
-    localStorage.setItem('crm_user_session', JSON.stringify(mockUser));
-    window.location.href = '/';
+    setEmail(`${demoRole}@tarbiyahsunnah.id`);
+    setPassword('admin123');
+    setErrorMessage(null);
   };
 
   return (

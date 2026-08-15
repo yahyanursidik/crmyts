@@ -20,6 +20,13 @@ import {
   Check,
   Share2,
   MessageSquare,
+  CreditCard,
+  Building2,
+  UploadCloud,
+  Receipt,
+  FileCheck,
+  Trash2,
+  Plus,
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -39,17 +46,24 @@ interface EventItem {
   locationName: string;
   meetingUrl?: string | null;
   
+  isRegistrationOpen: boolean;
   targetAudience?: string;
   quota?: number | null;
   quotaIkhwan?: number | null;
   quotaAkhwat?: number | null;
-  isRegistrationOpen: boolean;
-  
   carParkingQuota?: number | null;
   motorcycleParkingQuota?: number | null;
   venueRules?: string[] | null;
   customVenueRules?: string | null;
   
+  // Paid Events & Banking
+  isPaid?: boolean;
+  priceRupiah?: number | null;
+  bankName?: string | null;
+  bankAccountNumber?: string | null;
+  bankAccountName?: string | null;
+  paymentInstructions?: string | null;
+
   formConfig?: EventFormConfig | null;
   attendanceCount?: number;
   ikhwanCount?: number;
@@ -141,6 +155,32 @@ export function EventsPortalPage() {
   const [submittingEvent, setSubmittingEvent] = useState(false);
   const [eventSuccess, setEventSuccess] = useState<any | null>(null);
 
+  // Multi-participant / Family Group Registration States
+  interface AdditionalMember {
+    id: string;
+    fullName: string;
+    gender: 'ikhwan' | 'akhwat';
+    relationship: string;
+    age?: number | '';
+    notes?: string;
+  }
+  const [familyMembers, setFamilyMembers] = useState<AdditionalMember[]>([]);
+
+  // Fast Lookup for Returning Jamaah (via WhatsApp or Email)
+  const [lookupInput, setLookupInput] = useState('');
+  const [isLookingUp, setIsLookingUp] = useState(false);
+  const [lookupSuccess, setLookupSuccess] = useState<{
+    found: boolean;
+    name?: string;
+    totalKajian?: number;
+    pastFamilyMembers?: any[];
+  } | null>(null);
+
+  // Paid event states
+  const [paymentProofUrl, setPaymentProofUrl] = useState<string | null>(null);
+  const [paymentProofName, setPaymentProofName] = useState<string | null>(null);
+  const [copiedBankAccount, setCopiedBankAccount] = useState(false);
+
   useEffect(() => {
     async function loadPortal() {
       try {
@@ -194,11 +234,124 @@ export function EventsPortalPage() {
     }
   };
 
+  const handleCopyBankAccount = (accNum?: string | null) => {
+    const num = accNum || selectedEvent?.bankAccountNumber || '7123456789';
+    navigator.clipboard.writeText(num);
+    setCopiedBankAccount(true);
+    setTimeout(() => setCopiedBankAccount(false), 2500);
+  };
+
+  const handleProofFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Ukuran file maksimal 5MB');
+      return;
+    }
+    setPaymentProofName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setPaymentProofUrl(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleAddFamilyMember = () => {
+    const max = selectedEvent?.formConfig?.maxMultiParticipants || 10;
+    if (familyMembers.length >= max) {
+      alert(`Batas maksimal anggota keluarga tambahan adalah ${max} orang.`);
+      return;
+    }
+    setFamilyMembers((prev) => [
+      ...prev,
+      {
+        id: Math.random().toString(36).substring(2, 9),
+        fullName: '',
+        gender: selectedEvent?.targetAudience === 'akhwat_only' ? 'akhwat' : 'ikhwan',
+        relationship: 'Istri',
+        age: '',
+        notes: '',
+      },
+    ]);
+  };
+
+  const handleRemoveFamilyMember = (id: string) => {
+    setFamilyMembers((prev) => prev.filter((m) => m.id !== id));
+  };
+
+  const handleUpdateFamilyMember = (id: string, field: keyof AdditionalMember, value: any) => {
+    setFamilyMembers((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, [field]: value } : m))
+    );
+  };
+
+  const handleLookupParticipant = async (overrideIdentifier?: string) => {
+    const query = (overrideIdentifier ?? lookupInput).trim();
+    if (!query || query.length < 3) return;
+
+    try {
+      setIsLookingUp(true);
+      const res = await fetch('/api/public/lookup-participant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: query }),
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        if (json.data && json.data.found && json.data.person) {
+          const p = json.data.person;
+          if (p.fullName) setRegFullName(p.fullName);
+          if (p.phone) setRegPhone(p.phone);
+          if (p.email) setRegEmail(p.email);
+          if (p.cityRegency) setRegCity(p.cityRegency);
+          if (
+            p.gender &&
+            selectedEvent?.targetAudience !== 'akhwat_only' &&
+            selectedEvent?.targetAudience !== 'ikhwan_only'
+          ) {
+            setRegGender(p.gender);
+          }
+          setLookupSuccess({
+            found: true,
+            name: p.fullName,
+            totalKajian: json.data.totalKajianAttended || 0,
+            pastFamilyMembers: json.data.pastFamilyMembers || [],
+          });
+        } else {
+          setLookupSuccess({ found: false });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to lookup participant:', err);
+    } finally {
+      setIsLookingUp(false);
+    }
+  };
+
+  const handleLoadPastFamilyMembers = () => {
+    if (!lookupSuccess?.pastFamilyMembers || lookupSuccess.pastFamilyMembers.length === 0) return;
+    const mapped: AdditionalMember[] = lookupSuccess.pastFamilyMembers.map((m: any) => ({
+      id: Math.random().toString(36).substring(2, 9),
+      fullName: m.fullName,
+      gender: m.gender || 'ikhwan',
+      relationship: m.relationship || 'Keluarga',
+      age: m.age || '',
+      notes: '',
+    }));
+    setFamilyMembers(mapped);
+  };
+
   // Auto-adjust gender when selected event changes
   const handleSelectEvent = (ev: EventItem) => {
     setSelectedEventId(ev.id);
     setCustomResponses({});
     setAgreedToRules(false);
+    setPaymentProofUrl(null);
+    setPaymentProofName(null);
+    setFamilyMembers([]);
+    setLookupInput('');
+    setLookupSuccess(null);
     if (ev.targetAudience === 'akhwat_only') {
       setRegGender('akhwat');
     } else if (ev.targetAudience === 'ikhwan_only') {
@@ -230,8 +383,20 @@ export function EventsPortalPage() {
       return;
     }
 
+    // Validate family members names
+    for (let i = 0; i < familyMembers.length; i++) {
+      const mem = familyMembers[i];
+      if (!mem || !mem.fullName.trim()) {
+        alert(`Harap isi nama lengkap untuk anggota keluarga ke-${i + 1}`);
+        return;
+      }
+    }
+
     try {
       setSubmittingEvent(true);
+      const totalParticipants = 1 + familyMembers.length;
+      const calculatedTotalAmount = (selectedEvent?.priceRupiah || 0) * totalParticipants;
+
       const res = await fetch('/api/public/register-event', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -246,6 +411,18 @@ export function EventsPortalPage() {
           vehicleType: regVehicleType,
           vehiclePlateNumber: regVehiclePlate.trim() || null,
           agreedToRules: true,
+          paymentProofUrl: paymentProofUrl || null,
+          paymentAmountRupiah: calculatedTotalAmount,
+          additionalParticipants:
+            familyMembers.length > 0
+              ? familyMembers.map((m) => ({
+                  fullName: m.fullName.trim(),
+                  gender: m.gender,
+                  relationship: m.relationship,
+                  age: m.age ? Number(m.age) : null,
+                  notes: m.notes?.trim() || null,
+                }))
+              : null,
           customResponses: Object.keys(customResponses).length > 0 ? customResponses : null,
         }),
       });
@@ -803,6 +980,13 @@ export function EventsPortalPage() {
                                   {ev.category || 'Kajian Sunnah'}
                                 </span>
 
+                                {ev.isPaid && (
+                                  <span className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+                                    <Receipt className="w-3 h-3 text-amber-700" />
+                                    <span>Rp {(ev.priceRupiah || 0).toLocaleString('id-ID')}</span>
+                                  </span>
+                                )}
+
                                 {ev.targetAudience === 'akhwat_only' && (
                                   <span className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
                                     🌸 Khusus Akhwat
@@ -974,6 +1158,87 @@ export function EventsPortalPage() {
                 </div>
               ) : (
                 <form onSubmit={handleSubmitEventRegistration} className="space-y-4">
+                  {/* Quick Auto-fill for Returning Jamaah */}
+                  <div className="p-3.5 bg-gradient-to-r from-teal-50/90 to-emerald-50/90 border border-teal-200 rounded-2xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black text-teal-950 flex items-center gap-1.5 font-display">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                        Pernah Mendaftar Kajian Sebelumnya?
+                      </span>
+                      <span className="text-[10px] text-teal-800 font-bold bg-white px-2 py-0.5 rounded-full border border-teal-200 shadow-2xs">
+                        Auto-Fill Cepat
+                      </span>
+                    </div>
+
+                    <div className="flex gap-1.5">
+                      <div className="relative flex-1">
+                        <input
+                          type="text"
+                          placeholder="Ketik No. WhatsApp atau Email Anda..."
+                          value={lookupInput}
+                          onChange={(e) => setLookupInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleLookupParticipant();
+                            }
+                          }}
+                          className="w-full pl-8 pr-3 py-1.5 bg-white border border-teal-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none placeholder:text-slate-400 font-medium"
+                        />
+                        <Search className="w-3.5 h-3.5 text-teal-700 absolute left-2.5 top-2.5 pointer-events-none" />
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleLookupParticipant()}
+                        disabled={isLookingUp || !lookupInput.trim()}
+                        className="px-3 py-1.5 bg-teal-800 hover:bg-teal-900 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-2xs transition-all active:scale-95 flex items-center gap-1 shrink-0"
+                      >
+                        {isLookingUp ? 'Mencari...' : 'Cari Data'}
+                      </button>
+                    </div>
+
+                    {/* Feedback when found */}
+                    {lookupSuccess?.found && (
+                      <div className="p-2.5 bg-white rounded-xl border border-emerald-300 text-xs space-y-1.5 animate-in fade-in">
+                        <div className="flex items-center justify-between">
+                          <span className="text-emerald-950 font-bold flex items-center gap-1">
+                            <Check className="w-3.5 h-3.5 text-emerald-600" />
+                            Ahlan wa Sahlan, <b>{lookupSuccess.name}</b>!
+                          </span>
+                          <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                            {lookupSuccess.totalKajian ? `Kajian ke-${lookupSuccess.totalKajian + 1}` : 'Jamaah Terdaftar'}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-500">
+                          Biodata nama, gender, domisili, dan kontak Anda telah otomatis terisi di bawah.
+                        </p>
+
+                        {/* 1-Click Load Past Family Members */}
+                        {lookupSuccess.pastFamilyMembers && lookupSuccess.pastFamilyMembers.length > 0 && familyMembers.length === 0 && (
+                          <div className="pt-1 border-t border-slate-100 flex items-center justify-between gap-2">
+                            <span className="text-[10px] text-teal-900 font-semibold">
+                              Ditemukan {lookupSuccess.pastFamilyMembers.length} anggota keluarga dari pendaftaran sebelumnya.
+                            </span>
+                            <button
+                              type="button"
+                              onClick={handleLoadPastFamilyMembers}
+                              className="px-2.5 py-1 bg-teal-100 hover:bg-teal-200 text-teal-950 text-[10px] font-bold rounded-lg transition-all active:scale-95 shrink-0"
+                            >
+                              + Muat Anggota Keluarga
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {lookupSuccess?.found === false && (
+                      <p className="text-[10px] text-slate-500 italic">
+                        Data belum ditemukan. Silakan lengkapi formulir di bawah untuk pendaftaran baru.
+                      </p>
+                    )}
+                  </div>
+
                   {/* 1. Full Name */}
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">Nama Lengkap Jamaah *</label>
@@ -1041,6 +1306,11 @@ export function EventsPortalPage() {
                       placeholder="Contoh: 081234567890"
                       value={regPhone}
                       onChange={(e) => setRegPhone(e.target.value)}
+                      onBlur={() => {
+                        if (regPhone.replace(/\D/g, '').length >= 10 && !lookupSuccess?.found) {
+                          handleLookupParticipant(regPhone);
+                        }
+                      }}
                       className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
                     />
                     <span className="text-[10px] text-slate-400 mt-1 block">
@@ -1061,6 +1331,147 @@ export function EventsPortalPage() {
                     />
                   </div>
 
+                  {/* 4b. Multi-Participant / Family Members Registration */}
+                  {(selectedEvent?.formConfig?.allowMultiParticipant !== false || selectedEvent?.targetAudience === 'itikaf_ramadan') && (
+                    <div className="p-4 bg-teal-50/70 border border-teal-200/90 rounded-2xl space-y-3.5 animate-in fade-in duration-200">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-xs font-black text-teal-950 block font-display">
+                            Pendaftaran Anggota Keluarga / Rombongan Sekaligus
+                          </span>
+                          <span className="text-[10px] text-teal-700 font-semibold">
+                            Daftarkan istri, anak, orang tua, atau kerabat dalam 1 kali pengisian formulir.
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-black text-teal-900 bg-white px-2 py-0.5 rounded-full border border-teal-300 shadow-2xs">
+                          {1 + familyMembers.length} Jamaah
+                        </span>
+                      </div>
+
+                      {/* List of Added Family Members */}
+                      {familyMembers.length > 0 && (
+                        <div className="space-y-2.5 pt-1">
+                          {familyMembers.map((member, idx) => (
+                            <div
+                              key={member.id}
+                              className="p-3 bg-white rounded-xl border border-teal-200 shadow-2xs space-y-2.5 animate-in fade-in"
+                            >
+                              <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                                <span className="text-[11px] font-bold text-teal-950 flex items-center gap-1.5">
+                                  <span className="w-4 h-4 rounded-full bg-teal-800 text-white text-[9px] flex items-center justify-center font-bold">
+                                    {idx + 1}
+                                  </span>
+                                  Anggota Keluarga #{idx + 1}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveFamilyMember(member.id)}
+                                  className="text-rose-600 hover:text-rose-700 p-1 hover:bg-rose-50 rounded-lg transition-colors text-[10px] font-bold flex items-center gap-0.5"
+                                  title="Hapus anggota ini"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Hapus</span>
+                                </button>
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                                    Nama Lengkap Anggota *
+                                  </label>
+                                  <input
+                                    type="text"
+                                    required
+                                    placeholder="Contoh: Fulanah binti Fulan"
+                                    value={member.fullName}
+                                    onChange={(e) => handleUpdateFamilyMember(member.id, 'fullName', e.target.value)}
+                                    className="w-full p-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                                    Hubungan Keluarga *
+                                  </label>
+                                  <select
+                                    value={member.relationship}
+                                    onChange={(e) => handleUpdateFamilyMember(member.id, 'relationship', e.target.value)}
+                                    className="w-full p-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none bg-white"
+                                  >
+                                    <option value="Istri">Istri</option>
+                                    <option value="Suami">Suami</option>
+                                    <option value="Anak Laki-laki">Anak Laki-laki</option>
+                                    <option value="Anak Perempuan">Anak Perempuan</option>
+                                    <option value="Orang Tua (Ayah/Ibu)">Orang Tua (Ayah/Ibu)</option>
+                                    <option value="Saudara / Saudari">Saudara / Saudari</option>
+                                    <option value="Kerabat">Kerabat</option>
+                                    <option value="Lainnya">Lainnya</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2 pt-0.5">
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                                    Kategori Jamaah
+                                  </label>
+                                  <div className="grid grid-cols-2 gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateFamilyMember(member.id, 'gender', 'ikhwan')}
+                                      className={`py-1 px-2 rounded-lg text-[11px] font-bold text-center border transition-all ${
+                                        member.gender === 'ikhwan'
+                                          ? 'bg-teal-50 border-teal-600 text-teal-900 font-black'
+                                          : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      Ikhwan
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateFamilyMember(member.id, 'gender', 'akhwat')}
+                                      className={`py-1 px-2 rounded-lg text-[11px] font-bold text-center border transition-all ${
+                                        member.gender === 'akhwat'
+                                          ? 'bg-rose-50 border-rose-500 text-rose-900 font-black'
+                                          : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      Akhwat
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                                    Usia / Umur <span className="font-normal text-slate-400">(Tahun)</span>
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={120}
+                                    placeholder="Cth: 12"
+                                    value={member.age}
+                                    onChange={(e) => handleUpdateFamilyMember(member.id, 'age', e.target.value)}
+                                    className="w-full p-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={handleAddFamilyMember}
+                        className="w-full py-2 bg-white hover:bg-teal-50/80 text-teal-900 font-bold text-xs rounded-xl border border-dashed border-teal-300 transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-teal-700" />
+                        <span>+ Tambah Anggota Keluarga / Peserta Tambahan</span>
+                      </button>
+                    </div>
+                  )}
+
                   {/* 5. Email (Optional) */}
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">Alamat Email (Opsional)</label>
@@ -1069,6 +1480,11 @@ export function EventsPortalPage() {
                       placeholder="nama@email.com"
                       value={regEmail}
                       onChange={(e) => setRegEmail(e.target.value)}
+                      onBlur={() => {
+                        if (regEmail.includes('@') && !lookupSuccess?.found) {
+                          handleLookupParticipant(regEmail);
+                        }
+                      }}
                       className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
                     />
                   </div>
@@ -1270,6 +1686,150 @@ export function EventsPortalPage() {
                     </div>
                   )}
 
+                  {/* 7b. Paid Event & Bank Transfer Instructions */}
+                  {selectedEvent?.isPaid && (
+                    <div className="p-4 bg-amber-50/90 border-2 border-amber-300 rounded-2xl space-y-3.5 animate-in fade-in duration-200">
+                      <div className="flex items-center justify-between border-b border-amber-200/80 pb-2.5">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-xl bg-amber-200/80 text-amber-900 flex items-center justify-center font-bold">
+                            <CreditCard className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className="text-xs font-black text-amber-950 block font-display">
+                              Biaya Pendaftaran / Infaq Daurah
+                            </span>
+                            <span className="text-[10px] text-amber-800 font-semibold">
+                              Investasi Ilmu & Fasilitas Kitab
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-sm font-black text-amber-950 font-mono block">
+                            Rp {((1 + familyMembers.length) * (selectedEvent.priceRupiah || 0)).toLocaleString('id-ID')}
+                          </span>
+                          <span className="text-[9px] text-amber-700 font-bold uppercase">
+                            {familyMembers.length > 0
+                              ? `Total ${1 + familyMembers.length} Peserta (Rp ${(selectedEvent.priceRupiah || 0).toLocaleString('id-ID')}/org)`
+                              : 'per peserta'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Bank Details Card with Copy Button */}
+                      <div className="p-3 bg-white rounded-xl border border-amber-200 shadow-2xs space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                            <Building2 className="w-3 h-3 text-brand-800" />
+                            {selectedEvent.bankName || 'Bank Syariah Indonesia (BSI)'}
+                          </span>
+                          <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                            Transfer Bank
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2 bg-cream-50/60 p-2 rounded-lg border border-cream-200">
+                          <div>
+                            <span className="text-[10px] text-slate-500 block">Nomor Rekening:</span>
+                            <span className="font-mono text-sm font-black text-brand-950 tracking-wider">
+                              {selectedEvent.bankAccountNumber || '7123456789'}
+                            </span>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleCopyBankAccount(selectedEvent.bankAccountNumber)}
+                            className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 shadow-2xs ${
+                              copiedBankAccount
+                                ? 'bg-emerald-600 text-white border-emerald-600 ring-2 ring-emerald-200'
+                                : 'bg-brand-900 hover:bg-brand-950 text-white border-brand-900'
+                            }`}
+                            title="Salin nomor rekening ke clipboard"
+                          >
+                            {copiedBankAccount ? (
+                              <>
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Tersalin!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3.5 h-3.5" />
+                                <span>Salin No. Rekening</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+
+                        <div className="text-[11px] text-slate-600 flex items-center justify-between">
+                          <span>Atas Nama:</span>
+                          <strong className="text-brand-950 font-bold">
+                            {selectedEvent.bankAccountName || 'Yayasan Tarbiyah Sunnah'}
+                          </strong>
+                        </div>
+                      </div>
+
+                      {selectedEvent.paymentInstructions && (
+                        <p className="text-[11px] text-amber-900 leading-relaxed bg-amber-100/50 p-2.5 rounded-xl border border-amber-200/60">
+                          💡 <strong>Petunjuk Transfer:</strong> {selectedEvent.paymentInstructions}
+                        </p>
+                      )}
+
+                      {/* Upload Payment Proof Attachment */}
+                      <div className="space-y-1.5 pt-1">
+                        <label className="block text-xs font-bold text-amber-950 flex items-center justify-between">
+                          <span>Unggah Foto Bukti Transfer / Struk Pembayaran</span>
+                          <span className="text-[10px] font-normal text-amber-800">(Opsional / Dapat menyusul)</span>
+                        </label>
+
+                        {paymentProofUrl ? (
+                          <div className="p-3 bg-white rounded-xl border border-emerald-300 shadow-2xs flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <img
+                                src={paymentProofUrl}
+                                alt="Bukti Transfer"
+                                className="w-12 h-12 object-cover rounded-lg border border-slate-200 shrink-0"
+                              />
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold text-emerald-950 truncate">
+                                  {paymentProofName || 'Bukti_Transfer.jpg'}
+                                </p>
+                                <span className="text-[10px] font-bold text-emerald-700 flex items-center gap-1">
+                                  <FileCheck className="w-3 h-3" /> Siap dikirim & diverifikasi
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPaymentProofUrl(null);
+                                setPaymentProofName(null);
+                              }}
+                              className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors shrink-0"
+                              title="Hapus foto bukti transfer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-amber-300 rounded-xl bg-white hover:bg-amber-50/50 cursor-pointer transition-colors text-center space-y-1 group">
+                            <UploadCloud className="w-6 h-6 text-amber-700 group-hover:scale-110 transition-transform" />
+                            <span className="text-xs font-bold text-amber-950">
+                              Klik untuk Pilih Foto Struk / Screenshot Bukti Transfer
+                            </span>
+                            <span className="text-[10px] text-amber-700">
+                              Format JPG, PNG atau WebP (Maks. 5 MB)
+                            </span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleProofFileChange}
+                              className="sr-only"
+                            />
+                          </label>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {/* 8. Venue Rules & Agreement Box */}
                   {selectedEvent?.venueRules && selectedEvent.venueRules.length > 0 && (
                     <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-2xl space-y-2">
@@ -1355,10 +1915,93 @@ export function EventsPortalPage() {
               </div>
             )}
 
-            <div className="p-3 bg-slate-100 border border-slate-200 rounded-xl text-xs font-mono">
-              <span className="text-[10px] text-slate-400 block font-sans">Kode Presensi / Tiket:</span>
-              <span className="font-bold text-slate-900 text-sm tracking-wider">{eventSuccess.ticketCode}</span>
-            </div>
+            {/* Paid Event Status & Banking Info */}
+            {eventSuccess.event.isPaid && (
+              <div className="p-3.5 bg-amber-50/90 border border-amber-300 rounded-2xl text-left space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-amber-950 flex items-center gap-1">
+                    <Receipt className="w-3.5 h-3.5 text-amber-700" /> Status Pembayaran
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                      eventSuccess.participant.paymentStatus === 'waiting_verification'
+                        ? 'bg-amber-200 text-amber-900 border border-amber-300'
+                        : eventSuccess.participant.paymentStatus === 'verified'
+                        ? 'bg-emerald-200 text-emerald-900 border border-emerald-300'
+                        : 'bg-slate-200 text-slate-800'
+                    }`}
+                  >
+                    {eventSuccess.participant.paymentStatus === 'waiting_verification'
+                      ? 'Menunggu Verifikasi Amil'
+                      : eventSuccess.participant.paymentStatus === 'verified'
+                      ? 'Lunas'
+                      : 'Belum Bayar'}
+                  </span>
+                </div>
+
+                <div className="p-2 bg-white rounded-xl border border-amber-200 text-[11px] space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">{eventSuccess.event.bankName || 'Bank BSI'}:</span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyBankAccount(eventSuccess.event.bankAccountNumber)}
+                      className="font-mono font-bold text-brand-950 flex items-center gap-1 hover:text-brand-700 active:scale-95 transition-transform"
+                      title="Salin No. Rekening"
+                    >
+                      <span>{eventSuccess.event.bankAccountNumber || '7123456789'}</span>
+                      <Copy className="w-3 h-3 text-slate-400" />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-600 text-[10px]">
+                    <span>Atas Nama:</span>
+                    <strong className="text-slate-800">{eventSuccess.event.bankAccountName || 'Yayasan Tarbiyah Sunnah'}</strong>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-600 text-[10px] pt-1 border-t border-slate-100">
+                    <span>Total Infaq Daurah:</span>
+                    <strong className="text-amber-950 font-mono font-bold text-xs">
+                      Rp {(eventSuccess.participant.totalPriceRupiah || eventSuccess.event.priceRupiah || 0).toLocaleString('id-ID')}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Individual vs Group E-Tickets List */}
+            {eventSuccess.groupTickets && eventSuccess.groupTickets.length > 1 ? (
+              <div className="space-y-2 text-left">
+                <span className="text-xs font-black text-slate-900 block">
+                  Daftar E-Tiket Rombongan ({eventSuccess.groupTickets.length} Jamaah):
+                </span>
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {eventSuccess.groupTickets.map((t: any, idx: number) => (
+                    <div
+                      key={t.ticketCode || idx}
+                      className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-slate-900 truncate block">{t.name}</span>
+                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-teal-100 text-teal-800 shrink-0">
+                            {t.relationship}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-500 capitalize">
+                          {t.gender} {t.age ? `• ${t.age} thn` : ''}
+                        </span>
+                      </div>
+                      <span className="font-mono font-bold text-teal-950 bg-white px-2 py-1 rounded-lg border border-slate-200 text-[11px] shrink-0">
+                        {t.ticketCode}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 bg-slate-100 border border-slate-200 rounded-xl text-xs font-mono text-left">
+                <span className="text-[10px] text-slate-400 block font-sans">Kode Presensi / Tiket:</span>
+                <span className="font-bold text-slate-900 text-sm tracking-wider">{eventSuccess.ticketCode}</span>
+              </div>
+            )}
 
             <p className="text-[11px] text-slate-500 leading-relaxed">
               Silakan simpan tangkapan layar tiket ini untuk ditunjukkan kepada panitia/petugas saat hadir di majelis ilmu. Barakallahu fiikum.
@@ -1386,8 +2029,20 @@ export function EventsPortalPage() {
               <button
                 onClick={() => {
                   setEventSuccess(null);
+                  setLookupInput('');
+                  setLookupSuccess(null);
+                  setRegFullName('');
+                  setRegPhone('');
+                  setRegEmail('');
+                  setRegCity('');
                   setRegNotes('');
                   setCustomResponses({});
+                  setFamilyMembers([]);
+                  setPaymentProofUrl(null);
+                  setPaymentProofName(null);
+                  setRegVehicleType('none');
+                  setRegVehiclePlate('');
+                  setAgreedToRules(false);
                 }}
                 className="w-full py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-xs active:scale-95"
               >

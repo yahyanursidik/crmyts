@@ -35,6 +35,7 @@ interface PersonListItem {
   roles: string[];
   tags: Array<{ id: string; name: string; category: string }>;
   lastAttendance?: { eventTitle: string; startAt: string } | null;
+  attendanceCount?: number;
   nextTask?: { id: string; title: string; dueAt: string; priority: string; isOverdue: boolean } | null;
 }
 
@@ -68,6 +69,12 @@ export const PersonsListPage: React.FC = () => {
   const [engagementFilter, setEngagementFilter] = useState('');
   const [domisiliFilter, setDomisiliFilter] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
+  const [attendanceFilter, setAttendanceFilter] = useState('');
+  const [kpiStats, setKpiStats] = useState<{ totalMaster: number; multiKajian: number; donorsCount: number }>({
+    totalMaster: 0,
+    multiKajian: 0,
+    donorsCount: 0,
+  });
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,11 +92,15 @@ export const PersonsListPage: React.FC = () => {
       if (engagementFilter) params.append('engagementStatus', engagementFilter);
       if (domisiliFilter.trim()) params.append('domisili', domisiliFilter.trim());
       if (roleFilter) params.append('roleCode', roleFilter);
+      if (attendanceFilter) params.append('attendanceFilter', attendanceFilter);
 
       const res = await apiClient<PersonListItem[]>(`/persons?${params.toString()}`);
       setPersonsList(res.data);
       if (res.meta?.pagination) {
         setPagination(res.meta.pagination as PaginationMeta);
+      }
+      if ((res.meta as any)?.stats) {
+        setKpiStats((res.meta as any).stats);
       }
     } catch (err: any) {
       setError(err.message || 'Gagal memuat data jamaah');
@@ -100,7 +111,7 @@ export const PersonsListPage: React.FC = () => {
 
   useEffect(() => {
     fetchPersons(1);
-  }, [engagementFilter, roleFilter]);
+  }, [engagementFilter, roleFilter, attendanceFilter]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -128,8 +139,83 @@ export const PersonsListPage: React.FC = () => {
         </button>
       </div>
 
+      {/* KPI Quick Metrics Bar */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+        <div
+          onClick={() => { setAttendanceFilter(''); setRoleFilter(''); setEngagementFilter(''); }}
+          className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+            !attendanceFilter && !roleFilter
+              ? 'bg-brand-900 text-white border-brand-800 shadow-md ring-2 ring-brand-700/50'
+              : 'bg-white text-surface-900 border-surface-200 hover:border-brand-400 shadow-2xs'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className={`text-[11px] font-bold uppercase tracking-wider ${!attendanceFilter && !roleFilter ? 'text-brand-200' : 'text-surface-500'}`}>
+              Total Master Jamaah
+            </span>
+            <IdCard className={`w-4 h-4 ${!attendanceFilter && !roleFilter ? 'text-gold-400' : 'text-surface-400'}`} />
+          </div>
+          <div className="flex items-baseline gap-2 mt-2">
+            <span className="text-2xl font-black font-display tracking-tight">
+              {kpiStats.totalMaster.toLocaleString('id-ID')}
+            </span>
+            <span className={`text-[10px] font-medium ${!attendanceFilter && !roleFilter ? 'text-brand-200' : 'text-surface-400'}`}>
+              Kontak Induk
+            </span>
+          </div>
+        </div>
+
+        <div
+          onClick={() => setAttendanceFilter(attendanceFilter === 'multi' ? '' : 'multi')}
+          className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+            attendanceFilter === 'multi'
+              ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-md ring-2 ring-amber-400'
+              : 'bg-amber-50/70 text-slate-900 border-amber-200/80 hover:border-amber-400 shadow-2xs'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className={`text-[11px] font-black uppercase tracking-wider ${attendanceFilter === 'multi' ? 'text-slate-950' : 'text-amber-800'}`}>
+              ✨ Multi-Kajian (≥ 2x Kajian)
+            </span>
+            <Calendar className={`w-4 h-4 ${attendanceFilter === 'multi' ? 'text-slate-950' : 'text-amber-600'}`} />
+          </div>
+          <div className="flex items-baseline gap-2 mt-2">
+            <span className="text-2xl font-black font-display tracking-tight">
+              {kpiStats.multiKajian.toLocaleString('id-ID')}
+            </span>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${attendanceFilter === 'multi' ? 'bg-slate-950 text-amber-300' : 'bg-amber-100 text-amber-800'}`}>
+              {attendanceFilter === 'multi' ? '✓ Filter Aktif' : 'Klik untuk Filter'}
+            </span>
+          </div>
+        </div>
+
+        <div
+          onClick={() => setRoleFilter(roleFilter === 'donatur' ? '' : 'donatur')}
+          className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+            roleFilter === 'donatur'
+              ? 'bg-emerald-800 text-white border-emerald-900 shadow-md ring-2 ring-emerald-600'
+              : 'bg-emerald-50/70 text-slate-900 border-emerald-200/80 hover:border-emerald-400 shadow-2xs'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className={`text-[11px] font-bold uppercase tracking-wider ${roleFilter === 'donatur' ? 'text-emerald-200' : 'text-emerald-800'}`}>
+              Donatur & Dermawan
+            </span>
+            <CheckSquare className={`w-4 h-4 ${roleFilter === 'donatur' ? 'text-emerald-300' : 'text-emerald-600'}`} />
+          </div>
+          <div className="flex items-baseline gap-2 mt-2">
+            <span className="text-2xl font-black font-display tracking-tight">
+              {kpiStats.donorsCount.toLocaleString('id-ID')}
+            </span>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${roleFilter === 'donatur' ? 'bg-white text-emerald-900' : 'bg-emerald-100 text-emerald-800'}`}>
+              {roleFilter === 'donatur' ? '✓ Filter Aktif' : 'Klik untuk Filter'}
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* Filter & Search Bar */}
-      <div className="bg-white rounded-xl border border-surface-200 shadow-sm p-4 space-y-3">
+      <div className="bg-white rounded-2xl border border-surface-200 shadow-sm p-4 space-y-3">
         <form onSubmit={handleSearchSubmit} className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-surface-400 absolute left-3 top-2.5" />
@@ -138,7 +224,7 @@ export const PersonsListPage: React.FC = () => {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Cari nama jamaah, nomor WA (+62 / 08xx), atau email..."
-              className="w-full pl-9 pr-3 py-2 border border-surface-300 rounded-md text-xs focus:ring-2 focus:ring-brand-700 focus:outline-none"
+              className="w-full pl-9 pr-3 py-2 border border-surface-300 rounded-xl text-xs focus:ring-2 focus:ring-brand-700 focus:outline-none"
             />
           </div>
           <button type="submit" className="btn-secondary whitespace-nowrap">
@@ -146,13 +232,29 @@ export const PersonsListPage: React.FC = () => {
           </button>
         </form>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-surface-100 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-surface-100 text-xs">
+          {/* 1. Filter Frekuensi Kajian */}
+          <div className="flex items-center gap-2">
+            <Calendar className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+            <select
+              value={attendanceFilter}
+              onChange={(e) => setAttendanceFilter(e.target.value)}
+              className="w-full px-2.5 py-1.5 border border-amber-300 bg-amber-50/50 rounded-xl text-xs font-bold text-amber-950 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+            >
+              <option value="">-- Semua Frekuensi Kajian --</option>
+              <option value="multi">✨ Multi-Kajian (≥ 2x Kajian)</option>
+              <option value="single">1x Hadir Kajian</option>
+              <option value="none">Belum Pernah Hadir</option>
+            </select>
+          </div>
+
+          {/* 2. Filter Status Engagement */}
           <div className="flex items-center gap-2">
             <Filter className="w-3.5 h-3.5 text-surface-400 shrink-0" />
             <select
               value={engagementFilter}
               onChange={(e) => setEngagementFilter(e.target.value)}
-              className="w-full px-2.5 py-1.5 border border-surface-300 rounded-md text-xs bg-white focus:ring-2 focus:ring-brand-700 focus:outline-none"
+              className="w-full px-2.5 py-1.5 border border-surface-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-brand-700 focus:outline-none"
             >
               <option value="">-- Semua Status Engagement --</option>
               <option value="baru">Baru Terdaftar</option>
@@ -164,12 +266,13 @@ export const PersonsListPage: React.FC = () => {
             </select>
           </div>
 
+          {/* 3. Filter Peran Jamaah */}
           <div className="flex items-center gap-2">
             <CheckSquare className="w-3.5 h-3.5 text-surface-400 shrink-0" />
             <select
               value={roleFilter}
               onChange={(e) => setRoleFilter(e.target.value)}
-              className="w-full px-2.5 py-1.5 border border-surface-300 rounded-md text-xs bg-white focus:ring-2 focus:ring-brand-700 focus:outline-none"
+              className="w-full px-2.5 py-1.5 border border-surface-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-brand-700 focus:outline-none"
             >
               <option value="">-- Semua Peran Jamaah --</option>
               <option value="jamaah">Jamaah Kajian</option>
@@ -180,6 +283,7 @@ export const PersonsListPage: React.FC = () => {
             </select>
           </div>
 
+          {/* 4. Filter Domisili */}
           <div className="flex items-center gap-2">
             <MapPin className="w-3.5 h-3.5 text-surface-400 shrink-0" />
             <input
@@ -188,7 +292,7 @@ export const PersonsListPage: React.FC = () => {
               onChange={(e) => setDomisiliFilter(e.target.value)}
               onBlur={() => fetchPersons(1)}
               placeholder="Filter Kota / Provinsi..."
-              className="w-full px-2.5 py-1.5 border border-surface-300 rounded-md text-xs focus:ring-2 focus:ring-brand-700 focus:outline-none"
+              className="w-full px-2.5 py-1.5 border border-surface-300 rounded-xl text-xs focus:ring-2 focus:ring-brand-700 focus:outline-none"
             />
           </div>
         </div>
@@ -205,7 +309,7 @@ export const PersonsListPage: React.FC = () => {
         ) : personsList.length === 0 ? (
           <div className="py-12 text-center text-surface-500 text-xs space-y-2">
             <p>Tidak ada data jamaah yang sesuai dengan filter pencarian.</p>
-            <button onClick={() => { setSearch(''); setEngagementFilter(''); setDomisiliFilter(''); setRoleFilter(''); fetchPersons(1); }} className="btn-secondary">
+            <button onClick={() => { setSearch(''); setEngagementFilter(''); setDomisiliFilter(''); setRoleFilter(''); setAttendanceFilter(''); fetchPersons(1); }} className="btn-secondary">
               Reset Semua Filter
             </button>
           </div>
@@ -299,14 +403,24 @@ export const PersonsListPage: React.FC = () => {
                         </div>
                       </td>
 
-                      {/* Kajian Terakhir */}
+                      {/* Kajian Terakhir & Total Frekuensi */}
                       <td className="py-3.5 px-4 text-surface-600">
                         {p.lastAttendance ? (
                           <div>
-                            <span className="font-medium text-surface-900 block truncate max-w-[140px]" title={p.lastAttendance.eventTitle}>
-                              {p.lastAttendance.eventTitle}
-                            </span>
-                            <span className="text-[10px] text-surface-400 flex items-center gap-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium text-surface-900 block truncate max-w-[130px]" title={p.lastAttendance.eventTitle}>
+                                {p.lastAttendance.eventTitle}
+                              </span>
+                              {p.attendanceCount && p.attendanceCount > 1 && (
+                                <span
+                                  title={`Total ${p.attendanceCount}x terdaftar di kajian yayasan`}
+                                  className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-brand-100 text-brand-900 border border-brand-200 shrink-0"
+                                >
+                                  {p.attendanceCount}x
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-surface-400 flex items-center gap-1 mt-0.5">
                               <Calendar className="w-3 h-3" />
                               {new Date(p.lastAttendance.startAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
                             </span>

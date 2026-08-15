@@ -390,4 +390,154 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
     const body = JSON.parse(res.body);
     expect(body.error.message).toContain('slot fasilitas parkir mobil telah penuh');
   });
+
+  it('POST /api/public/register-event preserves custom dynamic responses and speaker notes in registrationData', async () => {
+    let insertedAttendance: any = null;
+    const mockDb = {
+      query: {
+        events: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: '018f0000-0000-0000-0000-000000000023',
+            title: 'Daurah Ushul Tsalatsah',
+            category: 'Daurah',
+            speaker: 'Ustadz Fulan, Lc.',
+            startAt: new Date('2026-08-20T09:00:00Z'),
+            targetAudience: 'umum',
+            isRegistrationOpen: true,
+            attendances: [],
+          }),
+        },
+        persons: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: '018f0000-0000-0000-0000-000000000077',
+            fullName: 'Thalibul Ilmi',
+            phoneE164: '+6281211112222',
+          }),
+        },
+        eventAttendance: {
+          findFirst: vi.fn().mockResolvedValue(null),
+        },
+      },
+      insert: vi.fn().mockImplementation((table) => {
+        if (table === eventAttendance) {
+          return {
+            values: vi.fn().mockImplementation((val) => {
+              insertedAttendance = val;
+              return {
+                returning: vi.fn().mockResolvedValue([{ ...val, id: 'att_custom_1' }]),
+              };
+            }),
+          };
+        }
+        return { values: vi.fn().mockResolvedValue([]) };
+      }),
+    };
+
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      path: '/api/public/register-event',
+      method: 'POST',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        eventId: '018f0000-0000-0000-0000-000000000023',
+        fullName: 'Thalibul Ilmi',
+        phone: '081211112222',
+        gender: 'ikhwan',
+        notes: 'Pertanyaan: Apa kitab syarah terbaik untuk pemula?',
+        customResponses: {
+          ukuran_kitab: 'Hardcover Besar',
+          kesiapan_menginap: 'Ya, Menginap Penuh',
+        },
+      },
+      requestId: 'req_custom_fields_1',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(insertedAttendance).not.toBeNull();
+    expect(insertedAttendance.registrationData).toEqual({
+      ukuran_kitab: 'Hardcover Besar',
+      kesiapan_menginap: 'Ya, Menginap Penuh',
+      _generalNotes: 'Pertanyaan: Apa kitab syarah terbaik untuk pemula?',
+    });
+  });
+
+  it('POST /api/public/register-event allows re-uploading payment proof on existing pending registration', async () => {
+    let updatedSetVal: any = null;
+    const mockDb = {
+      query: {
+        events: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: '018f0000-0000-0000-0000-000000000024',
+            title: 'Daurah Berbayar',
+            category: 'Daurah',
+            speaker: 'Ustadz Fulan',
+            startAt: new Date('2026-08-20T09:00:00Z'),
+            targetAudience: 'umum',
+            isPaid: true,
+            priceRupiah: 75000,
+            isRegistrationOpen: true,
+            attendances: [],
+          }),
+        },
+        persons: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: '018f0000-0000-0000-0000-000000000078',
+            fullName: 'Fulan Pembayar',
+            phoneE164: '+6281233334444',
+          }),
+        },
+        eventAttendance: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'att_existing_paid_1',
+            eventId: '018f0000-0000-0000-0000-000000000024',
+            personId: '018f0000-0000-0000-0000-000000000078',
+            ticketCode: 'TIKET-KJN-260820-EX11',
+            paymentStatus: 'pending_payment',
+            paymentProofUrl: null,
+          }),
+        },
+      },
+      update: vi.fn().mockImplementation((table) => {
+        if (table === eventAttendance) {
+          return {
+            set: vi.fn().mockImplementation((val) => {
+              updatedSetVal = val;
+              return {
+                where: vi.fn().mockResolvedValue([]),
+              };
+            }),
+          };
+        }
+        return { set: vi.fn().mockResolvedValue([]) };
+      }),
+    };
+
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      path: '/api/public/register-event',
+      method: 'POST',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        eventId: '018f0000-0000-0000-0000-000000000024',
+        fullName: 'Fulan Pembayar',
+        phone: '081233334444',
+        gender: 'ikhwan',
+        paymentProofUrl: 'data:image/jpeg;base64,receipt_reupload_data',
+      },
+      requestId: 'req_reupload_receipt_1',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(updatedSetVal).not.toBeNull();
+    expect(updatedSetVal.paymentStatus).toBe('waiting_verification');
+    expect(updatedSetVal.paymentProofUrl).toBe('data:image/jpeg;base64,receipt_reupload_data');
+    expect(updatedSetVal.paymentAmountRupiah).toBe(75000);
+  });
 });
+

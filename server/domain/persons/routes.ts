@@ -128,6 +128,7 @@ export function registerPersonsRoutes(router: Router) {
       const roleCode = ctx.query.roleCode?.trim();
       const tagId = ctx.query.tagId?.trim();
       const ownerUserId = ctx.query.ownerUserId?.trim();
+      const attendanceFilter = ctx.query.attendanceFilter?.trim();
 
       // Sorting
       const sortBy = ctx.query.sortBy || 'createdAt';
@@ -167,13 +168,27 @@ export function registerPersonsRoutes(router: Router) {
 
       if (roleCode) {
         whereConditions.push(
-          sql`EXISTS (SELECT 1 FROM ${personRoles} WHERE ${personRoles.personId} = ${persons.id} AND ${personRoles.roleCode} = ${roleCode})`
+          sql`EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" = ${roleCode})`
         );
       }
 
       if (tagId) {
         whereConditions.push(
-          sql`EXISTS (SELECT 1 FROM ${personTags} WHERE ${personTags.personId} = ${persons.id} AND ${personTags.tagId} = ${tagId}::uuid)`
+          sql`EXISTS (SELECT 1 FROM "person_tags" WHERE "person_tags"."person_id" = "persons"."id" AND "person_tags"."tag_id" = ${tagId}::uuid)`
+        );
+      }
+
+      if (attendanceFilter === 'multi') {
+        whereConditions.push(
+          sql`"persons"."id" IN (SELECT "event_attendance"."person_id" FROM "event_attendance" GROUP BY "event_attendance"."person_id" HAVING count("event_attendance"."id") >= 2)`
+        );
+      } else if (attendanceFilter === 'single') {
+        whereConditions.push(
+          sql`"persons"."id" IN (SELECT "event_attendance"."person_id" FROM "event_attendance" GROUP BY "event_attendance"."person_id" HAVING count("event_attendance"."id") = 1)`
+        );
+      } else if (attendanceFilter === 'none') {
+        whereConditions.push(
+          sql`"persons"."id" NOT IN (SELECT "event_attendance"."person_id" FROM "event_attendance")`
         );
       }
 
@@ -223,11 +238,11 @@ export function registerPersonsRoutes(router: Router) {
       // Enrich with last attendance and next pending task
       const personIds = personsList.map((p) => p.id);
 
-      const attendancesMap = new Map<string, { eventTitle: string; startAt: Date }>();
+      const attendancesMap = new Map<string, { eventTitle: string; startAt: Date; count: number }>();
       const tasksMap = new Map<string, { id: string; title: string; dueAt: Date; priority: string; isOverdue: boolean }>();
 
       if (personIds.length > 0) {
-        // Last attendance per person
+        // Last attendance and total attendance count per person
         const rawAttendances = await db
           .select({
             personId: eventAttendance.personId,
@@ -240,8 +255,11 @@ export function registerPersonsRoutes(router: Router) {
           .orderBy(desc(events.startAt));
 
         for (const att of rawAttendances) {
-          if (!attendancesMap.has(att.personId)) {
-            attendancesMap.set(att.personId, { eventTitle: att.eventTitle, startAt: att.startAt });
+          const existing = attendancesMap.get(att.personId);
+          if (!existing) {
+            attendancesMap.set(att.personId, { eventTitle: att.eventTitle, startAt: att.startAt, count: 1 });
+          } else {
+            existing.count += 1;
           }
         }
 
@@ -290,9 +308,33 @@ export function registerPersonsRoutes(router: Router) {
           roles: p.roles.map((r) => r.roleCode),
           tags: p.tags.map((t) => ({ id: t.tag.id, name: t.tag.name, category: t.tag.category })),
           lastAttendance: lastAtt ? { eventTitle: lastAtt.eventTitle, startAt: lastAtt.startAt } : null,
+          attendanceCount: lastAtt ? lastAtt.count : 0,
           nextTask: nextTsk || null,
         };
       });
+
+      // Quick stats for KPI cards
+      let stats = {
+        totalMaster: totalCount,
+        multiKajian: 0,
+        donorsCount: 0,
+      };
+
+      try {
+        const [statsRes] = await db
+          .select({
+            totalMaster: sql<number>`(SELECT count(*)::int FROM "persons")`,
+            multiKajian: sql<number>`(SELECT count(*)::int FROM (SELECT "person_id" FROM "event_attendance" GROUP BY "person_id" HAVING count("id") >= 2) sub)`,
+            donorsCount: sql<number>`(SELECT count(distinct "person_id")::int FROM "donations" WHERE "person_id" IS NOT NULL)`,
+          })
+          .from(sql`(SELECT 1) dummy`);
+
+        if (statsRes) {
+          stats = statsRes;
+        }
+      } catch (err) {
+        console.warn('[Persons Stats Query Warn]:', err);
+      }
 
       return successResponse(formatted, {
         requestId: ctx.requestId,
@@ -302,6 +344,7 @@ export function registerPersonsRoutes(router: Router) {
           totalCount,
           totalPages,
         },
+        stats,
       });
     })
   );

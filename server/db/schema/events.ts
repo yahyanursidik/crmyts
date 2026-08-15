@@ -22,6 +22,8 @@ export interface EventFormConfig {
   collectNotes?: boolean;
   requireGender?: boolean;
   collectVehicle?: boolean;
+  allowMultiParticipant?: boolean;
+  maxMultiParticipants?: number;
   customFields?: EventFormField[];
   whatsappMessageTemplate?: string;
   termsAndConditions?: string;
@@ -62,6 +64,14 @@ export const events = pgTable(
     venueRules: jsonb('venue_rules').$type<string[]>(), // e.g. ['no_toddlers', 'modest_dress', 'bring_prayer_mat', 'bring_kitab', 'silent_phone', 'stay_overnight']
     customVenueRules: text('custom_venue_rules'),
     
+    // Paid Event & Banking Configuration
+    isPaid: boolean('is_paid').default(false).notNull(),
+    priceRupiah: integer('price_rupiah').default(0),
+    bankName: text('bank_name'),
+    bankAccountNumber: text('bank_account_number'),
+    bankAccountName: text('bank_account_name'),
+    paymentInstructions: text('payment_instructions'),
+
     // Dynamic Form Builder
     formConfig: jsonb('form_config').$type<EventFormConfig>(),
     
@@ -97,6 +107,19 @@ export const eventAttendance = pgTable(
     status: text('status').default('attended').notNull(),
     ticketCode: text('ticket_code'),
     
+    // Multi-Participant / Family Group Registration
+    registrationGroupId: text('registration_group_id'),
+    familyRelationship: text('family_relationship'),
+    age: integer('age'),
+
+    // Payment & Verification Tracking
+    paymentStatus: text('payment_status').default('free').notNull(), // 'free' | 'pending_payment' | 'waiting_verification' | 'verified' | 'rejected'
+    paymentProofUrl: text('payment_proof_url'),
+    paymentAmountRupiah: integer('payment_amount_rupiah'),
+    paymentVerifiedBy: uuid('payment_verified_by').references(() => appUsers.id),
+    paymentVerifiedAt: timestamp('payment_verified_at', { withTimezone: true }),
+    paymentRejectionReason: text('payment_rejection_reason'),
+
     // Vehicle & Logistics
     vehicleType: text('vehicle_type').default('none').notNull(), // 'none' | 'motorcycle' | 'car'
     vehiclePlateNumber: text('vehicle_plate_number'),
@@ -107,6 +130,7 @@ export const eventAttendance = pgTable(
   (t) => ({
     uniqueAttendance: uniqueIndex('idx_event_person_unique').on(t.eventId, t.personId),
     checkInIdx: index('idx_attendance_check_in').on(t.checkInAt),
+    groupRegistrationIdx: index('idx_attendance_reg_group').on(t.registrationGroupId),
   })
 );
 

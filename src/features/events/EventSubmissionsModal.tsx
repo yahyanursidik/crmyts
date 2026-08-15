@@ -10,9 +10,13 @@ import {
   Car,
   Bike,
   AlertCircle,
+  FileSpreadsheet,
+  Receipt,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
 import { ECertificateModal } from './ECertificateModal';
+import { EventImportModal } from './components/EventImportModal';
+import { PaymentVerifyModal, ParticipantPaymentData } from './components/PaymentVerifyModal';
 
 interface ParticipantItem {
   id: string;
@@ -26,6 +30,19 @@ interface ParticipantItem {
   source: string;
   checkInAt: string;
   ticketCode?: string | null;
+  
+  // Payment tracking
+  paymentStatus: string; // 'free' | 'pending_payment' | 'waiting_verification' | 'verified' | 'rejected'
+  paymentProofUrl?: string | null;
+  paymentAmountRupiah?: number | null;
+  paymentVerifiedAt?: string | null;
+  paymentRejectionReason?: string | null;
+
+  // Family & Group Registration
+  registrationGroupId?: string | null;
+  familyRelationship?: string | null;
+  age?: number | null;
+
   vehicleType: string; // 'none' | 'motorcycle' | 'car'
   vehiclePlateNumber?: string | null;
   registrationData?: Record<string, any> | null;
@@ -38,6 +55,14 @@ interface EventDetailData {
   speaker: string;
   startAt: string;
   locationName?: string | null;
+  
+  isPaid?: boolean;
+  priceRupiah?: number;
+  bankName?: string | null;
+  bankAccountNumber?: string | null;
+  bankAccountName?: string | null;
+  paymentInstructions?: string | null;
+
   formConfig?: any;
   participants: ParticipantItem[];
   totalParticipants: number;
@@ -46,6 +71,10 @@ interface EventDetailData {
   akhwatCount: number;
   carsCount: number;
   motorcyclesCount: number;
+  
+  waitingVerificationCount?: number;
+  verifiedPaymentCount?: number;
+  pendingPaymentCount?: number;
 }
 
 interface EventSubmissionsModalProps {
@@ -66,8 +95,11 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'attended' | 'registered'>('all');
   const [genderFilter, setGenderFilter] = useState<'all' | 'ikhwan' | 'akhwat'>('all');
+  const [paymentFilter, setPaymentFilter] = useState<'all' | 'waiting_verification' | 'verified' | 'pending_payment' | 'rejected'>('all');
   const [selectedForCert, setSelectedForCert] = useState<ParticipantItem | null>(null);
+  const [selectedForPaymentVerify, setSelectedForPaymentVerify] = useState<ParticipantPaymentData | null>(null);
   const [checkingInId, setCheckingInId] = useState<string | null>(null);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   const loadEventDetail = async () => {
     try {
@@ -127,8 +159,9 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
 
     const matchStatus = statusFilter === 'all' || p.status === statusFilter;
     const matchGender = genderFilter === 'all' || p.personGender === genderFilter;
+    const matchPayment = paymentFilter === 'all' || p.paymentStatus === paymentFilter;
 
-    return matchSearch && matchStatus && matchGender;
+    return matchSearch && matchStatus && matchGender && matchPayment;
   });
 
   // Export to CSV
@@ -142,6 +175,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
       'No. WhatsApp',
       'Email',
       'Kota / Domisili',
+      ...(data.isPaid ? ['Status Pembayaran', 'Nominal (Rp)', 'Bukti URL'] : []),
       'Status Presensi',
       'Kendaraan',
       'No. Plat',
@@ -156,6 +190,13 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
       `"${p.personPhone}"`,
       `"${p.personEmail || '-'}"`,
       `"${p.personCity || '-'}"`,
+      ...(data.isPaid
+        ? [
+            `"${p.paymentStatus === 'verified' ? 'Lunas' : p.paymentStatus === 'waiting_verification' ? 'Menunggu Verifikasi' : p.paymentStatus === 'rejected' ? 'Ditolak' : 'Belum Bayar'}"`,
+            `"${p.paymentAmountRupiah || data.priceRupiah || 0}"`,
+            `"${p.paymentProofUrl || '-'}"`,
+          ]
+        : []),
       `"${p.status === 'attended' ? 'Hadir' : 'Terdaftar'}"`,
       `"${p.vehicleType === 'car' ? 'Mobil' : p.vehicleType === 'motorcycle' ? 'Motor' : 'Tanpa Kendaraan'}"`,
       `"${p.vehiclePlateNumber || '-'}"`,
@@ -188,6 +229,12 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-brand-100 text-brand-900 border border-brand-200">
                   Data Submissions & Presensi
                 </span>
+                {data?.isPaid && (
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+                    <Receipt className="w-3 h-3 text-amber-700" />
+                    <span>Daurah Berbayar (Rp {(data.priceRupiah || 0).toLocaleString('id-ID')})</span>
+                  </span>
+                )}
                 <span className="text-xs font-bold text-surface-500">• {data?.category}</span>
               </div>
               <h2 className="text-xl font-black text-brand-950 font-display mt-1">
@@ -213,21 +260,39 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                 <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">Total Terdaftar</span>
                 <span className="text-lg font-black text-brand-950 block mt-0.5 font-display">{data.totalParticipants} Jamaah</span>
               </div>
+
+              {data.isPaid ? (
+                <>
+                  <div className="p-3 bg-white rounded-2xl border border-amber-200 bg-amber-50/40 shadow-2xs text-center">
+                    <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Menunggu Verifikasi</span>
+                    <span className="text-lg font-black text-amber-900 block mt-0.5 font-display">{data.waitingVerificationCount || 0} Bayar</span>
+                  </div>
+                  <div className="p-3 bg-white rounded-2xl border border-emerald-200 bg-emerald-50/40 shadow-2xs text-center">
+                    <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Pembayaran Lunas</span>
+                    <span className="text-lg font-black text-emerald-900 block mt-0.5 font-display">{data.verifiedPaymentCount || 0} Lunas</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="p-3 bg-white rounded-2xl border border-cream-300 shadow-2xs text-center">
+                    <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">Ikhwan / Akhwat</span>
+                    <span className="text-lg font-black text-surface-800 block mt-0.5 font-display">{data.ikhwanCount} / {data.akhwatCount}</span>
+                  </div>
+                  <div className="p-3 bg-white rounded-2xl border border-cream-300 shadow-2xs text-center">
+                    <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">Slot Parkir Mobil</span>
+                    <span className="text-lg font-black text-surface-800 block mt-0.5 font-display">{data.carsCount} Mobil</span>
+                  </div>
+                </>
+              )}
+
               <div className="p-3 bg-white rounded-2xl border border-brand-200 bg-brand-50/30 shadow-2xs text-center">
                 <span className="text-[10px] font-bold text-brand-800 uppercase tracking-wider block">Sudah Hadir (Check-in)</span>
-                <span className="text-lg font-black text-brand-800 block mt-0.5 font-display">{data.attendedCount} Jamaah</span>
+                <span className="text-lg font-black text-brand-800 block mt-0.5 font-display">{data.attendedCount} Hadir</span>
               </div>
+
               <div className="p-3 bg-white rounded-2xl border border-cream-300 shadow-2xs text-center">
-                <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">Ikhwan / Akhwat</span>
-                <span className="text-lg font-black text-surface-800 block mt-0.5 font-display">{data.ikhwanCount} / {data.akhwatCount}</span>
-              </div>
-              <div className="p-3 bg-white rounded-2xl border border-cream-300 shadow-2xs text-center">
-                <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">Slot Parkir Mobil</span>
-                <span className="text-lg font-black text-surface-800 block mt-0.5 font-display">{data.carsCount} Mobil</span>
-              </div>
-              <div className="p-3 bg-white rounded-2xl border border-cream-300 shadow-2xs text-center">
-                <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">Slot Parkir Motor</span>
-                <span className="text-lg font-black text-surface-800 block mt-0.5 font-display">{data.motorcyclesCount} Motor</span>
+                <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">Kendaraan Terparkir</span>
+                <span className="text-lg font-black text-surface-800 block mt-0.5 font-display">{data.carsCount + data.motorcyclesCount} Unit</span>
               </div>
             </div>
           )}
@@ -236,7 +301,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
           <div className="p-4 bg-white border-b border-cream-300 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
               {/* Search Bar */}
-              <div className="relative min-w-[220px]">
+              <div className="relative min-w-[200px]">
                 <Search className="w-4 h-4 text-surface-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
@@ -253,7 +318,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                   onClick={() => setStatusFilter('all')}
                   className={`px-2.5 py-1 rounded-lg transition-all ${statusFilter === 'all' ? 'bg-white text-brand-900 shadow-2xs' : 'text-surface-600'}`}
                 >
-                  Semua
+                  Semua Presensi
                 </button>
                 <button
                   onClick={() => setStatusFilter('attended')}
@@ -269,6 +334,30 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                 </button>
               </div>
 
+              {/* Payment Filter (if paid event) */}
+              {data?.isPaid && (
+                <div className="flex items-center gap-1 bg-amber-50/60 p-1 rounded-xl border border-amber-200 text-xs font-bold">
+                  <button
+                    onClick={() => setPaymentFilter('all')}
+                    className={`px-2.5 py-1 rounded-lg transition-all ${paymentFilter === 'all' ? 'bg-white text-amber-950 shadow-2xs' : 'text-surface-600'}`}
+                  >
+                    Semua Bayar
+                  </button>
+                  <button
+                    onClick={() => setPaymentFilter('waiting_verification')}
+                    className={`px-2.5 py-1 rounded-lg transition-all ${paymentFilter === 'waiting_verification' ? 'bg-amber-600 text-white shadow-2xs' : 'text-amber-800'}`}
+                  >
+                    Perlu Verifikasi ({data.waitingVerificationCount || 0})
+                  </button>
+                  <button
+                    onClick={() => setPaymentFilter('verified')}
+                    className={`px-2.5 py-1 rounded-lg transition-all ${paymentFilter === 'verified' ? 'bg-emerald-700 text-white shadow-2xs' : 'text-emerald-800'}`}
+                  >
+                    Lunas ({data.verifiedPaymentCount || 0})
+                  </button>
+                </div>
+              )}
+
               {/* Gender Filter */}
               <select
                 value={genderFilter}
@@ -281,15 +370,26 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
               </select>
             </div>
 
-            {/* Export CSV Button */}
-            <button
-              onClick={handleExportCSV}
-              disabled={filtered.length === 0}
-              className="py-2 px-4 bg-brand-800 hover:bg-brand-900 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 active:scale-95 shrink-0"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Export CSV ({filtered.length})</span>
-            </button>
+            {/* Import & Export Action Buttons */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowImportModal(true)}
+                className="py-2 px-3.5 bg-cream-100 hover:bg-cream-200 text-brand-950 text-xs font-bold rounded-xl border border-cream-300 shadow-2xs transition-all flex items-center justify-center gap-1.5 active:scale-95 shrink-0"
+                title="Impor Peserta dari File CSV dengan Pratinjau & Fitur Anti-Duplikat"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-brand-800" />
+                <span>📥 Impor CSV</span>
+              </button>
+
+              <button
+                onClick={handleExportCSV}
+                disabled={filtered.length === 0}
+                className="py-2 px-4 bg-brand-800 hover:bg-brand-900 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 active:scale-95 shrink-0"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export CSV ({filtered.length})</span>
+              </button>
+            </div>
           </div>
 
           {/* 4. Submissions Table Content */}
@@ -309,6 +409,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                     <tr className="bg-cream-100/80 border-b border-cream-300 text-[11px] font-extrabold text-brand-950 uppercase tracking-wider">
                       <th className="py-3 px-4">Tiket & Jamaah</th>
                       <th className="py-3 px-3">Kontak & Kota</th>
+                      {data?.isPaid && <th className="py-3 px-3">Status Pembayaran</th>}
                       <th className="py-3 px-3">Logistik Parkir</th>
                       {customFields.map((cf) => (
                         <th key={cf.id} className="py-3 px-3 text-surface-700">
@@ -332,7 +433,14 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                                 {p.ticketCode || 'TKT-OFFLINE'}
                               </span>
                               <div>
-                                <p className="font-bold text-brand-950 text-xs">{p.personName}</p>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <p className="font-bold text-brand-950 text-xs">{p.personName}</p>
+                                  {p.familyRelationship && (
+                                    <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200">
+                                      {p.familyRelationship} {p.age ? `(${p.age} thn)` : ''}
+                                    </span>
+                                  )}
+                                </div>
                                 <span className={`text-[10px] font-extrabold uppercase ${p.personGender === 'ikhwan' ? 'text-teal-700' : 'text-purple-700'}`}>
                                   {p.personGender}
                                 </span>
@@ -345,6 +453,68 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                             <p className="font-mono text-[11px] text-surface-700">{p.personPhone}</p>
                             <p className="text-[10px] text-surface-500">{p.personCity || 'Kota Bandung'}</p>
                           </td>
+
+                          {/* 2b. Status Pembayaran (Khusus Kajian Berbayar) */}
+                          {data?.isPaid && (
+                            <td className="py-3 px-3">
+                              <div className="flex flex-col items-start gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setSelectedForPaymentVerify({
+                                      id: p.id,
+                                      personId: p.personId,
+                                      personName: p.personName,
+                                      personPhone: p.personPhone,
+                                      ticketCode: p.ticketCode,
+                                      paymentStatus: p.paymentStatus,
+                                      paymentProofUrl: p.paymentProofUrl,
+                                      paymentAmountRupiah: p.paymentAmountRupiah || data.priceRupiah,
+                                      paymentVerifiedAt: p.paymentVerifiedAt,
+                                      paymentRejectionReason: p.paymentRejectionReason,
+                                      eventTitle: data.title,
+                                      eventPriceRupiah: data.priceRupiah,
+                                      bankName: data.bankName,
+                                      bankAccountNumber: data.bankAccountNumber,
+                                      bankAccountName: data.bankAccountName,
+                                      registrationGroupId: p.registrationGroupId,
+                                      familyRelationship: p.familyRelationship,
+                                      age: p.age,
+                                      groupMembersCount: p.registrationGroupId
+                                        ? participants.filter((x) => x.registrationGroupId === p.registrationGroupId).length
+                                        : 1,
+                                    })
+                                  }
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all active:scale-95 shadow-2xs ${
+                                    p.paymentStatus === 'verified'
+                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                                      : p.paymentStatus === 'waiting_verification'
+                                      ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100 animate-pulse'
+                                      : p.paymentStatus === 'rejected'
+                                      ? 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100'
+                                      : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
+                                  }`}
+                                  title="Klik untuk melihat bukti transfer & memverifikasi"
+                                >
+                                  <Receipt className="w-3 h-3" />
+                                  <span>
+                                    {p.paymentStatus === 'verified'
+                                      ? '✓ Lunas'
+                                      : p.paymentStatus === 'waiting_verification'
+                                      ? '🔎 Periksa Bukti'
+                                      : p.paymentStatus === 'rejected'
+                                      ? '✕ Ditolak'
+                                      : 'Belum Bayar'}
+                                  </span>
+                                </button>
+                                {p.paymentProofUrl && (
+                                  <span className="text-[9px] font-bold text-brand-800">
+                                    📷 Bukti terlampir
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          )}
 
                           {/* 3. Logistik Parkir */}
                           <td className="py-3 px-3">
@@ -443,6 +613,34 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
           speaker={data.speaker}
           dateStr={data.startAt}
           ticketCode={selectedForCert.ticketCode || 'YTS-SERTIFIKAT'}
+        />
+      )}
+
+      {/* Payment Verify Modal */}
+      {selectedForPaymentVerify && data && (
+        <PaymentVerifyModal
+          isOpen={true}
+          onClose={() => setSelectedForPaymentVerify(null)}
+          onSuccess={() => {
+            loadEventDetail();
+            if (onRefreshList) onRefreshList();
+          }}
+          eventId={data.id}
+          participant={selectedForPaymentVerify}
+        />
+      )}
+
+      {/* Import Modal */}
+      {showImportModal && data && (
+        <EventImportModal
+          isOpen={true}
+          onClose={() => setShowImportModal(false)}
+          eventId={data.id}
+          eventTitle={data.title}
+          onSuccess={() => {
+            loadEventDetail();
+            if (onRefreshList) onRefreshList();
+          }}
         />
       )}
     </>

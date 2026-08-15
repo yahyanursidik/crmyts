@@ -41,6 +41,14 @@ const publicWaqfInquirySchema = z.object({
   notesSummary: z.string().min(5, 'Mohon jelaskan niat dan rincian aset wakaf yang ingin dikonsultasikan'),
 });
 
+const additionalParticipantSchema = z.object({
+  fullName: z.string().min(2, 'Nama lengkap peserta rombongan minimal 2 karakter'),
+  gender: z.enum(['ikhwan', 'akhwat']).default('ikhwan'),
+  relationship: z.string().default('Keluarga'),
+  age: z.number().int().positive().optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+
 const publicEventRegistrationSchema = z.object({
   eventId: z.string().uuid('Kajian / Daurah wajib dipilih'),
   fullName: z.string().min(2, 'Nama lengkap minimal 2 karakter'),
@@ -53,6 +61,9 @@ const publicEventRegistrationSchema = z.object({
   vehicleType: z.enum(['none', 'motorcycle', 'car']).default('none'),
   vehiclePlateNumber: z.string().optional().nullable(),
   agreedToRules: z.boolean().default(true),
+  paymentProofUrl: z.string().optional().nullable(),
+  paymentAmountRupiah: z.number().optional().nullable(),
+  additionalParticipants: z.array(additionalParticipantSchema).optional().nullable(),
 });
 
 export function registerPublicPortalRoutes(router: Router) {
@@ -499,10 +510,25 @@ export function registerPublicPortalRoutes(router: Router) {
         where: sql`${eventAttendance.eventId} = ${body.eventId} AND ${eventAttendance.personId} = ${person.id}`,
       });
 
+      // Generate Group ID if registering multiple family members / companions
+      const additionalList = body.additionalParticipants || [];
+      const isGroup = additionalList.length > 0;
+      const totalParticipantsCount = 1 + additionalList.length;
+
       // Generate Ticket Code: TIKET-KJN-YYMMDD-RAND
       const datePart = new Date(targetEvent.startAt).toISOString().slice(2, 10).replace(/-/g, '');
       const randPart = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const registrationGroupId = isGroup ? `GRP-${datePart}-${randPart}` : null;
       const ticketCode = existingAttendance?.ticketCode || `TIKET-KJN-${datePart}-${randPart}`;
+
+      // Determine payment status
+      const isPaidEvent = targetEvent.isPaid && (targetEvent.priceRupiah || 0) > 0;
+      let initialPaymentStatus = 'free';
+      if (isPaidEvent) {
+        initialPaymentStatus = body.paymentProofUrl ? 'waiting_verification' : 'pending_payment';
+      }
+
+      const totalGroupPrice = isPaidEvent ? totalParticipantsCount * (targetEvent.priceRupiah || 0) : 0;
 
       if (!existingAttendance) {
         await db.insert(eventAttendance).values({
@@ -511,16 +537,124 @@ export function registerPublicPortalRoutes(router: Router) {
           source: 'form_registration',
           status: 'registered',
           ticketCode,
+          
+          registrationGroupId,
+          familyRelationship: isGroup ? 'Kepala Keluarga / Pendaftar Utama' : null,
+          age: null,
+
+          paymentStatus: initialPaymentStatus,
+          paymentProofUrl: body.paymentProofUrl || null,
+          paymentAmountRupiah: isPaidEvent ? (body.paymentAmountRupiah || totalGroupPrice) : 0,
+
           vehicleType: body.vehicleType || 'none',
           vehiclePlateNumber: body.vehiclePlateNumber || null,
           agreedToRules: body.agreedToRules !== false,
-          registrationData: body.customResponses || null,
+          registrationData:
+            body.customResponses || body.notes
+              ? {
+                  ...(body.customResponses || {}),
+                  ...(body.notes ? { _generalNotes: body.notes } : {}),
+                }
+              : null,
         });
+      } else if (isPaidEvent && body.paymentProofUrl && existingAttendance.paymentStatus !== 'verified') {
+        // Allow re-uploading payment proof if pending or rejected
+        await db
+          .update(eventAttendance)
+          .set({
+            paymentStatus: 'waiting_verification',
+            paymentProofUrl: body.paymentProofUrl,
+            paymentAmountRupiah: totalGroupPrice,
+            paymentRejectionReason: null,
+          })
+          .where(eq(eventAttendance.id, existingAttendance.id));
+      }
+
+      // Group tickets collection
+      const groupTickets: Array<{
+        name: string;
+        gender: string;
+        relationship: string;
+        age?: number | null;
+        ticketCode: string;
+      }> = [
+        {
+          name: body.fullName,
+          gender: body.gender || 'ikhwan',
+          relationship: isGroup ? 'Kepala Keluarga / Pendaftar Utama' : 'Pendaftar Utama',
+          age: null,
+          ticketCode,
+        },
+      ];
+
+      // Process additional family members / companions
+      let memberIdx = 0;
+      for (const member of additionalList) {
+        memberIdx++;
+        const memberPhoneVirtual = `${phoneNorm}-fam-${memberIdx}`;
+        const memberTicketCode = `TIKET-KJN-${datePart}-${randPart}-${memberIdx}`;
+
+        let memberPerson = await db.query.persons.findFirst({
+          where: sql`${persons.fullName} = ${member.fullName} AND (${persons.phoneE164} = ${memberPhoneVirtual} OR ${persons.phoneE164} = ${phoneNorm})`,
+        });
+
+        if (!memberPerson) {
+          const [newMember] = await db
+            .insert(persons)
+            .values({
+              fullName: member.fullName,
+              phoneE164: memberPhoneVirtual,
+              gender: member.gender || 'ikhwan',
+              cityRegency: body.cityRegency || null,
+              sourceCode: 'public_portal_kajian_family',
+              engagementStatus: 'baru',
+              preferredChannel: 'whatsapp',
+            })
+            .returning();
+          memberPerson = newMember;
+        }
+
+        if (memberPerson) {
+          const existingMemAtt = await db.query.eventAttendance.findFirst({
+            where: sql`${eventAttendance.eventId} = ${targetEvent.id} AND ${eventAttendance.personId} = ${memberPerson.id}`,
+          });
+
+          if (!existingMemAtt) {
+            await db.insert(eventAttendance).values({
+              eventId: targetEvent.id,
+              personId: memberPerson.id,
+              source: 'form_registration',
+              status: 'registered',
+              ticketCode: memberTicketCode,
+              registrationGroupId,
+              familyRelationship: member.relationship || 'Keluarga',
+              age: member.age || null,
+              paymentStatus: initialPaymentStatus,
+              paymentProofUrl: body.paymentProofUrl || null,
+              paymentAmountRupiah: targetEvent.priceRupiah || 0,
+              vehicleType: 'none',
+              agreedToRules: true,
+              registrationData: member.notes ? { notes: member.notes } : null,
+            });
+          }
+
+          groupTickets.push({
+            name: member.fullName,
+            gender: member.gender || 'ikhwan',
+            relationship: member.relationship || 'Keluarga',
+            age: member.age || null,
+            ticketCode: existingMemAtt?.ticketCode || memberTicketCode,
+          });
+        }
       }
 
       return successResponse(
         {
           ticketCode,
+          registrationGroupId,
+          isGroupRegistration: isGroup,
+          totalParticipantsCount,
+          groupTickets,
           event: {
             id: targetEvent.id,
             title: targetEvent.title,
@@ -532,6 +666,13 @@ export function registerPublicPortalRoutes(router: Router) {
             locationName: targetEvent.locationName || 'Masjid / Studio Tarbiyah Sunnah',
             meetingUrl: targetEvent.meetingUrl,
             venueRules: targetEvent.venueRules || [],
+            isPaid: targetEvent.isPaid,
+            priceRupiah: targetEvent.priceRupiah,
+            totalPriceRupiah: totalGroupPrice,
+            bankName: targetEvent.bankName,
+            bankAccountNumber: targetEvent.bankAccountNumber,
+            bankAccountName: targetEvent.bankAccountName,
+            paymentInstructions: targetEvent.paymentInstructions,
           },
           participant: {
             name: body.fullName,
@@ -539,9 +680,106 @@ export function registerPublicPortalRoutes(router: Router) {
             phone: phoneNorm,
             vehicleType: body.vehicleType,
             vehiclePlateNumber: body.vehiclePlateNumber,
+            paymentStatus: initialPaymentStatus,
+            priceRupiah: isPaidEvent ? targetEvent.priceRupiah : 0,
+            totalPriceRupiah: totalGroupPrice,
           },
-          message:
-            'Alhamdulillah, pendaftaran kajian Anda berhasil dicatat. Silakan simpan kode tiket ini dan hadir tepat waktu sebelum kajian dimulai.',
+          message: isPaidEvent
+            ? (body.paymentProofUrl
+                ? `Alhamdulillah, pendaftaran rombongan (${totalParticipantsCount} orang) dan bukti pembayaran Anda berhasil dikirim dan sedang diverifikasi oleh Amil Yayasan Tarbiyah Sunnah.`
+                : `Pendaftaran rombongan (${totalParticipantsCount} orang) berhasil dicatat. Silakan lakukan pembayaran total Rp ${totalGroupPrice.toLocaleString('id-ID')} dan unggah bukti transfer.`)
+            : `Alhamdulillah, pendaftaran ${isGroup ? `rombongan keluarga (${totalParticipantsCount} orang)` : 'kajian'} Anda berhasil dicatat. Silakan simpan kode tiket ini.`,
+        },
+        { requestId: ctx.requestId }
+      );
+    })
+  );
+
+  // 5. POST /api/public/lookup-participant (Auto-fill biodata for returning jamaah)
+  const participantLookupSchema = z.object({
+    identifier: z.string().min(3, 'Nomor WhatsApp atau Email minimal 3 karakter'),
+  });
+
+  router.post(
+    '/api/public/lookup-participant',
+    validateBody(participantLookupSchema, async (ctx, body) => {
+      const db = getDb();
+      const raw = body.identifier.trim();
+      const isEmail = raw.includes('@');
+
+      let person = null;
+      if (isEmail) {
+        person = await db.query.persons.findFirst({
+          where: sql`lower(${persons.email}) = ${raw.toLowerCase()}`,
+        });
+      } else {
+        const phoneNorm = normalizeIndonesianPhone(raw);
+        person = await db.query.persons.findFirst({
+          where: sql`${persons.phoneE164} = ${phoneNorm} OR ${persons.phoneE164} = ${raw}`,
+        });
+      }
+
+      if (!person) {
+        return successResponse({ found: false }, { requestId: ctx.requestId });
+      }
+
+      // Count past kajian attendance
+      const attendanceRecords = await db.query.eventAttendance.findMany({
+        where: eq(eventAttendance.personId, person.id),
+        orderBy: [sql`${eventAttendance.checkInAt} DESC`],
+        limit: 10,
+      });
+
+      const totalKajianAttended = attendanceRecords.length;
+
+      // Check if this person has past family members registered in their groups
+      const groupIds = attendanceRecords
+        .map((a) => a.registrationGroupId)
+        .filter((gid): gid is string => Boolean(gid));
+
+      let pastFamilyMembers: Array<{
+        fullName: string;
+        gender: 'ikhwan' | 'akhwat';
+        relationship: string;
+        age?: number | null;
+      }> = [];
+
+      if (groupIds.length > 0) {
+        const relatedAttendances = await db.query.eventAttendance.findMany({
+          where: sql`${eventAttendance.registrationGroupId} IN ${groupIds} AND ${eventAttendance.personId} != ${person.id}`,
+          with: {
+            person: true,
+          },
+        });
+
+        const seenNames = new Set<string>();
+        for (const rel of relatedAttendances) {
+          const name = rel.person?.fullName;
+          if (name && !seenNames.has(name.toLowerCase())) {
+            seenNames.add(name.toLowerCase());
+            pastFamilyMembers.push({
+              fullName: name,
+              gender: (rel.person?.gender as 'ikhwan' | 'akhwat') || 'ikhwan',
+              relationship: rel.familyRelationship || 'Keluarga',
+              age: rel.age || null,
+            });
+          }
+        }
+      }
+
+      return successResponse(
+        {
+          found: true,
+          person: {
+            id: person.id,
+            fullName: person.fullName,
+            phone: person.phoneE164 || '',
+            email: person.email || '',
+            gender: person.gender || 'ikhwan',
+            cityRegency: person.cityRegency || '',
+          },
+          totalKajianAttended,
+          pastFamilyMembers,
         },
         { requestId: ctx.requestId }
       );

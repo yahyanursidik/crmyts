@@ -173,24 +173,50 @@ export async function resolveUserByEmail(email: string): Promise<AuthenticatedUs
 }
 
 /**
- * Login user and issue signed session token
+ * Registered Credentials & Passwords
+ * Only authorized passwords will be accepted (e.g. admin123 for administrator accounts).
  */
-export async function loginUser(email: string, _password: string): Promise<LoginResult | null> {
+const VALID_CREDENTIALS: Record<string, string> = {
+  'admin@tarbiyahsunnah.id': 'admin123',
+  'crm_admin@tarbiyahsunnah.id': 'admin123',
+  'finance_verifier@tarbiyahsunnah.id': 'admin123',
+  'event_admin@tarbiyahsunnah.id': 'admin123',
+};
+
+/**
+ * Login user and issue signed session token with strict password validation
+ */
+export async function loginUser(email: string, password: string): Promise<LoginResult | null> {
   const normalizedEmail = email.toLowerCase().trim();
+  const trimmedPassword = (password || '').trim();
+
+  // 1. Strict password validation:
+  // Must strictly match the configured password (admin123)
+  const expectedPassword = VALID_CREDENTIALS[normalizedEmail];
+  if (!expectedPassword || trimmedPassword !== expectedPassword) {
+    console.warn(`[Login Failed]: Invalid password attempt for ${normalizedEmail}`);
+    return null;
+  }
+
+  // 2. Resolve user profile
   const user = await resolveUserByEmail(normalizedEmail);
 
   if (!user) {
     return null;
   }
 
-  // Generate session token
+  if (!user.isActive) {
+    return null;
+  }
+
+  // 3. Generate signed session token
   const token = createSessionToken({
     userId: user.id,
     authSubject: user.authSubject,
     email: user.email,
   });
 
-  // Update last login timestamp if database is available
+  // 4. Update last login timestamp if database is available
   try {
     const env = getServerEnv();
     if (env.DATABASE_URL) {

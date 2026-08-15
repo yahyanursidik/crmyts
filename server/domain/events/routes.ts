@@ -18,6 +18,14 @@ const createEventSchema = z.object({
   locationName: z.string().optional().nullable(),
   meetingUrl: z.string().url('URL tidak valid').optional().nullable().or(z.literal('')),
   
+  // Paid Event & Banking Configuration
+  isPaid: z.boolean().default(false),
+  priceRupiah: z.number().int().min(0).default(0),
+  bankName: z.string().optional().nullable(),
+  bankAccountNumber: z.string().optional().nullable(),
+  bankAccountName: z.string().optional().nullable(),
+  paymentInstructions: z.string().optional().nullable(),
+  
   // Segmentation & Quota
   targetAudience: z.enum(['umum', 'ikhwan_only', 'akhwat_only', 'anak', 'itikaf_ramadan']).default('umum'),
   quota: z.number().int().positive().optional().nullable(),
@@ -129,6 +137,19 @@ export function registerEventsRoutes(router: Router) {
         source: att.source,
         checkInAt: att.checkInAt,
         ticketCode: att.ticketCode,
+        
+        // Payment Information
+        paymentStatus: att.paymentStatus || (eventItem.isPaid ? 'pending_payment' : 'free'),
+        paymentProofUrl: att.paymentProofUrl || null,
+        paymentAmountRupiah: att.paymentAmountRupiah || (eventItem.isPaid ? eventItem.priceRupiah : 0),
+        paymentVerifiedAt: att.paymentVerifiedAt || null,
+        paymentRejectionReason: att.paymentRejectionReason || null,
+
+        // Group / Family Registration
+        registrationGroupId: att.registrationGroupId || null,
+        familyRelationship: att.familyRelationship || null,
+        age: att.age || null,
+
         vehicleType: att.vehicleType,
         vehiclePlateNumber: att.vehiclePlateNumber,
         agreedToRules: att.agreedToRules,
@@ -139,6 +160,9 @@ export function registerEventsRoutes(router: Router) {
       const akhwatCount = participants.filter((p) => p.personGender === 'akhwat').length;
       const carsCount = participants.filter((p) => p.vehicleType === 'car').length;
       const motorcyclesCount = participants.filter((p) => p.vehicleType === 'motorcycle').length;
+      const waitingVerificationCount = participants.filter((p) => p.paymentStatus === 'waiting_verification').length;
+      const verifiedPaymentCount = participants.filter((p) => p.paymentStatus === 'verified').length;
+      const pendingPaymentCount = participants.filter((p) => p.paymentStatus === 'pending_payment').length;
 
       return successResponse(
         {
@@ -150,13 +174,16 @@ export function registerEventsRoutes(router: Router) {
           akhwatCount,
           carsCount,
           motorcyclesCount,
+          waitingVerificationCount,
+          verifiedPaymentCount,
+          pendingPaymentCount,
         },
         { requestId: ctx.requestId }
       );
     })
   );
 
-  // 3. POST /api/events (Create new event with audience segment, quotas & parking)
+  // 3. POST /api/events (Create new event with audience segment, quotas, payment & parking)
   router.post(
     '/api/events',
     requireAuth(
@@ -188,6 +215,13 @@ export function registerEventsRoutes(router: Router) {
             locationName: body.locationName || null,
             meetingUrl: body.meetingUrl || null,
             
+            isPaid: body.isPaid || false,
+            priceRupiah: body.priceRupiah || 0,
+            bankName: body.bankName || null,
+            bankAccountNumber: body.bankAccountNumber || null,
+            bankAccountName: body.bankAccountName || null,
+            paymentInstructions: body.paymentInstructions || null,
+
             targetAudience: body.targetAudience || 'umum',
             quota: body.quota || null,
             quotaIkhwan: body.quotaIkhwan || null,
@@ -209,7 +243,7 @@ export function registerEventsRoutes(router: Router) {
     )
   );
 
-  // 4. PUT /api/events/:id (Update event, quotas, venue rules & form builder)
+  // 4. PUT /api/events/:id (Update event, quotas, venue rules, payment & form builder)
   router.put(
     '/api/events/:id',
     requireAuth(
@@ -243,6 +277,13 @@ export function registerEventsRoutes(router: Router) {
         if (body.meetingUrl !== undefined) updatePayload.meetingUrl = body.meetingUrl;
         if (body.status !== undefined) updatePayload.status = body.status;
         
+        if (body.isPaid !== undefined) updatePayload.isPaid = body.isPaid;
+        if (body.priceRupiah !== undefined) updatePayload.priceRupiah = body.priceRupiah;
+        if (body.bankName !== undefined) updatePayload.bankName = body.bankName;
+        if (body.bankAccountNumber !== undefined) updatePayload.bankAccountNumber = body.bankAccountNumber;
+        if (body.bankAccountName !== undefined) updatePayload.bankAccountName = body.bankAccountName;
+        if (body.paymentInstructions !== undefined) updatePayload.paymentInstructions = body.paymentInstructions;
+
         if (body.targetAudience !== undefined) updatePayload.targetAudience = body.targetAudience;
         if (body.quota !== undefined) updatePayload.quota = body.quota;
         if (body.quotaIkhwan !== undefined) updatePayload.quotaIkhwan = body.quotaIkhwan;
@@ -380,6 +421,147 @@ export function registerEventsRoutes(router: Router) {
     })
   );
 
+  // 7b. POST /api/events/:id/attendances/:attendanceId/verify-payment (Verify/Approve Payment by Admin/Finance)
+  router.post(
+    '/api/events/:id/attendances/:attendanceId/verify-payment',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const eventId = ctx.params.id;
+      const attendanceId = ctx.params.attendanceId;
+
+      if (!ctx.user) {
+        return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+      }
+
+      if (!eventId || !attendanceId) {
+        return errorResponse('VALIDATION_ERROR', 'Event ID dan Attendance ID diperlukan', 400, ctx.requestId);
+      }
+
+      const existing = await db.query.eventAttendance.findFirst({
+        where: and(eq(eventAttendance.id, attendanceId), eq(eventAttendance.eventId, eventId)),
+      });
+
+      if (!existing) {
+        return errorResponse('NOT_FOUND', 'Data pendaftaran peserta tidak ditemukan', 404, ctx.requestId);
+      }
+
+      let updatedList: any[] = [];
+      if (existing.registrationGroupId) {
+        updatedList = await db
+          .update(eventAttendance)
+          .set({
+            paymentStatus: 'verified',
+            paymentVerifiedBy: ctx.user.id,
+            paymentVerifiedAt: new Date(),
+            paymentRejectionReason: null,
+            status: 'registered',
+          })
+          .where(
+            and(
+              eq(eventAttendance.eventId, eventId),
+              eq(eventAttendance.registrationGroupId, existing.registrationGroupId)
+            )
+          )
+          .returning();
+      } else {
+        updatedList = await db
+          .update(eventAttendance)
+          .set({
+            paymentStatus: 'verified',
+            paymentVerifiedBy: ctx.user.id,
+            paymentVerifiedAt: new Date(),
+            paymentRejectionReason: null,
+            status: 'registered',
+          })
+          .where(eq(eventAttendance.id, attendanceId))
+          .returning();
+      }
+
+      return successResponse(
+        {
+          message: existing.registrationGroupId
+            ? `Bukti pembayaran untuk seluruh rombongan (${updatedList.length} orang) berhasil disetujui & tiket telah aktif.`
+            : 'Bukti pembayaran berhasil disetujui & tiket telah aktif.',
+          attendance: updatedList[0] || existing,
+          updatedCount: updatedList.length,
+        },
+        { requestId: ctx.requestId }
+      );
+    })
+  );
+
+  // 7c. POST /api/events/:id/attendances/:attendanceId/reject-payment (Reject Payment Proof with Reason)
+  router.post(
+    '/api/events/:id/attendances/:attendanceId/reject-payment',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const eventId = ctx.params.id;
+      const attendanceId = ctx.params.attendanceId;
+      const { rejectionReason } = (ctx.body as any) || {};
+
+      if (!ctx.user) {
+        return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+      }
+
+      if (!eventId || !attendanceId) {
+        return errorResponse('VALIDATION_ERROR', 'Event ID dan Attendance ID diperlukan', 400, ctx.requestId);
+      }
+
+      if (!rejectionReason || !rejectionReason.trim()) {
+        return errorResponse('VALIDATION_ERROR', 'Alasan penolakan pembayaran wajib diisi', 400, ctx.requestId);
+      }
+
+      const existing = await db.query.eventAttendance.findFirst({
+        where: and(eq(eventAttendance.id, attendanceId), eq(eventAttendance.eventId, eventId)),
+      });
+
+      if (!existing) {
+        return errorResponse('NOT_FOUND', 'Data pendaftaran peserta tidak ditemukan', 404, ctx.requestId);
+      }
+
+      let updatedList: any[] = [];
+      if (existing.registrationGroupId) {
+        updatedList = await db
+          .update(eventAttendance)
+          .set({
+            paymentStatus: 'rejected',
+            paymentVerifiedBy: ctx.user.id,
+            paymentVerifiedAt: new Date(),
+            paymentRejectionReason: rejectionReason.trim(),
+          })
+          .where(
+            and(
+              eq(eventAttendance.eventId, eventId),
+              eq(eventAttendance.registrationGroupId, existing.registrationGroupId)
+            )
+          )
+          .returning();
+      } else {
+        updatedList = await db
+          .update(eventAttendance)
+          .set({
+            paymentStatus: 'rejected',
+            paymentVerifiedBy: ctx.user.id,
+            paymentVerifiedAt: new Date(),
+            paymentRejectionReason: rejectionReason.trim(),
+          })
+          .where(eq(eventAttendance.id, attendanceId))
+          .returning();
+      }
+
+      return successResponse(
+        {
+          message: existing.registrationGroupId
+            ? `Status pembayaran rombongan (${updatedList.length} orang) berhasil ditolak.`
+            : 'Status pembayaran berhasil ditolak.',
+          attendance: updatedList[0] || existing,
+          updatedCount: updatedList.length,
+        },
+        { requestId: ctx.requestId }
+      );
+    })
+  );
+
   // 8. POST /api/events/:id/participants/manual (Manually add participant by staff)
   router.post(
     '/api/events/:id/participants/manual',
@@ -447,6 +629,191 @@ export function registerEventsRoutes(router: Router) {
         },
         { requestId: ctx.requestId },
         201
+      );
+    })
+  );
+
+  // 9. POST /api/events/:id/import-participants (Bulk import participants with duplicate skip feature)
+  router.post(
+    '/api/events/:id/import-participants',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const eventId = ctx.params.id;
+      const body = (ctx.body as any) || {};
+      const { participants = [], skipDuplicates = true, updateExistingPerson = true } = body;
+
+      if (!eventId) {
+        return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
+      }
+
+      if (!Array.isArray(participants) || participants.length === 0) {
+        return errorResponse('VALIDATION_ERROR', 'Daftar peserta tidak boleh kosong', 400, ctx.requestId);
+      }
+
+      const eventItem = await db.query.events.findFirst({
+        where: eq(events.id, eventId),
+      });
+
+      if (!eventItem) {
+        return errorResponse('NOT_FOUND', 'Kajian / Event tidak ditemukan', 404, ctx.requestId);
+      }
+
+      // Fetch all existing attendances for this event to detect duplicates quickly
+      const existingAttendances = await db.query.eventAttendance.findMany({
+        where: eq(eventAttendance.eventId, eventId),
+        columns: {
+          id: true,
+          personId: true,
+          ticketCode: true,
+        },
+      });
+
+      const existingPersonIdMap = new Map<string, string>();
+      existingAttendances.forEach((att) => {
+        existingPersonIdMap.set(att.personId, att.id);
+      });
+
+      let importedCount = 0;
+      let skippedCount = 0;
+      let updatedCount = 0;
+      const errors: Array<{ row: number; name: string; phone: string; reason: string }> = [];
+
+      for (let i = 0; i < participants.length; i++) {
+        const item = participants[i];
+        const rowNum = i + 1;
+        const fullName = String(item.fullName || '').trim();
+        const rawPhone = String(item.phone || '').trim();
+
+        if (!fullName || !rawPhone) {
+          errors.push({
+            row: rowNum,
+            name: fullName || '(Kosong)',
+            phone: rawPhone || '(Kosong)',
+            reason: 'Nama lengkap dan nomor telepon wajib diisi',
+          });
+          continue;
+        }
+
+        try {
+          const phoneNorm = normalizeIndonesianPhone(rawPhone);
+
+          // Find or create Person
+          let person = await db.query.persons.findFirst({
+            where: eq(persons.phoneE164, phoneNorm),
+          });
+
+          if (!person) {
+            const [newPerson] = await db
+              .insert(persons)
+              .values({
+                fullName,
+                phoneE164: phoneNorm,
+                gender: item.gender === 'akhwat' ? 'akhwat' : 'ikhwan',
+                email: item.email ? String(item.email).trim().toLowerCase() : null,
+                province: item.province ? String(item.province).trim() : null,
+                cityRegency: item.city ? String(item.city).trim() : null,
+                district: item.district ? String(item.district).trim() : null,
+                sourceCode: 'csv_import',
+                engagementStatus: 'baru',
+                donorStage: 'new_lead',
+              })
+              .returning();
+            person = newPerson;
+          } else if (updateExistingPerson) {
+            // Update missing profile info if existing
+            const updates: Record<string, any> = {};
+            if (!person.cityRegency && item.city) updates.cityRegency = String(item.city).trim();
+            if (!person.province && item.province) updates.province = String(item.province).trim();
+            if (!person.district && item.district) updates.district = String(item.district).trim();
+            if (!person.email && item.email) updates.email = String(item.email).trim().toLowerCase();
+            if (!person.gender && item.gender) updates.gender = item.gender === 'akhwat' ? 'akhwat' : 'ikhwan';
+
+            if (Object.keys(updates).length > 0) {
+              await db.update(persons).set(updates).where(eq(persons.id, person.id));
+            }
+          }
+
+          if (!person) {
+            errors.push({
+              row: rowNum,
+              name: fullName,
+              phone: rawPhone,
+              reason: 'Gagal membuat profil jamaah di database',
+            });
+            continue;
+          }
+
+          // Check duplicate in event
+          const existingAttendanceId = existingPersonIdMap.get(person.id);
+
+          if (existingAttendanceId) {
+            if (skipDuplicates) {
+              skippedCount++;
+              continue;
+            } else {
+              // Update existing attendance
+              await db
+                .update(eventAttendance)
+                .set({
+                  status: item.status === 'attended' ? 'attended' : 'registered',
+                  ticketCode: item.ticketCode || undefined,
+                  vehicleType: item.vehicleType || 'none',
+                  vehiclePlateNumber: item.vehiclePlateNumber || null,
+                  registrationData: item.registrationData || null,
+                })
+                .where(eq(eventAttendance.id, existingAttendanceId));
+              updatedCount++;
+              continue;
+            }
+          }
+
+          // Generate ticket code if not provided
+          const datePart = new Date().toISOString().slice(2, 10).replace(/-/g, '');
+          const randPart = Math.random().toString(36).substring(2, 6).toUpperCase();
+          const ticketCode = item.ticketCode || `TIKET-KJN-${datePart}-${randPart}`;
+
+          await db.insert(eventAttendance).values({
+            eventId,
+            personId: person.id,
+            source: 'csv_import',
+            status: item.status === 'attended' ? 'attended' : 'registered',
+            ticketCode,
+            vehicleType: item.vehicleType || 'none',
+            vehiclePlateNumber: item.vehiclePlateNumber || null,
+            registrationData: item.registrationData || null,
+          });
+
+          // Auto-upgrade engagement status to active if joining events
+          if (person.engagementStatus === 'baru') {
+            await db
+              .update(persons)
+              .set({ engagementStatus: 'aktif', updatedAt: new Date() })
+              .where(eq(persons.id, person.id));
+          }
+
+          existingPersonIdMap.set(person.id, ticketCode);
+          importedCount++;
+        } catch (err: any) {
+          console.error(`[Import CSV Error Row ${rowNum}]:`, err);
+          errors.push({
+            row: rowNum,
+            name: fullName,
+            phone: rawPhone,
+            reason: err.message || 'Terjadi kesalahan sistem',
+          });
+        }
+      }
+
+      return successResponse(
+        {
+          totalProcessed: participants.length,
+          importedCount,
+          skippedCount,
+          updatedCount,
+          errorCount: errors.length,
+          errors: errors.slice(0, 50), // Return sample of errors
+        },
+        { requestId: ctx.requestId }
       );
     })
   );

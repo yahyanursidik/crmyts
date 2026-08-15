@@ -16,9 +16,12 @@ import {
   Car,
   Bike,
   ShieldAlert,
+  FileSpreadsheet,
+  CreditCard,
 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { LoadingState } from '@/components/common/LoadingState';
+import { EventImportModal } from './components/EventImportModal';
 
 export interface EventFormField {
   id: string;
@@ -38,6 +41,8 @@ export interface EventFormConfig {
   collectNotes?: boolean;
   requireGender?: boolean;
   collectVehicle?: boolean;
+  allowMultiParticipant?: boolean;
+  maxMultiParticipants?: number;
   customFields?: EventFormField[];
   whatsappMessageTemplate?: string;
   termsAndConditions?: string;
@@ -74,6 +79,14 @@ interface EventDetail {
   meetingUrl?: string | null;
   status: string;
   
+  // Paid Event & Banking
+  isPaid?: boolean;
+  priceRupiah?: number | null;
+  bankName?: string | null;
+  bankAccountNumber?: string | null;
+  bankAccountName?: string | null;
+  paymentInstructions?: string | null;
+
   targetAudience?: string;
   quota?: number | null;
   quotaIkhwan?: number | null;
@@ -121,6 +134,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   const [activeTab, setActiveTab] = useState<'participants' | 'form_builder' | 'settings'>('participants');
   const [saving, setSaving] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   // Settings State (Audience, Quotas, Rules & Parking)
   const [targetAudience, setTargetAudience] = useState<string>('umum');
@@ -131,6 +145,14 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   const [motorcycleParkingQuota, setMotorcycleParkingQuota] = useState<number | ''>('');
   const [venueRules, setVenueRules] = useState<string[]>([]);
   const [customVenueRules, setCustomVenueRules] = useState('');
+
+  // Paid Event & Banking Details State
+  const [isPaid, setIsPaid] = useState<boolean>(false);
+  const [priceRupiah, setPriceRupiah] = useState<number | ''>('');
+  const [bankName, setBankName] = useState<string>('Bank Syariah Indonesia (BSI)');
+  const [bankAccountNumber, setBankAccountNumber] = useState<string>('7123456789');
+  const [bankAccountName, setBankAccountName] = useState<string>('Yayasan Tarbiyah Sunnah');
+  const [paymentInstructions, setPaymentInstructions] = useState<string>('Silakan transfer sesuai nominal. Unggah struk transfer saat pendaftaran atau konfirmasikan ke admin panitia.');
 
   // Form Builder State
   const [formConfig, setFormConfig] = useState<EventFormConfig>({
@@ -187,6 +209,16 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       setMotorcycleParkingQuota(res.data.motorcycleParkingQuota || '');
       setVenueRules(res.data.venueRules || []);
       setCustomVenueRules(res.data.customVenueRules || '');
+
+      setIsPaid(res.data.isPaid || false);
+      setPriceRupiah(res.data.priceRupiah || '');
+      setBankName(res.data.bankName || 'Bank Syariah Indonesia (BSI)');
+      setBankAccountNumber(res.data.bankAccountNumber || '7123456789');
+      setBankAccountName(res.data.bankAccountName || 'Yayasan Tarbiyah Sunnah');
+      setPaymentInstructions(
+        res.data.paymentInstructions ||
+          'Silakan transfer sesuai nominal. Unggah struk transfer saat pendaftaran atau konfirmasikan ke admin panitia.'
+      );
 
       if (res.data.formConfig) {
         setFormConfig({
@@ -252,9 +284,15 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           motorcycleParkingQuota: motorcycleParkingQuota ? Number(motorcycleParkingQuota) : null,
           venueRules,
           customVenueRules: customVenueRules || null,
+          isPaid,
+          priceRupiah: isPaid && priceRupiah ? Number(priceRupiah) : 0,
+          bankName: isPaid ? bankName : null,
+          bankAccountNumber: isPaid ? bankAccountNumber : null,
+          bankAccountName: isPaid ? bankAccountName : null,
+          paymentInstructions: isPaid ? paymentInstructions : null,
         }),
       });
-      alert('Pengaturan kuota, segmen, fasilitas parkir & aturan berhasil disimpan!');
+      alert('Pengaturan biaya daurah, kuota, segmen, fasilitas parkir & aturan berhasil disimpan!');
       loadEventDetail();
       onEventUpdated();
     } catch (err: any) {
@@ -706,16 +744,25 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
 
                 <div className="flex items-center gap-2">
                   <button
+                    onClick={() => setShowImportModal(true)}
+                    className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-300 shadow-2xs transition-all active:scale-95"
+                    title="Impor Data Peserta dari File CSV dengan Pratinjau & Skip Duplikat"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-teal-800" />
+                    <span>📥 Impor CSV</span>
+                  </button>
+
+                  <button
                     onClick={() => setShowAddParticipant(true)}
-                    className="px-3.5 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs"
+                    className="px-3.5 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs active:scale-95"
                   >
                     <PlusCircle className="w-3.5 h-3.5" />
-                    <span>+ Tambah Peserta Manual</span>
+                    <span>+ Tambah Manual</span>
                   </button>
 
                   <button
                     onClick={handleExportCSV}
-                    className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-300 transition-all"
+                    className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-300 transition-all active:scale-95"
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>Ekspor CSV</span>
@@ -949,10 +996,121 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                 </div>
               </div>
 
-              {/* 2. Quota Management */}
+              {/* 2. Biaya & Rekening Pembayaran Daurah / Kajian */}
+              <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <CreditCard className="w-4 h-4 text-amber-700" />
+                      <span>2. Tipe Kegiatan & Biaya Pendaftaran / Daurah</span>
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      Tentukan apakah kegiatan gratis (infaq sukarela) atau berbayar dengan instruksi rekening bank.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-bold ${isPaid ? 'text-amber-800' : 'text-slate-500'}`}>
+                      {isPaid ? 'Berbayar (Paid)' : 'Gratis (Free)'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsPaid(!isPaid)}
+                      className={`p-1 rounded-xl transition-all ${
+                        isPaid ? 'bg-amber-600 text-white' : 'bg-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {isPaid ? <ToggleRight className="w-6 h-6" /> : <ToggleLeft className="w-6 h-6" />}
+                    </button>
+                  </div>
+                </div>
+
+                {isPaid && (
+                  <div className="p-4 bg-amber-50/50 rounded-2xl border border-amber-200/80 space-y-4 animate-in fade-in duration-200">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-800 mb-1">
+                          Nominal Biaya / Harga Tiket (Rp) *
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500">
+                            Rp
+                          </span>
+                          <input
+                            type="number"
+                            placeholder="Misal: 50000"
+                            value={priceRupiah}
+                            onChange={(e) => setPriceRupiah(e.target.value === '' ? '' : Number(e.target.value))}
+                            required={isPaid}
+                            className="w-full pl-9 pr-3 py-2.5 bg-white border border-amber-300 rounded-xl text-xs font-mono font-bold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-800 mb-1">
+                          Nama Bank Tujuan Transfer *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Misal: Bank Syariah Indonesia (BSI)"
+                          value={bankName}
+                          onChange={(e) => setBankName(e.target.value)}
+                          required={isPaid}
+                          className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-800 mb-1">
+                          Nomor Rekening Bank *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Misal: 7123456789"
+                          value={bankAccountNumber}
+                          onChange={(e) => setBankAccountNumber(e.target.value)}
+                          required={isPaid}
+                          className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-xs font-mono font-bold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-800 mb-1">
+                          Atas Nama (Pemilik Rekening) *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Misal: Yayasan Tarbiyah Sunnah"
+                          value={bankAccountName}
+                          onChange={(e) => setBankAccountName(e.target.value)}
+                          required={isPaid}
+                          className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-800 mb-1">
+                        Catatan & Instruksi Pembayaran untuk Jamaah
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={paymentInstructions}
+                        onChange={(e) => setPaymentInstructions(e.target.value)}
+                        placeholder="Contoh: Silakan transfer sesuai nominal. Unggah foto bukti transfer saat mendaftar. Tiket otomatis aktif setelah diverifikasi panitia."
+                        className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 3. Quota Management */}
               <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
                 <div>
-                  <h4 className="text-sm font-bold text-slate-900">2. Batas Kuota Peserta (Kapasitas Majelis)</h4>
+                  <h4 className="text-sm font-bold text-slate-900">3. Batas Kuota Peserta (Kapasitas Majelis)</h4>
                   <p className="text-xs text-slate-500">
                     Kosongkan jika tidak ada batas kuota. Pendaftaran otomatis terkunci saat kuota tercapai.
                   </p>
@@ -1193,6 +1351,57 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                         <ToggleLeft className="w-7 h-7 text-slate-400" />
                       )}
                     </button>
+                  </div>
+
+                  <div className="p-3.5 bg-amber-50/70 rounded-xl border border-amber-200 sm:col-span-2 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-bold text-amber-950 block">
+                          Izinkan Pendaftaran Anggota Keluarga / Rombongan Sekaligus
+                        </span>
+                        <span className="text-[11px] text-amber-800">
+                          Memungkinkan 1 pendaftar/kepala keluarga mendaftarkan beberapa anggota keluarga (istri, anak, orang tua) dalam 1 formulir (cocok untuk I'tikaf / Daurah).
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFormConfig({
+                            ...formConfig,
+                            allowMultiParticipant: !formConfig.allowMultiParticipant,
+                          })
+                        }
+                        className="text-amber-800"
+                      >
+                        {formConfig.allowMultiParticipant ? (
+                          <ToggleRight className="w-7 h-7 text-amber-800" />
+                        ) : (
+                          <ToggleLeft className="w-7 h-7 text-slate-400" />
+                        )}
+                      </button>
+                    </div>
+
+                    {formConfig.allowMultiParticipant && (
+                      <div className="pt-2 border-t border-amber-200/60 flex items-center gap-3">
+                        <label className="text-xs font-bold text-amber-900">
+                          Batas Maksimal Anggota Tambahan:
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={formConfig.maxMultiParticipants || 10}
+                          onChange={(e) =>
+                            setFormConfig({
+                              ...formConfig,
+                              maxMultiParticipants: parseInt(e.target.value) || 10,
+                            })
+                          }
+                          className="w-20 p-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold text-amber-950 text-center"
+                        />
+                        <span className="text-[11px] text-amber-700">orang per keluarga/rombongan</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1500,6 +1709,20 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* CSV Import Modal */}
+      {showImportModal && eventData && (
+        <EventImportModal
+          isOpen={showImportModal}
+          onClose={() => setShowImportModal(false)}
+          eventId={eventData.id}
+          eventTitle={eventData.title}
+          onSuccess={async () => {
+            await loadEventDetail();
+            if (onEventUpdated) onEventUpdated();
+          }}
+        />
       )}
     </div>
   );

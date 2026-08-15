@@ -17,6 +17,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { EventManageModal, EventFormConfig } from './EventManageModal';
 import { EventSubmissionsModal } from './EventSubmissionsModal';
 import { useTheme } from '@/lib/themeContext';
@@ -76,6 +77,8 @@ export const EventsListPage: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [audienceFilter, setAudienceFilter] = useState('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [eventToDelete, setEventToDelete] = useState<EventItem | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   // New Event Form State
   const [newEvent, setNewEvent] = useState({
@@ -168,13 +171,17 @@ export const EventsListPage: React.FC = () => {
     }
   };
 
-  const handleDeleteEvent = async (id: string) => {
-    if (!confirm('Apakah Anda yakin ingin menghapus jadwal kajian ini beserta data presensinya?')) return;
+  const handleConfirmDelete = async () => {
+    if (!eventToDelete) return;
     try {
-      await apiClient(`/events/${id}`, { method: 'DELETE' });
+      setDeleteLoading(true);
+      await apiClient(`/events/${eventToDelete.id}`, { method: 'DELETE' });
+      setEventToDelete(null);
       loadEvents();
     } catch (err: any) {
       alert(err.message || 'Gagal menghapus kajian');
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -549,9 +556,9 @@ export const EventsListPage: React.FC = () => {
                   </button>
 
                   <button
-                    onClick={() => handleDeleteEvent(ev.id)}
-                    className="p-2 rounded-xl border border-slate-200 hover:bg-red-50 text-red-500 transition-colors"
-                    title="Hapus Kajian"
+                    onClick={() => setEventToDelete(ev)}
+                    className="p-2 rounded-xl border border-slate-200 hover:bg-rose-50 text-rose-500 hover:text-rose-700 transition-colors"
+                    title="Hapus Jadwal Kajian"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -839,6 +846,32 @@ export const EventsListPage: React.FC = () => {
           onRefreshList={loadEvents}
         />
       )}
+
+      {/* 8. MODAL: KONFIRMASI HAPUS JADWAL KAJIAN */}
+      <ConfirmDialog
+        isOpen={!!eventToDelete}
+        title="Hapus Jadwal Kajian?"
+        message={
+          eventToDelete ? (
+            <div className="space-y-2">
+              <p>
+                Apakah Anda yakin ingin menghapus jadwal kajian{' '}
+                <strong className="text-brand-950">"{eventToDelete.title}"</strong>?
+              </p>
+              <div className="p-3 bg-rose-50 rounded-xl border border-rose-200 text-rose-800 text-[11px] leading-relaxed">
+                <span className="font-bold block">⚠️ Perhatian:</span>
+                Tindakan ini akan menghapus jadwal kajian beserta seluruh data riwayat pendaftaran dan presensi ({eventToDelete.attendanceCount || 0} jamaah) secara permanen dari sistem.
+              </div>
+            </div>
+          ) : null
+        }
+        confirmLabel="Ya, Hapus Kajian"
+        cancelLabel="Batal"
+        variant="danger"
+        loading={deleteLoading}
+        onConfirm={handleConfirmDelete}
+        onClose={() => setEventToDelete(null)}
+      />
     </div>
   );
 };
