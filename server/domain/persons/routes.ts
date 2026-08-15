@@ -168,9 +168,25 @@ export function registerPersonsRoutes(router: Router) {
       }
 
       if (roleCode) {
-        whereConditions.push(
-          sql`EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" = ${roleCode})`
-        );
+        if (roleCode === 'donatur') {
+          whereConditions.push(
+            sql`(
+              EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" = 'donatur')
+              OR EXISTS (SELECT 1 FROM "donations" WHERE "donations"."person_id" = "persons"."id")
+            )`
+          );
+        } else if (roleCode === 'wakif') {
+          whereConditions.push(
+            sql`(
+              EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" = 'wakif')
+              OR EXISTS (SELECT 1 FROM "waqf_cases" WHERE "waqf_cases"."wakif_person_id" = "persons"."id")
+            )`
+          );
+        } else {
+          whereConditions.push(
+            sql`EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" = ${roleCode})`
+          );
+        }
       }
 
       if (tagId) {
@@ -326,7 +342,11 @@ export function registerPersonsRoutes(router: Router) {
           .select({
             totalMaster: sql<number>`(SELECT count(*)::int FROM "persons")`,
             multiKajian: sql<number>`(SELECT count(*)::int FROM (SELECT "person_id" FROM "event_attendance" GROUP BY "person_id" HAVING count("id") >= 2) sub)`,
-            donorsCount: sql<number>`(SELECT count(distinct "person_id")::int FROM "donations" WHERE "person_id" IS NOT NULL)`,
+            donorsCount: sql<number>`(
+              SELECT count(distinct "id")::int FROM "persons" 
+              WHERE EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" = 'donatur')
+                 OR EXISTS (SELECT 1 FROM "donations" WHERE "donations"."person_id" = "persons"."id")
+            )`,
           })
           .from(sql`(SELECT 1) dummy`);
 
