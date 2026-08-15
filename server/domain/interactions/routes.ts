@@ -4,7 +4,7 @@ import { requireAuth, requirePermission, validateBody } from '../../http/middlew
 import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import { interactions, tasks, auditLogs } from '../../db/schema';
-import { eq, desc, and, sql } from 'drizzle-orm';
+import { eq, desc, and, sql, ilike, or } from 'drizzle-orm';
 import { PERMISSIONS } from '../../permissions/constants';
 
 export const OUTCOME_OPTIONS = [
@@ -43,6 +43,7 @@ export function registerInteractionsRoutes(router: Router) {
       const pageSize = Math.min(100, Math.max(1, parseInt(ctx.query.pageSize || '20', 10)));
       const offset = (page - 1) * pageSize;
 
+      const search = ctx.query.search?.trim();
       const personId = ctx.query.personId?.trim();
       const channel = ctx.query.channel?.trim();
       const outcome = ctx.query.outcome?.trim();
@@ -50,6 +51,14 @@ export function registerInteractionsRoutes(router: Router) {
       const ownerUserId = ctx.query.ownerUserId?.trim();
 
       const conditions = [];
+      if (search) {
+        conditions.push(
+          or(
+            ilike(interactions.summary, `%${search}%`),
+            sql`EXISTS (SELECT 1 FROM people WHERE people.id = ${interactions.personId} AND (people.full_name ILIKE ${'%' + search + '%'} OR people.phone_e164 ILIKE ${'%' + search + '%'}))`
+          )
+        );
+      }
       if (personId) conditions.push(eq(interactions.personId, personId));
       if (channel) conditions.push(eq(interactions.channel, channel as any));
       if (outcome) conditions.push(eq(interactions.outcome, outcome));
