@@ -78,4 +78,163 @@ describe('Settings & Master Data Domain (Step 33 / Settings)', () => {
     expect(json.data.database.engine).toContain('Neon Serverless');
     expect(json.data.storage.provider).toBeDefined();
   });
+
+  it('4. GET /api/settings/ping returns database latency and operational status', async () => {
+    const mockDb = {
+      execute: vi.fn().mockResolvedValue([{ 1: 1 }]),
+    };
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      requestId: 'req_settings_ping',
+      method: 'GET',
+      path: '/api/settings/ping',
+      headers: {},
+      query: {},
+      params: {},
+      body: {},
+      user: adminUser,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data.status).toBe('healthy');
+    expect(typeof json.data.databaseLatencyMs).toBe('number');
+  });
+
+  it('5. PATCH /api/settings/tags/:id/toggle toggles tag active status', async () => {
+    const mockDb = {
+      query: {
+        tags: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'tag_1', name: 'Kajian Tafsir', isActive: true }),
+        },
+      },
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([{ id: 'tag_1', name: 'Kajian Tafsir', isActive: false }]),
+          }),
+        }),
+      }),
+    };
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      requestId: 'req_settings_tag_toggle',
+      method: 'PATCH',
+      path: '/api/settings/tags/tag_1/toggle',
+      headers: {},
+      query: {},
+      params: { id: 'tag_1' },
+      body: {},
+      user: adminUser,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data.isActive).toBe(false);
+  });
+
+  it('6. DELETE /api/settings/tags/:id removes a tag', async () => {
+    const mockDb = {
+      query: {
+        tags: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'tag_1', name: 'Kajian Tafsir' }),
+        },
+      },
+      delete: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue({}),
+      }),
+    };
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      requestId: 'req_settings_tag_del',
+      method: 'DELETE',
+      path: '/api/settings/tags/tag_1',
+      headers: {},
+      query: {},
+      params: { id: 'tag_1' },
+      body: {},
+      user: adminUser,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data.success).toBe(true);
+  });
+
+  it('7. DELETE /api/settings/programs/:id removes a donation program', async () => {
+    const mockDb = {
+      query: {
+        donationPrograms: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'prog_1', name: 'Infaq Operasional', code: 'INFAQ_OP' }),
+        },
+      },
+      delete: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue({}),
+      }),
+      insert: vi.fn().mockReturnValue({
+        values: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([{ id: 'audit_1' }]),
+        }),
+      }),
+    };
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      requestId: 'req_settings_prog_del',
+      method: 'DELETE',
+      path: '/api/settings/programs/prog_1',
+      headers: {},
+      query: {},
+      params: { id: 'prog_1' },
+      body: {},
+      user: adminUser,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data.success).toBe(true);
+  });
+
+  it('8. DELETE /api/settings/users/:id removes a staff user', async () => {
+    const otherUserId = '018f9999-0000-7000-8000-222222222222';
+    const mockDb = {
+      query: {
+        appUsers: {
+          findFirst: vi.fn().mockResolvedValue({ id: otherUserId, fullName: 'Staf Amil', email: 'staf@yts.id' }),
+        },
+      },
+      insert: vi.fn().mockReturnValue({
+        values: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([{ id: 'audit_1' }]),
+        }),
+      }),
+      transaction: vi.fn().mockImplementation(async (callback) => {
+        return callback({
+          delete: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue({}),
+          }),
+        });
+      }),
+    };
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      requestId: 'req_settings_user_del',
+      method: 'DELETE',
+      path: `/api/settings/users/${otherUserId}`,
+      headers: {},
+      query: {},
+      params: { id: otherUserId },
+      body: {},
+      user: adminUser,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data.success).toBe(true);
+  });
 });
+

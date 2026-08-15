@@ -525,6 +525,125 @@ export function registerSettingsRoutes(router: Router) {
     )
   );
 
+  // 14b. PATCH /api/settings/tags/:id/toggle
+  router.patch(
+    '/api/settings/tags/:id/toggle',
+    requireAuth(
+      requirePermission(PERMISSIONS.TAGS_MANAGE, async (ctx) => {
+        const db = getDb();
+        const tagId = ctx.params.id;
+        if (!tagId) return errorResponse('VALIDATION_ERROR', 'ID Tag diperlukan', 400, ctx.requestId);
+
+        const current = await db.query.tags.findFirst({
+          where: eq(tags.id, tagId),
+        });
+        if (!current) return errorResponse('NOT_FOUND', 'Tag tidak ditemukan', 404, ctx.requestId);
+
+        const newStatus = !current.isActive;
+        const [updated] = await db
+          .update(tags)
+          .set({ isActive: newStatus })
+          .where(eq(tags.id, tagId))
+          .returning();
+
+        return successResponse(updated, { requestId: ctx.requestId });
+      })
+    )
+  );
+
+  // 14c. DELETE /api/settings/tags/:id
+  router.delete(
+    '/api/settings/tags/:id',
+    requireAuth(
+      requirePermission(PERMISSIONS.TAGS_MANAGE, async (ctx) => {
+        const db = getDb();
+        const tagId = ctx.params.id;
+        if (!tagId) return errorResponse('VALIDATION_ERROR', 'ID Tag diperlukan', 400, ctx.requestId);
+
+        const current = await db.query.tags.findFirst({
+          where: eq(tags.id, tagId),
+        });
+        if (!current) return errorResponse('NOT_FOUND', 'Tag tidak ditemukan', 404, ctx.requestId);
+
+        await db.delete(tags).where(eq(tags.id, tagId));
+
+        return successResponse({ success: true, message: `Tag ${current.name} berhasil dihapus` }, { requestId: ctx.requestId });
+      })
+    )
+  );
+
+  // 14d. DELETE /api/settings/programs/:id
+  router.delete(
+    '/api/settings/programs/:id',
+    requireAuth(
+      requirePermission(PERMISSIONS.DONATIONS_CREATE, async (ctx) => {
+        const db = getDb();
+        const programId = ctx.params.id;
+        if (!programId) return errorResponse('VALIDATION_ERROR', 'ID Program diperlukan', 400, ctx.requestId);
+
+        const current = await db.query.donationPrograms.findFirst({
+          where: eq(donationPrograms.id, programId),
+        });
+        if (!current) return errorResponse('NOT_FOUND', 'Program tidak ditemukan', 404, ctx.requestId);
+
+        await db.delete(donationPrograms).where(eq(donationPrograms.id, programId));
+
+        if (ctx.user) {
+          await logAuditEvent({
+            actorUserId: ctx.user.id,
+            action: 'delete_donation_program',
+            entityType: 'donation_program',
+            entityId: programId,
+            beforeJson: current,
+            reason: `Penghapusan program infaq: ${current.name}`,
+            requestId: ctx.requestId,
+          });
+        }
+
+        return successResponse({ success: true, message: `Program ${current.name} berhasil dihapus` }, { requestId: ctx.requestId });
+      })
+    )
+  );
+
+  // 14e. DELETE /api/settings/users/:id
+  router.delete(
+    '/api/settings/users/:id',
+    requireAuth(
+      requirePermission(PERMISSIONS.USERS_MANAGE, async (ctx) => {
+        const db = getDb();
+        const targetUserId = ctx.params.id;
+        const actor = ctx.user;
+        if (!actor) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+        if (!targetUserId) return errorResponse('VALIDATION_ERROR', 'ID User diperlukan', 400, ctx.requestId);
+        if (targetUserId === actor.id) {
+          return errorResponse('VALIDATION_ERROR', 'Tidak dapat menghapus akun sendiri', 400, ctx.requestId);
+        }
+
+        const target = await db.query.appUsers.findFirst({
+          where: eq(appUsers.id, targetUserId),
+        });
+        if (!target) return errorResponse('NOT_FOUND', 'User tidak ditemukan', 404, ctx.requestId);
+
+        await db.transaction(async (tx) => {
+          await tx.delete(userRoles).where(eq(userRoles.userId, targetUserId));
+          await tx.delete(appUsers).where(eq(appUsers.id, targetUserId));
+
+          await logAuditEvent({
+            actorUserId: actor.id,
+            action: 'delete_staff_user',
+            entityType: 'app_user',
+            entityId: targetUserId,
+            beforeJson: { email: target.email, fullName: target.fullName },
+            reason: `Penghapusan akun staf oleh ${actor.fullName}`,
+            requestId: ctx.requestId,
+          });
+        });
+
+        return successResponse({ success: true, message: `Akun staf ${target.fullName} berhasil dihapus` }, { requestId: ctx.requestId });
+      })
+    )
+  );
+
   // 15. GET /api/settings/system-health (Diagnostics & Security Status)
   router.get(
     '/api/settings/system-health',
@@ -564,6 +683,27 @@ export function registerSettingsRoutes(router: Router) {
             auditLogging: 'Append-Only (No Delete/Edit APIs)',
             secretSanitization: 'Active on all JSON payloads',
           },
+        },
+        { requestId: ctx.requestId }
+      );
+    })
+  );
+
+  // 16. GET /api/settings/ping (Live Database Latency & Server Status)
+  router.get(
+    '/api/settings/ping',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const start = Date.now();
+      await db.execute(sql`SELECT 1`);
+      const latencyMs = Date.now() - start;
+
+      return successResponse(
+        {
+          status: 'healthy',
+          databaseLatencyMs: latencyMs,
+          timestamp: new Date().toISOString(),
+          vaultStatus: 'operational',
         },
         { requestId: ctx.requestId }
       );
