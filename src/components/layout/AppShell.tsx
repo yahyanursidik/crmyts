@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router';
 import { useGetIdentity, useLogout, usePermissions } from '@refinedev/core';
 import {
   LayoutDashboard,
-  Users,
+  IdCard,
   Calendar,
   CheckSquare,
   MessageSquare,
@@ -69,7 +69,7 @@ const NAV_GROUPS: NavGroup[] = [
       {
         name: 'Direktori Jamaah',
         href: '/people',
-        icon: Users,
+        icon: IdCard,
         permission: PERMISSIONS.PERSONS_LIST,
         description: 'Profil 360° Jamaah & Donatur',
       },
@@ -224,7 +224,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
       {/* Main Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 ${currentTheme.colors.sidebarBg} flex flex-col transition-all duration-300 ease-in-out lg:static lg:translate-x-0 border-r ${currentTheme.colors.sidebarBorder} shadow-2xl ${
+        className={`fixed inset-y-0 left-0 z-50 ${currentTheme.colors.sidebarBg} flex flex-col transition-all duration-300 ease-in-out lg:sticky lg:top-0 lg:h-screen lg:max-h-screen lg:translate-x-0 border-r ${currentTheme.colors.sidebarBorder} shadow-2xl h-[100dvh] max-h-[100dvh] overflow-hidden ${
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         } ${isCollapsed ? 'lg:w-20' : 'lg:w-72'} w-72`}
       >
@@ -268,7 +268,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
         {/* Quick Action Button (Expanded only) */}
         {!isCollapsed && (
-          <div className="px-3.5 pt-4 pb-1.5">
+          <div className="px-3.5 pt-4 pb-1.5 shrink-0">
             <button
               onClick={() => setQuickInteractionOpen(true)}
               className={`w-full py-2.5 px-3 ${currentTheme.colors.sidebarCtaBg} ${currentTheme.colors.sidebarCtaText} font-bold text-xs rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 active:scale-95 border border-white/20`}
@@ -280,7 +280,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         )}
 
         {/* Navigation Menu Groups */}
-        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-4 sidebar-scrollbar">
+        <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-4 sidebar-scrollbar overscroll-contain">
           {NAV_GROUPS.map((group) => {
             const isAdmin =
               user?.roles?.includes(ROLES.CRM_ADMIN) ||
@@ -374,7 +374,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         </nav>
 
         {/* User Profile & Footer */}
-        <div className={`p-3 border-t ${currentTheme.colors.sidebarBorder} ${currentTheme.colors.sidebarHeaderBg}`}>
+        <div className={`p-3 border-t shrink-0 ${currentTheme.colors.sidebarBorder} ${currentTheme.colors.sidebarHeaderBg}`}>
           <div className={`flex items-center ${isCollapsed ? 'justify-center flex-col gap-2' : 'justify-between'}`}>
             <div className="flex items-center gap-3 overflow-hidden">
               <div
