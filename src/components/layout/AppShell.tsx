@@ -232,8 +232,8 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         <div className={`h-16 flex items-center justify-between px-3.5 border-b ${currentTheme.colors.sidebarBorder} ${currentTheme.colors.sidebarHeaderBg}`}>
           {isCollapsed ? (
             <div className="w-full flex items-center justify-center">
-              <div className="p-1.5 rounded-xl bg-[#fbfaf6] shadow-xs border border-cream-300">
-                <BrandEmblem className="w-7 h-7" />
+              <div className="p-1 rounded-xl bg-white shadow-xs border border-surface-200/80">
+                <BrandEmblem className="w-7 h-7" useImage={true} />
               </div>
             </div>
           ) : (
@@ -244,6 +244,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                 emblemSize="w-8 h-8"
                 badge="PROD"
                 subtitle="Sistem CRM & Dakwah"
+                imageSrc="/logo.png"
               />
             </div>
           )}

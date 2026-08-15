@@ -5,19 +5,15 @@ export interface BrandEmblemProps {
 }
 
 /**
- * Tarbiyah Sunnah Official Geometric Emblem
- * Extracted directly from official identity logo:
- * - Top Ray: #EFA914 (Sunnah Gold)
- * - Middle Ray: #D87114 (Warm Terracotta / Amber)
- * - Bottom Shape: #447346 (Tarbiyah Forest Green)
+ * Tarbiyah Sunnah Official Identity Logo
  */
-export function BrandEmblem({ className = 'w-10 h-10', size, useImage = false }: BrandEmblemProps) {
+export function BrandEmblem({ className = 'w-10 h-10', size, useImage = true }: BrandEmblemProps) {
   if (useImage) {
     return (
       <img
         src="/logo.png"
         alt="Logo Yayasan Tarbiyah Sunnah"
-        className={`${className} object-contain rounded-xl`}
+        className={`${className} object-contain rounded-lg`}
         style={size ? { width: size, height: size } : undefined}
       />
     );
@@ -73,7 +69,7 @@ export function BrandLogo({
   imageSrc = '/logo.png',
 }: BrandLogoProps) {
   if (variant === 'icon-only') {
-    return <BrandEmblem className={`${emblemSize} ${className}`} />;
+    return <BrandEmblem className={`${emblemSize} ${className}`} useImage={true} />;
   }
 
   const isDark = theme === 'dark';
@@ -83,11 +79,11 @@ export function BrandLogo({
   if (variant === 'image-card' || variant === 'vertical') {
     return (
       <div className={`flex flex-col items-center text-center ${className}`}>
-        <div className="p-3.5 bg-[#fbfaf6] rounded-3xl shadow-sm border border-cream-300 mb-3 flex items-center justify-center overflow-hidden">
+        <div className="p-3 bg-white rounded-2xl shadow-xs border border-surface-200/80 mb-3 flex items-center justify-center overflow-hidden">
           <img
             src={imageSrc}
             alt="Logo Resmi Tarbiyah Sunnah"
-            className="w-24 h-24 object-contain rounded-2xl"
+            className="w-24 h-24 object-contain rounded-xl"
           />
         </div>
         <div className="flex flex-col items-center">
@@ -111,23 +107,27 @@ export function BrandLogo({
 
   // Horizontal Layout
   return (
-    <div className={`flex items-center gap-3 ${className}`}>
-      <div className="shrink-0 p-1.5 rounded-2xl bg-[#fbfaf6] shadow-xs border border-cream-300 flex items-center justify-center">
-        <BrandEmblem className={emblemSize} />
+    <div className={`flex items-center gap-2.5 ${className}`}>
+      <div className="shrink-0 p-1 rounded-xl bg-white shadow-xs border border-surface-200/80 flex items-center justify-center overflow-hidden">
+        <img
+          src={imageSrc}
+          alt="Logo Tarbiyah Sunnah"
+          className={`${emblemSize} object-contain rounded-lg`}
+        />
       </div>
       <div className="flex flex-col min-w-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <span className={`text-base font-black tracking-tight font-display truncate leading-tight ${textColor}`}>
             Tarbiyah Sunnah
           </span>
           {badge && (
-            <span className="inline-flex items-center px-2 py-0.2 rounded-md text-[9px] font-black tracking-wider uppercase bg-gold-400 text-gold-950 shadow-2xs">
+            <span className="inline-flex items-center px-1.5 py-0.2 rounded-md text-[9px] font-black tracking-wider uppercase bg-gold-400 text-gold-950 shadow-2xs">
               {badge}
             </span>
           )}
         </div>
         {showSubtitle && (
-          <span className={`text-[11px] font-semibold truncate leading-tight tracking-wide ${subColor}`}>
+          <span className={`text-[11px] font-medium truncate leading-tight tracking-wide ${subColor}`}>
             {subtitle}
           </span>
         )}
