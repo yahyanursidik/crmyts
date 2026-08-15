@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router';
 import { apiClient } from '@/lib/apiClient';
 import {
   Plus,
@@ -8,7 +9,7 @@ import {
   MessageSquare,
   MapPin,
   Mail,
-  UserCheck,
+  ArrowRightLeft,
   Send,
   Calendar,
   Phone,
@@ -18,8 +19,10 @@ import {
   Filter,
   FileText,
   Hourglass,
+  Download,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
+import { useTheme } from '@/lib/themeContext';
 
 interface TaskItem {
   id: string;
@@ -61,6 +64,7 @@ interface PersonOption {
 }
 
 export const TasksListPage: React.FC = () => {
+  const { currentTheme } = useTheme();
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTypeFilter, setActiveTypeFilter] = useState<'all' | 'kunjungan' | 'whatsapp' | 'telepon' | 'administrasi'>('all');
@@ -106,6 +110,34 @@ export const TasksListPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleExportCsv = () => {
+    if (tasks.length === 0) {
+      alert('Tidak ada data tugas untuk diekspor');
+      return;
+    }
+
+    const headers = ['Judul Tugas', 'Kanal', 'Target Jamaah', 'Nomor Telepon', 'PIC', 'Prioritas', 'Batas Waktu', 'Status'];
+    const rows = filteredTasks.map((t) => [
+      `"${t.title.replace(/"/g, '""')}"`,
+      `"${t.taskType}"`,
+      `"${t.person?.fullName || '-'}"`,
+      `"${t.person?.phoneE164 || '-'}"`,
+      `"${t.owner?.fullName || 'Belum ditugaskan'}"`,
+      `"${t.priority}"`,
+      `"${new Date(t.dueAt).toLocaleString('id-ID')}"`,
+      `"${t.status}"`,
+    ]);
+
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `agenda-tugas-followup-${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const loadStaffAndPersons = async () => {
@@ -334,12 +366,22 @@ export const TasksListPage: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => setShowModal(true)}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-sm font-semibold shadow-md transition-all active:scale-95"
-        >
-          <Plus className="w-4 h-4" /> Buat Tugas / Kunjungan Baru
-        </button>
+        <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
+          <button
+            onClick={handleExportCsv}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold shadow-2xs transition-all active:scale-95"
+            title="Ekspor agenda tugas ke format CSV"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-500" />
+            <span>Ekspor CSV</span>
+          </button>
+          <button
+            onClick={() => setShowModal(true)}
+            className={`inline-flex items-center gap-2 px-4 py-2.5 ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} rounded-xl text-sm font-semibold shadow-md transition-all active:scale-95`}
+          >
+            <Plus className="w-4 h-4 text-gold-300" /> Buat Tugas / Kunjungan Baru
+          </button>
+        </div>
       </div>
 
       {/* Filter Section: Status Lifecycle & Task Type */}
@@ -488,7 +530,12 @@ export const TasksListPage: React.FC = () => {
                         {task.person && (
                           <div className="flex items-center gap-1.5 font-medium text-slate-900">
                             <span className="text-slate-400">Target Jamaah:</span>
-                            <span className="font-bold text-emerald-800">{task.person.fullName}</span>
+                            <Link
+                              to={`/people/${task.person.id}`}
+                              className="font-bold text-emerald-800 hover:text-emerald-950 hover:underline"
+                            >
+                              {task.person.fullName}
+                            </Link>
                             {task.person.phoneE164 && (
                               <span className="text-slate-500 font-mono">({task.person.phoneE164})</span>
                             )}
@@ -591,7 +638,7 @@ export const TasksListPage: React.FC = () => {
                         className="px-2.5 py-1.5 rounded-lg text-xs font-medium border border-slate-300 text-slate-700 hover:bg-slate-50 flex items-center gap-1 transition-colors"
                         title="Alihkan Tugas ke Staf Lain"
                       >
-                        <UserCheck className="w-3.5 h-3.5" /> Alihkan PIC
+                        <ArrowRightLeft className="w-3.5 h-3.5" /> Alihkan PIC
                       </button>
                     </div>
                   </div>
