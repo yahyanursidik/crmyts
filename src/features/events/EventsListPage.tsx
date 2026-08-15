@@ -213,7 +213,7 @@ export const EventsListPage: React.FC = () => {
   // KPIs
   const totalEvents = events.length;
   const totalOpenRegistration = events.filter((e) => e.isRegistrationOpen).length;
-  const totalRegisteredAll = events.reduce((acc, curr) => acc + (curr.registeredCount || 0), 0);
+  const totalRegisteredAll = events.reduce((acc, curr) => acc + (curr.attendanceCount || 0), 0);
   const totalAttendedAll = events.reduce((acc, curr) => acc + (curr.attendedCount || 0), 0);
 
   const filteredEvents = events.filter((e) => {
