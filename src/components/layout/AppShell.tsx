@@ -388,7 +388,9 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               </div>
               {!isCollapsed && (
                 <div className="overflow-hidden">
-                  <p className="text-xs font-bold truncate leading-tight">{user?.name || 'Staf YTS'}</p>
+                  <p className={`text-xs font-bold truncate leading-tight ${currentTheme.sidebarStyle === 'dark' ? 'text-white' : 'text-slate-950'}`}>
+                    {user?.name || 'Staf YTS'}
+                  </p>
                   <p className={`text-[11px] ${currentTheme.colors.sidebarTextMuted} truncate mt-0.5 font-medium`}>
                     {user?.roles && user.roles.length > 0 ? user.roles.join(', ') : 'Operasional'}
                   </p>
@@ -399,7 +401,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             <button
               onClick={() => logout()}
               title="Keluar dari Sistem (Logout)"
-              className="p-1.5 text-surface-400 hover:text-red-400 hover:bg-red-950/20 rounded-xl transition-colors shrink-0"
+              className={`p-1.5 ${currentTheme.sidebarStyle === 'dark' ? 'text-surface-300 hover:text-red-300 hover:bg-white/10' : 'text-surface-500 hover:text-red-600 hover:bg-cream-200'} rounded-xl transition-colors shrink-0`}
             >
               <LogOut className="w-4 h-4" />
             </button>
