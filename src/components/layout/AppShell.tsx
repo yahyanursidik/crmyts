@@ -280,7 +280,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         )}
 
         {/* Navigation Menu Groups */}
-        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-4 scrollbar-thin scrollbar-thumb-brand-950">
+        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-4 sidebar-scrollbar">
           {NAV_GROUPS.map((group) => {
             const isAdmin =
               user?.roles?.includes(ROLES.CRM_ADMIN) ||

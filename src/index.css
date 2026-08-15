@@ -90,7 +90,7 @@
   @apply inline-flex items-center justify-center font-black text-xs text-amber-950 bg-gradient-to-r from-gold-400 to-amber-500 hover:from-gold-300 hover:to-amber-400 border border-amber-600/30 rounded-xl px-4 py-2.5 shadow-sm transition-all duration-150 active:scale-95;
 }
 
-/* Custom Scrollbar */
+/* Custom Global Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -107,4 +107,50 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: #9e9988;
+}
+
+/* Sidebar Enhanced Scrollbar */
+.sidebar-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(239, 169, 20, 0.45) rgba(0, 0, 0, 0.15);
+  overscroll-behavior: contain;
+}
+
+[data-sidebar-style="light"] .sidebar-scrollbar {
+  scrollbar-color: rgba(68, 115, 70, 0.5) rgba(0, 0, 0, 0.06);
+}
+
+.sidebar-scrollbar::-webkit-scrollbar {
+  width: 7px;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 9999px;
+  margin: 6px 2px;
+}
+
+[data-sidebar-style="light"] .sidebar-scrollbar::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(239, 169, 20, 0.5);
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease-in-out;
+}
+
+[data-sidebar-style="light"] .sidebar-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(68, 115, 70, 0.5);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(239, 169, 20, 0.9);
+  box-shadow: 0 0 8px rgba(239, 169, 20, 0.6);
+}
+
+[data-sidebar-style="light"] .sidebar-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(40, 72, 42, 0.85);
 }
