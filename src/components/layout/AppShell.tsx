@@ -27,6 +27,7 @@ import { UserIdentity } from '../../lib/authProvider';
 import { PermissionCode, PERMISSIONS, ROLES } from '@server/permissions/constants';
 import { QuickInteractionModal } from '../../features/interactions/QuickInteractionModal';
 import { BrandLogo, BrandEmblem } from '@/components/common/BrandLogo';
+import { useTheme } from '@/lib/themeContext';
 
 interface NavGroup {
   category: string;
@@ -209,8 +210,10 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+  const { currentTheme } = useTheme();
+
   return (
-    <div className="min-h-screen flex bg-[#fbfaf6] font-sans text-surface-900 antialiased selection:bg-brand-100 selection:text-brand-900">
+    <div className={`min-h-screen flex ${currentTheme.colors.canvasBg} font-sans text-surface-900 antialiased selection:bg-brand-100 selection:text-brand-900`}>
       {/* Mobile Drawer Overlay */}
       {mobileMenuOpen && (
         <div
@@ -221,12 +224,12 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
       {/* Main Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 bg-[#122214] text-white flex flex-col transition-all duration-300 ease-in-out lg:static lg:translate-x-0 border-r border-[#1f3622] shadow-2xl ${
+        className={`fixed inset-y-0 left-0 z-50 ${currentTheme.colors.sidebarBg} flex flex-col transition-all duration-300 ease-in-out lg:static lg:translate-x-0 border-r ${currentTheme.colors.sidebarBorder} shadow-2xl ${
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         } ${isCollapsed ? 'lg:w-20' : 'lg:w-72'} w-72`}
       >
         {/* Brand Header */}
-        <div className="h-16 flex items-center justify-between px-3.5 border-b border-[#1f3622] bg-[#0c180e]">
+        <div className={`h-16 flex items-center justify-between px-3.5 border-b ${currentTheme.colors.sidebarBorder} ${currentTheme.colors.sidebarHeaderBg}`}>
           {isCollapsed ? (
             <div className="w-full flex items-center justify-center">
               <div className="p-1.5 rounded-xl bg-[#fbfaf6] shadow-xs border border-cream-300">
@@ -235,7 +238,13 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             </div>
           ) : (
             <div className="flex items-center gap-2 overflow-hidden">
-              <BrandLogo variant="horizontal" theme="dark" emblemSize="w-8 h-8" badge="PROD" subtitle="Sistem CRM & Dakwah" />
+              <BrandLogo
+                variant="horizontal"
+                theme={currentTheme.sidebarStyle === 'light' ? 'light' : 'dark'}
+                emblemSize="w-8 h-8"
+                badge="PROD"
+                subtitle="Sistem CRM & Dakwah"
+              />
             </div>
           )}
 
@@ -243,7 +252,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           <button
             onClick={toggleCollapse}
             title={isCollapsed ? 'Perluas Menu (Ctrl+B)' : 'Ciutkan Menu (Ctrl+B)'}
-            className="hidden lg:flex p-1.5 text-surface-400 hover:text-white hover:bg-[#1f3622] rounded-lg transition-colors shrink-0"
+            className="hidden lg:flex p-1.5 text-surface-400 hover:text-surface-900 hover:bg-black/10 dark:hover:text-white dark:hover:bg-white/10 rounded-lg transition-colors shrink-0"
           >
             {isCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
           </button>
@@ -251,7 +260,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           {/* Mobile Close Button */}
           <button
             onClick={() => setMobileMenuOpen(false)}
-            className="lg:hidden text-surface-400 hover:text-white p-1.5 rounded-lg hover:bg-[#1f3622]"
+            className="lg:hidden text-surface-400 hover:text-surface-900 dark:hover:text-white p-1.5 rounded-lg hover:bg-black/10"
           >
             <X className="w-5 h-5" />
           </button>
@@ -262,7 +271,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           <div className="px-3.5 pt-4 pb-1.5">
             <button
               onClick={() => setQuickInteractionOpen(true)}
-              className="w-full py-2.5 px-3 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 active:scale-95 border border-brand-400/40"
+              className={`w-full py-2.5 px-3 ${currentTheme.colors.sidebarCtaBg} ${currentTheme.colors.sidebarCtaText} font-bold text-xs rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 active:scale-95 border border-white/20`}
             >
               <Plus className="w-4 h-4 text-gold-300" />
               <span>Catat Sapaan Jamaah</span>
@@ -289,11 +298,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               <div key={group.category} className="space-y-1">
                 {/* Category Header */}
                 {!isCollapsed ? (
-                  <h3 className="px-3 text-[10px] font-extrabold uppercase tracking-wider text-[#8fad92] select-none">
+                  <h3 className={`px-3 text-[10px] font-extrabold uppercase tracking-wider ${currentTheme.colors.sidebarCategoryText} select-none`}>
                     {group.category}
                   </h3>
                 ) : (
-                  <div className="border-t border-[#1f3622] my-2" />
+                  <div className={`border-t ${currentTheme.colors.sidebarBorder} my-2`} />
                 )}
 
                 {/* Nav Items */}
@@ -312,13 +321,13 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                         title={isCollapsed ? `${item.name}${item.description ? ` (${item.description})` : ''}` : undefined}
                         className={`group flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
                           isActive
-                            ? 'bg-brand-700/80 text-white shadow-sm ring-1 ring-brand-400/50 font-bold'
-                            : 'text-[#bfd9c1] hover:bg-[#1c331e] hover:text-white'
+                            ? `${currentTheme.colors.sidebarActiveBg} ${currentTheme.colors.sidebarActiveText} shadow-sm ring-1 ${currentTheme.colors.sidebarActiveRing} font-bold`
+                            : `${currentTheme.colors.sidebarText} ${currentTheme.colors.sidebarHoverBg}`
                         } ${isCollapsed ? 'justify-center py-2.5' : ''}`}
                       >
                         <item.icon
                           className={`w-4 h-4 shrink-0 transition-transform group-hover:scale-110 ${
-                            isActive ? 'text-gold-400' : 'text-brand-400'
+                            isActive ? 'text-gold-400' : 'text-brand-500'
                           }`}
                         />
 
@@ -327,7 +336,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                             <div className="min-w-0">
                               <span className="block truncate text-sm leading-snug">{item.name}</span>
                               {item.description && (
-                                <span className="block truncate text-[11px] text-[#93ba97] font-normal leading-tight">
+                                <span className={`block truncate text-[11px] ${currentTheme.colors.sidebarTextMuted} font-normal leading-tight`}>
                                   {item.description}
                                 </span>
                               )}
@@ -365,7 +374,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         </nav>
 
         {/* User Profile & Footer */}
-        <div className="p-3 border-t border-[#1f3622] bg-[#0c180e]">
+        <div className={`p-3 border-t ${currentTheme.colors.sidebarBorder} ${currentTheme.colors.sidebarHeaderBg}`}>
           <div className={`flex items-center ${isCollapsed ? 'justify-center flex-col gap-2' : 'justify-between'}`}>
             <div className="flex items-center gap-3 overflow-hidden">
               <div
@@ -376,8 +385,8 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               </div>
               {!isCollapsed && (
                 <div className="overflow-hidden">
-                  <p className="text-xs font-bold text-white truncate leading-tight">{user?.name || 'Staf YTS'}</p>
-                  <p className="text-[11px] text-[#93ba97] truncate mt-0.5 font-medium">
+                  <p className="text-xs font-bold truncate leading-tight">{user?.name || 'Staf YTS'}</p>
+                  <p className={`text-[11px] ${currentTheme.colors.sidebarTextMuted} truncate mt-0.5 font-medium`}>
                     {user?.roles && user.roles.length > 0 ? user.roles.join(', ') : 'Operasional'}
                   </p>
                 </div>
@@ -387,7 +396,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             <button
               onClick={() => logout()}
               title="Keluar dari Sistem (Logout)"
-              className="p-1.5 text-surface-400 hover:text-red-300 hover:bg-red-950/40 rounded-xl transition-colors shrink-0"
+              className="p-1.5 text-surface-400 hover:text-red-400 hover:bg-red-950/20 rounded-xl transition-colors shrink-0"
             >
               <LogOut className="w-4 h-4" />
             </button>

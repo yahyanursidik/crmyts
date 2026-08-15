@@ -15,7 +15,10 @@ import {
   Database,
   Cloud,
   Check,
+  Palette,
+  RotateCcw,
 } from 'lucide-react';
+import { useTheme, THEME_PRESETS, ThemeId } from '@/lib/themeContext';
 
 interface UserItem {
   id: string;
@@ -57,7 +60,8 @@ interface TagItem {
 }
 
 export function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<'profile' | 'users' | 'foundation' | 'taxonomy' | 'system'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'users' | 'foundation' | 'taxonomy' | 'system' | 'theme'>('profile');
+  const { themeId, setThemeId, resetToDefault } = useTheme();
   
   // Profile State
   const [profile, setProfile] = useState<any>(null);
@@ -371,6 +375,17 @@ export function SettingsPage() {
         >
           <Tags className="w-4 h-4" />
           Master Data & Taksonomi
+        </button>
+        <button
+          onClick={() => setActiveTab('theme')}
+          className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 whitespace-nowrap transition-colors ${
+            activeTab === 'theme'
+              ? 'border-brand-600 text-brand-900 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <Palette className="w-4 h-4 text-gold-500" />
+          Tema & Warna Tampilan
         </button>
         <button
           onClick={() => setActiveTab('system')}
@@ -801,6 +816,144 @@ export function SettingsPage() {
                 <span className="font-semibold text-emerald-700">{systemHealth.storage?.accessControl}</span>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. TAB: THEME & COLOR APPEARANCE */}
+      {activeTab === 'theme' && (
+        <div className="space-y-6">
+          {/* Theme Banner & Reset */}
+          <div className="bg-white border border-cream-300 rounded-3xl p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <div className="p-3 bg-brand-50 text-brand-800 rounded-2xl border border-brand-200">
+                <Palette className="w-6 h-6 text-brand-700" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-black text-brand-950 font-display">Tema & Warna Tampilan Antarmuka</h2>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gold-400 text-gold-950 shadow-2xs">
+                    Live Preview
+                  </span>
+                </div>
+                <p className="text-xs text-surface-500 mt-0.5">
+                  Pilih nuansa warna sidebar, aksen tombol, dan latar belakang yang paling nyaman untuk Anda dan tim amil yayasan.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={resetToDefault}
+              className="px-4 py-2 text-xs font-bold rounded-xl border border-cream-300 text-brand-950 bg-cream-100 hover:bg-cream-200 flex items-center gap-2 transition-all shadow-2xs active:scale-95"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Reset ke Standar Resmi
+            </button>
+          </div>
+
+          {/* Theme Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {(Object.keys(THEME_PRESETS) as ThemeId[]).map((id) => {
+              const preset = THEME_PRESETS[id];
+              const isSelected = themeId === id;
+
+              return (
+                <div
+                  key={id}
+                  onClick={() => setThemeId(id)}
+                  className={`cursor-pointer rounded-3xl border-2 p-6 transition-all duration-200 flex flex-col justify-between relative overflow-hidden ${
+                    isSelected
+                      ? 'border-brand-700 bg-white shadow-md ring-4 ring-brand-100'
+                      : 'border-cream-300 bg-white hover:border-brand-400 shadow-2xs hover:shadow-xs'
+                  }`}
+                >
+                  {/* Selected Indicator */}
+                  {isSelected && (
+                    <div className="absolute top-4 right-4 flex items-center gap-1.5 px-3 py-1 bg-brand-700 text-white rounded-full text-xs font-extrabold shadow-sm">
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Sedang Aktif</span>
+                    </div>
+                  )}
+
+                  <div className="space-y-4">
+                    {/* Header */}
+                    <div>
+                      <span className="text-[11px] font-bold text-surface-400 uppercase tracking-wider block">
+                        {preset.subtitle}
+                      </span>
+                      <h3 className="text-lg font-black text-brand-950 font-display mt-0.5">
+                        {preset.name}
+                      </h3>
+                      <p className="text-xs text-surface-600 mt-1 leading-relaxed">
+                        {preset.description}
+                      </p>
+                    </div>
+
+                    {/* Color Swatch Bars */}
+                    <div className="space-y-1.5 pt-1">
+                      <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">
+                        Palet Warna Utama
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {preset.swatches.map((colorHex, idx) => (
+                          <div
+                            key={idx}
+                            title={colorHex}
+                            className="w-8 h-8 rounded-xl border border-black/10 shadow-2xs flex items-center justify-center transition-transform hover:scale-110"
+                            style={{ backgroundColor: colorHex }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Mini Sidebar Preview Simulator */}
+                    <div className="pt-2">
+                      <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block mb-1.5">
+                        Simulasi Sidebar
+                      </span>
+                      <div className={`p-3.5 rounded-2xl border ${preset.colors.sidebarBorder} ${preset.colors.sidebarBg} space-y-2 text-xs`}>
+                        {/* Mini Active Item */}
+                        <div className={`p-2 rounded-xl flex items-center justify-between font-bold ${preset.colors.sidebarActiveBg} ${preset.colors.sidebarActiveText} shadow-xs ring-1 ${preset.colors.sidebarActiveRing}`}>
+                          <span>📖 Jadwal Kajian</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-gold-400 text-gold-950">FORM</span>
+                        </div>
+
+                        {/* Mini Inactive Item */}
+                        <div className={`p-2 rounded-xl flex items-center justify-between font-semibold ${preset.colors.sidebarText}`}>
+                          <span>💰 Infaq & Donasi</span>
+                        </div>
+
+                        {/* Mini CTA */}
+                        <div className={`p-2 rounded-xl text-center font-bold text-[11px] ${preset.colors.sidebarCtaBg} ${preset.colors.sidebarCtaText}`}>
+                          + Catat Sapaan Jamaah
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Apply Button */}
+                  <div className="pt-5 mt-4 border-t border-cream-200 flex items-center justify-between">
+                    <span className="text-xs font-semibold text-surface-500">
+                      Gaya: <strong className="text-brand-950 capitalize">{preset.sidebarStyle === 'dark' ? 'Sidebar Gelap' : 'Sidebar Terang'}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setThemeId(id);
+                      }}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                        isSelected
+                          ? 'bg-brand-800 text-white cursor-default'
+                          : 'bg-cream-100 hover:bg-cream-200 text-brand-950 border border-cream-300'
+                      }`}
+                    >
+                      {isSelected ? '✓ Terpilih' : 'Terapkan Tema Ini'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
