@@ -18,10 +18,12 @@ import {
   ShieldAlert,
   FileSpreadsheet,
   CreditCard,
+  AlertCircle,
 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { LoadingState } from '@/components/common/LoadingState';
 import { EventImportModal } from './components/EventImportModal';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 
 export interface EventFormField {
   id: string;
@@ -187,13 +189,25 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
 
   // Check-In Ticket Code Search
   const [ticketInput, setTicketInput] = useState('');
-  const [checkInMessage, setCheckInMessage] = useState<string | null>(null);
 
   // Participant Filter & Search
   const [participantSearch, setParticipantSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'attended' | 'registered'>('all');
   const [genderFilter, setGenderFilter] = useState<'all' | 'ikhwan' | 'akhwat'>('all');
   const [vehicleFilter, setVehicleFilter] = useState<'all' | 'car' | 'motorcycle' | 'none'>('all');
+
+  // Friendly Toast & Alert Dialog States
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [alertDialog, setAlertDialog] = useState<{
+    title: string;
+    message: string;
+    variant: 'success' | 'danger' | 'warning' | 'info';
+  } | null>(null);
+
+  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
+    setToastMessage({ text, type });
+    setTimeout(() => setToastMessage(null), 4000);
+  };
 
   const loadEventDetail = async () => {
     try {
@@ -234,7 +248,11 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
         });
       }
     } catch (err: any) {
-      alert(err.message || 'Gagal memuat detail kajian');
+      setAlertDialog({
+        title: 'Gagal Memuat Detail',
+        message: err.message || 'Gagal memuat detail kajian',
+        variant: 'danger',
+      });
     } finally {
       setLoading(false);
     }
@@ -248,6 +266,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
     const url = `${window.location.origin}/kajian/${eventId}`;
     navigator.clipboard.writeText(url);
     setCopiedLink(true);
+    showToast('Tautan pendaftaran online berhasil disalin!');
     setTimeout(() => setCopiedLink(false), 2500);
   };
 
@@ -261,9 +280,14 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
         body: JSON.stringify({ isRegistrationOpen: nextState }),
       });
       setEventData({ ...eventData, isRegistrationOpen: nextState });
+      showToast(nextState ? 'Pendaftaran online telah DIBUKA' : 'Pendaftaran online telah DITUTUP');
       onEventUpdated();
     } catch (err: any) {
-      alert(err.message || 'Gagal mengubah status pendaftaran');
+      setAlertDialog({
+        title: 'Gagal Mengubah Status',
+        message: err.message || 'Gagal mengubah status pendaftaran',
+        variant: 'danger',
+      });
     } finally {
       setSaving(false);
     }
@@ -292,11 +316,15 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           paymentInstructions: isPaid ? paymentInstructions : null,
         }),
       });
-      alert('Pengaturan biaya daurah, kuota, segmen, fasilitas parkir & aturan berhasil disimpan!');
+      showToast('Pengaturan biaya daurah, kuota, segmen, fasilitas parkir & aturan berhasil disimpan!');
       loadEventDetail();
       onEventUpdated();
     } catch (err: any) {
-      alert(err.message || 'Gagal menyimpan pengaturan');
+      setAlertDialog({
+        title: 'Gagal Menyimpan Pengaturan',
+        message: err.message || 'Gagal menyimpan pengaturan kajian',
+        variant: 'danger',
+      });
     } finally {
       setSaving(false);
     }
@@ -309,10 +337,14 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
         method: 'PUT',
         body: JSON.stringify({ formConfig }),
       });
-      alert('Konfigurasi Form Builder berhasil disimpan!');
+      showToast('Konfigurasi Form Builder berhasil disimpan!');
       onEventUpdated();
     } catch (err: any) {
-      alert(err.message || 'Gagal menyimpan konfigurasi formulir');
+      setAlertDialog({
+        title: 'Gagal Menyimpan Form Builder',
+        message: err.message || 'Gagal menyimpan konfigurasi formulir',
+        variant: 'danger',
+      });
     } finally {
       setSaving(false);
     }
@@ -328,7 +360,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
         : undefined;
 
     const newField: EventFormField = {
-      id: `field_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      id: Math.random().toString(36).substring(2, 9),
       label: newFieldLabel.trim(),
       type: newFieldType,
       required: newFieldRequired,
@@ -345,6 +377,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
     setNewFieldPlaceholder('');
     setNewFieldOptionsRaw('');
     setShowAddField(false);
+    showToast(`Pertanyaan kustom "${newField.label}" ditambahkan`);
   };
 
   const handleDeleteField = (fieldId: string) => {
@@ -356,14 +389,15 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
 
   const handleToggleAttendance = async (attendanceId: string) => {
     try {
-      await apiClient(`/events/${eventId}/toggle-attendance`, {
+      await apiClient(`/events/${eventId}/attendance/toggle`, {
         method: 'POST',
         body: JSON.stringify({ attendanceId }),
       });
       loadEventDetail();
       onEventUpdated();
+      showToast('Status presensi jamaah berhasil diperbarui');
     } catch (err: any) {
-      alert(err.message || 'Gagal mengubah status presensi');
+      showToast(err.message || 'Gagal mengubah status presensi', 'error');
     }
   };
 
@@ -376,14 +410,12 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
         method: 'POST',
         body: JSON.stringify({ ticketCode: ticketInput.trim() }),
       });
-      setCheckInMessage(`✓ Check-in Sukses untuk Tiket ${ticketInput.toUpperCase()}!`);
+      showToast(`✓ Check-in Sukses untuk Tiket ${ticketInput.toUpperCase()}!`, 'success');
       setTicketInput('');
       loadEventDetail();
       onEventUpdated();
-      setTimeout(() => setCheckInMessage(null), 4000);
     } catch (err: any) {
-      setCheckInMessage(`❌ ${err.message || 'Tiket tidak ditemukan / tidak valid'}`);
-      setTimeout(() => setCheckInMessage(null), 4000);
+      showToast(`❌ ${err.message || 'Tiket tidak ditemukan / tidak valid'}`, 'error');
     }
   };
 
@@ -415,9 +447,13 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       setManualVehiclePlate('');
       loadEventDetail();
       onEventUpdated();
-      alert('Peserta berhasil ditambahkan secara manual!');
+      showToast(`Peserta "${manualName.trim()}" berhasil ditambahkan!`);
     } catch (err: any) {
-      alert(err.message || 'Gagal menambahkan peserta');
+      setAlertDialog({
+        title: 'Gagal Menambah Peserta',
+        message: err.message || 'Gagal menambahkan peserta secara manual',
+        variant: 'danger',
+      });
     } finally {
       setManualSubmitting(false);
     }
@@ -692,12 +728,6 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                   </button>
                 </form>
               </div>
-
-              {checkInMessage && (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs font-bold text-center">
-                  {checkInMessage}
-                </div>
-              )}
 
               {/* Search, Filters, Add Participant & Export */}
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-slate-200">
@@ -1724,6 +1754,45 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           }}
         />
       )}
+
+      {/* Floating Toast Notification Banner */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-70 animate-in slide-in-from-bottom-5 duration-200">
+          <div
+            className={`px-4 py-3 rounded-2xl shadow-xl border flex items-center gap-2.5 text-xs font-bold ${
+              toastMessage.type === 'success'
+                ? 'bg-teal-900 text-white border-teal-700 shadow-teal-950/20'
+                : 'bg-rose-900 text-white border-rose-700 shadow-rose-950/20'
+            }`}
+          >
+            {toastMessage.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            )}
+            <span>{toastMessage.text}</span>
+            <button
+              type="button"
+              onClick={() => setToastMessage(null)}
+              className="p-1 hover:bg-white/20 rounded-lg ml-2 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Alert / Notice Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(alertDialog)}
+        title={alertDialog?.title || 'Pemberitahuan Sistem'}
+        message={alertDialog?.message || ''}
+        confirmLabel="Mengerti"
+        variant={alertDialog?.variant || 'info'}
+        singleButton={true}
+        onConfirm={() => setAlertDialog(null)}
+        onClose={() => setAlertDialog(null)}
+      />
     </div>
   );
 };

@@ -15,6 +15,8 @@ import {
   Car,
   Bike,
   ShieldAlert,
+  CheckCircle2,
+  X,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
@@ -79,6 +81,17 @@ export const EventsListPage: React.FC = () => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [eventToDelete, setEventToDelete] = useState<EventItem | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [alertDialog, setAlertDialog] = useState<{
+    title: string;
+    message: string;
+    variant: 'danger' | 'warning' | 'info' | 'success';
+  } | null>(null);
+
+  const showToast = (text: string) => {
+    setToastMessage(text);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
 
   // New Event Form State
   const [newEvent, setNewEvent] = useState({
@@ -165,9 +178,14 @@ export const EventsListPage: React.FC = () => {
         customVenueRules: '',
         isRegistrationOpen: true,
       });
+      showToast('Jadwal kajian baru berhasil ditambahkan!');
       loadEvents();
     } catch (err: any) {
-      alert(err.message || 'Gagal membuat jadwal kajian');
+      setAlertDialog({
+        title: 'Gagal Membuat Jadwal',
+        message: err.message || 'Gagal membuat jadwal kajian baru',
+        variant: 'danger',
+      });
     }
   };
 
@@ -177,9 +195,14 @@ export const EventsListPage: React.FC = () => {
       setDeleteLoading(true);
       await apiClient(`/events/${eventToDelete.id}`, { method: 'DELETE' });
       setEventToDelete(null);
+      showToast('Jadwal kajian berhasil dihapus');
       loadEvents();
     } catch (err: any) {
-      alert(err.message || 'Gagal menghapus kajian');
+      setAlertDialog({
+        title: 'Gagal Menghapus Kajian',
+        message: err.message || 'Gagal menghapus kajian',
+        variant: 'danger',
+      });
     } finally {
       setDeleteLoading(false);
     }
@@ -189,6 +212,7 @@ export const EventsListPage: React.FC = () => {
     const url = `${window.location.origin}/kajian/${evId}`;
     navigator.clipboard.writeText(url);
     setCopiedId(evId);
+    showToast('Tautan pendaftaran online berhasil disalin!');
     setTimeout(() => setCopiedId(null), 2500);
   };
 
@@ -288,7 +312,7 @@ export const EventsListPage: React.FC = () => {
           <button
             onClick={() => {
               navigator.clipboard.writeText(`${window.location.origin}/kajian`);
-              alert('Link Portal Pendaftaran Kajian (/kajian) berhasil disalin!');
+              showToast('Link Portal Pendaftaran Kajian (/kajian) berhasil disalin!');
             }}
             className={`py-2 px-3 ${currentTheme.colors.bannerSecondaryBtnBg} rounded-xl text-xs font-bold transition-all flex items-center gap-1.5`}
           >
@@ -871,6 +895,35 @@ export const EventsListPage: React.FC = () => {
         loading={deleteLoading}
         onConfirm={handleConfirmDelete}
         onClose={() => setEventToDelete(null)}
+      />
+
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-60 animate-in slide-in-from-bottom-5 duration-200">
+          <div className="px-4 py-3 rounded-2xl shadow-xl border border-teal-700 bg-teal-900 text-white flex items-center gap-2.5 text-xs font-bold shadow-teal-950/20">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{toastMessage}</span>
+            <button
+              type="button"
+              onClick={() => setToastMessage(null)}
+              className="p-1 hover:bg-white/20 rounded-lg ml-2 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Alert / Notice Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(alertDialog)}
+        title={alertDialog?.title || 'Pemberitahuan Sistem'}
+        message={alertDialog?.message || ''}
+        confirmLabel="Mengerti"
+        variant={alertDialog?.variant || 'info'}
+        singleButton={true}
+        onConfirm={() => setAlertDialog(null)}
+        onClose={() => setAlertDialog(null)}
       />
     </div>
   );

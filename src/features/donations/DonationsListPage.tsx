@@ -19,6 +19,9 @@ import {
   Globe,
   Copy,
   Download,
+  AlertTriangle,
+  AlertCircle,
+  X,
 } from 'lucide-react';
 import { formatPhoneDisplay, getWhatsAppLink } from '@/lib/phone';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -108,6 +111,12 @@ export const DonationsListPage: React.FC = () => {
   const [reconciliationModalOpen, setReconciliationModalOpen] = useState(false);
   const [selectedDonation, setSelectedDonation] = useState<DonationItem | null>(null);
   const [proofPreviewDonation, setProofPreviewDonation] = useState<DonationItem | null>(null);
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'warning' | 'error' } | null>(null);
+
+  const showToast = (text: string, type: 'success' | 'warning' | 'error' = 'success') => {
+    setToastMessage({ text, type });
+    setTimeout(() => setToastMessage(null), 3500);
+  };
 
   const fetchDonations = async (pageToFetch = 1) => {
     try {
@@ -158,7 +167,7 @@ export const DonationsListPage: React.FC = () => {
   const handleExportCsv = () => {
     if (activeTab === 'donations') {
       if (donationsList.length === 0) {
-        alert('Tidak ada data transaksi donasi untuk diekspor');
+        showToast('Tidak ada data transaksi donasi untuk diekspor', 'warning');
         return;
       }
       const headers = ['Tanggal', 'Nama Donatur', 'Program Infaq', 'Nominal (Rp)', 'Metode Pembayaran', 'Status Verifikasi', 'Ref Eksternal'];
@@ -179,9 +188,10 @@ export const DonationsListPage: React.FC = () => {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      showToast('Data donasi berhasil diekspor ke CSV!');
     } else {
       if (donorsList.length === 0) {
-        alert('Tidak ada data donatur untuk diekspor');
+        showToast('Tidak ada data donatur untuk diekspor', 'warning');
         return;
       }
       const headers = ['Nama Donatur', 'Nomor Telepon', 'Domisili', 'Total Donasi Sah (Rp)', 'Frekuensi Transaksi', 'Donasi Terakhir'];
@@ -201,6 +211,7 @@ export const DonationsListPage: React.FC = () => {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      showToast('Data donatur berhasil diekspor ke CSV!');
     }
   };
 
@@ -280,7 +291,7 @@ export const DonationsListPage: React.FC = () => {
           <button
             onClick={() => {
               navigator.clipboard.writeText(`${window.location.origin}/donasi`);
-              alert('Link Portal Donasi & Wakaf (/donasi) berhasil disalin!');
+              showToast('Link Portal Donasi & Wakaf (/donasi) berhasil disalin!');
             }}
             className={`py-2 px-3 ${currentTheme.colors.bannerSecondaryBtnBg} rounded-xl text-xs font-bold transition-all flex items-center gap-1.5`}
           >
@@ -690,6 +701,36 @@ export const DonationsListPage: React.FC = () => {
           if (activeTab === 'donors') fetchDonors();
         }}
       />
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-60 animate-in slide-in-from-bottom-5 duration-200">
+          <div
+            className={`px-4 py-3 rounded-2xl shadow-xl border flex items-center gap-2.5 text-xs font-bold ${
+              toastMessage.type === 'success'
+                ? 'bg-teal-900 text-white border-teal-700 shadow-teal-950/20'
+                : toastMessage.type === 'warning'
+                ? 'bg-amber-900 text-white border-amber-700 shadow-amber-950/20'
+                : 'bg-rose-900 text-white border-rose-700 shadow-rose-950/20'
+            }`}
+          >
+            {toastMessage.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : toastMessage.type === 'warning' ? (
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            )}
+            <span>{toastMessage.text}</span>
+            <button
+              type="button"
+              onClick={() => setToastMessage(null)}
+              className="p-1 hover:bg-white/20 rounded-lg ml-2 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

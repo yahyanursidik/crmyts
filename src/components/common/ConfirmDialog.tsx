@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Trash2, AlertTriangle, AlertCircle, RefreshCw } from 'lucide-react';
+import { X, Trash2, AlertTriangle, AlertCircle, CheckCircle2, RefreshCw } from 'lucide-react';
 
 export interface ConfirmDialogProps {
   isOpen: boolean;
@@ -7,7 +7,8 @@ export interface ConfirmDialogProps {
   message: React.ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
-  variant?: 'danger' | 'warning' | 'info';
+  variant?: 'danger' | 'warning' | 'info' | 'success';
+  singleButton?: boolean;
   loading?: boolean;
   onConfirm: () => void | Promise<void>;
   onClose: () => void;
@@ -17,9 +18,10 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   isOpen,
   title,
   message,
-  confirmLabel = 'Ya, Hapus',
+  confirmLabel = 'Ya, Lanjutkan',
   cancelLabel = 'Batal',
   variant = 'danger',
+  singleButton = false,
   loading = false,
   onConfirm,
   onClose,
@@ -43,6 +45,14 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           btnBg: 'bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white shadow-amber-600/20',
           badgeText: 'Peringatan Sistem',
           badgeClass: 'bg-amber-50 text-amber-800 border-amber-200',
+        };
+      case 'success':
+        return {
+          iconBg: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+          icon: <CheckCircle2 className="w-6 h-6 text-emerald-600" />,
+          btnBg: 'bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white shadow-teal-900/20',
+          badgeText: 'Pemberitahuan Sistem',
+          badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200',
         };
       case 'info':
       default:
@@ -101,14 +111,16 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
         {/* Action Buttons */}
         <div className="flex items-center justify-end gap-2.5 pt-1">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={loading}
-            className="px-4 py-2.5 rounded-xl border border-cream-300 bg-white hover:bg-cream-100 text-surface-700 text-xs font-bold transition-all shadow-2xs active:scale-95 disabled:opacity-50"
-          >
-            {cancelLabel}
-          </button>
+          {!singleButton && (
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={loading}
+              className="px-4 py-2.5 rounded-xl border border-cream-300 bg-white hover:bg-cream-100 text-surface-700 text-xs font-bold transition-all shadow-2xs active:scale-95 disabled:opacity-50"
+            >
+              {cancelLabel}
+            </button>
+          )}
 
           <button
             type="button"

@@ -100,6 +100,12 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   const [selectedForPaymentVerify, setSelectedForPaymentVerify] = useState<ParticipantPaymentData | null>(null);
   const [checkingInId, setCheckingInId] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
+    setToastMessage({ text, type });
+    setTimeout(() => setToastMessage(null), 3500);
+  };
 
   const loadEventDetail = async () => {
     try {
@@ -134,13 +140,14 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
       });
 
       if (res.ok) {
+        showToast('Presensi jamaah berhasil dicatat!');
         await loadEventDetail();
         if (onRefreshList) onRefreshList();
       } else {
-        alert('Gagal mencatat presensi');
+        showToast('Gagal mencatat presensi', 'error');
       }
     } catch (err) {
-      alert('Terjadi kesalahan koneksi');
+      showToast('Terjadi kesalahan koneksi', 'error');
     } finally {
       setCheckingInId(null);
     }
@@ -642,6 +649,33 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
             if (onRefreshList) onRefreshList();
           }}
         />
+      )}
+
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-70 animate-in slide-in-from-bottom-5 duration-200">
+          <div
+            className={`px-4 py-3 rounded-2xl shadow-xl border flex items-center gap-2.5 text-xs font-bold ${
+              toastMessage.type === 'success'
+                ? 'bg-teal-900 text-white border-teal-700 shadow-teal-950/20'
+                : 'bg-rose-900 text-white border-rose-700 shadow-rose-950/20'
+            }`}
+          >
+            {toastMessage.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            )}
+            <span>{toastMessage.text}</span>
+            <button
+              type="button"
+              onClick={() => setToastMessage(null)}
+              className="p-1 hover:bg-white/20 rounded-lg ml-2 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
       )}
     </>
   );
