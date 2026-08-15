@@ -12,12 +12,13 @@ import {
   CheckCircle2, 
   XCircle, 
   ShieldCheck, 
-  Users, 
+  IdCard, 
   Eye, 
   MessageSquare,
   Lock,
   Globe,
   Copy,
+  Download,
 } from 'lucide-react';
 import { formatPhoneDisplay, getWhatsAppLink } from '@/lib/phone';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -154,6 +155,55 @@ export const DonationsListPage: React.FC = () => {
     }
   }, [activeTab]);
 
+  const handleExportCsv = () => {
+    if (activeTab === 'donations') {
+      if (donationsList.length === 0) {
+        alert('Tidak ada data transaksi donasi untuk diekspor');
+        return;
+      }
+      const headers = ['Tanggal', 'Nama Donatur', 'Program Infaq', 'Nominal (Rp)', 'Metode Pembayaran', 'Status Verifikasi', 'Ref Eksternal'];
+      const rows = donationsList.map((d) => [
+        `"${new Date(d.donationDate).toLocaleString('id-ID')}"`,
+        `"${d.person?.fullName || 'Hamba Allah (Anonim)'}"`,
+        `"${d.program?.name || 'Infaq Umum'}"`,
+        `"${d.amountRupiah}"`,
+        `"${d.paymentMethod}"`,
+        `"${d.verificationStatus}"`,
+        `"${d.externalReference || '-'}"`,
+      ]);
+      const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', `rekap-donasi-infaq-${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else {
+      if (donorsList.length === 0) {
+        alert('Tidak ada data donatur untuk diekspor');
+        return;
+      }
+      const headers = ['Nama Donatur', 'Nomor Telepon', 'Domisili', 'Total Donasi Sah (Rp)', 'Frekuensi Transaksi', 'Donasi Terakhir'];
+      const rows = donorsList.map((d) => [
+        `"${d.fullName}"`,
+        `"${d.phoneE164 || '-'}"`,
+        `"${d.cityRegency || '-'}"`,
+        `"${d.totalVerifiedDonationsRupiah}"`,
+        `"${d.donationsCount}"`,
+        `"${d.lastDonationDate ? new Date(d.lastDonationDate).toLocaleString('id-ID') : '-'}"`,
+      ]);
+      const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', `master-donatur-yts-${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -168,6 +218,15 @@ export const DonationsListPage: React.FC = () => {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <button
+            onClick={handleExportCsv}
+            className="py-2 px-3.5 bg-white hover:bg-surface-50 text-surface-700 border border-surface-300 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 active:scale-95"
+            title="Ekspor rekap donasi / donatur ke file CSV"
+          >
+            <Download className="w-3.5 h-3.5 text-surface-500" />
+            <span>Ekspor CSV</span>
+          </button>
+
           {canVerifyDonation && (
             <button
               onClick={() => setReconciliationModalOpen(true)}
@@ -257,7 +316,7 @@ export const DonationsListPage: React.FC = () => {
                 : 'border-transparent text-surface-500 hover:text-surface-800'
             }`}
           >
-            <Users className="w-4 h-4" />
+            <IdCard className="w-4 h-4" />
             <span>Master Donatur (Role Donatur)</span>
             <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-surface-100 text-surface-700">
               {donorsList.length}
