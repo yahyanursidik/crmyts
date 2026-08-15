@@ -10,6 +10,7 @@ import {
   Lock,
   Phone,
   ArrowRight,
+  ArrowLeft,
   HeartHandshake,
   Search,
   Car,
@@ -18,6 +19,7 @@ import {
   Copy,
   Check,
   Share2,
+  MessageSquare,
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -109,6 +111,7 @@ export function EventsPortalPage() {
   const [searchParams] = useSearchParams();
   const queryEventId = searchParams.get('id') || searchParams.get('eventId') || searchParams.get('event');
   const targetId = routeEventId || queryEventId;
+  const isSingleEvent = Boolean(routeEventId || queryEventId);
 
   const [data, setData] = useState<PortalInfoResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -379,669 +382,943 @@ export function EventsPortalPage() {
         </div>
       </header>
 
-      {/* 2. HERO SECTION */}
-      <section className="relative overflow-hidden pt-12 pb-16 lg:pt-20 lg:pb-24 border-b border-teal-900/10 bg-gradient-to-b from-[#F0F5F2] to-[#F8FAF9]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-          <div className="text-center max-w-3xl mx-auto space-y-4">
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold bg-teal-100/80 text-teal-950 border border-teal-300/60 shadow-2xs">
-              <Sparkles className="w-4 h-4 text-teal-700" />
-              <span>Yayasan Tarbiyah Sunnah — Sentra Majelis Ilmu Ahlus Sunnah</span>
-            </div>
+      {/* Single Event Breadcrumb & Quick Action Strip */}
+      {isSingleEvent && selectedEvent && (
+        <div className="bg-white border-b border-cream-300 py-3 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <Link
+              to="/kajian"
+              className="inline-flex items-center gap-2 text-xs font-bold text-teal-800 hover:text-teal-950 transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" /> Lihat Seluruh Jadwal Majelis Lainnya
+            </Link>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleCopyShareLink(selectedEvent.id)}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-2xs ${
+                  copiedShareLink
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300 ring-2 ring-emerald-200'
+                    : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                }`}
+                title="Salin tautan formulir pendaftaran kajian ini"
+              >
+                {copiedShareLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-slate-600" />}
+                <span>{copiedShareLink ? 'Link Tersalin!' : 'Salin Link Kajian'}</span>
+              </button>
 
-            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-slate-950 tracking-tight leading-tight">
-              Menuntut Ilmu Syar'i Sesuai Pemahaman Salafus Shalih
-            </h1>
-
-            <p className="text-sm sm:text-base text-slate-600 leading-relaxed max-w-2xl mx-auto">
-              Tersedia kajian umum, khusus akhwat, khusus ikhwan, kajian anak, serta program 10 hari terakhir Ramadan. Daftarkan diri Anda, dapatkan nomor kursi/slot parkir resmi, dan taati adab majelis ilmu.
-            </p>
-
-            <div className="flex flex-wrap items-center justify-center gap-3 pt-4">
               <a
-                href="#jadwal"
-                className="px-6 py-3 rounded-xl bg-teal-800 hover:bg-teal-900 text-white font-bold text-sm shadow-md transition-all flex items-center gap-2 active:scale-95"
+                href={`https://wa.me/?text=${encodeURIComponent(`Bismillah, hadiri ${selectedEvent.title} bersama ${selectedEvent.speaker} di ${selectedEvent.locationName}. Pendaftaran resmi & E-Tiket: ${window.location.origin}/kajian/${selectedEvent.id}`)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-all active:scale-95"
               >
-                <BookOpen className="w-4 h-4" /> Lihat Jadwal & Daftar
+                <MessageSquare className="w-3.5 h-3.5" /> Bagikan WhatsApp
               </a>
-
-              <Link
-                to="/donasi"
-                className="px-6 py-3 rounded-xl bg-white hover:bg-slate-50 text-emerald-900 font-bold text-sm shadow-xs border border-emerald-300 transition-all flex items-center gap-2"
-              >
-                <HeartHandshake className="w-4 h-4 text-emerald-700" /> Infaq Operasional Dakwah
-              </Link>
-            </div>
-          </div>
-
-          {/* Quick Metrics */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-12 max-w-4xl mx-auto">
-            <div className="p-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs text-center">
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Kajian Terjadwal</span>
-              <span className="text-xl font-black text-teal-900 block mt-1">
-                {data?.events?.length || 0} Majelis
-              </span>
-            </div>
-
-            <div className="p-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs text-center">
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Kategori Majelis</span>
-              <span className="text-xl font-black text-slate-900 block mt-1">
-                Ikhwan / Akhwat / Anak
-              </span>
-            </div>
-
-            <div className="p-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs text-center">
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Program Ramadan</span>
-              <span className="text-xl font-black text-purple-900 block mt-1">
-                I'tikaf 10 Malam
-              </span>
-            </div>
-
-            <div className="p-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs text-center">
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Fasilitas Lokasi</span>
-              <span className="text-xl font-black text-emerald-800 block mt-1">
-                Parkir & E-Tiket
-              </span>
             </div>
           </div>
         </div>
-      </section>
+      )}
 
-      {/* 3. MAIN SECTION: SCHEDULE & REGISTRATION */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-12">
-        {/* Filter Bar */}
-        <div id="jadwal" className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            {/* Category Chips */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-              {categories.map((cat) => (
-                <button
-                  key={cat}
-                  onClick={() => setCategoryFilter(cat)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-                    categoryFilter === cat
-                      ? 'bg-teal-800 text-white shadow-2xs'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+      {/* Invalid Event Notice if Single Event not found */}
+      {isSingleEvent && !selectedEvent && !loading && (
+        <div className="max-w-4xl mx-auto px-4 py-20 text-center space-y-4">
+          <div className="w-16 h-16 rounded-3xl bg-amber-50 border border-amber-200 flex items-center justify-center mx-auto text-amber-600 shadow-sm">
+            <Clock className="w-8 h-8" />
+          </div>
+          <h2 className="text-2xl font-black text-slate-900 font-display">Jadwal Kajian Tidak Ditemukan</h2>
+          <p className="text-sm text-slate-600 max-w-md mx-auto">
+            Jadwal majelis ilmu yang Anda tuju mungkin telah selesai dilaksanakan atau tautan yang Anda buka kurang tepat.
+          </p>
+          <div className="pt-2">
+            <Link
+              to="/kajian"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs shadow-md transition-all active:scale-95"
+            >
+              <ArrowLeft className="w-4 h-4" /> Lihat Jadwal Kajian Tersedia Lainnya
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* 2A. SINGLE EVENT DEDICATED HERO SECTION */}
+      {isSingleEvent && selectedEvent && (
+        <section className="relative overflow-hidden pt-10 pb-12 lg:pt-14 lg:pb-16 border-b border-teal-900/10 bg-gradient-to-b from-[#F0F5F2] to-[#F8FAF9]">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+            <div className="max-w-4xl mx-auto space-y-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-teal-800 text-white shadow-2xs">
+                  {selectedEvent.category || 'Majelis Ilmu'}
+                </span>
+                {selectedEvent.targetAudience === 'akhwat_only' && (
+                  <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-rose-100 text-rose-800 border border-rose-200">
+                    🌸 Khusus Akhwat
+                  </span>
+                )}
+                {selectedEvent.targetAudience === 'ikhwan_only' && (
+                  <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-sky-100 text-sky-800 border border-sky-200">
+                    🕌 Khusus Ikhwan
+                  </span>
+                )}
+                {selectedEvent.targetAudience === 'anak' && (
+                  <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-200">
+                    🌱 Kajian Anak
+                  </span>
+                )}
+                {selectedEvent.targetAudience === 'itikaf_ramadan' && (
+                  <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-purple-100 text-purple-800 border border-purple-200">
+                    🌙 10 Hari Ramadan
+                  </span>
+                )}
+                <span
+                  className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                    selectedEvent.isRegistrationOpen
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                      : 'bg-red-100 text-red-700 border border-red-200'
                   }`}
                 >
-                  {cat === 'all' ? 'Semua Kategori' : cat}
-                </button>
-              ))}
-            </div>
+                  {selectedEvent.isRegistrationOpen ? 'Pendaftaran Dibuka' : 'Pendaftaran Ditutup'}
+                </span>
+              </div>
 
-            {/* Search Box */}
-            <div className="relative min-w-[240px]">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Cari judul atau pemateri..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none bg-slate-50"
-              />
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-slate-950 tracking-tight leading-tight font-display">
+                {selectedEvent.title}
+              </h1>
+
+              <div className="flex flex-wrap items-center gap-4 text-sm sm:text-base font-bold text-teal-900">
+                <span className="flex items-center gap-1.5">
+                  <Sparkles className="w-5 h-5 text-amber-600" /> Pemateri: {selectedEvent.speaker}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-2">
+                <div className="p-3.5 bg-white rounded-2xl border border-slate-200/90 shadow-2xs space-y-1">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-teal-700" /> Jadwal Waktu
+                  </span>
+                  <span className="text-xs font-bold text-slate-900 block">
+                    {formatDateTime(selectedEvent.startAt)}
+                  </span>
+                </div>
+
+                <div className="p-3.5 bg-white rounded-2xl border border-slate-200/90 shadow-2xs space-y-1">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                    <MapPin className="w-3.5 h-3.5 text-rose-600" /> Lokasi Majelis
+                  </span>
+                  <span className="text-xs font-bold text-slate-900 block truncate" title={selectedEvent.locationName}>
+                    {selectedEvent.locationName}
+                  </span>
+                </div>
+
+                <div className="p-3.5 bg-white rounded-2xl border border-slate-200/90 shadow-2xs space-y-1">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                    <Ticket className="w-3.5 h-3.5 text-emerald-600" /> Kuota Jamaah
+                  </span>
+                  <span className="text-xs font-bold text-slate-900 block">
+                    {selectedEvent.quotaIkhwan || selectedEvent.quotaAkhwat
+                      ? `Ikhwan: ${selectedEvent.quotaIkhwan ? Math.max(0, selectedEvent.quotaIkhwan - (selectedEvent.ikhwanCount || 0)) : 'Tersedia'} | Akhwat: ${selectedEvent.quotaAkhwat ? Math.max(0, selectedEvent.quotaAkhwat - (selectedEvent.akhwatCount || 0)) : 'Tersedia'}`
+                      : 'Terbuka Untuk Umum'}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
+        </section>
+      )}
 
-          {/* Audience Filter Buttons */}
-          <div className="flex items-center gap-2 pt-2 border-t border-slate-100 overflow-x-auto">
-            <span className="text-xs font-bold text-slate-500 shrink-0">Target Jamaah:</span>
-            {[
-              { id: 'all', label: 'Semua Target' },
-              { id: 'umum', label: '🌐 Umum / Tabligh Akbar' },
-              { id: 'akhwat_only', label: '🌸 Khusus Akhwat' },
-              { id: 'ikhwan_only', label: '🕌 Khusus Ikhwan' },
-              { id: 'anak', label: '🌱 Kajian Anak' },
-              { id: 'itikaf_ramadan', label: '🌙 10 Hari Ramadan' },
-            ].map((aud) => (
-              <button
-                key={aud.id}
-                onClick={() => setAudienceFilter(aud.id)}
-                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-                  audienceFilter === aud.id
-                    ? 'bg-teal-900 text-white shadow-2xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {aud.label}
-              </button>
-            ))}
-          </div>
-        </div>
+      {/* 2B. GENERAL CATALOG HERO SECTION */}
+      {!isSingleEvent && (
+        <section className="relative overflow-hidden pt-12 pb-16 lg:pt-20 lg:pb-24 border-b border-teal-900/10 bg-gradient-to-b from-[#F0F5F2] to-[#F8FAF9]">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+            <div className="text-center max-w-3xl mx-auto space-y-4">
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold bg-teal-100/80 text-teal-950 border border-teal-300/60 shadow-2xs">
+                <Sparkles className="w-4 h-4 text-teal-700" />
+                <span>Yayasan Tarbiyah Sunnah — Sentra Majelis Ilmu Ahlus Sunnah</span>
+              </div>
 
-        {/* Two-Column Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Left: Schedule List */}
-          <div className="lg:col-span-7 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold text-slate-900">Daftar Jadwal Kajian Tersedia</h2>
-              <span className="text-xs text-slate-500 font-semibold">{filteredEvents.length} Jadwal Ditemukan</span>
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-slate-950 tracking-tight leading-tight">
+                Menuntut Ilmu Syar'i Sesuai Pemahaman Salafus Shalih
+              </h1>
+
+              <p className="text-sm sm:text-base text-slate-600 leading-relaxed max-w-2xl mx-auto">
+                Tersedia kajian umum, khusus akhwat, khusus ikhwan, kajian anak, serta program 10 hari terakhir Ramadan. Daftarkan diri Anda, dapatkan nomor kursi/slot parkir resmi, dan taati adab majelis ilmu.
+              </p>
+
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-4">
+                <a
+                  href="#jadwal"
+                  className="px-6 py-3 rounded-xl bg-teal-800 hover:bg-teal-900 text-white font-bold text-sm shadow-md transition-all flex items-center gap-2 active:scale-95"
+                >
+                  <BookOpen className="w-4 h-4" /> Lihat Jadwal & Daftar
+                </a>
+
+                <Link
+                  to="/donasi"
+                  className="px-6 py-3 rounded-xl bg-white hover:bg-slate-50 text-emerald-900 font-bold text-sm shadow-xs border border-emerald-300 transition-all flex items-center gap-2"
+                >
+                  <HeartHandshake className="w-4 h-4 text-emerald-700" /> Infaq Operasional Dakwah
+                </Link>
+              </div>
             </div>
 
-            <div className="space-y-3">
-              {filteredEvents.length > 0 ? (
-                filteredEvents.map((ev) => (
-                  <div
-                    key={ev.id}
-                    onClick={() => handleSelectEvent(ev)}
-                    className={`p-5 rounded-3xl border cursor-pointer transition-all flex flex-col justify-between gap-4 ${
-                      selectedEventId === ev.id
-                        ? 'border-teal-700 bg-teal-50/80 ring-2 ring-teal-500/20 shadow-xs'
-                        : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-2xs'
+            {/* Quick Metrics */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-12 max-w-4xl mx-auto">
+              <div className="p-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs text-center">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Kajian Terjadwal</span>
+                <span className="text-xl font-black text-teal-900 block mt-1">
+                  {data?.events?.length || 0} Majelis
+                </span>
+              </div>
+
+              <div className="p-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs text-center">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Kategori Majelis</span>
+                <span className="text-xl font-black text-slate-900 block mt-1">
+                  Ikhwan / Akhwat / Anak
+                </span>
+              </div>
+
+              <div className="p-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs text-center">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Program Ramadan</span>
+                <span className="text-xl font-black text-purple-900 block mt-1">
+                  I'tikaf 10 Malam
+                </span>
+              </div>
+
+              <div className="p-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs text-center">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Fasilitas Lokasi</span>
+                <span className="text-xl font-black text-emerald-800 block mt-1">
+                  Parkir & E-Tiket
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* 3. MAIN SECTION: DEDICATED VIEW OR CATALOG LIST */}
+      {(!isSingleEvent || selectedEvent) && (
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-12">
+          {/* If General Catalog: Show Filter Bar */}
+          {!isSingleEvent && (
+            <div id="jadwal" className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                {/* Category Chips */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                  {categories.map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => setCategoryFilter(cat)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                        categoryFilter === cat
+                          ? 'bg-teal-800 text-white shadow-2xs'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      {cat === 'all' ? 'Semua Kategori' : cat}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Search Box */}
+                <div className="relative min-w-[240px]">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Cari judul atau pemateri..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none bg-slate-50"
+                  />
+                </div>
+              </div>
+
+              {/* Audience Filter Buttons */}
+              <div className="flex items-center gap-2 pt-2 border-t border-slate-100 overflow-x-auto">
+                <span className="text-xs font-bold text-slate-500 shrink-0">Target Jamaah:</span>
+                {[
+                  { id: 'all', label: 'Semua Target' },
+                  { id: 'umum', label: '🌐 Umum / Tabligh Akbar' },
+                  { id: 'akhwat_only', label: '🌸 Khusus Akhwat' },
+                  { id: 'ikhwan_only', label: '🕌 Khusus Ikhwan' },
+                  { id: 'anak', label: '🌱 Kajian Anak' },
+                  { id: 'itikaf_ramadan', label: '🌙 10 Hari Ramadan' },
+                ].map((aud) => (
+                  <button
+                    key={aud.id}
+                    onClick={() => setAudienceFilter(aud.id)}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                      audienceFilter === aud.id
+                        ? 'bg-teal-900 text-white shadow-2xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                     }`}
                   >
-                    <div className="space-y-2.5">
-                      <div className="flex items-center justify-between flex-wrap gap-2">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full bg-teal-100 text-teal-800">
-                            {ev.category || 'Kajian Sunnah'}
-                          </span>
+                    {aud.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
-                          {ev.targetAudience === 'akhwat_only' && (
-                            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
-                              🌸 Khusus Akhwat
-                            </span>
-                          )}
-                          {ev.targetAudience === 'ikhwan_only' && (
-                            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-200">
-                              🕌 Khusus Ikhwan
-                            </span>
-                          )}
-                          {ev.targetAudience === 'anak' && (
-                            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
-                              🌱 Kajian Anak
-                            </span>
-                          )}
-                          {ev.targetAudience === 'itikaf_ramadan' && (
-                            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
-                              🌙 10 Hari Ramadan
-                            </span>
-                          )}
-                        </div>
+          {/* Two-Column Layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            {/* Left Column: Either Single Event Info or Schedule List */}
+            <div className="lg:col-span-7 space-y-6">
+              {isSingleEvent && selectedEvent ? (
+                /* SINGLE EVENT DETAIL CARDS */
+                <div className="space-y-6">
+                  {/* Deskripsi Materi */}
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-3">
+                    <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                      <BookOpen className="w-5 h-5 text-teal-800" />
+                      <h3 className="text-base font-bold text-slate-900 font-display">
+                        Deskripsi & Ringkasan Materi Kajian
+                      </h3>
+                    </div>
+                    <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line">
+                      {selectedEvent.description || 'Kajian syar\'i rutin berlandaskan Al-Qur\'an dan As-Sunnah sesuai dengan pemahaman Salafus Shalih. Silakan mempersiapkan catatan dan adab majelis ilmu.'}
+                    </p>
+                  </div>
 
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full ${
-                              ev.isRegistrationOpen
-                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                : 'bg-red-100 text-red-700 border border-red-200'
-                            }`}
-                          >
-                            {ev.isRegistrationOpen ? 'Pendaftaran Buka' : 'Ditutup'}
-                          </span>
-                          <span className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
-                            <Calendar className="w-3.5 h-3.5 text-teal-700" /> {formatDateTime(ev.startAt)}
-                          </span>
-                        </div>
-                      </div>
-
-                      <h3 className="font-black text-base text-slate-900 leading-snug">{ev.title}</h3>
-                      <p className="text-xs font-bold text-emerald-800 flex items-center gap-1.5">
-                        <Sparkles className="w-4 h-4 text-amber-600" /> Pemateri: {ev.speaker}
-                      </p>
-                      {ev.description && (
-                        <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">{ev.description}</p>
-                      )}
-                      <p className="text-xs text-slate-500 flex items-center gap-1.5">
-                        <MapPin className="w-4 h-4 text-slate-400" /> {ev.locationName}
-                      </p>
-
-                      {/* Quotas & Parking Capacity Status */}
-                      <div className="flex items-center gap-3 pt-1 text-[11px] text-slate-600 flex-wrap">
-                        {(ev.quotaIkhwan || ev.quotaAkhwat) && (
-                          <span className="bg-slate-100 px-2 py-0.5 rounded-md font-semibold">
-                            🕌 Ikhwan: {ev.quotaIkhwan ? `${ev.quotaIkhwan - (ev.ikhwanCount || 0)} sisa` : 'Tersedia'} | 
-                            🌸 Akhwat: {ev.quotaAkhwat ? `${ev.quotaAkhwat - (ev.akhwatCount || 0)} sisa` : 'Tersedia'}
-                          </span>
-                        )}
-
-                        {ev.carParkingQuota && (
-                          <span className="bg-indigo-50 text-indigo-900 border border-indigo-200 px-2 py-0.5 rounded-md font-semibold flex items-center gap-1">
-                            <Car className="w-3 h-3 text-indigo-600" /> Slot Mobil: {ev.carParkingQuota - (ev.carsCount || 0)} tersisa
-                          </span>
-                        )}
-
-                        {ev.venueRules && ev.venueRules.includes('no_toddlers') && (
-                          <span className="bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 rounded-md font-bold">
-                            🚫 Tanpa Balita
-                          </span>
-                        )}
-                      </div>
+                  {/* Lokasi & Fasilitas Parkir */}
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                    <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                      <MapPin className="w-5 h-5 text-rose-600" />
+                      <h3 className="text-base font-bold text-slate-900 font-display">
+                        Informasi Lokasi & Fasilitas Majelis
+                      </h3>
                     </div>
 
-                    <div className="flex items-center justify-between border-t border-slate-200/60 pt-3 gap-2">
-                      <button
-                        type="button"
-                        onClick={(e) => handleCopyShareLink(ev.id, e)}
-                        className={`px-2.5 py-1 rounded-xl border text-[11px] font-bold flex items-center gap-1 transition-all active:scale-95 ${
-                          copiedCardId === ev.id
-                            ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                            : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-2xs'
-                        }`}
-                        title="Salin link pendaftaran kajian ini"
-                      >
-                        {copiedCardId === ev.id ? (
-                          <>
-                            <Check className="w-3 h-3 text-emerald-600" />
-                            <span>Link Tersalin!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3 h-3 text-slate-500" />
-                            <span>Salin Link</span>
-                          </>
-                        )}
-                      </button>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-1">
+                        <span className="font-bold text-slate-700 block">Tempat Pelaksanaan</span>
+                        <p className="text-slate-600 font-medium">{selectedEvent.locationName}</p>
+                        <span className="inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-bold bg-teal-100 text-teal-800 uppercase">
+                          Mode: {selectedEvent.deliveryMode}
+                        </span>
+                      </div>
 
-                      <span
-                        className={`text-xs font-bold px-3 py-1.5 rounded-xl transition-all ${
-                          selectedEventId === ev.id
-                            ? 'bg-teal-800 text-white shadow-2xs'
-                            : 'bg-slate-100 text-slate-700'
-                        }`}
-                      >
-                        {selectedEventId === ev.id ? 'Terpilih untuk Daftar ✓' : 'Pilih Kajian Ini'}
-                      </span>
+                      <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-1">
+                        <span className="font-bold text-slate-700 block">Fasilitas Kendaraan & Parkir</span>
+                        <p className="text-slate-600">
+                          {selectedEvent.carParkingQuota
+                            ? `🚗 Mobil: ${Math.max(0, selectedEvent.carParkingQuota - (selectedEvent.carsCount || 0))} slot sisa`
+                            : 'Tersedia kantong parkir resmi'}
+                          <br />
+                          {selectedEvent.motorcycleParkingQuota
+                            ? `🏍️ Motor: ${Math.max(0, selectedEvent.motorcycleParkingQuota - (selectedEvent.motorcyclesCount || 0))} slot sisa`
+                            : 'Parkir motor memadai'}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                ))
+
+                  {/* Tata Tertib & Batasan Majelis */}
+                  {selectedEvent.venueRules && selectedEvent.venueRules.length > 0 && (
+                    <div className="bg-amber-50/80 p-6 rounded-3xl border border-amber-200/90 shadow-sm space-y-3">
+                      <div className="flex items-center gap-2 pb-2 border-b border-amber-200/60">
+                        <ShieldAlert className="w-5 h-5 text-amber-700" />
+                        <h3 className="text-base font-bold text-amber-950 font-display">
+                          Tata Tertib & Batasan Majelis Ilmu
+                        </h3>
+                      </div>
+                      <ul className="space-y-2 text-xs text-amber-950">
+                        {selectedEvent.venueRules.map((rId) => {
+                          const rule = VENUE_RULES_MAP[rId];
+                          return rule ? (
+                            <li key={rId} className="flex items-start gap-2 bg-white/70 p-2.5 rounded-xl border border-amber-200/70">
+                              <span className="font-bold">{rule.label}</span>
+                              <span className="text-amber-800 text-[11px]">— {rule.desc}</span>
+                            </li>
+                          ) : null;
+                        })}
+                      </ul>
+                      {selectedEvent.customVenueRules && (
+                        <p className="text-xs text-amber-900 pt-2 border-t border-amber-200/60">
+                          <b>Aturan Tambahan:</b> {selectedEvent.customVenueRules}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Other Upcoming Events Recommendations */}
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                      <h3 className="text-sm font-bold text-slate-900 font-display">
+                        Jadwal Majelis Ilmu Lainnya
+                      </h3>
+                      <Link to="/kajian" className="text-xs font-bold text-teal-800 hover:text-teal-950">
+                        Lihat Semua →
+                      </Link>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {(data?.events || [])
+                        .filter((e) => e.id !== selectedEvent.id)
+                        .slice(0, 2)
+                        .map((other) => (
+                          <Link
+                            key={other.id}
+                            to={`/kajian/${other.id}`}
+                            className="p-3.5 rounded-2xl border border-slate-200 hover:border-teal-400 hover:bg-teal-50/30 transition-all space-y-1 block"
+                          >
+                            <span className="text-[10px] font-bold uppercase text-teal-800 block">
+                              {other.category}
+                            </span>
+                            <span className="text-xs font-bold text-slate-900 line-clamp-1 block">
+                              {other.title}
+                            </span>
+                            <span className="text-[11px] text-slate-500 block">
+                              Pemateri: {other.speaker}
+                            </span>
+                          </Link>
+                        ))}
+                    </div>
+                  </div>
+                </div>
               ) : (
-                <div className="p-8 bg-white border border-slate-200 rounded-3xl text-center space-y-2">
-                  <Clock className="w-8 h-8 text-slate-400 mx-auto" />
-                  <p className="text-sm font-bold text-slate-700">Tidak ada jadwal yang cocok dengan filter</p>
-                  <p className="text-xs text-slate-500">Coba pilih kategori lain atau reset pencarian.</p>
+                /* GENERAL CATALOG SCHEDULE LIST */
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-xl font-bold text-slate-900">Daftar Jadwal Kajian Tersedia</h2>
+                    <span className="text-xs text-slate-500 font-semibold">{filteredEvents.length} Jadwal Ditemukan</span>
+                  </div>
+
+                  <div className="space-y-3">
+                    {filteredEvents.length > 0 ? (
+                      filteredEvents.map((ev) => (
+                        <div
+                          key={ev.id}
+                          onClick={() => handleSelectEvent(ev)}
+                          className={`p-5 rounded-3xl border cursor-pointer transition-all flex flex-col justify-between gap-4 ${
+                            selectedEventId === ev.id
+                              ? 'border-teal-700 bg-teal-50/80 ring-2 ring-teal-500/20 shadow-xs'
+                              : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-2xs'
+                          }`}
+                        >
+                          <div className="space-y-2.5">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full bg-teal-100 text-teal-800">
+                                  {ev.category || 'Kajian Sunnah'}
+                                </span>
+
+                                {ev.targetAudience === 'akhwat_only' && (
+                                  <span className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
+                                    🌸 Khusus Akhwat
+                                  </span>
+                                )}
+                                {ev.targetAudience === 'ikhwan_only' && (
+                                  <span className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-200">
+                                    🕌 Khusus Ikhwan
+                                  </span>
+                                )}
+                                {ev.targetAudience === 'anak' && (
+                                  <span className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                                    🌱 Kajian Anak
+                                  </span>
+                                )}
+                                {ev.targetAudience === 'itikaf_ramadan' && (
+                                  <span className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
+                                    🌙 10 Hari Ramadan
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full ${
+                                    ev.isRegistrationOpen
+                                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                      : 'bg-red-100 text-red-700 border border-red-200'
+                                  }`}
+                                >
+                                  {ev.isRegistrationOpen ? 'Pendaftaran Buka' : 'Ditutup'}
+                                </span>
+                                <span className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
+                                  <Calendar className="w-3.5 h-3.5 text-teal-700" /> {formatDateTime(ev.startAt)}
+                                </span>
+                              </div>
+                            </div>
+
+                            <h3 className="font-black text-base text-slate-900 leading-snug">{ev.title}</h3>
+                            <p className="text-xs font-bold text-emerald-800 flex items-center gap-1.5">
+                              <Sparkles className="w-4 h-4 text-amber-600" /> Pemateri: {ev.speaker}
+                            </p>
+                            {ev.description && (
+                              <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">{ev.description}</p>
+                            )}
+                            <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                              <MapPin className="w-4 h-4 text-slate-400" /> {ev.locationName}
+                            </p>
+
+                            {/* Quotas & Parking Capacity Status */}
+                            <div className="flex items-center gap-3 pt-1 text-[11px] text-slate-600 flex-wrap">
+                              {(ev.quotaIkhwan || ev.quotaAkhwat) && (
+                                <span className="bg-slate-100 px-2 py-0.5 rounded-md font-semibold">
+                                  🕌 Ikhwan: {ev.quotaIkhwan ? `${Math.max(0, ev.quotaIkhwan - (ev.ikhwanCount || 0))} sisa` : 'Tersedia'} | 
+                                  🌸 Akhwat: {ev.quotaAkhwat ? `${Math.max(0, ev.quotaAkhwat - (ev.akhwatCount || 0))} sisa` : 'Tersedia'}
+                                </span>
+                              )}
+
+                              {ev.carParkingQuota && (
+                                <span className="bg-indigo-50 text-indigo-900 border border-indigo-200 px-2 py-0.5 rounded-md font-semibold flex items-center gap-1">
+                                  <Car className="w-3 h-3 text-indigo-600" /> Slot Mobil: {Math.max(0, ev.carParkingQuota - (ev.carsCount || 0))} tersisa
+                                </span>
+                              )}
+
+                              {ev.venueRules && ev.venueRules.includes('no_toddlers') && (
+                                <span className="bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 rounded-md font-bold">
+                                  🚫 Tanpa Balita
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between border-t border-slate-200/60 pt-3 gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => handleCopyShareLink(ev.id, e)}
+                              className={`px-2.5 py-1 rounded-xl border text-[11px] font-bold flex items-center gap-1 transition-all active:scale-95 ${
+                                copiedCardId === ev.id
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                  : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-2xs'
+                              }`}
+                              title="Salin link pendaftaran kajian ini"
+                            >
+                              {copiedCardId === ev.id ? (
+                                <>
+                                  <Check className="w-3 h-3 text-emerald-600" />
+                                  <span>Link Tersalin!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3 text-slate-500" />
+                                  <span>Salin Link</span>
+                                </>
+                              )}
+                            </button>
+
+                            <span
+                              className={`text-xs font-bold px-3 py-1.5 rounded-xl transition-all ${
+                                selectedEventId === ev.id
+                                  ? 'bg-teal-800 text-white shadow-2xs'
+                                  : 'bg-slate-100 text-slate-700'
+                              }`}
+                            >
+                              {selectedEventId === ev.id ? 'Terpilih untuk Daftar ✓' : 'Pilih Kajian Ini'}
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-8 bg-white border border-slate-200 rounded-3xl text-center space-y-2">
+                        <Clock className="w-8 h-8 text-slate-400 mx-auto" />
+                        <p className="text-sm font-bold text-slate-700">Tidak ada jadwal yang cocok dengan filter</p>
+                        <p className="text-xs text-slate-500">Coba pilih kategori lain atau reset pencarian.</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Right: Registration Form Box with Rules, Quotas & Parking */}
-          <div id="daftar" className="lg:col-span-5 bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-5 sticky top-28">
-            <div className="border-b pb-3 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-base font-black text-slate-900 font-display">Formulir Pendaftaran Majelis Ilmu</h3>
-                {selectedEvent && (
-                  <button
-                    type="button"
-                    onClick={() => handleCopyShareLink(selectedEvent.id)}
-                    className={`px-2.5 py-1 text-xs font-bold rounded-xl border transition-all flex items-center gap-1.5 active:scale-95 shadow-2xs ${
-                      copiedShareLink
-                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 ring-2 ring-emerald-200'
-                        : 'bg-cream-100 hover:bg-cream-200 text-brand-950 border-cream-300'
-                    }`}
-                    title="Salin link formulir & landing page kajian ini"
-                  >
-                    {copiedShareLink ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Link Tersalin!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5 text-brand-800" />
-                        <span>Salin Link Form</span>
-                      </>
-                    )}
-                  </button>
-                )}
-              </div>
-              <p className="text-xs text-slate-600 font-medium">
-                {selectedEvent ? (
-                  <span className="text-brand-900 font-bold">
-                    📖 {selectedEvent.title} — <span className="text-slate-600 font-normal">{selectedEvent.speaker}</span>
-                  </span>
-                ) : (
-                  'Pilih jadwal kajian di sebelah kiri.'
-                )}
-              </p>
-            </div>
-
-            {selectedEvent && selectedEvent.isRegistrationOpen === false ? (
-              <div className="p-6 bg-red-50 border border-red-200 rounded-2xl text-center space-y-2">
-                <Clock className="w-8 h-8 text-red-500 mx-auto" />
-                <h4 className="text-sm font-bold text-red-900">Pendaftaran Telah Ditutup</h4>
-                <p className="text-xs text-red-700">
-                  Mohon maaf, pendaftaran untuk kajian ini telah ditutup oleh pengurus. Silakan memilih jadwal kajian lainnya.
+            {/* Right Column: Dedicated Registration Form Box */}
+            <div id="daftar" className="lg:col-span-5 bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-5 sticky top-28">
+              <div className="border-b pb-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-base font-black text-slate-900 font-display">Formulir Pendaftaran Majelis Ilmu</h3>
+                  {selectedEvent && (
+                    <button
+                      type="button"
+                      onClick={() => handleCopyShareLink(selectedEvent.id)}
+                      className={`px-2.5 py-1 text-xs font-bold rounded-xl border transition-all flex items-center gap-1.5 active:scale-95 shadow-2xs ${
+                        copiedShareLink
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300 ring-2 ring-emerald-200'
+                          : 'bg-cream-100 hover:bg-cream-200 text-brand-950 border-cream-300'
+                      }`}
+                      title="Salin link formulir & landing page kajian ini"
+                    >
+                      {copiedShareLink ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Link Tersalin!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5 text-brand-800" />
+                          <span>Salin Link Form</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-slate-600 font-medium">
+                  {selectedEvent ? (
+                    <span className="text-brand-900 font-bold">
+                      📖 {selectedEvent.title} — <span className="text-slate-600 font-normal">{selectedEvent.speaker}</span>
+                    </span>
+                  ) : (
+                    'Pilih jadwal kajian di sebelah kiri.'
+                  )}
                 </p>
               </div>
-            ) : (
-              <form onSubmit={handleSubmitEventRegistration} className="space-y-4">
-                {/* 1. Full Name */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Nama Lengkap Jamaah *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Contoh: Abdullah bin Fulan"
-                    value={regFullName}
-                    onChange={(e) => setRegFullName(e.target.value)}
-                    className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                  />
-                </div>
 
-                {/* 2. Gender Selector (Locked if event is single gender) */}
-                {selectedEvent?.targetAudience === 'akhwat_only' ? (
-                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-900 space-y-0.5">
-                    <span className="font-bold block">🌸 Kategori: Khusus Jamaah Akhwat (Wanita)</span>
-                    <p className="text-[11px] text-rose-700">Kajian ini hanya diperuntukkan bagi jamaah akhwat.</p>
-                  </div>
-                ) : selectedEvent?.targetAudience === 'ikhwan_only' ? (
-                  <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl text-xs text-sky-900 space-y-0.5">
-                    <span className="font-bold block">🕌 Kategori: Khusus Jamaah Ikhwan (Laki-laki)</span>
-                    <p className="text-[11px] text-sky-700">Kajian ini hanya diperuntukkan bagi jamaah ikhwan.</p>
-                  </div>
-                ) : (
+              {selectedEvent && selectedEvent.isRegistrationOpen === false ? (
+                <div className="p-6 bg-red-50 border border-red-200 rounded-2xl text-center space-y-2">
+                  <Clock className="w-8 h-8 text-red-500 mx-auto" />
+                  <h4 className="text-sm font-bold text-red-900">Pendaftaran Telah Ditutup</h4>
+                  <p className="text-xs text-red-700">
+                    Mohon maaf, pendaftaran untuk kajian ini telah ditutup oleh pengurus. Silakan memilih jadwal kajian lainnya.
+                  </p>
+                </div>
+              ) : (
+                <form onSubmit={handleSubmitEventRegistration} className="space-y-4">
+                  {/* 1. Full Name */}
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Kategori Jamaah *</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setRegGender('ikhwan')}
-                        disabled={isIkhwanFull}
-                        className={`p-2.5 rounded-xl border text-xs font-bold text-center transition-all ${
-                          regGender === 'ikhwan'
-                            ? 'bg-teal-50 border-teal-600 text-teal-900 ring-1 ring-teal-500/30'
-                            : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                        } ${isIkhwanFull ? 'opacity-40 cursor-not-allowed' : ''}`}
-                      >
-                        Ikhwan {isIkhwanFull ? '(Penuh)' : ''}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setRegGender('akhwat')}
-                        disabled={isAkhwatFull}
-                        className={`p-2.5 rounded-xl border text-xs font-bold text-center transition-all ${
-                          regGender === 'akhwat'
-                            ? 'bg-rose-50 border-rose-600 text-rose-900 ring-1 ring-rose-500/30'
-                            : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                        } ${isAkhwatFull ? 'opacity-40 cursor-not-allowed' : ''}`}
-                      >
-                        Akhwat {isAkhwatFull ? '(Penuh)' : ''}
-                      </button>
-                    </div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Nama Lengkap Jamaah *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Contoh: Abdullah bin Fulan"
+                      value={regFullName}
+                      onChange={(e) => setRegFullName(e.target.value)}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    />
                   </div>
-                )}
 
-                {/* 3. WhatsApp Phone */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Nomor WhatsApp Aktif *{' '}
-                    <span className="text-[10px] font-normal text-slate-400">(Untuk kirim E-Tiket & Pengingat)</span>
-                  </label>
-                  <input
-                    type="tel"
-                    required
-                    placeholder="Contoh: 081234567890"
-                    value={regPhone}
-                    onChange={(e) => setRegPhone(e.target.value)}
-                    className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none font-mono"
-                  />
-                </div>
+                  {/* 2. Gender Selector (Locked if event is single gender) */}
+                  {selectedEvent?.targetAudience === 'akhwat_only' ? (
+                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-900 space-y-0.5">
+                      <span className="font-bold block">🌸 Kategori: Khusus Jamaah Akhwat (Wanita)</span>
+                      <p className="text-[11px] text-rose-700">Kajian ini hanya diperuntukkan bagi jamaah akhwat.</p>
+                    </div>
+                  ) : selectedEvent?.targetAudience === 'ikhwan_only' ? (
+                    <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl text-xs text-sky-900 space-y-0.5">
+                      <span className="font-bold block">🕌 Kategori: Khusus Jamaah Ikhwan (Laki-laki)</span>
+                      <p className="text-[11px] text-sky-700">Kajian ini hanya diperuntukkan bagi jamaah ikhwan.</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Kategori Jamaah *</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setRegGender('ikhwan')}
+                          disabled={isIkhwanFull}
+                          className={`p-2.5 rounded-xl border text-xs font-bold text-center transition-all ${
+                            regGender === 'ikhwan'
+                              ? 'bg-teal-50 border-teal-600 text-teal-900 ring-1 ring-teal-500/30'
+                              : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                          } ${isIkhwanFull ? 'opacity-40 cursor-not-allowed' : ''}`}
+                        >
+                          Ikhwan {isIkhwanFull ? '(Penuh)' : ''}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRegGender('akhwat')}
+                          disabled={isAkhwatFull}
+                          className={`p-2.5 rounded-xl border text-xs font-bold text-center transition-all ${
+                            regGender === 'akhwat'
+                              ? 'bg-teal-50 border-teal-600 text-teal-900 ring-1 ring-teal-500/30'
+                              : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                          } ${isAkhwatFull ? 'opacity-40 cursor-not-allowed' : ''}`}
+                        >
+                          Akhwat {isAkhwatFull ? '(Penuh)' : ''}
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
-                {/* 4. Vehicle & Parking Registration */}
-                {selectedEvent?.formConfig?.collectVehicle !== false && (
-                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5">
-                    <label className="block text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                      <Car className="w-3.5 h-3.5 text-indigo-700" /> Fasilitas Kendaraan & Slot Parkir
+                  {/* 3. WhatsApp Phone Number */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Nomor WhatsApp Aktif *
                     </label>
+                    <input
+                      type="tel"
+                      required
+                      placeholder="Contoh: 081234567890"
+                      value={regPhone}
+                      onChange={(e) => setRegPhone(e.target.value)}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    />
+                    <span className="text-[10px] text-slate-400 mt-1 block">
+                      Tiket presensi dan pengingat kajian akan dikaitkan dengan nomor ini.
+                    </span>
+                  </div>
 
+                  {/* 4. City / Regency */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Kota / Domisili *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Contoh: Kota Bandung, Cimahi, Kab. Bandung..."
+                      value={regCity}
+                      onChange={(e) => setRegCity(e.target.value)}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    />
+                  </div>
+
+                  {/* 5. Email (Optional) */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Alamat Email (Opsional)</label>
+                    <input
+                      type="email"
+                      placeholder="nama@email.com"
+                      value={regEmail}
+                      onChange={(e) => setRegEmail(e.target.value)}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    />
+                  </div>
+
+                  {/* 6. Vehicle Type & Parking Pass */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Kendaraan yang Digunakan & Slot Parkir
+                    </label>
                     <div className="grid grid-cols-3 gap-2">
                       <button
                         type="button"
                         onClick={() => setRegVehicleType('none')}
-                        className={`p-2 rounded-xl border text-[11px] font-bold text-center transition-all ${
+                        className={`p-2 rounded-xl border text-xs font-bold text-center transition-all ${
                           regVehicleType === 'none'
                             ? 'bg-teal-50 border-teal-600 text-teal-900 ring-1 ring-teal-500/30'
-                            : 'bg-white border-slate-200 text-slate-600'
+                            : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                         }`}
                       >
-                        🚶 Tanpa Kendaraan
+                        Tanpa Kendaraan
                       </button>
 
                       <button
                         type="button"
                         onClick={() => setRegVehicleType('motorcycle')}
                         disabled={isMotorFull}
-                        className={`p-2 rounded-xl border text-[11px] font-bold text-center transition-all ${
+                        className={`p-2 rounded-xl border text-xs font-bold text-center transition-all flex flex-col items-center justify-center gap-0.5 ${
                           regVehicleType === 'motorcycle'
-                            ? 'bg-amber-50 border-amber-600 text-amber-900 ring-1 ring-amber-500/30'
-                            : 'bg-white border-slate-200 text-slate-600'
+                            ? 'bg-teal-50 border-teal-600 text-teal-900 ring-1 ring-teal-500/30'
+                            : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                         } ${isMotorFull ? 'opacity-40 cursor-not-allowed' : ''}`}
                       >
-                        🏍️ Motor {isMotorFull ? '(Penuh)' : ''}
+                        <span className="flex items-center gap-1">
+                          <Bike className="w-3.5 h-3.5" /> Motor
+                        </span>
+                        <span className="text-[9px] font-normal text-slate-400">
+                          {isMotorFull ? 'Penuh' : 'Tersedia'}
+                        </span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => setRegVehicleType('car')}
                         disabled={isCarFull}
-                        className={`p-2 rounded-xl border text-[11px] font-bold text-center transition-all ${
+                        className={`p-2 rounded-xl border text-xs font-bold text-center transition-all flex flex-col items-center justify-center gap-0.5 ${
                           regVehicleType === 'car'
-                            ? 'bg-indigo-50 border-indigo-600 text-indigo-900 ring-1 ring-indigo-500/30'
-                            : 'bg-white border-slate-200 text-slate-600'
+                            ? 'bg-teal-50 border-teal-600 text-teal-900 ring-1 ring-teal-500/30'
+                            : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                         } ${isCarFull ? 'opacity-40 cursor-not-allowed' : ''}`}
                       >
-                        🚗 Mobil {isCarFull ? '(Penuh)' : ''}
+                        <span className="flex items-center gap-1">
+                          <Car className="w-3.5 h-3.5" /> Mobil
+                        </span>
+                        <span className="text-[9px] font-normal text-slate-400">
+                          {isCarFull ? 'Penuh' : 'Slot Parkir'}
+                        </span>
                       </button>
                     </div>
-
-                    {regVehicleType === 'car' && (
-                      <div>
-                        <label className="block text-[11px] font-bold text-indigo-950 mb-1">
-                          Nomor Polisi / Plat Nomor Mobil *
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          placeholder="Contoh: D 1234 ABC"
-                          value={regVehiclePlate}
-                          onChange={(e) => setRegVehiclePlate(e.target.value)}
-                          className="w-full p-2 border border-indigo-200 rounded-lg text-xs uppercase bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono"
-                        />
-                      </div>
-                    )}
                   </div>
-                )}
 
-                {/* 5. City & Email */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {selectedEvent?.formConfig?.collectCity !== false && (
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Kota / Domisili</label>
+                  {/* Vehicle Plate Number */}
+                  {regVehicleType !== 'none' && (
+                    <div className="animate-in fade-in duration-200">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Nomor Polisi / Plat Kendaraan *
+                      </label>
                       <input
                         type="text"
-                        placeholder="Contoh: Bandung"
-                        value={regCity}
-                        onChange={(e) => setRegCity(e.target.value)}
-                        className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                        required
+                        placeholder="Contoh: D 1234 ABC"
+                        value={regVehiclePlate}
+                        onChange={(e) => setRegVehiclePlate(e.target.value)}
+                        className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-mono uppercase focus:ring-2 focus:ring-teal-500 focus:outline-none"
                       />
+                      <span className="text-[10px] text-slate-400 mt-0.5 block">
+                        Digunakan petugas keamanan untuk validasi kartu izin parkir di lokasi majelis.
+                      </span>
                     </div>
                   )}
 
-                  {selectedEvent?.formConfig?.collectEmail && (
+                  {/* Custom Dynamic Form Builder Fields */}
+                  {selectedEvent?.formConfig?.customFields &&
+                    selectedEvent.formConfig.customFields.map((field) => (
+                      <div key={field.id} className="space-y-1">
+                        <label className="block text-xs font-bold text-slate-700">
+                          {field.label} {field.required && <span className="text-red-500">*</span>}
+                        </label>
+
+                        {field.type === 'text' && (
+                          <input
+                            type="text"
+                            required={field.required}
+                            placeholder={field.placeholder || ''}
+                            value={customResponses[field.id] || ''}
+                            onChange={(e) => handleCustomResponseChange(field.id, e.target.value)}
+                            className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                          />
+                        )}
+
+                        {field.type === 'number' && (
+                          <input
+                            type="number"
+                            required={field.required}
+                            placeholder={field.placeholder || ''}
+                            value={customResponses[field.id] || ''}
+                            onChange={(e) => handleCustomResponseChange(field.id, e.target.value)}
+                            className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                          />
+                        )}
+
+                        {field.type === 'textarea' && (
+                          <textarea
+                            rows={2}
+                            required={field.required}
+                            placeholder={field.placeholder || ''}
+                            value={customResponses[field.id] || ''}
+                            onChange={(e) => handleCustomResponseChange(field.id, e.target.value)}
+                            className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                          />
+                        )}
+
+                        {field.type === 'select' && field.options && (
+                          <select
+                            required={field.required}
+                            value={customResponses[field.id] || ''}
+                            onChange={(e) => handleCustomResponseChange(field.id, e.target.value)}
+                            className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none bg-white"
+                          >
+                            <option value="">-- Pilih opsi --</option>
+                            {field.options.map((opt) => (
+                              <option key={opt} value={opt}>
+                                {opt}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+
+                        {field.type === 'radio' && field.options && (
+                          <div className="space-y-1.5 pt-1">
+                            {field.options.map((opt) => (
+                              <label key={opt} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name={field.id}
+                                  required={field.required}
+                                  value={opt}
+                                  checked={customResponses[field.id] === opt}
+                                  onChange={() => handleCustomResponseChange(field.id, opt)}
+                                  className="text-teal-600 focus:ring-teal-500"
+                                />
+                                <span>{opt}</span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+
+                        {field.type === 'checkbox' && field.options && (
+                          <div className="space-y-1.5 pt-1">
+                            {field.options.map((opt) => (
+                              <label key={opt} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  value={opt}
+                                  checked={(customResponses[field.id] || []).includes(opt)}
+                                  onChange={(e) => {
+                                    const current = customResponses[field.id] || [];
+                                    if (e.target.checked) {
+                                      handleCustomResponseChange(field.id, [...current, opt]);
+                                    } else {
+                                      handleCustomResponseChange(
+                                        field.id,
+                                        current.filter((item: string) => item !== opt)
+                                      );
+                                    }
+                                  }}
+                                  className="rounded text-teal-600 focus:ring-teal-500"
+                                />
+                                <span>{opt}</span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+
+                  {/* 7. Notes */}
+                  {selectedEvent?.formConfig?.collectNotes !== false && (
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
-                        Email <span className="text-[10px] font-normal text-slate-400">(Opsional)</span>
+                        Pertanyaan untuk Pemateri / Catatan
                       </label>
-                      <input
-                        type="email"
-                        placeholder="email@anda.com"
-                        value={regEmail}
-                        onChange={(e) => setRegEmail(e.target.value)}
+                      <textarea
+                        rows={2}
+                        placeholder="Tuliskan pertanyaan materi atau catatan..."
+                        value={regNotes}
+                        onChange={(e) => setRegNotes(e.target.value)}
                         className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
                       />
                     </div>
                   )}
-                </div>
 
-                {/* 6. Custom Dynamic Form Fields */}
-                {selectedEvent?.formConfig?.customFields &&
-                  selectedEvent.formConfig.customFields.map((field) => (
-                    <div key={field.id}>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        {field.label} {field.required && <span className="text-red-500">*</span>}
-                      </label>
-
-                      {field.type === 'text' && (
-                        <input
-                          type="text"
-                          required={field.required}
-                          placeholder={field.placeholder || ''}
-                          value={customResponses[field.id] || ''}
-                          onChange={(e) => handleCustomResponseChange(field.id, e.target.value)}
-                          className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                        />
-                      )}
-
-                      {field.type === 'textarea' && (
-                        <textarea
-                          rows={2}
-                          required={field.required}
-                          placeholder={field.placeholder || ''}
-                          value={customResponses[field.id] || ''}
-                          onChange={(e) => handleCustomResponseChange(field.id, e.target.value)}
-                          className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                        />
-                      )}
-
-                      {field.type === 'number' && (
-                        <input
-                          type="number"
-                          required={field.required}
-                          placeholder={field.placeholder || ''}
-                          value={customResponses[field.id] || ''}
-                          onChange={(e) => handleCustomResponseChange(field.id, e.target.value)}
-                          className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                        />
-                      )}
-
-                      {field.type === 'select' && field.options && (
-                        <select
-                          required={field.required}
-                          value={customResponses[field.id] || ''}
-                          onChange={(e) => handleCustomResponseChange(field.id, e.target.value)}
-                          className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none bg-white"
-                        >
-                          <option value="">-- Pilih Opsi --</option>
-                          {field.options.map((opt) => (
-                            <option key={opt} value={opt}>
-                              {opt}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-
-                      {field.type === 'radio' && field.options && (
-                        <div className="space-y-1.5 pt-1">
-                          {field.options.map((opt) => (
-                            <label key={opt} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                              <input
-                                type="radio"
-                                name={field.id}
-                                required={field.required}
-                                value={opt}
-                                checked={customResponses[field.id] === opt}
-                                onChange={() => handleCustomResponseChange(field.id, opt)}
-                                className="text-teal-600 focus:ring-teal-500"
-                              />
-                              <span>{opt}</span>
-                            </label>
-                          ))}
-                        </div>
-                      )}
-
-                      {field.type === 'checkbox' && field.options && (
-                        <div className="space-y-1.5 pt-1">
-                          {field.options.map((opt) => (
-                            <label key={opt} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                value={opt}
-                                checked={(customResponses[field.id] || []).includes(opt)}
-                                onChange={(e) => {
-                                  const current = customResponses[field.id] || [];
-                                  if (e.target.checked) {
-                                    handleCustomResponseChange(field.id, [...current, opt]);
-                                  } else {
-                                    handleCustomResponseChange(
-                                      field.id,
-                                      current.filter((item: string) => item !== opt)
-                                    );
-                                  }
-                                }}
-                                className="rounded text-teal-600 focus:ring-teal-500"
-                              />
-                              <span>{opt}</span>
-                            </label>
-                          ))}
-                        </div>
+                  {/* 8. Venue Rules & Agreement Box */}
+                  {selectedEvent?.venueRules && selectedEvent.venueRules.length > 0 && (
+                    <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-2xl space-y-2">
+                      <span className="text-xs font-bold text-amber-950 block flex items-center gap-1.5">
+                        <ShieldAlert className="w-3.5 h-3.5 text-amber-700" /> Tata Tertib & Batasan Majelis
+                      </span>
+                      <ul className="space-y-1 text-[11px] text-amber-900 list-disc list-inside">
+                        {selectedEvent.venueRules.map((rId) => {
+                          const rule = VENUE_RULES_MAP[rId];
+                          return rule ? <li key={rId}><b>{rule.label}</b> — {rule.desc}</li> : null;
+                        })}
+                      </ul>
+                      {selectedEvent.customVenueRules && (
+                        <p className="text-[11px] text-amber-800 pt-1 border-t border-amber-200/60">
+                          {selectedEvent.customVenueRules}
+                        </p>
                       )}
                     </div>
-                  ))}
+                  )}
 
-                {/* 7. Notes */}
-                {selectedEvent?.formConfig?.collectNotes !== false && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Pertanyaan untuk Pemateri / Catatan
+                  {/* Mandatory Agreement Checkbox */}
+                  <div className="pt-2">
+                    <label className="flex items-start gap-2 text-xs text-slate-700 font-semibold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        required
+                        checked={agreedToRules}
+                        onChange={(e) => setAgreedToRules(e.target.checked)}
+                        className="mt-0.5 rounded text-teal-700 focus:ring-teal-500"
+                      />
+                      <span>
+                        Saya telah membaca, memahami, dan berkomitmen menaati seluruh tata tertib majelis & batasan lokasi di atas. *
+                      </span>
                     </label>
-                    <textarea
-                      rows={2}
-                      placeholder="Tuliskan pertanyaan materi atau catatan..."
-                      value={regNotes}
-                      onChange={(e) => setRegNotes(e.target.value)}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                    />
                   </div>
-                )}
 
-                {/* 8. Venue Rules & Agreement Box */}
-                {selectedEvent?.venueRules && selectedEvent.venueRules.length > 0 && (
-                  <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-2xl space-y-2">
-                    <span className="text-xs font-bold text-amber-950 block flex items-center gap-1.5">
-                      <ShieldAlert className="w-3.5 h-3.5 text-amber-700" /> Tata Tertib & Batasan Majelis
-                    </span>
-                    <ul className="space-y-1 text-[11px] text-amber-900 list-disc list-inside">
-                      {selectedEvent.venueRules.map((rId) => {
-                        const rule = VENUE_RULES_MAP[rId];
-                        return rule ? <li key={rId}><b>{rule.label}</b> — {rule.desc}</li> : null;
-                      })}
-                    </ul>
-                    {selectedEvent.customVenueRules && (
-                      <p className="text-[11px] text-amber-800 pt-1 border-t border-amber-200/60">
-                        {selectedEvent.customVenueRules}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {/* Mandatory Agreement Checkbox */}
-                <div className="pt-2">
-                  <label className="flex items-start gap-2 text-xs text-slate-700 font-semibold cursor-pointer">
-                    <input
-                      type="checkbox"
-                      required
-                      checked={agreedToRules}
-                      onChange={(e) => setAgreedToRules(e.target.checked)}
-                      className="mt-0.5 rounded text-teal-700 focus:ring-teal-500"
-                    />
-                    <span>
-                      Saya telah membaca, memahami, dan berkomitmen menaati seluruh tata tertib majelis & batasan lokasi di atas. *
-                    </span>
-                  </label>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={submittingEvent}
-                  className="w-full py-3 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
-                >
-                  <Ticket className="w-4 h-4" />
-                  {submittingEvent ? 'Memproses Pendaftaran...' : 'Dapatkan E-Tiket Kajian Sekarang'}
-                </button>
-              </form>
-            )}
+                  <button
+                    type="submit"
+                    disabled={submittingEvent}
+                    className="w-full py-3 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
+                  >
+                    <Ticket className="w-4 h-4" />
+                    {submittingEvent ? 'Memproses Pendaftaran...' : 'Dapatkan E-Tiket Kajian Sekarang'}
+                  </button>
+                </form>
+              )}
+            </div>
           </div>
-        </div>
-      </main>
+        </main>
+      )}
 
       {/* 4. SUCCESS MODAL EVENT TICKET */}
       {eventSuccess && (
