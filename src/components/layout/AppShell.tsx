@@ -28,6 +28,7 @@ import { PermissionCode, PERMISSIONS, ROLES } from '@server/permissions/constant
 import { QuickInteractionModal } from '../../features/interactions/QuickInteractionModal';
 import { BrandLogo, BrandEmblem } from '@/components/common/BrandLogo';
 import { useTheme } from '@/lib/themeContext';
+import { InactivityAutoLogoutGuard } from '@/components/common/InactivityAutoLogoutGuard';
 
 interface NavGroup {
   category: string;
@@ -213,9 +214,10 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const { currentTheme } = useTheme();
 
   return (
-    <div className={`min-h-screen flex ${currentTheme.colors.canvasBg} font-sans text-surface-900 antialiased selection:bg-brand-100 selection:text-brand-900`}>
-      {/* Mobile Drawer Overlay */}
-      {mobileMenuOpen && (
+    <InactivityAutoLogoutGuard timeoutMinutes={30} warningSeconds={60}>
+      <div className={`min-h-screen flex ${currentTheme.colors.canvasBg} font-sans text-surface-900 antialiased selection:bg-brand-100 selection:text-brand-900`}>
+        {/* Mobile Drawer Overlay */}
+        {mobileMenuOpen && (
         <div
           className="fixed inset-0 z-40 bg-surface-950/60 backdrop-blur-xs lg:hidden transition-opacity"
           onClick={() => setMobileMenuOpen(false)}
@@ -500,11 +502,12 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         </main>
       </div>
 
-      {/* Global Quick Interaction Modal */}
-      <QuickInteractionModal
-        isOpen={quickInteractionOpen}
-        onClose={() => setQuickInteractionOpen(false)}
-      />
-    </div>
+        {/* Global Quick Interaction Modal */}
+        <QuickInteractionModal
+          isOpen={quickInteractionOpen}
+          onClose={() => setQuickInteractionOpen(false)}
+        />
+      </div>
+    </InactivityAutoLogoutGuard>
   );
 };

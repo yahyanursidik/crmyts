@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { useLogin } from '@refinedev/core';
-import { Lock, Mail, AlertCircle, Loader2, Globe, BookOpen } from 'lucide-react';
+import { Lock, Mail, AlertCircle, Loader2, Globe, BookOpen, Clock } from 'lucide-react';
 import { BrandLogo } from '@/components/common/BrandLogo';
 
 export const LoginPage: React.FC = () => {
+  const [searchParams] = useSearchParams();
+  const isInactivityLogout = searchParams.get('reason') === 'inactivity';
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -45,6 +48,18 @@ export const LoginPage: React.FC = () => {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-6 shadow-md border border-cream-300 sm:rounded-3xl sm:px-10">
+          {isInactivityLogout && !errorMessage && (
+            <div className="mb-4 p-3.5 rounded-2xl bg-amber-50 border border-amber-200 flex items-start gap-2.5 text-xs text-amber-900 animate-in fade-in">
+              <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold block">Sesi Berakhir Otomatis</span>
+                <span className="text-[11px] text-amber-800 leading-relaxed block mt-0.5">
+                  Akun Anda otomatis keluar karena tidak ada aktivitas selama 30 menit demi keamanan data yayasan dan efisiensi sistem. Silakan masuk kembali.
+                </span>
+              </div>
+            </div>
+          )}
+
           {errorMessage && (
             <div className="mb-4 p-3.5 rounded-2xl bg-red-50 border border-red-200 flex items-center gap-2 text-xs text-red-700">
               <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
