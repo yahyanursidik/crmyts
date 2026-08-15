@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
 import { useTheme } from '@/lib/themeContext';
+import { apiClient } from '@/lib/apiClient';
 
 interface DonorCard {
   id: string;
@@ -127,10 +128,9 @@ export function DonorPipelinePage() {
   const fetchPipeline = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/donors/pipeline');
-      if (res.ok) {
-        const json = await res.json();
-        setData(json.data);
+      const res = await apiClient<PipelineResponse>('/donors/pipeline');
+      if (res.data) {
+        setData(res.data);
       }
     } catch (err) {
       console.error('Failed to load donor pipeline:', err);
@@ -146,14 +146,12 @@ export function DonorPipelinePage() {
   const handleAutoSync = async () => {
     try {
       setSyncing(true);
-      const res = await fetch('/api/donors/auto-sync-stages', {
+      await apiClient('/donors/auto-sync-stages', {
         method: 'POST',
       });
-      if (res.ok) {
-        await fetchPipeline();
-      }
+      await fetchPipeline();
     } catch (err) {
-      console.error(err);
+      console.error('Failed to auto sync donor stages:', err);
     } finally {
       setSyncing(false);
     }
@@ -210,9 +208,8 @@ export function DonorPipelinePage() {
     if (!selectedDonor) return;
     try {
       setSavingTransition(true);
-      const res = await fetch(`/api/donors/${selectedDonor.id}/transition-stage`, {
+      await apiClient(`/donors/${selectedDonor.id}/transition-stage`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           targetStage,
           reason: transitionReason,
@@ -220,10 +217,8 @@ export function DonorPipelinePage() {
           taskDueDays: 3,
         }),
       });
-      if (res.ok) {
-        setTransitionModalOpen(false);
-        await fetchPipeline();
-      }
+      setTransitionModalOpen(false);
+      await fetchPipeline();
     } catch (err) {
       console.error(err);
     } finally {
@@ -237,17 +232,15 @@ export function DonorPipelinePage() {
     setReEngageModalOpen(true);
     setReEngageLoading(true);
     try {
-      const res = await fetch(`/api/donors/${donor.id}/re-engage`, {
+      const res = await apiClient<any>(`/donors/${donor.id}/re-engage`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           notes: 'Menyambung silaturahmi berkah dan mengabarkan perkembangan dakwah terkini.',
           programFocus: 'Infaq Operasional Dakwah & Santunan Dhuafa',
         }),
       });
-      if (res.ok) {
-        const json = await res.json();
-        setReEngageResult(json.data);
+      if (res.data) {
+        setReEngageResult(res.data);
       }
     } catch (err) {
       console.error(err);
@@ -270,12 +263,12 @@ export function DonorPipelinePage() {
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2 font-display">
               <TrendingUp className="w-6 h-6 text-emerald-600" />
-              Pipeline Siklus Donatur (*Donor Lifecycle*)
+              Pipeline Siklus Donatur (Donor Lifecycle)
             </h1>
             <p className="text-sm text-slate-600 mt-1">
-              Manajemen 7 tahapan perjalanan donatur: *New Lead* $\rightarrow$ *Contacted* $\rightarrow$ *Interested* $\rightarrow$ *Donated Once* $\rightarrow$ *Regular* $\rightarrow$ *Loyal* $\rightarrow$ *Dormant (Re-engage)*.
+              Manajemen 7 tahapan perjalanan donatur: <b>New Lead</b> → <b>Contacted</b> → <b>Interested</b> → <b>Donated Once</b> → <b>Regular</b> → <b>Loyal</b> → <b>Dormant (Re-engage)</b>.
             </p>
           </div>
 
@@ -318,7 +311,7 @@ export function DonorPipelinePage() {
               <p className="text-lg font-bold text-emerald-800">{formatRupiah(data.metrics.totalPipelineValueRupiah)}</p>
             </div>
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
-              <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Konversi Lead $\rightarrow$ Infaq</span>
+              <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Konversi Lead → Infaq</span>
               <p className="text-lg font-bold text-blue-800">{data.metrics.conversionRatePercent}%</p>
             </div>
             <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl">
