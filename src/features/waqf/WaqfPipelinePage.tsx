@@ -14,6 +14,7 @@ import {
   MessageSquare,
   Globe,
   Copy,
+  Download,
 } from 'lucide-react';
 import { getWhatsAppLink } from '@/lib/phone';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -113,6 +114,33 @@ export const WaqfPipelinePage: React.FC = () => {
     return matchStage && matchSearch;
   });
 
+  const handleExportCsv = () => {
+    if (filteredCases.length === 0) {
+      alert('Tidak ada data kasus wakaf untuk diekspor');
+      return;
+    }
+    const headers = ['Nama Wakif', 'Nomor Telepon', 'Jenis Aset', 'Estimasi Nilai (Rp)', 'Tahapan Saat Ini', 'Kelengkapan Berkas (%)', 'Aging (Hari)', 'PIC Staf', 'Ringkasan Catatan'];
+    const rows = filteredCases.map((c) => [
+      `"${c.person?.fullName || 'Wakif'}"`,
+      `"${c.person?.phoneE164 || '-'}"`,
+      `"${c.waqfType}"`,
+      `"${c.estimatedValueRupiah || 0}"`,
+      `"${c.currentStage}"`,
+      `"${c.checklistProgress.percentage}%"`,
+      `"${c.agingDays}"`,
+      `"${c.owner?.fullName || '-'}"`,
+      `"${(c.notesSummary || '').replace(/"/g, '""')}"`,
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `portfolio-wakaf-${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const totalPortfolioValue = cases.reduce((acc, c) => acc + (c.estimatedValueRupiah || 0), 0);
 
   return (
@@ -129,7 +157,7 @@ export const WaqfPipelinePage: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
           {/* View Mode Switcher */}
           <div className="bg-surface-200/80 p-1 rounded-lg flex items-center gap-1 border border-surface-300">
             <button
@@ -149,6 +177,15 @@ export const WaqfPipelinePage: React.FC = () => {
               <TableIcon className="w-3.5 h-3.5" /> Tabel
             </button>
           </div>
+
+          <button
+            onClick={handleExportCsv}
+            className="py-2 px-3.5 bg-white hover:bg-surface-50 text-surface-700 border border-surface-300 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 active:scale-95"
+            title="Ekspor daftar portofolio wakaf ke file CSV"
+          >
+            <Download className="w-3.5 h-3.5 text-surface-500" />
+            <span>Ekspor CSV</span>
+          </button>
 
           <button
             onClick={() => setCreateModalOpen(true)}
@@ -407,9 +444,22 @@ export const WaqfPipelinePage: React.FC = () => {
                   return (
                     <tr key={c.id} className="hover:bg-surface-50/80 transition-colors">
                       <td className="py-3.5 px-4 font-bold text-surface-900">
-                        <Link to={`/people/${c.person?.id}`} className="hover:text-brand-800">
-                          {c.person?.fullName || 'Wakif'}
-                        </Link>
+                        <div className="flex items-center gap-1.5">
+                          <Link to={`/people/${c.person?.id}`} className="hover:text-brand-800">
+                            {c.person?.fullName || 'Wakif'}
+                          </Link>
+                          {c.person?.phoneE164 && (
+                            <a
+                              href={getWhatsAppLink(c.person.phoneE164) || '#'}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-emerald-700 hover:text-emerald-900"
+                              title="Chat WhatsApp Wakif"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                            </a>
+                          )}
+                        </div>
                       </td>
 
                       <td className="py-3.5 px-4 uppercase font-semibold text-surface-700">
