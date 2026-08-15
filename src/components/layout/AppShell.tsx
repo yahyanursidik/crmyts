@@ -209,28 +209,27 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
-
   return (
-    <div className="min-h-screen flex bg-slate-50 font-sans text-slate-900 antialiased selection:bg-emerald-100 selection:text-emerald-900">
+    <div className="min-h-screen flex bg-[#fbfaf6] font-sans text-surface-900 antialiased selection:bg-brand-100 selection:text-brand-900">
       {/* Mobile Drawer Overlay */}
       {mobileMenuOpen && (
         <div
-          className="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-xs lg:hidden transition-opacity"
+          className="fixed inset-0 z-40 bg-surface-950/60 backdrop-blur-xs lg:hidden transition-opacity"
           onClick={() => setMobileMenuOpen(false)}
         />
       )}
 
       {/* Main Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 bg-[#07241d] text-white flex flex-col transition-all duration-300 ease-in-out lg:static lg:translate-x-0 border-r border-emerald-950/80 shadow-xl ${
+        className={`fixed inset-y-0 left-0 z-50 bg-[#162817] text-white flex flex-col transition-all duration-300 ease-in-out lg:static lg:translate-x-0 border-r border-[#223b24] shadow-xl ${
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         } ${isCollapsed ? 'lg:w-20' : 'lg:w-72'} w-72`}
       >
         {/* Brand Header */}
-        <div className="h-16 flex items-center justify-between px-3.5 border-b border-emerald-900/60 bg-[#051c17]">
+        <div className="h-16 flex items-center justify-between px-3.5 border-b border-[#223b24] bg-[#101e11]">
           {isCollapsed ? (
             <div className="w-full flex items-center justify-center">
-              <div className="p-1 rounded-xl bg-white/95 shadow-xs border border-white/20">
+              <div className="p-1 rounded-xl bg-[#fbfaf6] shadow-xs border border-cream-300">
                 <BrandEmblem className="w-7 h-7" />
               </div>
             </div>
@@ -244,7 +243,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           <button
             onClick={toggleCollapse}
             title={isCollapsed ? 'Perluas Menu (Ctrl+B)' : 'Ciutkan Menu (Ctrl+B)'}
-            className="hidden lg:flex p-1.5 text-emerald-300/70 hover:text-white hover:bg-emerald-900/60 rounded-lg transition-colors shrink-0"
+            className="hidden lg:flex p-1.5 text-gold-300/80 hover:text-white hover:bg-[#223b24] rounded-lg transition-colors shrink-0"
           >
             {isCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
           </button>
@@ -252,7 +251,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           {/* Mobile Close Button */}
           <button
             onClick={() => setMobileMenuOpen(false)}
-            className="lg:hidden text-emerald-300 hover:text-white p-1.5 rounded-lg hover:bg-emerald-900/60"
+            className="lg:hidden text-gold-300 hover:text-white p-1.5 rounded-lg hover:bg-[#223b24]"
           >
             <X className="w-5 h-5" />
           </button>
@@ -263,7 +262,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           <div className="px-4 pt-4 pb-2">
             <button
               onClick={() => setQuickInteractionOpen(true)}
-              className="w-full py-2.5 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 active:scale-95 border border-emerald-400/30"
+              className="w-full py-2.5 px-3 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 active:scale-95 border border-amber-400/30"
             >
               <Plus className="w-4 h-4" />
               <span>Catat Sapaan Jamaah</span>
@@ -272,7 +271,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         )}
 
         {/* Navigation Menu Groups */}
-        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-5 scrollbar-thin scrollbar-thumb-emerald-800">
+        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-5 scrollbar-thin scrollbar-thumb-brand-900">
           {NAV_GROUPS.map((group) => {
             const isAdmin =
               user?.roles?.includes(ROLES.CRM_ADMIN) ||
@@ -290,11 +289,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               <div key={group.category} className="space-y-1">
                 {/* Category Header */}
                 {!isCollapsed ? (
-                  <h3 className="px-3 text-[10px] font-extrabold uppercase tracking-wider text-emerald-400/70 select-none">
+                  <h3 className="px-3 text-[10px] font-extrabold uppercase tracking-wider text-gold-400/90 select-none">
                     {group.category}
                   </h3>
                 ) : (
-                  <div className="border-t border-emerald-900/50 my-2" />
+                  <div className="border-t border-[#223b24] my-2" />
                 )}
 
                 {/* Nav Items */}
@@ -313,13 +312,13 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                         title={isCollapsed ? `${item.name}${item.description ? ` (${item.description})` : ''}` : undefined}
                         className={`group flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
                           isActive
-                            ? 'bg-emerald-600/90 text-white shadow-sm ring-1 ring-emerald-400/30 font-bold'
-                            : 'text-emerald-100/80 hover:bg-emerald-900/50 hover:text-white'
+                            ? 'bg-[#395c32] text-white shadow-sm ring-1 ring-gold-400/40 font-bold'
+                            : 'text-[#c2dac4] hover:bg-[#223b24] hover:text-white'
                         } ${isCollapsed ? 'justify-center py-2.5' : ''}`}
                       >
                         <item.icon
                           className={`w-4 h-4 shrink-0 transition-transform group-hover:scale-110 ${
-                            isActive ? 'text-white' : 'text-emerald-400'
+                            isActive ? 'text-gold-300' : 'text-brand-300'
                           }`}
                         />
 
@@ -328,13 +327,13 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                             <div className="min-w-0">
                               <span className="block truncate text-sm leading-snug">{item.name}</span>
                               {item.description && (
-                                <span className="block truncate text-[11px] text-emerald-300/60 font-normal leading-tight">
+                                <span className="block truncate text-[11px] text-[#9fc4a2] font-normal leading-tight">
                                   {item.description}
                                 </span>
                               )}
                             </div>
                             {item.badge && (
-                              <span className="px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide rounded bg-emerald-700/80 text-emerald-100 border border-emerald-500/30 shrink-0">
+                              <span className="px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide rounded bg-gold-400 text-gold-950 shadow-2xs shrink-0">
                                 {item.badge}
                               </span>
                             )}
@@ -343,9 +342,9 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
                         {/* Hover Tooltip in Collapsed Mode */}
                         {isCollapsed && (
-                          <div className="hidden group-hover:block fixed left-20 z-50 ml-2 px-3 py-1.5 bg-slate-900 text-white text-xs font-semibold rounded-lg shadow-xl border border-slate-700 whitespace-nowrap pointer-events-none">
+                          <div className="hidden group-hover:block fixed left-20 z-50 ml-2 px-3 py-1.5 bg-surface-900 text-white text-xs font-semibold rounded-lg shadow-xl border border-surface-700 whitespace-nowrap pointer-events-none">
                             <p className="font-bold text-white">{item.name}</p>
-                            {item.description && <p className="text-[10px] text-emerald-300">{item.description}</p>}
+                            {item.description && <p className="text-[10px] text-gold-300">{item.description}</p>}
                           </div>
                         )}
                       </Link>
@@ -358,19 +357,19 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         </nav>
 
         {/* User Profile & Footer */}
-        <div className="p-3 border-t border-emerald-900/60 bg-[#051c17]">
+        <div className="p-3 border-t border-[#223b24] bg-[#101e11]">
           <div className={`flex items-center ${isCollapsed ? 'justify-center flex-col gap-2' : 'justify-between'}`}>
             <div className="flex items-center gap-3 overflow-hidden">
               <div
                 title={user?.name || 'Staf YTS'}
-                className="w-10 h-10 rounded-full bg-emerald-800 border-2 border-emerald-500/40 flex items-center justify-center font-bold text-sm text-white uppercase shrink-0 shadow-inner"
+                className="w-10 h-10 rounded-full bg-brand-700 border-2 border-gold-400/50 flex items-center justify-center font-bold text-sm text-white uppercase shrink-0 shadow-inner"
               >
                 {user?.name ? user.name.charAt(0) : 'U'}
               </div>
               {!isCollapsed && (
                 <div className="overflow-hidden">
                   <p className="text-sm font-semibold text-white truncate leading-tight">{user?.name || 'Staf YTS'}</p>
-                  <p className="text-xs text-emerald-300/80 truncate mt-0.5">
+                  <p className="text-xs text-gold-300/80 truncate mt-0.5">
                     {user?.roles && user.roles.length > 0 ? user.roles.join(', ') : 'Operasional'}
                   </p>
                 </div>
@@ -380,7 +379,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             <button
               onClick={() => logout()}
               title="Keluar dari Sistem (Logout)"
-              className="p-2 text-emerald-300/70 hover:text-red-300 hover:bg-red-950/40 rounded-xl transition-colors shrink-0"
+              className="p-2 text-gold-300/70 hover:text-red-300 hover:bg-red-950/40 rounded-xl transition-colors shrink-0"
             >
               <LogOut className="w-5 h-5" />
             </button>
@@ -389,23 +388,23 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-50">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#fbfaf6]">
         {/* Topbar Header */}
-        <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs">
+        <header className="h-16 bg-white/95 backdrop-blur-md border-b border-cream-300 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs">
           <div className="flex items-center gap-3">
             {/* Mobile Drawer Trigger */}
             <button
               onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden p-2 text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors"
+              className="lg:hidden p-2 text-surface-600 hover:text-surface-900 rounded-lg hover:bg-cream-100 transition-colors"
             >
               <Menu className="w-5 h-5" />
             </button>
 
             {/* Breadcrumb Navigation */}
-            <nav className="flex items-center gap-2 text-sm text-slate-500">
-              <Link to="/" className="hover:text-emerald-800 font-medium transition-colors">CRM YTS</Link>
-              <ChevronRight className="w-4 h-4 text-slate-400" />
-              <span className="font-bold text-slate-900">
+            <nav className="flex items-center gap-2 text-sm text-surface-500">
+              <Link to="/" className="hover:text-brand-900 font-bold transition-colors">CRM YTS</Link>
+              <ChevronRight className="w-4 h-4 text-surface-400" />
+              <span className="font-black text-brand-950">
                 {PAGE_TITLES[location.pathname.split('/')[1] || ''] || location.pathname.split('/')[1]?.replace('-', ' ')}
               </span>
             </nav>
@@ -419,11 +418,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               title="Kelola Jadwal Kajian, Kuota, Parkir & Form Builder"
               className={`py-1.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-2xs ${
                 location.pathname.startsWith('/events')
-                  ? 'bg-teal-800 text-white border-teal-900 shadow-xs'
-                  : 'bg-teal-50 hover:bg-teal-100 text-teal-950 border-teal-200'
+                  ? 'bg-brand-800 text-white border-brand-900 shadow-xs'
+                  : 'bg-cream-100 hover:bg-cream-200 text-brand-950 border-cream-300'
               }`}
             >
-              <Calendar className="w-3.5 h-3.5 text-teal-700" />
+              <Calendar className="w-3.5 h-3.5 text-brand-700" />
               <span className="hidden sm:inline">Kelola Kajian</span>
             </Link>
 
@@ -433,11 +432,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               title="Kelola & Verifikasi Donasi Infaq"
               className={`py-1.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-2xs ${
                 location.pathname.startsWith('/donations') || location.pathname.startsWith('/donors-pipeline')
-                  ? 'bg-emerald-800 text-white border-emerald-900 shadow-xs'
-                  : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border-emerald-200'
+                  ? 'bg-brand-800 text-white border-brand-900 shadow-xs'
+                  : 'bg-cream-100 hover:bg-cream-200 text-brand-950 border-cream-300'
               }`}
             >
-              <HeartHandshake className="w-3.5 h-3.5 text-emerald-700" />
+              <HeartHandshake className="w-3.5 h-3.5 text-brand-700" />
               <span className="hidden sm:inline">Kelola Donasi</span>
             </Link>
 
@@ -452,30 +451,27 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               }`}
             >
               <Landmark className="w-3.5 h-3.5 text-amber-700" />
-              <span className="hidden md:inline">Kelola Wakaf</span>
+              <span className="hidden sm:inline">Kelola Wakaf</span>
             </Link>
 
-            {/* 4. Pengaturan Yayasan */}
+            {/* 4. Pengaturan */}
             <Link
               to="/settings"
-              title="Pengaturan Rekening Bank BSI & Profil Yayasan"
-              className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-2xs ${
-                location.pathname.startsWith('/settings')
-                  ? 'bg-slate-800 text-white border-slate-900 shadow-xs'
-                  : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
-              }`}
+              title="Pengaturan Yayasan, Rekening BSI & Webhook"
+              className="p-2 text-surface-500 hover:text-brand-900 hover:bg-cream-100 rounded-xl transition-colors"
             >
-              <Settings className="w-4 h-4 text-slate-600" />
-              <span className="hidden xl:inline text-xs font-semibold">Pengaturan</span>
+              <Settings className="w-4 h-4" />
             </Link>
 
-            {/* 5. Quick Action Sapaan */}
+            <div className="h-4 w-px bg-cream-300 mx-1 hidden sm:block" />
+
+            {/* 5. Catat Sapaan Quick Action */}
             <button
               onClick={() => setQuickInteractionOpen(true)}
-              className="py-1.5 px-3 text-xs sm:text-sm font-semibold rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs transition-all flex items-center gap-1.5 active:scale-95 shrink-0"
+              className="py-1.5 px-3 bg-gradient-to-r from-gold-400 to-amber-500 hover:from-gold-300 hover:to-amber-400 text-amber-950 font-black text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 border border-amber-500/40 active:scale-95"
             >
-              <Plus className="w-4 h-4" />
-              <span className="hidden lg:inline">Catat Sapaan</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Catat Sapaan</span>
             </button>
           </div>
         </header>
