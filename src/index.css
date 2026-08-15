@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 161 93% 15%; /* #064e3b Deep Emerald */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 161 74% 20%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 38 92% 50%; /* #d97706 Gold */
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 161 93% 15%;
+
+    --radius: 0.5rem;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    @apply bg-surface-50 text-surface-900 font-sans antialiased selection:bg-brand-100 selection:text-brand-900;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    letter-spacing: -0.02em;
+  }
+}
+
+/* Hallmark 8-State Tactile Micro-Interactions */
+.btn-primary {
+  @apply inline-flex items-center justify-center font-semibold text-xs text-white bg-brand-800 border border-brand-900/20 rounded-md px-3.5 py-2 shadow-sm transition-all duration-150;
+}
+
+.btn-primary:hover, .btn-primary.is-hover {
+  @apply bg-brand-900 -translate-y-0.5 shadow;
+}
+
+.btn-primary:focus-visible, .btn-primary.is-focus {
+  @apply outline-none ring-2 ring-brand-700 ring-offset-2;
+}
+
+.btn-primary:active, .btn-primary.is-active {
+  @apply translate-y-0.5 shadow-none bg-brand-950;
+}
+
+.btn-primary:disabled, .btn-primary[disabled] {
+  @apply opacity-50 pointer-events-none cursor-not-allowed transform-none;
+}
+
+.btn-secondary {
+  @apply inline-flex items-center justify-center font-medium text-xs text-surface-700 bg-white border border-surface-200 rounded-md px-3.5 py-2 shadow-sm transition-all duration-150;
+}
+
+.btn-secondary:hover, .btn-secondary.is-hover {
+  @apply bg-surface-50 text-surface-900 border-surface-300 -translate-y-0.5;
+}
+
+.btn-secondary:focus-visible, .btn-secondary.is-focus {
+  @apply outline-none ring-2 ring-brand-700 ring-offset-2;
+}
+
+.btn-secondary:active, .btn-secondary.is-active {
+  @apply translate-y-0.5 bg-surface-100;
+}
+
+/* Custom Scrollbar for Enterprise Data Tables */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}

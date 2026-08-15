@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 380" fill="none">
+  <!-- Tarbiyah Sunnah Official Vector Logo -->
+  <g transform="translate(40, 20)">
+    <!-- Top Yellow Ray -->
+    <path d="M106 0 L106 50 L192 142 C194 144 192 146 189 144.5 L106 63 Z" fill="#F0B21B" />
+    
+    <!-- Middle Orange Ray -->
+    <path d="M63 26 L63 86 L195 180 C197 182 194.5 184 192 182.5 L63 100 Z" fill="#D47012" />
+    
+    <!-- Bottom Forest Green Shape -->
+    <path d="M52 98 L194 196 C198 198.5 195 204 189 204 L52 204 Z" fill="#445E36" />
+  </g>
+
+  <!-- Typography -->
+  <!-- "Tarbiyah" -->
+  <text x="160" y="290" text-anchor="middle" font-family="'Plus Jakarta Sans', 'Inter', -apple-system, sans-serif" font-weight="800" font-size="52" fill="#445E36" letter-spacing="-1">Tarbiyah</text>
+  
+  <!-- "Sunnah" -->
+  <text x="160" y="355" text-anchor="middle" font-family="'Plus Jakarta Sans', 'Inter', -apple-system, sans-serif" font-weight="800" font-size="52" fill="#445E36" letter-spacing="-1">Sunnah</text>
+</svg>
