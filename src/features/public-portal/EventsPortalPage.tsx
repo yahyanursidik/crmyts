@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { LoadingState } from '@/components/common/LoadingState';
+import { PortalBackground } from '@/components/common/PortalBackground';
 import { EventFormConfig } from '../events/EventManageModal';
 
 interface EventItem {
@@ -274,69 +275,69 @@ export function EventsPortalPage() {
     : false;
 
   return (
-    <div className="min-h-screen bg-[#F8FAF9] text-slate-900 font-sans selection:bg-teal-100 selection:text-teal-900">
+    <PortalBackground>
       {/* Top Banner */}
-      <div className="bg-[#122b20] text-emerald-100 text-xs py-2.5 px-4 text-center border-b border-emerald-900 flex items-center justify-center gap-2">
-        <HeartHandshake className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+      <div className="bg-[#1c321d] text-emerald-100 text-xs py-2 px-4 text-center border-b border-[#28482a] flex items-center justify-center gap-2">
+        <HeartHandshake className="w-3.5 h-3.5 text-gold-400 shrink-0" />
         <span>Ingin menyalurkan infaq operasional atau amanah wakaf dakwah?</span>
-        <Link to="/donasi" className="underline font-bold text-amber-300 hover:text-white flex items-center gap-0.5">
+        <Link to="/donasi" className="underline font-bold text-gold-300 hover:text-white flex items-center gap-0.5">
           <span>Buka Portal Donasi & Wakaf</span>
           <ArrowRight className="w-3 h-3 inline" />
         </Link>
       </div>
 
       {/* 1. TOP NAVBAR */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-2xs">
+      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-cream-300 shadow-2xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <BrandEmblem useImage={true} className="w-11 h-11" />
+            <BrandEmblem useImage={true} className="w-11 h-11 shadow-xs rounded-xl" />
             <div>
-              <span className="text-lg font-black tracking-tight text-[#163a2b] block leading-tight">
+              <span className="text-lg font-black tracking-tight text-brand-950 block leading-tight font-display">
                 Tarbiyah Sunnah
               </span>
-              <span className="text-[11px] font-semibold text-teal-800 block leading-tight">
+              <span className="text-[11px] font-bold text-surface-500 block leading-tight">
                 Portal Majelis Ilmu & Pendaftaran Kajian
               </span>
             </div>
           </div>
 
-          <nav className="hidden md:flex items-center gap-6 text-sm font-semibold text-slate-600">
-            <a href="#jadwal" className="text-teal-800 font-bold border-b-2 border-teal-800 pb-1">
+          <nav className="hidden md:flex items-center gap-2 text-xs font-bold text-surface-600 bg-cream-100 p-1.5 rounded-2xl border border-cream-300">
+            <a href="#jadwal" className="px-3.5 py-1.5 rounded-xl bg-brand-800 text-white shadow-xs">
               Jadwal Kajian
             </a>
-            <a href="#daftar" className="hover:text-teal-800 transition-colors">
+            <a href="#daftar" className="px-3.5 py-1.5 rounded-xl hover:text-brand-950 transition-colors">
               Pendaftaran Online
             </a>
             <Link
               to="/donasi"
-              className="text-emerald-800 hover:text-emerald-950 font-bold flex items-center gap-1 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200"
+              className="px-3.5 py-1.5 rounded-xl text-brand-900 hover:bg-cream-200 transition-all flex items-center gap-1"
             >
-              <HeartHandshake className="w-3.5 h-3.5" /> Portal Donasi & Wakaf
+              <HeartHandshake className="w-3.5 h-3.5 text-amber-600" /> Portal Donasi & Wakaf
             </Link>
           </nav>
 
           <div className="flex items-center gap-2">
             <Link
               to="/events"
-              className="px-3.5 py-2 text-xs font-bold rounded-xl bg-teal-800 hover:bg-teal-900 text-white shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
+              className="px-3.5 py-2 text-xs font-bold rounded-xl bg-brand-800 hover:bg-brand-900 text-white shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
             >
-              <Calendar className="w-3.5 h-3.5 text-teal-200" />
+              <Calendar className="w-3.5 h-3.5 text-gold-300" />
               <span>Kelola Kajian (CRM)</span>
             </Link>
 
             <Link
               to="/donasi"
-              className="hidden sm:flex px-3 py-2 text-xs font-bold rounded-xl border border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 transition-all items-center gap-1.5"
+              className="hidden sm:flex px-3 py-2 text-xs font-bold rounded-xl border border-cream-300 text-brand-950 bg-white hover:bg-cream-100 transition-all items-center gap-1.5 shadow-2xs"
             >
-              <HeartHandshake className="w-3.5 h-3.5 text-emerald-700" />
+              <HeartHandshake className="w-3.5 h-3.5 text-amber-600" />
               <span>Portal Donasi</span>
             </Link>
 
             <Link
               to="/login"
-              className="px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 transition-all flex items-center gap-1"
+              className="px-3 py-2 text-xs font-bold rounded-xl border border-cream-300 text-surface-700 bg-white hover:bg-cream-100 transition-all flex items-center gap-1 shadow-2xs"
             >
-              <Lock className="w-3.5 h-3.5 text-slate-600" />
+              <Lock className="w-3.5 h-3.5 text-surface-600" />
               <span className="hidden md:inline">CRM</span>
             </Link>
           </div>
@@ -1045,6 +1046,28 @@ export function EventsPortalPage() {
           </div>
         </div>
       </footer>
-    </div>
+
+      {/* Mobile Floating Quick Navigation Bar */}
+      <div className="md:hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-white/95 backdrop-blur-md px-3 py-2 rounded-2xl shadow-xl border border-cream-300 flex items-center gap-2 text-[11px] font-bold">
+        <a
+          href="#jadwal"
+          className="px-3 py-1.5 rounded-xl bg-brand-800 text-white shadow-xs"
+        >
+          📖 Jadwal Kajian
+        </a>
+        <a
+          href="#daftar"
+          className="px-3 py-1.5 rounded-xl text-surface-700 hover:bg-cream-100"
+        >
+          📝 Daftar
+        </a>
+        <Link
+          to="/donasi"
+          className="px-3 py-1.5 rounded-xl text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200"
+        >
+          💰 Infaq & Wakaf
+        </Link>
+      </div>
+    </PortalBackground>
   );
 }

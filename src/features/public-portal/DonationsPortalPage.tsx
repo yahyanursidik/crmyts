@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { LoadingState } from '@/components/common/LoadingState';
+import { PortalBackground } from '@/components/common/PortalBackground';
 
 interface ProgramItem {
   id: string;
@@ -213,65 +214,77 @@ export function DonationsPortalPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FDFCF9] text-slate-900 font-sans selection:bg-emerald-100 selection:text-emerald-900">
-      {/* Top Notification Banner: Link to Kajian Portal */}
-      <div className="bg-[#18392B] text-emerald-100 text-xs py-2.5 px-4 text-center border-b border-emerald-900 flex items-center justify-center gap-2">
-        <BookOpen className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+    <PortalBackground>
+      {/* Top Banner */}
+      <div className="bg-[#1c321d] text-emerald-100 text-xs py-2 px-4 text-center border-b border-[#28482a] flex items-center justify-center gap-2">
+        <BookOpen className="w-3.5 h-3.5 text-gold-400 shrink-0" />
         <span>Mencari jadwal kajian & pendaftaran daurah?</span>
-        <Link to="/kajian" className="underline font-bold text-amber-300 hover:text-white flex items-center gap-0.5">
+        <Link to="/kajian" className="underline font-bold text-gold-300 hover:text-white flex items-center gap-0.5">
           <span>Buka Portal Kajian & Majelis Ilmu</span>
           <ArrowRight className="w-3 h-3 inline" />
         </Link>
       </div>
 
       {/* 1. TOP NAVBAR */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-2xs">
+      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-cream-300 shadow-2xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <BrandEmblem useImage={true} className="w-11 h-11" />
+            <BrandEmblem useImage={true} className="w-11 h-11 shadow-xs rounded-xl" />
             <div>
-              <span className="text-lg font-black tracking-tight text-[#253D1E] block leading-tight">
+              <span className="text-lg font-black tracking-tight text-brand-950 block leading-tight font-display">
                 Tarbiyah Sunnah
               </span>
-              <span className="text-[11px] font-semibold text-emerald-800 block leading-tight">
+              <span className="text-[11px] font-bold text-surface-500 block leading-tight">
                 Portal Infaq & Amanah Wakaf Dakwah
               </span>
             </div>
           </div>
 
-          <nav className="hidden md:flex items-center gap-6 text-sm font-semibold text-slate-600">
+          <nav className="hidden md:flex items-center gap-2 text-xs font-bold text-surface-600 bg-cream-100 p-1.5 rounded-2xl border border-cream-300">
             <button
               onClick={() => setActiveTab('infaq')}
-              className={`hover:text-emerald-700 transition-colors ${activeTab === 'infaq' ? 'text-emerald-700 font-bold border-b-2 border-emerald-700 pb-1' : ''}`}
+              className={`px-3.5 py-1.5 rounded-xl transition-all ${
+                activeTab === 'infaq'
+                  ? 'bg-brand-800 text-white shadow-xs'
+                  : 'hover:text-brand-950'
+              }`}
             >
               Program Infaq
             </button>
             <button
               onClick={() => setActiveTab('waqf')}
-              className={`hover:text-emerald-700 transition-colors ${activeTab === 'waqf' ? 'text-emerald-700 font-bold border-b-2 border-emerald-700 pb-1' : ''}`}
+              className={`px-3.5 py-1.5 rounded-xl transition-all ${
+                activeTab === 'waqf'
+                  ? 'bg-amber-700 text-white shadow-xs'
+                  : 'hover:text-brand-950'
+              }`}
             >
               Amanah Wakaf
             </button>
             <button
               onClick={() => setActiveTab('rekening')}
-              className={`hover:text-emerald-700 transition-colors ${activeTab === 'rekening' ? 'text-emerald-700 font-bold border-b-2 border-emerald-700 pb-1' : ''}`}
+              className={`px-3.5 py-1.5 rounded-xl transition-all ${
+                activeTab === 'rekening'
+                  ? 'bg-gold-500 text-gold-950 shadow-xs'
+                  : 'hover:text-brand-950'
+              }`}
             >
               Rekening & QRIS
             </button>
             <Link
               to="/kajian"
-              className="text-teal-800 hover:text-teal-950 font-bold flex items-center gap-1 bg-teal-50 px-3 py-1 rounded-full border border-teal-200"
+              className="px-3.5 py-1.5 rounded-xl text-brand-900 hover:bg-cream-200 transition-all flex items-center gap-1"
             >
-              <BookOpen className="w-3.5 h-3.5" /> Portal Kajian
+              <BookOpen className="w-3.5 h-3.5 text-gold-600" /> Portal Kajian
             </Link>
           </nav>
 
           <div className="flex items-center gap-2">
             <Link
               to="/donations"
-              className="px-3.5 py-2 text-xs font-bold rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
+              className="px-3.5 py-2 text-xs font-bold rounded-xl bg-brand-800 hover:bg-brand-900 text-white shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
             >
-              <HeartHandshake className="w-3.5 h-3.5 text-emerald-200" />
+              <HeartHandshake className="w-3.5 h-3.5 text-gold-300" />
               <span>Kelola Donasi (CRM)</span>
             </Link>
 
@@ -279,15 +292,15 @@ export function DonationsPortalPage() {
               to="/waqf"
               className="hidden sm:flex px-3 py-2 text-xs font-bold rounded-xl bg-amber-700 hover:bg-amber-800 text-white shadow-xs transition-all items-center gap-1.5"
             >
-              <Landmark className="w-3.5 h-3.5 text-amber-200" />
+              <Landmark className="w-3.5 h-3.5 text-gold-300" />
               <span>Kelola Wakaf</span>
             </Link>
 
             <Link
               to="/login"
-              className="px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 transition-all flex items-center gap-1"
+              className="px-3 py-2 text-xs font-bold rounded-xl border border-cream-300 text-surface-700 bg-white hover:bg-cream-100 transition-all flex items-center gap-1 shadow-2xs"
             >
-              <Lock className="w-3.5 h-3.5 text-slate-600" />
+              <Lock className="w-3.5 h-3.5 text-surface-600" />
               <span className="hidden md:inline">CRM</span>
             </Link>
           </div>
@@ -921,6 +934,49 @@ export function DonationsPortalPage() {
           </div>
         </div>
       </footer>
-    </div>
+
+      {/* Mobile Floating Quick Navigation Bar */}
+      <div className="md:hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-white/95 backdrop-blur-md px-3 py-2 rounded-2xl shadow-xl border border-cream-300 flex items-center gap-1.5 text-[11px] font-bold">
+        <button
+          onClick={() => {
+            setActiveTab('infaq');
+            window.scrollTo({ top: 350, behavior: 'smooth' });
+          }}
+          className={`px-3 py-1.5 rounded-xl transition-all ${
+            activeTab === 'infaq' ? 'bg-brand-800 text-white shadow-xs' : 'text-surface-700 hover:bg-cream-100'
+          }`}
+        >
+          💰 Infaq
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab('waqf');
+            window.scrollTo({ top: 350, behavior: 'smooth' });
+          }}
+          className={`px-3 py-1.5 rounded-xl transition-all ${
+            activeTab === 'waqf' ? 'bg-amber-700 text-white shadow-xs' : 'text-surface-700 hover:bg-cream-100'
+          }`}
+        >
+          🏛️ Wakaf
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab('rekening');
+            window.scrollTo({ top: 350, behavior: 'smooth' });
+          }}
+          className={`px-3 py-1.5 rounded-xl transition-all ${
+            activeTab === 'rekening' ? 'bg-gold-500 text-gold-950 shadow-xs' : 'text-surface-700 hover:bg-cream-100'
+          }`}
+        >
+          🏦 Rekening
+        </button>
+        <Link
+          to="/kajian"
+          className="px-3 py-1.5 rounded-xl text-brand-900 bg-cream-100 hover:bg-cream-200 border border-cream-300"
+        >
+          📖 Kajian
+        </Link>
+      </div>
+    </PortalBackground>
   );
 }

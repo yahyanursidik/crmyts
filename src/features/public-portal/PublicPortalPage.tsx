@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { LoadingState } from '@/components/common/LoadingState';
+import { PortalBackground } from '@/components/common/PortalBackground';
 
 interface ProgramItem {
   id: string;
@@ -296,44 +297,60 @@ export function PublicPortalPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FDFCF9] text-slate-900 font-sans selection:bg-emerald-100 selection:text-emerald-900">
+    <PortalBackground>
       {/* 1. TOP NAVBAR */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-2xs">
+      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-cream-300 shadow-2xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <BrandEmblem useImage={true} className="w-11 h-11" />
+            <BrandEmblem useImage={true} className="w-11 h-11 shadow-xs rounded-xl" />
             <div>
-              <span className="text-lg font-black tracking-tight text-[#253D1E] block leading-tight">
+              <span className="text-lg font-black tracking-tight text-brand-950 block leading-tight font-display">
                 Tarbiyah Sunnah
               </span>
-              <span className="text-[11px] font-semibold text-slate-500 block leading-tight">
+              <span className="text-[11px] font-bold text-surface-500 block leading-tight">
                 Portal Infaq, Wakaf & Majelis Ilmu
               </span>
             </div>
           </div>
 
-          <nav className="hidden md:flex items-center gap-6 text-sm font-semibold text-slate-600">
+          <nav className="hidden md:flex items-center gap-2 text-xs font-bold text-surface-600 bg-cream-100 p-1.5 rounded-2xl border border-cream-300">
             <button
               onClick={() => setActiveTab('infaq')}
-              className={`hover:text-emerald-700 transition-colors ${activeTab === 'infaq' ? 'text-emerald-700 font-bold' : ''}`}
+              className={`px-3.5 py-1.5 rounded-xl transition-all ${
+                activeTab === 'infaq'
+                  ? 'bg-brand-800 text-white shadow-xs'
+                  : 'hover:text-brand-950'
+              }`}
             >
               Program Infaq
             </button>
             <button
               onClick={() => setActiveTab('waqf')}
-              className={`hover:text-emerald-700 transition-colors ${activeTab === 'waqf' ? 'text-emerald-700 font-bold' : ''}`}
+              className={`px-3.5 py-1.5 rounded-xl transition-all ${
+                activeTab === 'waqf'
+                  ? 'bg-amber-700 text-white shadow-xs'
+                  : 'hover:text-brand-950'
+              }`}
             >
               Amanah Wakaf
             </button>
             <button
               onClick={() => setActiveTab('kajian')}
-              className={`hover:text-emerald-700 transition-colors ${activeTab === 'kajian' ? 'text-emerald-700 font-bold' : ''}`}
+              className={`px-3.5 py-1.5 rounded-xl transition-all ${
+                activeTab === 'kajian'
+                  ? 'bg-brand-800 text-white shadow-xs'
+                  : 'hover:text-brand-950'
+              }`}
             >
               Jadwal Kajian
             </button>
             <button
               onClick={() => setActiveTab('rekening')}
-              className={`hover:text-emerald-700 transition-colors ${activeTab === 'rekening' ? 'text-emerald-700 font-bold' : ''}`}
+              className={`px-3.5 py-1.5 rounded-xl transition-all ${
+                activeTab === 'rekening'
+                  ? 'bg-gold-500 text-gold-950 shadow-xs'
+                  : 'hover:text-brand-950'
+              }`}
             >
               Rekening & QRIS
             </button>
@@ -342,9 +359,9 @@ export function PublicPortalPage() {
           <div className="flex items-center gap-3">
             <Link
               to="/login"
-              className="px-4 py-2 text-xs font-bold rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-all flex items-center gap-1.5"
+              className="px-4 py-2 text-xs font-bold rounded-xl border border-cream-300 text-brand-900 bg-white hover:bg-cream-100 transition-all flex items-center gap-1.5 shadow-2xs"
             >
-              <Lock className="w-3.5 h-3.5 text-emerald-700" />
+              <Lock className="w-3.5 h-3.5 text-brand-700" />
               <span>Portal Pengurus</span>
             </Link>
           </div>
@@ -1229,6 +1246,54 @@ export function PublicPortalPage() {
           </div>
         </div>
       </footer>
-    </div>
+
+      {/* Mobile Floating Quick Navigation Bar */}
+      <div className="md:hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-white/95 backdrop-blur-md px-3 py-2 rounded-2xl shadow-xl border border-cream-300 flex items-center gap-1.5 text-[11px] font-bold">
+        <button
+          onClick={() => {
+            setActiveTab('kajian');
+            window.scrollTo({ top: 400, behavior: 'smooth' });
+          }}
+          className={`px-3 py-1.5 rounded-xl transition-all ${
+            activeTab === 'kajian' ? 'bg-brand-800 text-white shadow-xs' : 'text-surface-700 hover:bg-cream-100'
+          }`}
+        >
+          📖 Kajian
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab('infaq');
+            window.scrollTo({ top: 400, behavior: 'smooth' });
+          }}
+          className={`px-3 py-1.5 rounded-xl transition-all ${
+            activeTab === 'infaq' ? 'bg-brand-800 text-white shadow-xs' : 'text-surface-700 hover:bg-cream-100'
+          }`}
+        >
+          💰 Infaq
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab('waqf');
+            window.scrollTo({ top: 400, behavior: 'smooth' });
+          }}
+          className={`px-3 py-1.5 rounded-xl transition-all ${
+            activeTab === 'waqf' ? 'bg-amber-700 text-white shadow-xs' : 'text-surface-700 hover:bg-cream-100'
+          }`}
+        >
+          🏛️ Wakaf
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab('rekening');
+            window.scrollTo({ top: 400, behavior: 'smooth' });
+          }}
+          className={`px-3 py-1.5 rounded-xl transition-all ${
+            activeTab === 'rekening' ? 'bg-gold-500 text-gold-950 shadow-xs' : 'text-surface-700 hover:bg-cream-100'
+          }`}
+        >
+          🏦 Rekening
+        </button>
+      </div>
+    </PortalBackground>
   );
 }
