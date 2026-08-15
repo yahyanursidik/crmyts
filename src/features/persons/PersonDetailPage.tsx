@@ -25,6 +25,7 @@ import { LoadingState } from '@/components/common/LoadingState';
 import { PersonFormModal } from './components/PersonFormModal';
 import { AddInteractionModal } from './components/AddInteractionModal';
 import { ECertificateModal } from '../events/ECertificateModal';
+import { useTheme } from '@/lib/themeContext';
 
 interface PersonDetailData {
   id: string;
@@ -131,6 +132,7 @@ const ENGAGEMENT_BADGES: Record<string, { label: string; bg: string; text: strin
 };
 
 export const PersonDetailPage: React.FC = () => {
+  const { currentTheme } = useTheme();
   const { id } = useParams<{ id: string }>();
   const [data, setData] = useState<PersonDetailData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -207,7 +209,7 @@ export const PersonDetailPage: React.FC = () => {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setInteractionModalOpen(true)}
-            className="btn-primary"
+            className={`px-3.5 py-1.5 ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 active:scale-95`}
           >
             <MessageSquare className="w-3.5 h-3.5 mr-1" /> Catat Sapaan
           </button>
@@ -233,9 +235,14 @@ export const PersonDetailPage: React.FC = () => {
                 <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold border ${badge.bg} ${badge.text} ${badge.border}`}>
                   {badge.label}
                 </span>
-                {data.gender && (
-                  <span className="inline-flex px-2 py-0.5 rounded text-[11px] font-semibold bg-surface-100 text-surface-700 capitalize">
-                    {data.gender}
+                {data.gender === 'ikhwan' && (
+                  <span className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-50 text-sky-800 border border-sky-200">
+                    🕌 Ikhwan
+                  </span>
+                )}
+                {data.gender === 'akhwat' && (
+                  <span className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-50 text-rose-800 border border-rose-200">
+                    🌸 Akhwat
                   </span>
                 )}
               </div>
@@ -469,7 +476,11 @@ export const PersonDetailPage: React.FC = () => {
               ) : (
                 data.attendances.map((att) => (
                   <tr key={att.id} className="hover:bg-surface-50">
-                    <td className="py-3 px-4 font-bold text-surface-900">{att.event.title}</td>
+                    <td className="py-3 px-4 font-bold text-surface-900">
+                      <Link to="/events" className="text-brand-900 hover:text-brand-700 hover:underline">
+                        {att.event.title}
+                      </Link>
+                    </td>
                     <td className="py-3 px-4 text-surface-700">
                       <span className="font-medium">{att.event.speaker}</span>
                       <span className="text-[11px] text-surface-500 block">({att.event.category})</span>
@@ -518,7 +529,7 @@ export const PersonDetailPage: React.FC = () => {
             <h2 className="text-sm font-bold text-surface-900 font-display">Catatan Sapaan & Komunikasi</h2>
             <button
               onClick={() => setInteractionModalOpen(true)}
-              className="btn-primary"
+              className={`px-3 py-1.5 ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 active:scale-95`}
             >
               <Plus className="w-3.5 h-3.5 mr-1" /> Tambah Sapaan
             </button>
@@ -570,6 +581,9 @@ export const PersonDetailPage: React.FC = () => {
         <div className="bg-white rounded-xl border border-surface-200 shadow-sm p-6 space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-surface-100">
             <h2 className="text-sm font-bold text-surface-900 font-display">Tugas & Tindak Lanjut Terjadwal</h2>
+            <Link to="/tasks" className="text-xs text-brand-800 font-bold hover:underline flex items-center gap-1">
+              Buka Manajemen Tugas &rarr;
+            </Link>
           </div>
 
           <div className="divide-y divide-surface-100">
@@ -614,8 +628,13 @@ export const PersonDetailPage: React.FC = () => {
         <div className="bg-white rounded-xl border border-surface-200 shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-surface-200 flex items-center justify-between bg-surface-50">
             <h2 className="text-sm font-bold text-surface-900 font-display">Riwayat Kontribusi Infaq & Donasi</h2>
-            <div className="text-xs font-semibold text-emerald-800">
-              Total Terverifikasi: <span className="font-mono font-bold">Rp {data.metrics.verifiedTotalDonationsRupiah.toLocaleString('id-ID')}</span>
+            <div className="flex items-center gap-4">
+              <div className="text-xs font-semibold text-emerald-800">
+                Total Terverifikasi: <span className="font-mono font-bold">Rp {data.metrics.verifiedTotalDonationsRupiah.toLocaleString('id-ID')}</span>
+              </div>
+              <Link to="/donations" className="text-xs text-brand-800 font-bold hover:underline flex items-center gap-1">
+                Kelola di Modul Donasi &rarr;
+              </Link>
             </div>
           </div>
           <table className="w-full text-left border-collapse text-xs">
@@ -670,6 +689,9 @@ export const PersonDetailPage: React.FC = () => {
         <div className="bg-white rounded-xl border border-surface-200 shadow-sm p-6 space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-surface-100">
             <h2 className="text-sm font-bold text-surface-900 font-display">Amanah Kasus Wakaf Aset</h2>
+            <Link to="/waqf" className="text-xs text-purple-700 font-bold hover:underline flex items-center gap-1">
+              Buka di Pipeline Wakaf &rarr;
+            </Link>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

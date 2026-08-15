@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { apiClient } from '@/lib/apiClient';
 import { 
-  Users, 
   Search, 
   Plus, 
   MapPin, 
@@ -14,11 +13,12 @@ import {
   ChevronRight, 
   AlertCircle,
   Eye,
-  UserCheck
+  IdCard,
 } from 'lucide-react';
 import { formatPhoneDisplay, getWhatsAppLink } from '@/lib/phone';
 import { LoadingState } from '@/components/common/LoadingState';
 import { PersonFormModal } from './components/PersonFormModal';
+import { useTheme } from '@/lib/themeContext';
 
 interface PersonListItem {
   id: string;
@@ -55,6 +55,7 @@ const ENGAGEMENT_BADGES: Record<string, { label: string; bg: string; text: strin
 };
 
 export const PersonsListPage: React.FC = () => {
+  const { currentTheme } = useTheme();
   const [personsList, setPersonsList] = useState<PersonListItem[]>([]);
   const [pagination, setPagination] = useState<PaginationMeta>({
     page: 1,
@@ -112,18 +113,18 @@ export const PersonsListPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-3 border-b border-surface-200 gap-4">
         <div>
           <h1 className="text-2xl font-bold text-surface-900 tracking-tight font-display flex items-center gap-2">
-            <Users className="w-6 h-6 text-brand-800" />
+            <IdCard className="w-6 h-6 text-brand-800" />
             Database Master Jamaah YTS
           </h1>
           <p className="text-xs text-surface-500 mt-1">
-            Data jamaah kajian, donatur infaq, wakif, dan relawan dakwah Yayasan Tarbiyah Sunnah.
+            Pusat data induk terintegrasi: Jamaah Kajian, Donatur Infaq, Wakif, dan Relawan Yayasan Tarbiyah Sunnah.
           </p>
         </div>
         <button
           onClick={() => setIsCreateModalOpen(true)}
-          className="btn-primary self-start sm:self-auto"
+          className={`px-4 py-2 ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 active:scale-95 self-start sm:self-auto`}
         >
-          <Plus className="w-4 h-4 mr-1.5" /> Tambah Jamaah Baru
+          <Plus className="w-4 h-4 mr-1 text-gold-300" /> Tambah Jamaah Baru
         </button>
       </div>
 
@@ -164,7 +165,7 @@ export const PersonsListPage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
-            <UserCheck className="w-3.5 h-3.5 text-surface-400 shrink-0" />
+            <CheckSquare className="w-3.5 h-3.5 text-surface-400 shrink-0" />
             <select
               value={roleFilter}
               onChange={(e) => setRoleFilter(e.target.value)}
@@ -237,9 +238,14 @@ export const PersonsListPage: React.FC = () => {
                         <Link to={`/people/${p.id}`} className="font-bold text-brand-900 hover:text-brand-700 block">
                           {p.fullName}
                         </Link>
-                        {p.gender && (
-                          <span className="text-[10px] text-surface-500 capitalize">
-                            {p.gender}
+                        {p.gender === 'ikhwan' && (
+                          <span className="text-[10px] text-sky-800 font-bold block mt-0.5">
+                            🕌 Ikhwan
+                          </span>
+                        )}
+                        {p.gender === 'akhwat' && (
+                          <span className="text-[10px] text-rose-800 font-bold block mt-0.5">
+                            🌸 Akhwat
                           </span>
                         )}
                       </td>
