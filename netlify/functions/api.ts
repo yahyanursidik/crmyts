@@ -62,52 +62,70 @@ registerPublicPortalRoutes(router);
 export const handler = async (event: NetlifyEvent) => {
   const requestId = extractRequestId(event.headers);
 
-  // Normalize path if routed via Netlify redirect rewrite
-  let path = event.path;
-  if (!path.startsWith('/api')) {
-    path = `/api${path.startsWith('/') ? path : `/${path}`}`;
-  }
-
-  let parsedBody: unknown = null;
-  if (event.body) {
-    try {
-      parsedBody = JSON.parse(event.body);
-    } catch {
-      parsedBody = event.body;
+  try {
+    // Normalize path if routed via Netlify redirect rewrite
+    let path = event.path;
+    if (!path.startsWith('/api')) {
+      path = `/api${path.startsWith('/') ? path : `/${path}`}`;
     }
-  }
 
-  // Resolve user session if bearer token provided
-  let authenticatedUser: RequestContext['user'] = undefined;
-  const tokenClaims = resolveTokenClaims(event.headers);
-
-  if (tokenClaims?.authSubject) {
-    try {
-      const user = await resolveUserBySubject(tokenClaims.authSubject);
-      if (user) {
-        authenticatedUser = user;
+    let parsedBody: unknown = null;
+    if (event.body) {
+      try {
+        parsedBody = JSON.parse(event.body);
+      } catch {
+        parsedBody = event.body;
       }
-    } catch (err) {
-      console.error('[Session Resolve Error]:', err);
     }
+
+    // Resolve user session if bearer token provided
+    let authenticatedUser: RequestContext['user'] = undefined;
+    const tokenClaims = resolveTokenClaims(event.headers);
+
+    if (tokenClaims?.authSubject) {
+      try {
+        const user = await resolveUserBySubject(tokenClaims.authSubject);
+        if (user) {
+          authenticatedUser = user;
+        }
+      } catch (err) {
+        console.error('[Session Resolve Error]:', err);
+      }
+    }
+
+    const ctx: RequestContext = {
+      requestId,
+      method: event.httpMethod,
+      path,
+      headers: event.headers,
+      query: event.queryStringParameters || {},
+      body: parsedBody,
+      params: {},
+      user: authenticatedUser,
+    };
+
+    const response = await router.handle(ctx);
+
+    return {
+      statusCode: response.statusCode,
+      headers: {
+        'Content-Type': 'application/json',
+        ...response.headers,
+      },
+      body: response.body,
+    };
+  } catch (err: any) {
+    console.error('[Netlify Function Unhandled Error]:', err);
+    return {
+      statusCode: 500,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        error: {
+          code: 'INTERNAL_SERVER_ERROR',
+          message: err?.message || 'Terjadi kesalahan sistem pada fungsi Netlify.',
+          requestId,
+        },
+      }),
+    };
   }
-
-  const ctx: RequestContext = {
-    requestId,
-    method: event.httpMethod,
-    path,
-    headers: event.headers,
-    query: event.queryStringParameters || {},
-    body: parsedBody,
-    params: {},
-    user: authenticatedUser,
-  };
-
-  const response = await router.handle(ctx);
-
-  return {
-    statusCode: response.statusCode,
-    headers: response.headers,
-    body: response.body,
-  };
 };

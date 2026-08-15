@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { useLogin } from '@refinedev/core';
 import { Lock, Mail, AlertCircle, Loader2, Globe, BookOpen, Clock } from 'lucide-react';
 import { BrandLogo } from '@/components/common/BrandLogo';
+import { authProvider } from '@/lib/authProvider';
 
 export const LoginPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -11,31 +11,44 @@ export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const { mutate: login, isPending } = useLogin();
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setSubmitting(true);
 
-    login(
-      { email, password },
-      {
-        onError: (err: any) => {
-          setErrorMessage(err?.message || 'Login gagal. Periksa email dan password.');
-        },
+    try {
+      const res = await authProvider.login({ email, password });
+      if (res && res.success) {
+        window.location.href = res.redirectTo || '/';
+      } else {
+        setErrorMessage(res?.error?.message || 'Email atau kata sandi tidak valid.');
       }
-    );
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Terjadi kesalahan saat menghubungi server.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  // Demo shortcut for local development testing
+  // Quick-Login Helper for Demo and Instant Admin Access
   const handleQuickLogin = (demoRole: string) => {
+    const roleLabels: Record<string, string> = {
+      crm_admin: 'Admin Yayasan Tarbiyah Sunnah',
+      finance_verifier: 'Staff Keuangan (Finance)',
+    };
     const mockUser = {
-      id: 'usr_mock_123',
+      id: `usr_${demoRole}_001`,
+      authSubject: `mock_${demoRole}`,
       email: `${demoRole}@tarbiyahsunnah.id`,
-      name: `Staf ${demoRole.toUpperCase()}`,
+      name: roleLabels[demoRole] || `Staf ${demoRole.toUpperCase()}`,
+      fullName: roleLabels[demoRole] || `Staf ${demoRole.toUpperCase()}`,
+      isActive: true,
       roles: [demoRole],
       permissions: ['dashboard.view', 'persons.list', 'events.view', 'tasks.view_own'],
     };
+    localStorage.setItem('crm_user_token', `demo_token_${Date.now()}`);
     localStorage.setItem('crm_user_session', JSON.stringify(mockUser));
     window.location.href = '/';
   };
@@ -104,10 +117,10 @@ export const LoginPage: React.FC = () => {
 
             <button
               type="submit"
-              disabled={isPending}
+              disabled={submitting}
               className="w-full flex justify-center items-center py-2.5 px-4 rounded-xl shadow-sm text-xs font-bold text-white bg-brand-800 hover:bg-brand-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-700 transition-all active:scale-95 disabled:opacity-50"
             >
-              {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Masuk ke Sistem'}
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Masuk ke Sistem'}
             </button>
           </form>
 
