@@ -24,6 +24,8 @@ import { LoadingState } from '@/components/common/LoadingState';
 import { PERMISSIONS, PermissionCode } from '@server/permissions/constants';
 import { CreateDonationModal } from './CreateDonationModal';
 import { VerifyDonationModal } from './VerifyDonationModal';
+import { BankReconciliationModal } from './BankReconciliationModal';
+import { Landmark } from 'lucide-react';
 
 interface DonationItem {
   id: string;
@@ -100,6 +102,7 @@ export const DonationsListPage: React.FC = () => {
   // Modals
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [verifyModalOpen, setVerifyModalOpen] = useState(false);
+  const [reconciliationModalOpen, setReconciliationModalOpen] = useState(false);
   const [selectedDonation, setSelectedDonation] = useState<DonationItem | null>(null);
   const [proofPreviewDonation, setProofPreviewDonation] = useState<DonationItem | null>(null);
 
@@ -162,14 +165,26 @@ export const DonationsListPage: React.FC = () => {
             Pengelolaan dana infaq yayasan dengan prinsip pemisahan tugas (*Segregation of Duties*).
           </p>
         </div>
-        {canCreateDonation && (
-          <button
-            onClick={() => setCreateModalOpen(true)}
-            className="btn-primary self-start sm:self-auto"
-          >
-            <Plus className="w-4 h-4 mr-1.5" /> Catat Donasi Baru
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          {canVerifyDonation && (
+            <button
+              onClick={() => setReconciliationModalOpen(true)}
+              className="py-2 px-3.5 bg-cream-100 hover:bg-cream-200 text-brand-950 border border-cream-300 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 active:scale-95"
+            >
+              <Landmark className="w-3.5 h-3.5 text-brand-700" />
+              <span>⚡ Rekonsiliasi Bank BSI</span>
+            </button>
+          )}
+
+          {canCreateDonation && (
+            <button
+              onClick={() => setCreateModalOpen(true)}
+              className="btn-primary"
+            >
+              <Plus className="w-4 h-4 mr-1.5" /> Catat Donasi Baru
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Portal Publik Donasi & Wakaf Direct Banner */}
@@ -603,6 +618,16 @@ export const DonationsListPage: React.FC = () => {
         onClose={() => setVerifyModalOpen(false)}
         onSuccess={() => fetchDonations(pagination.page)}
         donation={selectedDonation}
+      />
+
+      {/* Bank Reconciliation Modal (Finance Only) */}
+      <BankReconciliationModal
+        isOpen={reconciliationModalOpen}
+        onClose={() => setReconciliationModalOpen(false)}
+        onReconciliationDone={() => {
+          fetchDonations(1);
+          if (activeTab === 'donors') fetchDonors();
+        }}
       />
     </div>
   );

@@ -17,12 +17,14 @@ import {
   CheckCircle2, 
   Plus, 
   Briefcase, 
-  GraduationCap
+  GraduationCap,
+  Award,
 } from 'lucide-react';
 import { formatPhoneDisplay, getWhatsAppLink } from '@/lib/phone';
 import { LoadingState } from '@/components/common/LoadingState';
 import { PersonFormModal } from './components/PersonFormModal';
 import { AddInteractionModal } from './components/AddInteractionModal';
+import { ECertificateModal } from '../events/ECertificateModal';
 
 interface PersonDetailData {
   id: string;
@@ -137,6 +139,12 @@ export const PersonDetailPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'timeline' | 'events' | 'interactions' | 'tasks' | 'donations' | 'waqf' | 'sensitive'>('timeline');
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [interactionModalOpen, setInteractionModalOpen] = useState(false);
+  const [certModalData, setCertModalData] = useState<{
+    eventTitle: string;
+    speaker: string;
+    dateStr: string;
+    ticketCode: string;
+  } | null>(null);
 
   const loadData = async () => {
     if (!id) return;
@@ -447,13 +455,14 @@ export const PersonDetailPage: React.FC = () => {
                 <th className="py-3 px-4">Judul Kajian</th>
                 <th className="py-3 px-4">Kategori & Pemateri</th>
                 <th className="py-3 px-4">Tanggal Pelaksanaan</th>
-                <th className="py-3 px-4">Metode & Presensi</th>
+                <th className="py-3 px-4">Presensi</th>
+                <th className="py-3 px-4 text-right">E-Sertifikat</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-surface-100">
               {data.attendances.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="py-8 text-center text-surface-500">
+                  <td colSpan={5} className="py-8 text-center text-surface-500">
                     Belum ada riwayat kehadiran kajian tercatat.
                   </td>
                 </tr>
@@ -477,6 +486,22 @@ export const PersonDetailPage: React.FC = () => {
                       <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 capitalize">
                         Hadir ({att.event.deliveryMode})
                       </span>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <button
+                        onClick={() =>
+                          setCertModalData({
+                            eventTitle: att.event.title,
+                            speaker: att.event.speaker,
+                            dateStr: att.event.startAt,
+                            ticketCode: `YTS-${att.id.slice(0, 6).toUpperCase()}`,
+                          })
+                        }
+                        className="px-2.5 py-1 bg-gold-400 hover:bg-gold-500 text-gold-950 rounded-lg font-bold text-[10px] shadow-2xs transition-all inline-flex items-center gap-1 active:scale-95"
+                      >
+                        <Award className="w-3 h-3" />
+                        <span>Cetak Sertifikat</span>
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -726,6 +751,19 @@ export const PersonDetailPage: React.FC = () => {
         personId={data.id}
         personName={data.fullName}
       />
+
+      {/* E-Certificate Modal */}
+      {certModalData && (
+        <ECertificateModal
+          isOpen={true}
+          onClose={() => setCertModalData(null)}
+          attendeeName={data.fullName}
+          eventTitle={certModalData.eventTitle}
+          speaker={certModalData.speaker}
+          dateStr={certModalData.dateStr}
+          ticketCode={certModalData.ticketCode}
+        />
+      )}
     </div>
   );
 };

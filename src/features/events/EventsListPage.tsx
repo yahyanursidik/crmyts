@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
 import { EventManageModal, EventFormConfig } from './EventManageModal';
+import { EventSubmissionsModal } from './EventSubmissionsModal';
 
 interface EventItem {
   id: string;
@@ -68,6 +69,7 @@ export const EventsListPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [selectedManageEventId, setSelectedManageEventId] = useState<string | null>(null);
+  const [selectedSubmissionsEventId, setSelectedSubmissionsEventId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [audienceFilter, setAudienceFilter] = useState('all');
@@ -501,30 +503,43 @@ export const EventsListPage: React.FC = () => {
               </div>
 
               {/* Action Buttons */}
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                <button
-                  onClick={() => setSelectedManageEventId(ev.id)}
-                  className="flex-1 py-2 bg-teal-800 hover:bg-teal-900 text-white text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center justify-center gap-1.5 active:scale-95"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Kelola & Form Builder</span>
-                </button>
+              <div className="pt-3 border-t border-slate-100 flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSelectedSubmissionsEventId(ev.id)}
+                    className="flex-1 py-2 bg-cream-100 hover:bg-cream-200 text-brand-950 text-xs font-bold rounded-xl border border-cream-300 transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-2xs"
+                    title="Lihat Data Pendaftar & Jawaban Form Kustom"
+                  >
+                    <Users className="w-3.5 h-3.5 text-brand-700" />
+                    <span>Daftar Peserta & Jawaban ({ev.attendanceCount})</span>
+                  </button>
+                </div>
 
-                <button
-                  onClick={() => handleCopyPublicLink(ev.id)}
-                  className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors"
-                  title="Salin Link Pendaftaran"
-                >
-                  {copiedId === ev.id ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                </button>
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    onClick={() => setSelectedManageEventId(ev.id)}
+                    className="flex-1 py-2 bg-brand-800 hover:bg-brand-900 text-white text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center justify-center gap-1.5 active:scale-95"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Kelola & Form Builder</span>
+                  </button>
 
-                <button
-                  onClick={() => handleDeleteEvent(ev.id)}
-                  className="p-2 rounded-xl border border-slate-200 hover:bg-red-50 text-red-500 transition-colors"
-                  title="Hapus Kajian"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                  <button
+                    onClick={() => handleCopyPublicLink(ev.id)}
+                    className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors"
+                    title="Salin Link Pendaftaran"
+                  >
+                    {copiedId === ev.id ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                  </button>
+
+                  <button
+                    onClick={() => handleDeleteEvent(ev.id)}
+                    className="p-2 rounded-xl border border-slate-200 hover:bg-red-50 text-red-500 transition-colors"
+                    title="Hapus Kajian"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -796,6 +811,16 @@ export const EventsListPage: React.FC = () => {
           eventId={selectedManageEventId}
           onClose={() => setSelectedManageEventId(null)}
           onEventUpdated={loadEvents}
+        />
+      )}
+
+      {/* 7. MODAL: DATA PESERTA & SUBMISSIONS JAWABAN */}
+      {selectedSubmissionsEventId && (
+        <EventSubmissionsModal
+          eventId={selectedSubmissionsEventId}
+          isOpen={true}
+          onClose={() => setSelectedSubmissionsEventId(null)}
+          onRefreshList={loadEvents}
         />
       )}
     </div>
