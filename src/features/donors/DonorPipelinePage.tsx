@@ -11,10 +11,12 @@ import {
   Phone,
   Repeat,
   Download,
+  Plus,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
 import { useTheme } from '@/lib/themeContext';
 import { apiClient } from '@/lib/apiClient';
+import { PersonFormModal } from '../persons/components/PersonFormModal';
 
 interface DonorCard {
   id: string;
@@ -110,6 +112,9 @@ export function DonorPipelinePage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [syncing, setSyncing] = useState(false);
+
+  // Create Lead Modal State
+  const [createLeadModalOpen, setCreateLeadModalOpen] = useState(false);
 
   // Transition Modal State
   const [transitionModalOpen, setTransitionModalOpen] = useState(false);
@@ -274,6 +279,14 @@ export function DonorPipelinePage() {
 
           <div className="flex items-center gap-2 flex-wrap self-start md:self-auto">
             <button
+              onClick={() => setCreateLeadModalOpen(true)}
+              className={`px-3.5 py-2 text-xs font-bold rounded-xl ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} shadow-xs transition-all flex items-center gap-1.5 active:scale-95`}
+              title="Tambah Prospek Donatur Baru ke Pipeline"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Tambah Prospek Baru</span>
+            </button>
+            <button
               onClick={handleExportCsv}
               className="px-3.5 py-2 text-xs font-bold rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 shadow-2xs transition-all flex items-center gap-1.5 active:scale-95"
               title="Ekspor daftar pipeline donatur ke file CSV"
@@ -284,9 +297,10 @@ export function DonorPipelinePage() {
             <button
               onClick={handleAutoSync}
               disabled={syncing}
-              className={`px-3.5 py-2 text-xs font-bold rounded-xl ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} shadow-xs transition-all flex items-center gap-1.5 active:scale-95 disabled:opacity-50`}
+              className="px-3.5 py-2 text-xs font-bold rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 shadow-2xs transition-all flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
+              title="Sinkronisasikan siklus seluruh donatur berdasar transaksi terbaru"
             >
-              <Sparkles className="w-4 h-4 text-gold-300" />
+              <Sparkles className="w-4 h-4 text-amber-600" />
               {syncing ? 'Menyelaraskan...' : 'Sinkronisasi Mutasi Donasi'}
             </button>
             <button
@@ -374,6 +388,17 @@ export function DonorPipelinePage() {
                   </div>
                   <p className="text-[11px] opacity-80 mt-0.5 leading-tight">{stage.title}</p>
                 </div>
+
+                {stage.id === 'new_lead' && (
+                  <button
+                    type="button"
+                    onClick={() => setCreateLeadModalOpen(true)}
+                    className="p-1.5 hover:bg-slate-200/80 rounded-xl text-slate-700 hover:text-slate-950 transition-colors border border-slate-300/80 bg-white/70 shadow-2xs"
+                    title="Tambah Prospek Donatur Baru ke Kolom Ini"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
 
               {/* Column Cards Container */}
@@ -589,22 +614,32 @@ export function DonorPipelinePage() {
                     Salin Teks
                   </button>
 
-                  {reEngageResult.waDirectUrl && (
-                    <a
-                      href={reEngageResult.waDirectUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="px-5 py-2 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs flex items-center gap-1.5"
-                    >
-                      <Send className="w-3.5 h-3.5" /> Buka WhatsApp (wa.me)
-                    </a>
-                  )}
+                    {reEngageResult.waDirectUrl && (
+                      <a
+                        href={reEngageResult.waDirectUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-5 py-2 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs flex items-center gap-1.5"
+                      >
+                        <Send className="w-3.5 h-3.5" /> Buka WhatsApp (wa.me)
+                      </a>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+
+      {/* Create New Lead / Donor Modal */}
+      <PersonFormModal
+        isOpen={createLeadModalOpen}
+        onClose={() => setCreateLeadModalOpen(false)}
+        onSuccess={() => {
+          setCreateLeadModalOpen(false);
+          fetchPipeline();
+        }}
+      />
     </div>
   );
 }
