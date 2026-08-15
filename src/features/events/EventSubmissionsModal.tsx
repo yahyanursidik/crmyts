@@ -5,7 +5,7 @@ import {
   Download,
   CheckCircle2,
   Clock,
-  UserCheck,
+  CheckSquare,
   Award,
   Car,
   Bike,
@@ -396,7 +396,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                                   className="px-2.5 py-1 bg-brand-800 hover:bg-brand-900 text-white rounded-lg font-bold text-[11px] shadow-2xs transition-all flex items-center gap-1 active:scale-95"
                                   title="Tandai Jamaah Hadir Manual"
                                 >
-                                  <UserCheck className="w-3 h-3" />
+                                  <CheckSquare className="w-3 h-3" />
                                   <span>Presensi</span>
                                 </button>
                               )}

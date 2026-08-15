@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   X,
   Settings,
-  Users,
+  Ticket,
   Plus,
   Trash2,
   CheckCircle2,
@@ -12,7 +12,7 @@ import {
   Sparkles,
   ToggleLeft,
   ToggleRight,
-  UserPlus,
+  PlusCircle,
   Car,
   Bike,
   ShieldAlert,
@@ -103,7 +103,7 @@ interface EventManageModalProps {
 
 const VENUE_RULES_PRESETS = [
   { id: 'no_toddlers', label: '🚫 Dilarang Membawa Balita / Anak di Bawah 6 Tahun', desc: 'Demi kekhusyukan kajian dan keterbatasan area majelis' },
-  { id: 'modest_dress', label: '🧕 Wajib Berpakaian Syar\'i & Rapi', desc: 'Gamis/Jubah gelap longgar untuk akhwat, pakaian sopan menutup aurat untuk ikhwan' },
+  { id: 'modest_dress', label: '✨ Wajib Berpakaian Syar\'i & Rapi', desc: 'Gamis/Jubah gelap longgar untuk akhwat, pakaian sopan menutup aurat untuk ikhwan' },
   { id: 'bring_kitab', label: '📖 Wajib Membawa Kitab / Buku Catatan', desc: 'Membawa mushaf/kitab panduan materi kajian' },
   { id: 'bring_prayer_mat', label: '🕌 Membawa Sajadah & Mukena Sendiri', desc: 'Menjaga kebersihan dan higienitas masjid' },
   { id: 'silent_phone', label: '📴 Mode Senyap / Dilarang Merekam Tanpa Izin', desc: 'Nonaktifkan suara ponsel selama majelis berlangsung' },
@@ -463,17 +463,17 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
 
               {eventData.targetAudience === 'akhwat_only' && (
                 <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-rose-900/80 text-rose-200 border border-rose-700">
-                  🧕 Khusus Akhwat Saja
+                  🌸 Khusus Akhwat Saja
                 </span>
               )}
               {eventData.targetAudience === 'ikhwan_only' && (
                 <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-sky-900/80 text-sky-200 border border-sky-700">
-                  👳 Khusus Ikhwan Saja
+                  🕌 Khusus Ikhwan Saja
                 </span>
               )}
               {eventData.targetAudience === 'anak' && (
                 <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-amber-900/80 text-amber-200 border border-amber-700">
-                  🧒 Kajian Anak & Santri
+                  🌱 Kajian Anak & Santri
                 </span>
               )}
               {eventData.targetAudience === 'itikaf_ramadan' && (
@@ -483,7 +483,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
               )}
               {eventData.targetAudience === 'umum' && (
                 <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-emerald-800/80 text-emerald-200 border border-emerald-700">
-                  👥 Tabligh Akbar (Umum)
+                  🌐 Tabligh Akbar (Umum)
                 </span>
               )}
 
@@ -535,7 +535,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                 : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Users className="w-4 h-4" />
+            <Ticket className="w-4 h-4" />
             <span>Daftar Peserta & Presensi</span>
             <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] bg-teal-100 text-teal-800 font-extrabold">
               {eventData.totalParticipants}
@@ -583,7 +583,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                 </div>
 
                 <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] font-bold uppercase text-teal-800 block">👳 Jamaah Ikhwan</span>
+                  <span className="text-[10px] font-bold uppercase text-teal-800 block">🕌 Jamaah Ikhwan</span>
                   <div className="flex items-baseline gap-1 mt-1">
                     <span className="text-xl font-black text-teal-950">{eventData.ikhwanCount || 0}</span>
                     <span className="text-xs text-slate-400 font-semibold">
@@ -593,7 +593,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                 </div>
 
                 <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] font-bold uppercase text-rose-800 block">🧕 Jamaah Akhwat</span>
+                  <span className="text-[10px] font-bold uppercase text-rose-800 block">🌸 Jamaah Akhwat</span>
                   <div className="flex items-baseline gap-1 mt-1">
                     <span className="text-xl font-black text-rose-950">{eventData.akhwatCount || 0}</span>
                     <span className="text-xs text-slate-400 font-semibold">
@@ -709,7 +709,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                     onClick={() => setShowAddParticipant(true)}
                     className="px-3.5 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs"
                   >
-                    <UserPlus className="w-3.5 h-3.5" />
+                    <PlusCircle className="w-3.5 h-3.5" />
                     <span>+ Tambah Peserta Manual</span>
                   </button>
 
@@ -847,7 +847,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                     />
                     <div className="space-y-1">
                       <span className="font-bold text-xs text-slate-900 block flex items-center gap-1.5">
-                        👥 Tabligh Akbar (Umum)
+                        🌐 Tabligh Akbar (Umum)
                       </span>
                       <p className="text-[11px] text-slate-500">Terbuka untuk Jamaah Ikhwan & Akhwat sekaligus.</p>
                     </div>
@@ -870,7 +870,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                     />
                     <div className="space-y-1">
                       <span className="font-bold text-xs text-rose-950 block flex items-center gap-1.5">
-                        🧕 Khusus Akhwat Saja
+                        🌸 Khusus Akhwat Saja
                       </span>
                       <p className="text-[11px] text-slate-500">Hanya menerima pendaftaran jamaah wanita/akhwat.</p>
                     </div>
@@ -893,7 +893,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                     />
                     <div className="space-y-1">
                       <span className="font-bold text-xs text-sky-950 block flex items-center gap-1.5">
-                        👳 Khusus Ikhwan Saja
+                        🕌 Khusus Ikhwan Saja
                       </span>
                       <p className="text-[11px] text-slate-500">Hanya menerima pendaftaran jamaah laki-laki/ikhwan.</p>
                     </div>
@@ -916,7 +916,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                     />
                     <div className="space-y-1">
                       <span className="font-bold text-xs text-amber-950 block flex items-center gap-1.5">
-                        🧒 Kajian Anak & Santri Cilik
+                        🌱 Kajian Anak & Santri Cilik
                       </span>
                       <p className="text-[11px] text-slate-500">Program pendidikan akidah/adab untuk usia anak-anak.</p>
                     </div>

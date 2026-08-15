@@ -275,8 +275,8 @@ export function InactiveAttendeesTab() {
             className="px-3 py-1.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 bg-white focus:ring-2 focus:ring-teal-500 outline-hidden"
           >
             <option value="all">Semua Jamaah</option>
-            <option value="ikhwan">👳 Jamaah Ikhwan</option>
-            <option value="akhwat">🧕 Jamaah Akhwat</option>
+            <option value="ikhwan">🕌 Jamaah Ikhwan</option>
+            <option value="akhwat">🌸 Jamaah Akhwat</option>
           </select>
         </div>
 

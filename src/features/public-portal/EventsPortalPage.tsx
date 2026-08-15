@@ -5,7 +5,6 @@ import {
   Calendar,
   Clock,
   Ticket,
-  UserCheck,
   MapPin,
   Sparkles,
   Lock,
@@ -77,7 +76,7 @@ const VENUE_RULES_MAP: Record<string, { label: string; desc: string }> = {
     desc: 'Demi menjaga kekhusyukan majelis ilmu dan kenyamanan bersama.',
   },
   modest_dress: {
-    label: '🧕 Wajib Berpakaian Syar\'i & Sopan Menutup Aurat',
+    label: '✨ Wajib Berpakaian Syar\'i & Sopan Menutup Aurat',
     desc: 'Gamis/Jubah longgar untuk akhwat, pakaian rapi sopan untuk ikhwan.',
   },
   bring_kitab: {
@@ -451,10 +450,10 @@ export function EventsPortalPage() {
             <span className="text-xs font-bold text-slate-500 shrink-0">Target Jamaah:</span>
             {[
               { id: 'all', label: 'Semua Target' },
-              { id: 'umum', label: '👥 Umum / Tabligh Akbar' },
-              { id: 'akhwat_only', label: '🧕 Khusus Akhwat' },
-              { id: 'ikhwan_only', label: '👳 Khusus Ikhwan' },
-              { id: 'anak', label: '🧒 Kajian Anak' },
+              { id: 'umum', label: '🌐 Umum / Tabligh Akbar' },
+              { id: 'akhwat_only', label: '🌸 Khusus Akhwat' },
+              { id: 'ikhwan_only', label: '🕌 Khusus Ikhwan' },
+              { id: 'anak', label: '🌱 Kajian Anak' },
               { id: 'itikaf_ramadan', label: '🌙 10 Hari Ramadan' },
             ].map((aud) => (
               <button
@@ -502,17 +501,17 @@ export function EventsPortalPage() {
 
                           {ev.targetAudience === 'akhwat_only' && (
                             <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
-                              🧕 Khusus Akhwat
+                              🌸 Khusus Akhwat
                             </span>
                           )}
                           {ev.targetAudience === 'ikhwan_only' && (
                             <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-200">
-                              👳 Khusus Ikhwan
+                              🕌 Khusus Ikhwan
                             </span>
                           )}
                           {ev.targetAudience === 'anak' && (
                             <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
-                              🧒 Kajian Anak
+                              🌱 Kajian Anak
                             </span>
                           )}
                           {ev.targetAudience === 'itikaf_ramadan' && (
@@ -540,7 +539,7 @@ export function EventsPortalPage() {
 
                       <h3 className="font-black text-base text-slate-900 leading-snug">{ev.title}</h3>
                       <p className="text-xs font-bold text-emerald-800 flex items-center gap-1.5">
-                        <UserCheck className="w-4 h-4" /> Pemateri: {ev.speaker}
+                        <Sparkles className="w-4 h-4 text-amber-600" /> Pemateri: {ev.speaker}
                       </p>
                       {ev.description && (
                         <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">{ev.description}</p>
@@ -553,8 +552,8 @@ export function EventsPortalPage() {
                       <div className="flex items-center gap-3 pt-1 text-[11px] text-slate-600 flex-wrap">
                         {(ev.quotaIkhwan || ev.quotaAkhwat) && (
                           <span className="bg-slate-100 px-2 py-0.5 rounded-md font-semibold">
-                            👳 Ikhwan: {ev.quotaIkhwan ? `${ev.quotaIkhwan - (ev.ikhwanCount || 0)} sisa` : 'Tersedia'} | 
-                            🧕 Akhwat: {ev.quotaAkhwat ? `${ev.quotaAkhwat - (ev.akhwatCount || 0)} sisa` : 'Tersedia'}
+                            🕌 Ikhwan: {ev.quotaIkhwan ? `${ev.quotaIkhwan - (ev.ikhwanCount || 0)} sisa` : 'Tersedia'} | 
+                            🌸 Akhwat: {ev.quotaAkhwat ? `${ev.quotaAkhwat - (ev.akhwatCount || 0)} sisa` : 'Tersedia'}
                           </span>
                         )}
 
@@ -633,12 +632,12 @@ export function EventsPortalPage() {
                 {/* 2. Gender Selector (Locked if event is single gender) */}
                 {selectedEvent?.targetAudience === 'akhwat_only' ? (
                   <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-900 space-y-0.5">
-                    <span className="font-bold block">🧕 Kategori: Khusus Jamaah Akhwat (Wanita)</span>
+                    <span className="font-bold block">🌸 Kategori: Khusus Jamaah Akhwat (Wanita)</span>
                     <p className="text-[11px] text-rose-700">Kajian ini hanya diperuntukkan bagi jamaah akhwat.</p>
                   </div>
                 ) : selectedEvent?.targetAudience === 'ikhwan_only' ? (
                   <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl text-xs text-sky-900 space-y-0.5">
-                    <span className="font-bold block">👳 Kategori: Khusus Jamaah Ikhwan (Laki-laki)</span>
+                    <span className="font-bold block">🕌 Kategori: Khusus Jamaah Ikhwan (Laki-laki)</span>
                     <p className="text-[11px] text-sky-700">Kajian ini hanya diperuntukkan bagi jamaah ikhwan.</p>
                   </div>
                 ) : (
@@ -972,7 +971,7 @@ export function EventsPortalPage() {
             <div className="p-4 bg-teal-50/80 border border-teal-200 rounded-2xl text-left space-y-1.5 text-xs">
               <span className="font-black text-teal-950 block text-sm">{eventSuccess.event.title}</span>
               <p className="text-slate-600 flex items-center gap-1">
-                <UserCheck className="w-3.5 h-3.5 text-teal-700" /> Pemateri: {eventSuccess.event.speaker}
+                <Sparkles className="w-3.5 h-3.5 text-amber-600" /> Pemateri: {eventSuccess.event.speaker}
               </p>
               <p className="text-slate-600 flex items-center gap-1">
                 <MapPin className="w-3.5 h-3.5 text-teal-700" /> Lokasi: {eventSuccess.event.locationName}
