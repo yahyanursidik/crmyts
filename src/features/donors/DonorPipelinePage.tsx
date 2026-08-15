@@ -10,8 +10,10 @@ import {
   CheckCircle2,
   Phone,
   Repeat,
+  Download,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
+import { useTheme } from '@/lib/themeContext';
 
 interface DonorCard {
   id: string;
@@ -102,6 +104,7 @@ const STAGE_THEMES: Record<string, { bg: string; border: string; headerBg: strin
 };
 
 export function DonorPipelinePage() {
+  const { currentTheme } = useTheme();
   const [data, setData] = useState<PipelineResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -154,6 +157,45 @@ export function DonorPipelinePage() {
     } finally {
       setSyncing(false);
     }
+  };
+
+  const handleExportCsv = () => {
+    if (!data?.columns) {
+      alert('Tidak ada data siklus donatur untuk diekspor');
+      return;
+    }
+
+    const allCards: DonorCard[] = [];
+    Object.values(data.columns).forEach((cards) => {
+      allCards.push(...cards);
+    });
+
+    if (allCards.length === 0) {
+      alert('Tidak ada data donatur untuk diekspor');
+      return;
+    }
+
+    const headers = ['Nama Donatur', 'Nomor Telepon', 'Email', 'Kota Domisili', 'Tahapan Siklus', 'Frekuensi Donasi', 'Total Infaq (Rp)', 'Donasi Terakhir', 'Hari Sejak Donasi'];
+    const rows = allCards.map((c) => [
+      `"${c.fullName}"`,
+      `"${c.phoneE164 || '-'}"`,
+      `"${c.email || '-'}"`,
+      `"${c.cityRegency || '-'}"`,
+      `"${c.donorStage}"`,
+      `"${c.totalDonationsCount}"`,
+      `"${c.totalAmountRupiah}"`,
+      `"${c.lastDonationDate ? new Date(c.lastDonationDate).toLocaleString('id-ID') : '-'}"`,
+      `"${c.daysSinceLastDonation !== null ? c.daysSinceLastDonation : '-'}"`,
+    ]);
+
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `pipeline-siklus-donatur-${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleOpenTransition = (donor: DonorCard, nextStage: string) => {
@@ -237,18 +279,26 @@ export function DonorPipelinePage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap self-start md:self-auto">
+            <button
+              onClick={handleExportCsv}
+              className="px-3.5 py-2 text-xs font-bold rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 shadow-2xs transition-all flex items-center gap-1.5 active:scale-95"
+              title="Ekspor daftar pipeline donatur ke file CSV"
+            >
+              <Download className="w-3.5 h-3.5 text-slate-500" />
+              <span>Ekspor CSV</span>
+            </button>
             <button
               onClick={handleAutoSync}
               disabled={syncing}
-              className="px-3.5 py-2 text-sm font-semibold rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs transition-all flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
+              className={`px-3.5 py-2 text-xs font-bold rounded-xl ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} shadow-xs transition-all flex items-center gap-1.5 active:scale-95 disabled:opacity-50`}
             >
-              <Sparkles className="w-4 h-4" />
+              <Sparkles className="w-4 h-4 text-gold-300" />
               {syncing ? 'Menyelaraskan...' : 'Sinkronisasi Mutasi Donasi'}
             </button>
             <button
               onClick={fetchPipeline}
-              className="p-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 transition-colors"
+              className="p-2 border border-slate-300 rounded-xl text-slate-700 hover:bg-slate-50 transition-colors"
               title="Segarkan data"
             >
               <RefreshCw className="w-4 h-4" />
