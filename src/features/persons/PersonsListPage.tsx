@@ -14,10 +14,12 @@ import {
   AlertCircle,
   Eye,
   IdCard,
+  Trash2,
 } from 'lucide-react';
 import { formatPhoneDisplay, getWhatsAppLink } from '@/lib/phone';
 import { LoadingState } from '@/components/common/LoadingState';
 import { PersonFormModal } from './components/PersonFormModal';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { useTheme } from '@/lib/themeContext';
 
 interface PersonListItem {
@@ -79,6 +81,22 @@ export const PersonsListPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [personToDelete, setPersonToDelete] = useState<PersonListItem | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  const handleDeletePerson = async () => {
+    if (!personToDelete) return;
+    try {
+      setDeleteLoading(true);
+      await apiClient(`/persons/${personToDelete.id}`, { method: 'DELETE' });
+      setPersonToDelete(null);
+      fetchPersons(pagination.page);
+    } catch (err: any) {
+      alert(err.message || 'Gagal menghapus data jamaah');
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
 
   const fetchPersons = async (pageToFetch = 1) => {
     try {
@@ -460,12 +478,22 @@ export const PersonsListPage: React.FC = () => {
 
                       {/* Aksi */}
                       <td className="py-3.5 px-4 text-right">
-                        <Link
-                          to={`/people/${p.id}`}
-                          className="btn-secondary py-1 px-2 text-[11px]"
-                        >
-                          <Eye className="w-3.5 h-3.5 mr-1" /> Detail 360°
-                        </Link>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Link
+                            to={`/people/${p.id}`}
+                            className="btn-secondary py-1 px-2 text-[11px]"
+                          >
+                            <Eye className="w-3.5 h-3.5 mr-1" /> Detail 360°
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => setPersonToDelete(p)}
+                            className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg border border-transparent hover:border-rose-200 transition-all text-[11px] font-bold flex items-center"
+                            title={`Hapus data ${p.fullName}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -509,6 +537,30 @@ export const PersonsListPage: React.FC = () => {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onSuccess={() => fetchPersons(1)}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(personToDelete)}
+        title="Hapus Data Jamaah"
+        message={
+          <div className="space-y-2">
+            <p>
+              Apakah Anda yakin ingin menghapus data jamaah{' '}
+              <strong className="text-surface-900 font-bold">{personToDelete?.fullName}</strong>{' '}
+              ({personToDelete?.phoneE164 || personToDelete?.email || 'Tanpa Kontak'})?
+            </p>
+            <p className="text-[11px] text-rose-700 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+              ⚠️ Tindakan ini bersifat permanen. Seluruh riwayat presensi kajian, catatan interaksi, dan data terkait jamaah ini akan dihapus dari sistem.
+            </p>
+          </div>
+        }
+        confirmLabel="Ya, Hapus Permanen"
+        cancelLabel="Batal"
+        variant="danger"
+        loading={deleteLoading}
+        onConfirm={handleDeletePerson}
+        onClose={() => setPersonToDelete(null)}
       />
     </div>
   );

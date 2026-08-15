@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router';
+import { useParams, Link, useNavigate } from 'react-router';
 import { apiClient } from '@/lib/apiClient';
 import { 
   ArrowLeft, 
@@ -22,12 +22,14 @@ import {
   Sparkles,
   FileText,
   PhoneCall,
+  Trash2,
 } from 'lucide-react';
 import { formatPhoneDisplay, getWhatsAppLink } from '@/lib/phone';
 import { LoadingState } from '@/components/common/LoadingState';
 import { PersonFormModal } from './components/PersonFormModal';
 import { AddInteractionModal } from './components/AddInteractionModal';
 import { ECertificateModal } from '../events/ECertificateModal';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { useTheme } from '@/lib/themeContext';
 
 interface PersonDetailData {
@@ -141,10 +143,13 @@ export const PersonDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'timeline' | 'events' | 'interactions' | 'tasks' | 'donations' | 'waqf' | 'sensitive'>('timeline');
   const [timelineFilter, setTimelineFilter] = useState<'all' | 'attendance' | 'interaction' | 'donation' | 'waqf' | 'task'>('all');
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [interactionModalOpen, setInteractionModalOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [certModalData, setCertModalData] = useState<{
     eventTitle: string;
     speaker: string;
@@ -163,6 +168,19 @@ export const PersonDetailPage: React.FC = () => {
       setError(err.message || 'Gagal memuat profil jamaah');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeletePerson = async () => {
+    if (!id) return;
+    try {
+      setDeleteLoading(true);
+      await apiClient(`/persons/${id}`, { method: 'DELETE' });
+      navigate('/people');
+    } catch (err: any) {
+      alert(err.message || 'Gagal menghapus data jamaah');
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -222,6 +240,15 @@ export const PersonDetailPage: React.FC = () => {
             className="btn-secondary"
           >
             <Edit3 className="w-3.5 h-3.5 mr-1" /> Edit Profil
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsDeleteDialogOpen(true)}
+            className="p-2 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-xl border border-rose-200 transition-all text-xs font-bold flex items-center gap-1 active:scale-95 shadow-2xs"
+            title="Hapus data jamaah"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Hapus</span>
           </button>
         </div>
       </div>
@@ -1003,6 +1030,30 @@ export const PersonDetailPage: React.FC = () => {
           ticketCode={certModalData.ticketCode}
         />
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={isDeleteDialogOpen}
+        title="Hapus Data Jamaah"
+        message={
+          <div className="space-y-2">
+            <p>
+              Apakah Anda yakin ingin menghapus data jamaah{' '}
+              <strong className="text-surface-900 font-bold">{data.fullName}</strong>{' '}
+              ({data.phoneE164 || data.email || 'Tanpa Kontak'})?
+            </p>
+            <p className="text-[11px] text-rose-700 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+              ⚠️ Tindakan ini bersifat permanen. Seluruh riwayat presensi kajian, catatan interaksi, dan data terkait jamaah ini akan dihapus dari sistem.
+            </p>
+          </div>
+        }
+        confirmLabel="Ya, Hapus Permanen"
+        cancelLabel="Batal"
+        variant="danger"
+        loading={deleteLoading}
+        onConfirm={handleDeletePerson}
+        onClose={() => setIsDeleteDialogOpen(false)}
+      />
     </div>
   );
 };

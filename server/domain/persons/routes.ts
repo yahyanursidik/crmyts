@@ -14,6 +14,7 @@ import {
   events,
   donations,
   waqfCases,
+  auditLogs,
 } from '../../db/schema';
 import { eq, desc, asc, ilike, or, and, sql, inArray } from 'drizzle-orm';
 import { normalizePhoneE164 } from '../../lib/phone';
@@ -804,6 +805,53 @@ export function registerPersonsRoutes(router: Router) {
           return successResponse(note, { requestId: ctx.requestId }, 201);
         })
       )
+    )
+  );
+
+  // DELETE /api/persons/:id (Delete a jamaah and cascade records)
+  router.delete(
+    '/api/persons/:id',
+    requireAuth(
+      requirePermission(PERMISSIONS.PERSONS_DELETE, async (ctx) => {
+        const db = getDb();
+        const id = ctx.params.id;
+        if (!id) {
+          return errorResponse('VALIDATION_ERROR', 'ID Jamaah diperlukan', 400, ctx.requestId);
+        }
+
+        const person = await db.query.persons.findFirst({
+          where: eq(persons.id, id),
+        });
+
+        if (!person) {
+          return errorResponse('NOT_FOUND', 'Data jamaah tidak ditemukan', 404, ctx.requestId);
+        }
+
+        // Delete person record (Cascades to related records)
+        await db.delete(persons).where(eq(persons.id, id));
+
+        // Audit Trail
+        if (ctx.user) {
+          try {
+            await db.insert(auditLogs).values({
+              actorUserId: ctx.user.id,
+              action: 'delete_person',
+              entityType: 'persons',
+              entityId: id,
+              beforeJson: person,
+              reason: `Penghapusan data jamaah: ${person.fullName} (${person.phoneE164 || person.email || '-'})`,
+              requestId: ctx.requestId,
+            });
+          } catch (auditErr) {
+            console.error('Failed to log audit for person deletion:', auditErr);
+          }
+        }
+
+        return successResponse(
+          { success: true, message: `Data jamaah ${person.fullName} berhasil dihapus` },
+          { requestId: ctx.requestId }
+        );
+      })
     )
   );
 }
