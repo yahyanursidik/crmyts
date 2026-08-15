@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import {
   BookOpen,
   Calendar,
@@ -15,6 +15,9 @@ import {
   Car,
   Bike,
   ShieldAlert,
+  Copy,
+  Check,
+  Share2,
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -102,8 +105,17 @@ const VENUE_RULES_MAP: Record<string, { label: string; desc: string }> = {
 };
 
 export function EventsPortalPage() {
+  const { id: routeEventId } = useParams<{ id?: string }>();
+  const [searchParams] = useSearchParams();
+  const queryEventId = searchParams.get('id') || searchParams.get('eventId') || searchParams.get('event');
+  const targetId = routeEventId || queryEventId;
+
   const [data, setData] = useState<PortalInfoResponse | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Copy share link states
+  const [copiedShareLink, setCopiedShareLink] = useState(false);
+  const [copiedCardId, setCopiedCardId] = useState<string | null>(null);
 
   // Filters
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -134,11 +146,20 @@ export function EventsPortalPage() {
           const json = await res.json();
           setData(json.data);
           if (json.data.events && json.data.events.length > 0) {
-            setSelectedEventId(json.data.events[0].id);
+            let target = json.data.events[0];
+            if (targetId) {
+              const matched = json.data.events.find(
+                (ev: EventItem) =>
+                  ev.id.toLowerCase() === targetId.toLowerCase() ||
+                  ev.id.toLowerCase().includes(targetId.toLowerCase())
+              );
+              if (matched) target = matched;
+            }
+            setSelectedEventId(target.id);
             // Default gender based on event target
-            if (json.data.events[0].targetAudience === 'akhwat_only') {
+            if (target.targetAudience === 'akhwat_only') {
               setRegGender('akhwat');
-            } else if (json.data.events[0].targetAudience === 'ikhwan_only') {
+            } else if (target.targetAudience === 'ikhwan_only') {
               setRegGender('ikhwan');
             }
           }
@@ -150,9 +171,24 @@ export function EventsPortalPage() {
       }
     }
     loadPortal();
-  }, []);
+  }, [targetId]);
 
   const selectedEvent = data?.events?.find((ev) => ev.id === selectedEventId);
+
+  const handleCopyShareLink = (evId?: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const idToCopy = evId || selectedEventId;
+    if (!idToCopy) return;
+    const url = `${window.location.origin}/kajian/${idToCopy}`;
+    navigator.clipboard.writeText(url);
+    if (evId) {
+      setCopiedCardId(evId);
+      setTimeout(() => setCopiedCardId(null), 2500);
+    } else {
+      setCopiedShareLink(true);
+      setTimeout(() => setCopiedShareLink(false), 2500);
+    }
+  };
 
   // Auto-adjust gender when selected event changes
   const handleSelectEvent = (ev: EventItem) => {
@@ -571,12 +607,32 @@ export function EventsPortalPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between border-t border-slate-200/60 pt-3">
-                      <span className="text-[11px] font-bold text-teal-900 flex items-center gap-1">
-                        <Ticket className="w-3.5 h-3.5" /> E-Tiket Digital Terbit Otomatis
-                      </span>
+                    <div className="flex items-center justify-between border-t border-slate-200/60 pt-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => handleCopyShareLink(ev.id, e)}
+                        className={`px-2.5 py-1 rounded-xl border text-[11px] font-bold flex items-center gap-1 transition-all active:scale-95 ${
+                          copiedCardId === ev.id
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                            : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-2xs'
+                        }`}
+                        title="Salin link pendaftaran kajian ini"
+                      >
+                        {copiedCardId === ev.id ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-600" />
+                            <span>Link Tersalin!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3 text-slate-500" />
+                            <span>Salin Link</span>
+                          </>
+                        )}
+                      </button>
+
                       <span
-                        className={`text-xs font-bold px-3 py-1 rounded-xl transition-all ${
+                        className={`text-xs font-bold px-3 py-1.5 rounded-xl transition-all ${
                           selectedEventId === ev.id
                             ? 'bg-teal-800 text-white shadow-2xs'
                             : 'bg-slate-100 text-slate-700'
@@ -599,10 +655,42 @@ export function EventsPortalPage() {
 
           {/* Right: Registration Form Box with Rules, Quotas & Parking */}
           <div id="daftar" className="lg:col-span-5 bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-5 sticky top-28">
-            <div className="border-b pb-3 space-y-1">
-              <h3 className="text-base font-bold text-slate-900">Formulir Pendaftaran Majelis Ilmu</h3>
-              <p className="text-xs text-slate-500">
-                {selectedEvent ? selectedEvent.title : 'Pilih jadwal kajian di sebelah kiri.'}
+            <div className="border-b pb-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-base font-black text-slate-900 font-display">Formulir Pendaftaran Majelis Ilmu</h3>
+                {selectedEvent && (
+                  <button
+                    type="button"
+                    onClick={() => handleCopyShareLink(selectedEvent.id)}
+                    className={`px-2.5 py-1 text-xs font-bold rounded-xl border transition-all flex items-center gap-1.5 active:scale-95 shadow-2xs ${
+                      copiedShareLink
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 ring-2 ring-emerald-200'
+                        : 'bg-cream-100 hover:bg-cream-200 text-brand-950 border-cream-300'
+                    }`}
+                    title="Salin link formulir & landing page kajian ini"
+                  >
+                    {copiedShareLink ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Link Tersalin!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5 text-brand-800" />
+                        <span>Salin Link Form</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-slate-600 font-medium">
+                {selectedEvent ? (
+                  <span className="text-brand-900 font-bold">
+                    📖 {selectedEvent.title} — <span className="text-slate-600 font-normal">{selectedEvent.speaker}</span>
+                  </span>
+                ) : (
+                  'Pilih jadwal kajian di sebelah kiri.'
+                )}
               </p>
             </div>
 
@@ -998,16 +1086,36 @@ export function EventsPortalPage() {
               Silakan simpan tangkapan layar tiket ini untuk ditunjukkan kepada panitia/petugas saat hadir di majelis ilmu. Barakallahu fiikum.
             </p>
 
-            <button
-              onClick={() => {
-                setEventSuccess(null);
-                setRegNotes('');
-                setCustomResponses({});
-              }}
-              className="w-full py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-xs"
-            >
-              Tutup & Simpan Tiket
-            </button>
+            <div className="pt-2 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => handleCopyShareLink(eventSuccess.event.id)}
+                className="w-full py-2.5 bg-cream-100 hover:bg-cream-200 text-brand-950 font-bold text-xs rounded-xl border border-cream-300 transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95"
+              >
+                {copiedShareLink ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-600 animate-in zoom-in-50" />
+                    <span className="text-emerald-800 font-bold">Link Pendaftaran Berhasil Disalin!</span>
+                  </>
+                ) : (
+                  <>
+                    <Share2 className="w-3.5 h-3.5 text-brand-800" />
+                    <span>Salin / Bagikan Link Formulir Kajian Ini</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={() => {
+                  setEventSuccess(null);
+                  setRegNotes('');
+                  setCustomResponses({});
+                }}
+                className="w-full py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-xs active:scale-95"
+              >
+                Tutup & Simpan Tiket
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -118,8 +118,12 @@ export function App() {
             <Route path="/donasi" element={<DonationsPortalPage />} />
             <Route path="/berbagi" element={<DonationsPortalPage />} />
             <Route path="/kajian" element={<EventsPortalPage />} />
+            <Route path="/kajian/:id" element={<EventsPortalPage />} />
             <Route path="/event" element={<EventsPortalPage />} />
+            <Route path="/event/:id" element={<EventsPortalPage />} />
             <Route path="/daurah" element={<EventsPortalPage />} />
+            <Route path="/daurah/:id" element={<EventsPortalPage />} />
+            <Route path="/public/events/:id" element={<EventsPortalPage />} />
 
             <Route
               path="/login"

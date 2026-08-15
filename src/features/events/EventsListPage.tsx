@@ -179,7 +179,7 @@ export const EventsListPage: React.FC = () => {
   };
 
   const handleCopyPublicLink = (evId: string) => {
-    const url = `${window.location.origin}/kajian#daftar`;
+    const url = `${window.location.origin}/kajian/${evId}`;
     navigator.clipboard.writeText(url);
     setCopiedId(evId);
     setTimeout(() => setCopiedId(null), 2500);
@@ -528,10 +528,24 @@ export const EventsListPage: React.FC = () => {
 
                   <button
                     onClick={() => handleCopyPublicLink(ev.id)}
-                    className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors"
-                    title="Salin Link Pendaftaran"
+                    className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-2xs ${
+                      copiedId === ev.id
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 ring-2 ring-emerald-200'
+                        : 'border-slate-200 hover:bg-slate-50 text-slate-700 bg-white'
+                    }`}
+                    title="Salin Link Form Pendaftaran Publik Kajian Ini"
                   >
-                    {copiedId === ev.id ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                    {copiedId === ev.id ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600 animate-in zoom-in-50" />
+                        <span>Tersalin!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Salin Link</span>
+                      </>
+                    )}
                   </button>
 
                   <button

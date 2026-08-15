@@ -213,7 +213,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   }, [eventId]);
 
   const handleCopyPublicLink = () => {
-    const url = `${window.location.origin}/kajian#daftar`;
+    const url = `${window.location.origin}/kajian/${eventId}`;
     navigator.clipboard.writeText(url);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2500);
