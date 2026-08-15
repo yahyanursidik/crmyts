@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router';
 import { apiClient } from '@/lib/apiClient';
 import {
   Heart,
@@ -9,6 +10,7 @@ import {
   Copy,
   Check,
   X,
+  Download,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
 
@@ -163,6 +165,36 @@ export function InactiveAttendeesTab() {
     );
   });
 
+  const handleExportCsv = () => {
+    if (!data?.items || data.items.length === 0) {
+      alert('Tidak ada data jamaah inaktif untuk diekspor');
+      return;
+    }
+
+    const headers = ['Nama Jamaah', 'Gender', 'Nomor WhatsApp', 'Domisili', 'Total Kehadiran', 'Kajian Terakhir', 'Pemateri Terakhir', 'Tanggal Terakhir Hadir', 'Hari Absen', 'Status Sapaan'];
+    const rows = filteredItems.map((item) => [
+      `"${item.fullName}"`,
+      `"${item.gender || '-'}"`,
+      `"${item.phoneE164}"`,
+      `"${item.cityRegency || '-'}"`,
+      `"${item.totalAttendances}"`,
+      `"${item.lastEventTitle.replace(/"/g, '""')}"`,
+      `"${item.lastEventSpeaker.replace(/"/g, '""')}"`,
+      `"${new Date(item.lastAttendedAt).toLocaleString('id-ID')}"`,
+      `"${item.daysSinceLastAttendance}"`,
+      `"${item.isGreetedRecently ? 'Sudah Disapa' : 'Belum Disapa'}"`,
+    ]);
+
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `jamaah-rindu-majelis-${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-6">
       {/* Toast Notification */}
@@ -211,20 +243,12 @@ export function InactiveAttendeesTab() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-1">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Total Rindu Majelis</span>
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Total Perlu Disapa</span>
           <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-black text-slate-900">{data?.totalInactive || 0}</span>
-            <span className="text-xs font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full">&gt;30 Hari Absen</span>
-          </div>
-        </div>
-
-        <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-1">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Perlu Disapa Segera</span>
-          <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-black text-rose-600">{data?.needGreetingCount || 0}</span>
-            <span className="text-xs font-bold text-rose-800 bg-rose-50 px-2 py-0.5 rounded-full">Belum Disapa</span>
+            <span className="text-2xl font-black text-slate-900">{data?.needGreetingCount || 0}</span>
+            <span className="text-xs font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full">&gt;{minDaysFilter} Hari Absen</span>
           </div>
         </div>
 
@@ -247,7 +271,7 @@ export function InactiveAttendeesTab() {
 
       {/* Filter Controls */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-2 overflow-x-auto pb-1">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 flex-wrap">
           <span className="text-xs font-bold text-slate-500 whitespace-nowrap">Durasi Absen:</span>
           {[
             { label: '30+ Hari', val: 30 },
@@ -278,6 +302,15 @@ export function InactiveAttendeesTab() {
             <option value="ikhwan">🕌 Jamaah Ikhwan</option>
             <option value="akhwat">🌸 Jamaah Akhwat</option>
           </select>
+
+          <button
+            onClick={handleExportCsv}
+            className="px-3 py-1.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 flex items-center gap-1.5 shadow-2xs transition-all ml-auto"
+            title="Ekspor daftar jamaah rindu majelis ke file CSV"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-500" />
+            <span>Ekspor CSV</span>
+          </button>
         </div>
 
         {/* Search */}
@@ -335,7 +368,12 @@ export function InactiveAttendeesTab() {
                       {/* Nama Jamaah */}
                       <td className="py-4 px-5">
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-900 text-sm block">{item.fullName}</span>
+                          <Link
+                            to={`/people/${item.personId}`}
+                            className="font-bold text-slate-900 text-sm hover:text-teal-800 hover:underline block"
+                          >
+                            {item.fullName}
+                          </Link>
                           {item.gender && (
                             <span
                               className={`text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded-full border ${
