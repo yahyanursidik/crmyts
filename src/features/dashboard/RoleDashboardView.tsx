@@ -12,7 +12,7 @@ import {
   Coins, 
   Building2, 
   ShieldCheck, 
-  Users, 
+  IdCard, 
   Layers, 
   Search,
   Clock,
@@ -20,8 +20,7 @@ import {
   QrCode,
   FileSpreadsheet,
   Edit3,
-  MapPin,
-  UserPlus
+  MapPin
 } from 'lucide-react';
 import { Link } from 'react-router';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -86,14 +85,15 @@ const renderIcon = (name: string) => {
     case 'Coins': return <Coins className="w-4 h-4 text-emerald-700" />;
     case 'Building2': return <Building2 className="w-4 h-4 text-purple-700" />;
     case 'ShieldCheck': return <ShieldCheck className="w-4 h-4 text-emerald-700" />;
-    case 'Users': return <Users className="w-4 h-4 text-brand-800" />;
+    case 'Users': return <IdCard className="w-4 h-4 text-brand-800" />;
+    case 'IdCard': return <IdCard className="w-4 h-4 text-brand-800" />;
     case 'Layers': return <Layers className="w-4 h-4 text-purple-700" />;
     case 'Search': return <Search className="w-4 h-4 text-surface-600" />;
     case 'QrCode': return <QrCode className="w-4 h-4 text-brand-800" />;
     case 'FileSpreadsheet': return <FileSpreadsheet className="w-4 h-4 text-teal-700" />;
     case 'Edit3': return <Edit3 className="w-4 h-4 text-amber-700" />;
     case 'MapPin': return <MapPin className="w-4 h-4 text-rose-700" />;
-    case 'UserPlus': return <UserPlus className="w-4 h-4 text-brand-800" />;
+    case 'UserPlus': return <IdCard className="w-4 h-4 text-brand-800" />;
     default: return <Plus className="w-4 h-4 text-brand-800" />;
   }
 };

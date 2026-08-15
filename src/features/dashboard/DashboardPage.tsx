@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '@/lib/apiClient';
 import { 
-  Users, 
+  IdCard, 
   CheckSquare, 
   Coins, 
   ShieldAlert, 
@@ -14,8 +14,6 @@ import {
   PieChart, 
   Layers, 
   Activity, 
-  UserCheck, 
-  UserX, 
   AlertTriangle 
 } from 'lucide-react';
 import { Link } from 'react-router';
@@ -148,7 +146,7 @@ export const DashboardPage: React.FC = () => {
             onClick={() => setViewTab('executive')}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
               viewTab === 'executive'
-                ? 'bg-white text-brand-900 shadow-xs'
+                ? 'bg-white shadow-xs font-bold text-surface-900'
                 : 'text-surface-600 hover:text-surface-900'
             }`}
           >
@@ -158,7 +156,7 @@ export const DashboardPage: React.FC = () => {
             onClick={() => setViewTab('role')}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
               viewTab === 'role'
-                ? 'bg-white text-brand-900 shadow-xs'
+                ? 'bg-white shadow-xs font-bold text-surface-900'
                 : 'text-surface-600 hover:text-surface-900'
             }`}
           >
@@ -209,7 +207,7 @@ export const DashboardPage: React.FC = () => {
         <Link to="/people" className="p-3.5 bg-white rounded-xl border border-surface-200 shadow-2xs hover:border-brand-400 hover:shadow-xs transition-all">
           <div className="flex items-center justify-between text-xs">
             <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider">Total Jamaah</span>
-            <Users className="w-3.5 h-3.5 text-brand-800" />
+            <IdCard className="w-3.5 h-3.5 text-brand-800" />
           </div>
           <div className="mt-1.5">
             <div className="text-xl font-bold text-surface-900 font-display">{data.kpis.totalJamaah}</div>
@@ -218,7 +216,7 @@ export const DashboardPage: React.FC = () => {
         </Link>
 
         {/* 2. Jamaah Aktif */}
-        <div className="p-3.5 bg-white rounded-xl border border-surface-200 shadow-2xs">
+        <Link to="/people" className="p-3.5 bg-white rounded-xl border border-surface-200 shadow-2xs hover:border-emerald-400 hover:shadow-xs transition-all">
           <div className="flex items-center justify-between text-xs">
             <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">Aktif</span>
             <Activity className="w-3.5 h-3.5 text-emerald-700" />
@@ -227,34 +225,34 @@ export const DashboardPage: React.FC = () => {
             <div className="text-xl font-bold text-emerald-800 font-display">{data.kpis.aktifJamaah}</div>
             <span className="text-[10px] text-emerald-600 font-medium">Hadir & Interaksi</span>
           </div>
-        </div>
+        </Link>
 
         {/* 3. Jamaah Rutin */}
-        <div className="p-3.5 bg-white rounded-xl border border-surface-200 shadow-2xs">
+        <Link to="/people" className="p-3.5 bg-white rounded-xl border border-surface-200 shadow-2xs hover:border-teal-400 hover:shadow-xs transition-all">
           <div className="flex items-center justify-between text-xs">
             <span className="text-[10px] font-bold text-teal-800 uppercase tracking-wider">Rutin</span>
-            <UserCheck className="w-3.5 h-3.5 text-teal-700" />
+            <CheckSquare className="w-3.5 h-3.5 text-teal-700" />
           </div>
           <div className="mt-1.5">
             <div className="text-xl font-bold text-teal-800 font-display">{data.kpis.rutinJamaah}</div>
             <span className="text-[10px] text-teal-600 font-medium">Kajian Konsisten</span>
           </div>
-        </div>
+        </Link>
 
         {/* 4. Jamaah Dorman */}
-        <div className="p-3.5 bg-white rounded-xl border border-surface-200 shadow-2xs">
+        <Link to="/automation" className="p-3.5 bg-white rounded-xl border border-surface-200 shadow-2xs hover:border-orange-400 hover:shadow-xs transition-all">
           <div className="flex items-center justify-between text-xs">
             <span className="text-[10px] font-bold text-orange-800 uppercase tracking-wider">Dorman</span>
-            <UserX className="w-3.5 h-3.5 text-orange-700" />
+            <Clock className="w-3.5 h-3.5 text-orange-700" />
           </div>
           <div className="mt-1.5">
             <div className="text-xl font-bold text-orange-800 font-display">{data.kpis.dormanJamaah}</div>
             <span className="text-[10px] text-orange-600 font-medium">Perlu Disapa Ulang</span>
           </div>
-        </div>
+        </Link>
 
         {/* 5. Follow-Up Overdue */}
-        <Link to="/tasks" className="p-3.5 bg-white rounded-xl border border-red-200 bg-red-50/20 shadow-2xs hover:border-red-400 transition-all">
+        <Link to="/tasks" className="p-3.5 bg-white rounded-xl border border-red-200 bg-red-50/20 shadow-2xs hover:border-red-400 hover:shadow-xs transition-all">
           <div className="flex items-center justify-between text-xs">
             <span className="text-[10px] font-bold text-red-800 uppercase tracking-wider">Tugas Overdue</span>
             <AlertCircle className="w-3.5 h-3.5 text-red-700" />
@@ -266,7 +264,7 @@ export const DashboardPage: React.FC = () => {
         </Link>
 
         {/* 6. Donasi Bulan Ini */}
-        <Link to="/donations" className="p-3.5 bg-white rounded-xl border border-surface-200 shadow-2xs hover:border-brand-400 transition-all">
+        <Link to="/donations" className="p-3.5 bg-white rounded-xl border border-surface-200 shadow-2xs hover:border-brand-400 hover:shadow-xs transition-all">
           <div className="flex items-center justify-between text-xs">
             <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">Donasi Bulan Ini</span>
             <Coins className="w-3.5 h-3.5 text-emerald-700" />
@@ -278,7 +276,7 @@ export const DashboardPage: React.FC = () => {
         </Link>
 
         {/* 7. Antrean Unverified */}
-        <Link to="/donations" className="p-3.5 bg-white rounded-xl border border-amber-200 bg-amber-50/20 shadow-2xs hover:border-amber-400 transition-all">
+        <Link to="/donations" className="p-3.5 bg-white rounded-xl border border-amber-200 bg-amber-50/20 shadow-2xs hover:border-amber-400 hover:shadow-xs transition-all">
           <div className="flex items-center justify-between text-xs">
             <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">Unverified</span>
             <ShieldAlert className="w-3.5 h-3.5 text-amber-700" />
@@ -290,7 +288,7 @@ export const DashboardPage: React.FC = () => {
         </Link>
 
         {/* 8. Wakaf Aktif */}
-        <Link to="/waqf" className="p-3.5 bg-white rounded-xl border border-surface-200 shadow-2xs hover:border-brand-400 transition-all">
+        <Link to="/waqf" className="p-3.5 bg-white rounded-xl border border-surface-200 shadow-2xs hover:border-brand-400 hover:shadow-xs transition-all">
           <div className="flex items-center justify-between text-xs">
             <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider">Wakaf Aktif</span>
             <Building2 className="w-3.5 h-3.5 text-purple-700" />
@@ -302,7 +300,7 @@ export const DashboardPage: React.FC = () => {
         </Link>
 
         {/* 9. Wakaf Aging (>30 Hari) */}
-        <Link to="/waqf" className="p-3.5 bg-white rounded-xl border border-orange-200 bg-orange-50/20 shadow-2xs hover:border-orange-400 transition-all">
+        <Link to="/waqf" className="p-3.5 bg-white rounded-xl border border-orange-200 bg-orange-50/20 shadow-2xs hover:border-orange-400 hover:shadow-xs transition-all">
           <div className="flex items-center justify-between text-xs">
             <span className="text-[10px] font-bold text-orange-800 uppercase tracking-wider">Wakaf Aging</span>
             <Clock className="w-3.5 h-3.5 text-orange-700" />
@@ -314,7 +312,7 @@ export const DashboardPage: React.FC = () => {
         </Link>
 
         {/* 10. Data Quality Issue */}
-        <div className="p-3.5 bg-white rounded-xl border border-rose-200 bg-rose-50/20 shadow-2xs">
+        <Link to="/data-quality" className="p-3.5 bg-white rounded-xl border border-rose-200 bg-rose-50/20 shadow-2xs hover:border-rose-400 hover:shadow-xs transition-all">
           <div className="flex items-center justify-between text-xs">
             <span className="text-[10px] font-bold text-rose-800 uppercase tracking-wider">Data Issue</span>
             <AlertTriangle className="w-3.5 h-3.5 text-rose-700" />
@@ -323,7 +321,7 @@ export const DashboardPage: React.FC = () => {
             <div className="text-xl font-bold text-rose-800 font-display">{data.kpis.dataQualityIssues}</div>
             <span className="text-[10px] text-rose-600 font-medium">Perlu Dilengkapi</span>
           </div>
-        </div>
+        </Link>
       </div>
 
       {/* 5 CHARTS & VISUAL ANALYTICS GRID */}
@@ -532,7 +530,16 @@ export const DashboardPage: React.FC = () => {
                       </div>
                       {t.personName && (
                         <div className="text-xs text-surface-500 flex items-center gap-2">
-                          <span>Jamaah: <strong className="text-surface-700 font-medium">{t.personName}</strong></span>
+                          <span>
+                            Jamaah:{' '}
+                            {t.personId ? (
+                              <Link to={`/people/${t.personId}`} className="text-brand-800 hover:text-brand-950 font-semibold hover:underline">
+                                {t.personName}
+                              </Link>
+                            ) : (
+                              <strong className="text-surface-700 font-medium">{t.personName}</strong>
+                            )}
+                          </span>
                           {waLink && (
                             <a
                               href={waLink}
