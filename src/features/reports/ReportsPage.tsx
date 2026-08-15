@@ -3,7 +3,7 @@ import {
   FileBarChart2,
   Calendar,
   DollarSign,
-  Users,
+  CheckSquare,
   Landmark,
   Download,
   Upload,
@@ -13,6 +13,7 @@ import {
   FileSpreadsheet,
   Check,
 } from 'lucide-react';
+import { useTheme } from '@/lib/themeContext';
 
 interface ExecutiveSummary {
   period: string;
@@ -75,6 +76,7 @@ interface EventAttendanceSummary {
 }
 
 export function ReportsPage() {
+  const { currentTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<'executive' | 'donations' | 'attendance' | 'import_export'>('executive');
   
   // Executive State
@@ -316,7 +318,7 @@ export function ReportsPage() {
               : 'border-transparent text-slate-500 hover:text-slate-700'
           }`}
         >
-          <Users className="w-4 h-4" />
+          <CheckSquare className="w-4 h-4" />
           Kehadiran Kajian & Dakwah
         </button>
         <button
@@ -350,9 +352,9 @@ export function ReportsPage() {
 
             <button
               onClick={() => setExportModal('executive_monthly')}
-              className="px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors flex items-center gap-2"
+              className={`px-4 py-2 text-sm font-semibold rounded-xl ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} shadow-xs transition-all flex items-center gap-2 active:scale-95`}
             >
-              <Download className="w-4 h-4" />
+              <Download className="w-4 h-4 text-gold-300" />
               Unduh / Ekspor CSV Laporan
             </button>
           </div>
@@ -379,7 +381,7 @@ export function ReportsPage() {
                 <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-1">
                   <div className="flex items-center justify-between text-slate-500">
                     <span className="text-xs font-semibold uppercase">Presensi Jamaah</span>
-                    <Users className="w-4 h-4 text-emerald-600" />
+                    <CheckSquare className="w-4 h-4 text-emerald-600" />
                   </div>
                   <p className="text-2xl font-bold text-slate-900">
                     {executiveData.summary.totalHadirKajian.toLocaleString('id-ID')}
@@ -459,9 +461,9 @@ export function ReportsPage() {
             </div>
             <button
               onClick={() => setExportModal('donations_reconciliation')}
-              className="px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors flex items-center gap-2"
+              className={`px-4 py-2 text-sm font-semibold rounded-xl ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} shadow-xs transition-all flex items-center gap-2 active:scale-95`}
             >
-              <Download className="w-4 h-4" />
+              <Download className="w-4 h-4 text-gold-300" />
               Ekspor Data Keuangan
             </button>
           </div>
@@ -551,9 +553,9 @@ export function ReportsPage() {
             </div>
             <button
               onClick={() => setExportModal('attendance_summary')}
-              className="px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors flex items-center gap-2"
+              className={`px-4 py-2 text-sm font-semibold rounded-xl ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} shadow-xs transition-all flex items-center gap-2 active:scale-95`}
             >
-              <Download className="w-4 h-4" />
+              <Download className="w-4 h-4 text-gold-300" />
               Ekspor Presensi
             </button>
           </div>
@@ -683,7 +685,7 @@ export function ReportsPage() {
                   <button
                     onClick={handleCommitImport}
                     disabled={importing || dryRunResult.validCount === 0}
-                    className="px-5 py-2.5 text-sm font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                    className={`px-5 py-2.5 text-sm font-semibold rounded-xl ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} shadow-xs transition-all flex items-center gap-2 active:scale-95 disabled:opacity-50`}
                   >
                     {importing ? 'Mengimpor Data...' : `Simpan ${dryRunResult.validCount} Data Jamaah ke Sistem`}
                   </button>
@@ -733,7 +735,7 @@ export function ReportsPage() {
                 <button
                   type="submit"
                   disabled={exportSuccess}
-                  className="px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                  className={`px-4 py-2 text-sm font-semibold rounded-xl ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} shadow-xs transition-all disabled:opacity-50`}
                 >
                   Konfirmasi & Unduh
                 </button>
