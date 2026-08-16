@@ -25,7 +25,6 @@ import {
   FileCheck,
   Trash2,
   Plus,
-  Lock,
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { LoadingState } from '@/components/common/LoadingState';
