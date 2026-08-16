@@ -11,9 +11,7 @@ import {
   Eye,
   EyeOff,
   Shield,
-  HeartHandshake,
   MessageSquare,
-  Sparkles,
   ArrowRight,
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
@@ -28,7 +26,6 @@ export const LoginPage: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [activeRoleSelected, setActiveRoleSelected] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,17 +46,9 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  // Quick-Login Helper for Demo and Instant Admin Access
-  const handleQuickLogin = (demoRole: string) => {
-    setEmail(`${demoRole}@tarbiyahsunnah.id`);
-    setPassword('admin123');
-    setActiveRoleSelected(demoRole);
-    setErrorMessage(null);
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#f7f5ed] via-[#fbfaf6] to-[#f4f1e6] flex flex-col justify-between selection:bg-brand-100 selection:text-brand-900">
-      {/* 1. TOP PORTAL SWITCHER BAR (Mobile & Desktop Responsive) */}
+      {/* 1. TOP PORTAL SWITCHER BAR */}
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-cream-300 shadow-2xs">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2">
           {/* Logo & Portal Identity */}
@@ -70,7 +59,7 @@ export const LoginPage: React.FC = () => {
                 Tarbiyah Sunnah
               </span>
               <span className="text-[10px] font-bold text-surface-500 hidden sm:block">
-                Sistem Manajemen CRM & Portal Yayasan
+                Sistem Informasi CRM Terpadu
               </span>
             </div>
           </Link>
@@ -79,22 +68,18 @@ export const LoginPage: React.FC = () => {
           <nav className="flex items-center gap-1 sm:gap-1.5 text-xs font-bold">
             <Link
               to="/kajian"
-              className="px-2.5 sm:px-3 py-1.5 rounded-xl text-surface-600 hover:text-brand-900 hover:bg-cream-200/80 transition-all flex items-center gap-1 text-[11px] sm:text-xs"
+              className="px-3 py-1.5 rounded-xl text-surface-700 hover:text-brand-950 hover:bg-cream-200/80 transition-all flex items-center gap-1.5 text-[11px] sm:text-xs"
             >
               <BookOpen className="w-3.5 h-3.5 text-gold-600 shrink-0" />
-              <span>Kajian</span>
+              <span>Portal Kajian</span>
             </Link>
             <Link
               to="/donasi"
-              className="px-2.5 sm:px-3 py-1.5 rounded-xl text-surface-600 hover:text-brand-900 hover:bg-cream-200/80 transition-all flex items-center gap-1 text-[11px] sm:text-xs"
+              className="px-3 py-1.5 rounded-xl text-surface-700 hover:text-brand-950 hover:bg-cream-200/80 transition-all flex items-center gap-1.5 text-[11px] sm:text-xs"
             >
               <Globe className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-              <span>Donasi</span>
+              <span>Portal Donasi & Wakaf</span>
             </Link>
-            <div className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-brand-800 text-white shadow-xs flex items-center gap-1 text-[11px] sm:text-xs">
-              <Lock className="w-3 h-3 text-gold-300 shrink-0" />
-              <span className="font-bold">Masuk Staf</span>
-            </div>
           </nav>
         </div>
       </header>
@@ -166,10 +151,7 @@ export const LoginPage: React.FC = () => {
                     type="email"
                     required
                     value={email}
-                    onChange={(e) => {
-                      setEmail(e.target.value);
-                      setActiveRoleSelected(null);
-                    }}
+                    onChange={(e) => setEmail(e.target.value)}
                     placeholder="nama@tarbiyahsunnah.id"
                     className="block w-full pl-10 pr-3.5 py-3 sm:py-2.5 text-sm sm:text-xs font-medium border border-cream-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-brand-700 focus:border-brand-700 bg-cream-50/40 text-surface-900 placeholder:text-surface-400 transition-all"
                     autoComplete="username"
@@ -241,49 +223,6 @@ export const LoginPage: React.FC = () => {
                 )}
               </button>
             </form>
-
-            {/* Quick Access Roles Selector (Dev/Demo Helper) */}
-            <div className="mt-6 pt-5 border-t border-cream-200 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-surface-500 uppercase tracking-wider flex items-center gap-1">
-                  <Sparkles className="w-3 h-3 text-gold-600" />
-                  Akses Cepat Pengurus (Demo)
-                </span>
-                <span className="text-[10px] text-surface-400 font-medium">1-Klik Isi Form</span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 text-left">
-                {[
-                  { role: 'crm_admin', label: 'CRM Super Admin', icon: Shield, desc: 'Akses Penuh Sistem' },
-                  { role: 'finance_verifier', label: 'Finance Verifier', icon: HeartHandshake, desc: 'Verifikasi Donasi' },
-                  { role: 'event_admin', label: 'Admin Kajian', icon: BookOpen, desc: 'Form & Presensi' },
-                  { role: 'cs_officer', label: 'CS Jamaah Care', icon: MessageSquare, desc: 'Followup Jamaah' },
-                ].map((item) => {
-                  const Icon = item.icon;
-                  const isSelected = activeRoleSelected === item.role;
-                  return (
-                    <button
-                      key={item.role}
-                      type="button"
-                      onClick={() => handleQuickLogin(item.role)}
-                      className={`p-2.5 rounded-2xl border transition-all text-left flex flex-col justify-between active:scale-95 ${
-                        isSelected
-                          ? 'bg-brand-900 text-white border-brand-800 shadow-sm ring-2 ring-brand-700/50'
-                          : 'bg-cream-100/70 hover:bg-cream-200/80 text-brand-950 border-cream-300/80 shadow-2xs'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between w-full">
-                        <span className="font-bold text-[11px] truncate">{item.label}</span>
-                        <Icon className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-gold-400' : 'text-brand-700'}`} />
-                      </div>
-                      <span className={`text-[10px] block mt-0.5 ${isSelected ? 'text-brand-200' : 'text-surface-500'}`}>
-                        {item.desc}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
           </div>
 
           {/* Help & Support WhatsApp */}

@@ -282,22 +282,15 @@ export function DonationsPortalPage() {
           </nav>
 
           <div className="flex items-center gap-1.5 sm:gap-2">
-            <Link
-              to="/donations"
-              className="hidden sm:flex px-3.5 py-2 text-xs font-bold rounded-xl bg-brand-800 hover:bg-brand-900 text-white shadow-xs transition-all items-center gap-1.5 active:scale-95"
+            <a
+              href="https://wa.me/6281234567890?text=Bismillah,%20Assalamu'alaikum%20Admin%20Yayasan%20Tarbiyah%20Sunnah,%20saya%20ingin%20bertanya%20seputar%20infaq%20dan%20wakaf..."
+              target="_blank"
+              rel="noreferrer"
+              className="px-3.5 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 hover:bg-emerald-100 text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-all active:scale-95"
             >
-              <HeartHandshake className="w-3.5 h-3.5 text-gold-300" />
-              <span>Kelola Donasi</span>
-            </Link>
-
-            <Link
-              to="/login"
-              className="px-3 py-2 text-xs font-bold rounded-xl border border-cream-300 text-brand-950 bg-cream-50 hover:bg-cream-100 transition-all flex items-center gap-1.5 shadow-2xs active:scale-95"
-              title="Masuk ke Sistem CRM Staf"
-            >
-              <Lock className="w-3.5 h-3.5 text-brand-700" />
-              <span className="text-[11px] sm:text-xs">Masuk Staf</span>
-            </Link>
+              <Phone className="w-3.5 h-3.5 text-emerald-700" />
+              <span className="text-[11px] sm:text-xs">Bantuan CS</span>
+            </a>
           </div>
         </div>
 

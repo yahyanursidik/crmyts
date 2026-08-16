@@ -537,20 +537,11 @@ export function EventsPortalPage() {
               href={`https://wa.me/6281234567890?text=${encodeURIComponent("Bismillah, Assalamu'alaikum Warahmatullahi Wabarakatuh admin Yayasan Tarbiyah Sunnah, saya ingin bertanya seputar pendaftaran kajian...")}`}
               target="_blank"
               rel="noreferrer"
-              className="px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 hover:bg-emerald-100 text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-all active:scale-95"
+              className="px-3.5 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 hover:bg-emerald-100 text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-all active:scale-95"
             >
               <Phone className="w-3.5 h-3.5 text-emerald-700" />
               <span className="text-[11px] sm:text-xs">Bantuan CS</span>
             </a>
-
-            <Link
-              to="/login"
-              className="px-3 py-2 text-xs font-bold rounded-xl border border-cream-300 text-brand-950 bg-cream-50 hover:bg-cream-100 transition-all flex items-center gap-1.5 shadow-2xs active:scale-95"
-              title="Masuk ke Sistem CRM Staf"
-            >
-              <Lock className="w-3.5 h-3.5 text-brand-700" />
-              <span className="text-[11px] sm:text-xs hidden sm:inline">Masuk Staf</span>
-            </Link>
           </div>
         </div>
       </header>
