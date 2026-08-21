@@ -86,10 +86,10 @@ export function renderEmailLayout(title: string, contentHtml: string): string {
     </div>
     <div class="footer">
       <strong>Yayasan Tarbiyah Sunnah (YTS)</strong><br>
-      Kantor: Jl. Radio No. 1, Cililin, Kab. Bandung Barat, Jawa Barat 40562<br>
-      Layanan WhatsApp Resmi: +62 811-2233-4455 | Email: info@tarbiyahsunnah.id<br>
+      Kantor: Jl. Jurang No.64, Pasteur, Kec. Sukajadi, Kota Bandung, Jawa Barat 40161<br>
+      WhatsApp Resmi: 0811-2401-476 | Bila ada error atau mendapatkan pesan yang salah silahkan kirim Email Stafsus IT, Inovasi dan Busdev YTS: <a href="mailto:ahlan@yahyanursidik.my.id" style="color: #047857; text-decoration: underline; font-weight: 600;">ahlan@yahyanursidik.my.id</a><br>
       <span style="display:inline-block; margin-top: 8px; color: #a8a29e;">
-        Email ini dikirim otomatis oleh Sistem CRM Resmi YTS melalui <code>no-reply@yts.web.id</code>.
+        Email ini dikirim otomatis oleh Sistem CRM Resmi YTS melalui <a href="mailto:no-reply@yts.web.id" style="color: #047857; text-decoration: none; font-weight: 600;">no-reply@yts.web.id</a>.
       </span>
     </div>
   </div>

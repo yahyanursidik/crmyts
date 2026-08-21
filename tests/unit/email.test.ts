@@ -25,7 +25,9 @@ describe('Official Email Service (Kerjamail SMTP)', () => {
     expect(html).toContain('Yayasan Tarbiyah Sunnah');
     expect(html).toContain('no-reply@yts.web.id');
     expect(html).toContain('Isi Pesan Uji');
-    expect(html).toContain('Jl. Radio No. 1, Cililin');
+    expect(html).toContain('Jl. Jurang No.64, Pasteur');
+    expect(html).toContain('ahlan@yahyanursidik.my.id');
+    expect(html).toContain('0811-2401-476');
   });
 
   it('renders event registration ticket email template correctly', async () => {

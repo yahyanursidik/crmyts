@@ -144,8 +144,8 @@ export function registerPublicPortalRoutes(router: Router) {
         foundation: {
           name: 'Yayasan Tarbiyah Sunnah',
           slogan: "Meniti Sunnah di Atas Manhaj Salafus Shalih",
-          address: 'Jl. Radio Tarbiyah Sunnah No. 1, Bandung, Jawa Barat',
-          whatsappContact: '+6281234567890',
+          address: 'Jl. Jurang No.64, Pasteur, Kec. Sukajadi, Kota Bandung, Jawa Barat 40161',
+          whatsappContact: '0811-2401-476',
           email: 'info@tarbiyahsunnah.id',
         },
         metrics: {

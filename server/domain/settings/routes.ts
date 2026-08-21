@@ -27,8 +27,8 @@ import {
 const FOUNDATION_DEFAULT = {
   foundationName: 'Yayasan Tarbiyah Sunnah',
   skKemenkumham: 'AHU-0012345.AH.01.04.Tahun 2020',
-  headOfficeAddress: 'Jl. Radio No. 1, Cililin, Kabupaten Bandung Barat, Jawa Barat 40562',
-  officialPhone: '+62 811-2233-4455',
+  headOfficeAddress: 'Jl. Jurang No.64, Pasteur, Kec. Sukajadi, Kota Bandung, Jawa Barat 40161',
+  officialPhone: '0811-2401-476',
   officialEmail: 'info@tarbiyahsunnah.id',
   officialWebsite: 'https://tarbiyahsunnah.id',
   bankAccounts: [
