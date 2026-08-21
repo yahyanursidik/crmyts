@@ -17,7 +17,7 @@ const serverEnvSchema = z.object({
   SMTP_PORT: z.coerce.number().default(465),
   SMTP_SECURE: z.coerce.boolean().default(true),
   SMTP_USER: z.string().default('no-reply@yts.web.id'),
-  SMTP_PASS: z.string().default('ahlan1447H!'),
+  SMTP_PASS: z.string().default('ahlan1447H'),
   SMTP_FROM: z.string().default('"Yayasan Tarbiyah Sunnah" <no-reply@yts.web.id>'),
 });
 

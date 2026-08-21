@@ -1317,7 +1317,7 @@ export function SettingsPage() {
                   <span className="text-slate-500 font-medium">Kata Sandi SMTP:</span>
                   <div className="flex items-center gap-2">
                     <span className="font-mono font-bold text-slate-900">
-                      {showPasswordMask ? 'ahlan1447H!' : '••••••••••••'}
+                      {showPasswordMask ? 'ahlan1447H' : '••••••••••••'}
                     </span>
                     <button
                       type="button"

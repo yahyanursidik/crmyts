@@ -17,7 +17,7 @@ describe('Official Email Service (Kerjamail SMTP)', () => {
     expect(env.SMTP_HOST).toBe('mx.kerjamail.co');
     expect(env.SMTP_PORT).toBe(465);
     expect(env.SMTP_USER).toBe('no-reply@yts.web.id');
-    expect(env.SMTP_PASS).toBe('ahlan1447H!');
+    expect(env.SMTP_PASS).toBe('ahlan1447H');
   });
 
   it('renders official Islamic email layout with brand headers and footers', () => {
