@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { useTheme, THEME_PRESETS, ThemeId } from '@/lib/themeContext';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { apiClient } from '@/lib/apiClient';
 
 interface UserItem {
   id: string;
@@ -192,20 +193,17 @@ export function SettingsPage() {
   const fetchEmailHealth = async (showNotification = false) => {
     setEmailTesting(true);
     try {
-      const res = await fetch('/api/settings/email-health');
-      if (res.ok) {
-        const json = await res.json();
-        setEmailHealth(json.data);
-        if (showNotification) {
-          if (json.data.status === 'connected') {
-            showToast(`✓ Koneksi SMTP Kerjamail Terhubung! Latensi: ${json.data.latencyMs} ms`);
-          } else {
-            showToast(json.data.errorMessage || 'Koneksi SMTP bermasalah', 'error');
-          }
+      const res = await apiClient<any>('/settings/email-health');
+      setEmailHealth(res.data);
+      if (showNotification) {
+        if (res.data.status === 'connected') {
+          showToast(`✓ Koneksi SMTP Kerjamail Terhubung! Latensi: ${res.data.latencyMs} ms`);
+        } else {
+          showToast(res.data.errorMessage || 'Koneksi SMTP bermasalah', 'error');
         }
       }
-    } catch (e) {
-      if (showNotification) showToast('Gagal menguji koneksi SMTP server', 'error');
+    } catch (e: any) {
+      if (showNotification) showToast(e?.message || 'Gagal menguji koneksi SMTP server', 'error');
     } finally {
       setEmailTesting(false);
     }
@@ -220,36 +218,30 @@ export function SettingsPage() {
     setSendingTestEmail(true);
     setTestEmailResultLog(null);
     try {
-      const res = await fetch('/api/settings/send-test-email', {
+      const res = await apiClient<any>('/settings/send-test-email', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           recipientEmail: testEmailRecipient.trim(),
           templateType: testTemplateType,
         }),
       });
-      const json = await res.json();
-      if (res.ok) {
-        showToast(json.data.message || 'Email uji coba berhasil dikirim!');
-        setTestEmailResultLog({
-          success: true,
-          messageId: json.data.messageId,
-          recipient: testEmailRecipient.trim(),
-          template: testTemplateType,
-          timestamp: new Date().toLocaleTimeString('id-ID'),
-        });
-      } else {
-        showToast(json.error?.message || 'Gagal mengirim email uji coba', 'error');
-        setTestEmailResultLog({
-          success: false,
-          recipient: testEmailRecipient.trim(),
-          template: testTemplateType,
-          timestamp: new Date().toLocaleTimeString('id-ID'),
-          error: json.error?.message || 'Koneksi ke server Kerjamail gagal',
-        });
-      }
+      showToast(res.data?.message || 'Email uji coba berhasil dikirim!');
+      setTestEmailResultLog({
+        success: true,
+        messageId: res.data?.messageId,
+        recipient: testEmailRecipient.trim(),
+        template: testTemplateType,
+        timestamp: new Date().toLocaleTimeString('id-ID'),
+      });
     } catch (err: any) {
-      showToast('Terjadi kesalahan saat mengirim email', 'error');
+      showToast(err.message || 'Gagal mengirim email uji coba', 'error');
+      setTestEmailResultLog({
+        success: false,
+        recipient: testEmailRecipient.trim(),
+        template: testTemplateType,
+        timestamp: new Date().toLocaleTimeString('id-ID'),
+        error: err.message || 'Koneksi ke server Kerjamail gagal',
+      });
     } finally {
       setSendingTestEmail(false);
     }
@@ -257,12 +249,9 @@ export function SettingsPage() {
 
   const fetchProfile = async () => {
     try {
-      const res = await fetch('/api/settings/profile');
-      if (res.ok) {
-        const json = await res.json();
-        setProfile(json.data);
-        setFullNameInput(json.data.fullName || '');
-      }
+      const res = await apiClient<any>('/settings/profile');
+      setProfile(res.data);
+      setFullNameInput(res.data.fullName || '');
     } catch (e) {
       console.error(e);
     }
@@ -270,11 +259,8 @@ export function SettingsPage() {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch('/api/settings/users');
-      if (res.ok) {
-        const json = await res.json();
-        setUsers(json.data);
-      }
+      const res = await apiClient<UserItem[]>('/settings/users');
+      setUsers(res.data);
     } catch (e) {
       console.error(e);
     }
@@ -282,11 +268,8 @@ export function SettingsPage() {
 
   const fetchFoundation = async () => {
     try {
-      const res = await fetch('/api/settings/foundation');
-      if (res.ok) {
-        const json = await res.json();
-        setFoundation(json.data);
-      }
+      const res = await apiClient<FoundationInfo>('/settings/foundation');
+      setFoundation(res.data);
     } catch (e) {
       console.error(e);
     }
@@ -295,17 +278,11 @@ export function SettingsPage() {
   const fetchTaxonomy = async () => {
     try {
       const [pRes, tRes] = await Promise.all([
-        fetch('/api/settings/programs'),
-        fetch('/api/settings/tags'),
+        apiClient<ProgramItem[]>('/settings/programs'),
+        apiClient<TagItem[]>('/settings/tags'),
       ]);
-      if (pRes.ok) {
-        const pJson = await pRes.json();
-        setPrograms(pJson.data);
-      }
-      if (tRes.ok) {
-        const tJson = await tRes.json();
-        setTagsList(tJson.data);
-      }
+      setPrograms(pRes.data);
+      setTagsList(tRes.data);
     } catch (e) {
       console.error(e);
     }
@@ -313,11 +290,8 @@ export function SettingsPage() {
 
   const fetchSystemHealth = async () => {
     try {
-      const res = await fetch('/api/settings/system-health');
-      if (res.ok) {
-        const json = await res.json();
-        setSystemHealth(json.data);
-      }
+      const res = await apiClient<any>('/settings/system-health');
+      setSystemHealth(res.data);
     } catch (e) {
       console.error(e);
     }
@@ -329,25 +303,20 @@ export function SettingsPage() {
     fetchFoundation();
     fetchTaxonomy();
     fetchSystemHealth();
+    fetchEmailHealth();
   }, []);
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/settings/profile', {
+      await apiClient('/settings/profile', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fullName: fullNameInput }),
       });
-      if (res.ok) {
-        showToast('Profil pengguna berhasil diperbarui!');
-        fetchProfile();
-      } else {
-        const err = await res.json();
-        showToast(err.error?.message || 'Gagal memperbarui profil', 'error');
-      }
-    } catch (err) {
-      showToast('Terjadi kesalahan jaringan', 'error');
+      showToast('Profil pengguna berhasil diperbarui!');
+      fetchProfile();
+    } catch (err: any) {
+      showToast(err.message || 'Gagal memperbarui profil', 'error');
     }
   };
 
@@ -355,22 +324,16 @@ export function SettingsPage() {
     e.preventDefault();
     setPasswordMsg(null);
     try {
-      const res = await fetch('/api/settings/change-password', {
+      await apiClient('/settings/change-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ currentPassword, newPassword }),
       });
-      if (res.ok) {
-        setPasswordMsg({ text: 'Kata sandi berhasil diubah dengan aman!', type: 'success' });
-        showToast('Kata sandi berhasil diperbarui!');
-        setCurrentPassword('');
-        setNewPassword('');
-      } else {
-        const err = await res.json();
-        setPasswordMsg({ text: err.error?.message || 'Gagal mengubah kata sandi', type: 'error' });
-      }
-    } catch (err) {
-      setPasswordMsg({ text: 'Terjadi gangguan jaringan', type: 'error' });
+      setPasswordMsg({ text: 'Kata sandi berhasil diubah dengan aman!', type: 'success' });
+      showToast('Kata sandi berhasil diperbarui!');
+      setCurrentPassword('');
+      setNewPassword('');
+    } catch (err: any) {
+      setPasswordMsg({ text: err.message || 'Gagal mengubah kata sandi', type: 'error' });
     }
   };
 
@@ -382,28 +345,22 @@ export function SettingsPage() {
       return;
     }
     try {
-      const res = await fetch('/api/settings/users', {
+      await apiClient('/settings/users', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fullName: newUserName,
           email: newUserEmail,
           roleCodes: newUserRoles,
         }),
       });
-      if (res.ok) {
-        showToast(`Staf "${newUserName}" berhasil didaftarkan!`);
-        setNewUserModal(false);
-        setNewUserName('');
-        setNewUserEmail('');
-        setNewUserRoles(['cs_officer']);
-        fetchUsers();
-      } else {
-        const err = await res.json();
-        showToast(err.error?.message || 'Gagal mendaftarkan staf', 'error');
-      }
-    } catch (err) {
-      showToast('Terjadi kesalahan koneksi', 'error');
+      showToast(`Staf "${newUserName}" berhasil didaftarkan!`);
+      setNewUserModal(false);
+      setNewUserName('');
+      setNewUserEmail('');
+      setNewUserRoles(['cs_officer']);
+      fetchUsers();
+    } catch (err: any) {
+      showToast(err.message || 'Gagal mendaftarkan staf', 'error');
     }
   };
 
@@ -420,21 +377,15 @@ export function SettingsPage() {
     }
     try {
       setSavingRoles(true);
-      const res = await fetch(`/api/settings/users/${selectedUserForRoleEdit.id}/roles`, {
+      await apiClient(`/settings/users/${selectedUserForRoleEdit.id}/roles`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ roleCodes: editRolesList }),
       });
-      if (res.ok) {
-        showToast(`Peran akses untuk ${selectedUserForRoleEdit.fullName} berhasil diperbarui!`);
-        setSelectedUserForRoleEdit(null);
-        fetchUsers();
-      } else {
-        const err = await res.json();
-        showToast(err.error?.message || 'Gagal memperbarui peran pengguna', 'error');
-      }
-    } catch (err) {
-      showToast('Terjadi gangguan jaringan', 'error');
+      showToast(`Peran akses untuk ${selectedUserForRoleEdit.fullName} berhasil diperbarui!`);
+      setSelectedUserForRoleEdit(null);
+      fetchUsers();
+    } catch (err: any) {
+      showToast(err.message || 'Gagal memperbarui peran pengguna', 'error');
     } finally {
       setSavingRoles(false);
     }
@@ -442,15 +393,13 @@ export function SettingsPage() {
 
   const handleToggleUserStatus = async (userId: string) => {
     try {
-      const res = await fetch(`/api/settings/users/${userId}/status`, {
+      await apiClient(`/settings/users/${userId}/status`, {
         method: 'PATCH',
       });
-      if (res.ok) {
-        showToast('Status keaktifan staf berhasil diubah');
-        fetchUsers();
-      }
-    } catch (err) {
-      showToast('Gagal mengubah status staf', 'error');
+      showToast('Status keaktifan staf berhasil diubah');
+      fetchUsers();
+    } catch (err: any) {
+      showToast(err.message || 'Gagal mengubah status staf', 'error');
     }
   };
 
@@ -473,17 +422,12 @@ export function SettingsPage() {
       variant: 'danger',
       onConfirm: async () => {
         try {
-          const res = await fetch(`/api/settings/users/${user.id}`, { method: 'DELETE' });
-          if (res.ok) {
-            showToast(`Akun staf ${user.fullName} telah dihapus`);
-            setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
-            fetchUsers();
-          } else {
-            const err = await res.json();
-            showToast(err.error?.message || 'Gagal menghapus akun staf', 'error');
-          }
-        } catch (err) {
-          showToast('Gagal menghapus akun staf', 'error');
+          await apiClient(`/settings/users/${user.id}`, { method: 'DELETE' });
+          showToast(`Akun staf ${user.fullName} telah dihapus`);
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+          fetchUsers();
+        } catch (err: any) {
+          showToast(err.message || 'Gagal menghapus akun staf', 'error');
         }
       },
     });
@@ -521,20 +465,15 @@ export function SettingsPage() {
     if (!foundation) return;
     setSavingFoundation(true);
     try {
-      const res = await fetch('/api/settings/foundation', {
+      await apiClient('/settings/foundation', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(foundation),
       });
-      if (res.ok) {
-        setFoundationSuccess(true);
-        showToast('Profil resmi yayasan & rekening berhasil disimpan!');
-        setTimeout(() => setFoundationSuccess(false), 3000);
-      } else {
-        showToast('Gagal menyimpan profil yayasan', 'error');
-      }
-    } catch (err) {
-      showToast('Terjadi gangguan koneksi', 'error');
+      setFoundationSuccess(true);
+      showToast('Profil resmi yayasan & rekening berhasil disimpan!');
+      setTimeout(() => setFoundationSuccess(false), 3000);
+    } catch (err: any) {
+      showToast(err.message || 'Gagal menyimpan profil yayasan', 'error');
     } finally {
       setSavingFoundation(false);
     }
@@ -608,40 +547,32 @@ export function SettingsPage() {
   const handleCreateProgram = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/settings/programs', {
+      await apiClient('/settings/programs', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: newProgramName,
           code: newProgramCode,
         }),
       });
-      if (res.ok) {
-        showToast(`Program "${newProgramName}" berhasil ditambahkan!`);
-        setNewProgramModal(false);
-        setNewProgramName('');
-        setNewProgramCode('');
-        fetchTaxonomy();
-      } else {
-        const err = await res.json();
-        showToast(err.error?.message || 'Gagal menambahkan program', 'error');
-      }
-    } catch (err) {
-      showToast('Gagal menambahkan program', 'error');
+      showToast(`Program "${newProgramName}" berhasil ditambahkan!`);
+      setNewProgramModal(false);
+      setNewProgramName('');
+      setNewProgramCode('');
+      fetchTaxonomy();
+    } catch (err: any) {
+      showToast(err.message || 'Gagal menambahkan program', 'error');
     }
   };
 
   const handleToggleProgram = async (programId: string) => {
     try {
-      const res = await fetch(`/api/settings/programs/${programId}/toggle`, {
+      await apiClient(`/settings/programs/${programId}/toggle`, {
         method: 'PATCH',
       });
-      if (res.ok) {
-        showToast('Status program infaq berhasil diubah');
-        fetchTaxonomy();
-      }
-    } catch (err) {
-      showToast('Gagal mengubah status program', 'error');
+      showToast('Status program infaq berhasil diubah');
+      fetchTaxonomy();
+    } catch (err: any) {
+      showToast(err.message || 'Gagal mengubah status program', 'error');
     }
   };
 
@@ -658,14 +589,12 @@ export function SettingsPage() {
       variant: 'danger',
       onConfirm: async () => {
         try {
-          const res = await fetch(`/api/settings/programs/${p.id}`, { method: 'DELETE' });
-          if (res.ok) {
-            showToast(`Program "${p.name}" berhasil dihapus`);
-            setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
-            fetchTaxonomy();
-          }
-        } catch (err) {
-          showToast('Gagal menghapus program', 'error');
+          await apiClient(`/settings/programs/${p.id}`, { method: 'DELETE' });
+          showToast(`Program "${p.name}" berhasil dihapus`);
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+          fetchTaxonomy();
+        } catch (err: any) {
+          showToast(err.message || 'Gagal menghapus program', 'error');
         }
       },
     });
@@ -675,39 +604,31 @@ export function SettingsPage() {
     e.preventDefault();
     if (!newTagName.trim()) return;
     try {
-      const res = await fetch('/api/settings/tags', {
+      await apiClient('/settings/tags', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: newTagName.trim(),
           category: newTagCategory,
         }),
       });
-      if (res.ok) {
-        showToast(`Tag "${newTagName}" berhasil ditambahkan!`);
-        setNewTagModal(false);
-        setNewTagName('');
-        fetchTaxonomy();
-      } else {
-        const err = await res.json();
-        showToast(err.error?.message || 'Gagal menambahkan tag', 'error');
-      }
-    } catch (err) {
-      showToast('Gagal menambahkan tag', 'error');
+      showToast(`Tag "${newTagName}" berhasil ditambahkan!`);
+      setNewTagModal(false);
+      setNewTagName('');
+      fetchTaxonomy();
+    } catch (err: any) {
+      showToast(err.message || 'Gagal menambahkan tag', 'error');
     }
   };
 
   const handleToggleTag = async (tagId: string) => {
     try {
-      const res = await fetch(`/api/settings/tags/${tagId}/toggle`, {
+      await apiClient(`/settings/tags/${tagId}/toggle`, {
         method: 'PATCH',
       });
-      if (res.ok) {
-        showToast('Status tag label berhasil diubah');
-        fetchTaxonomy();
-      }
-    } catch (err) {
-      showToast('Gagal mengubah status tag', 'error');
+      showToast('Status tag label berhasil diubah');
+      fetchTaxonomy();
+    } catch (err: any) {
+      showToast(err.message || 'Gagal mengubah status tag', 'error');
     }
   };
 
@@ -724,14 +645,12 @@ export function SettingsPage() {
       variant: 'danger',
       onConfirm: async () => {
         try {
-          const res = await fetch(`/api/settings/tags/${t.id}`, { method: 'DELETE' });
-          if (res.ok) {
-            showToast(`Tag "${t.name}" berhasil dihapus`);
-            setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
-            fetchTaxonomy();
-          }
-        } catch (err) {
-          showToast('Gagal menghapus tag', 'error');
+          await apiClient(`/settings/tags/${t.id}`, { method: 'DELETE' });
+          showToast(`Tag "${t.name}" berhasil dihapus`);
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+          fetchTaxonomy();
+        } catch (err: any) {
+          showToast(err.message || 'Gagal menghapus tag', 'error');
         }
       },
     });
@@ -741,18 +660,15 @@ export function SettingsPage() {
   const handleTestPing = async () => {
     try {
       setPingTesting(true);
-      const res = await fetch('/api/settings/ping');
-      if (res.ok) {
-        const json = await res.json();
-        setPingResult({
-          latencyMs: json.data.databaseLatencyMs,
-          status: json.data.status,
-          timestamp: json.data.timestamp,
-        });
-        showToast(`✓ Database & Vault Sehat! Latensi respon: ${json.data.databaseLatencyMs}ms`);
-      }
-    } catch (err) {
-      showToast('Uji koneksi gagal', 'error');
+      const res = await apiClient<any>('/settings/ping');
+      setPingResult({
+        latencyMs: res.data.databaseLatencyMs,
+        status: res.data.status,
+        timestamp: res.data.timestamp,
+      });
+      showToast(`✓ Database & Vault Sehat! Latensi respon: ${res.data.databaseLatencyMs}ms`);
+    } catch (err: any) {
+      showToast(err.message || 'Uji koneksi gagal', 'error');
     } finally {
       setPingTesting(false);
     }
@@ -782,6 +698,7 @@ export function SettingsPage() {
               fetchFoundation();
               fetchTaxonomy();
               fetchSystemHealth();
+              fetchEmailHealth(true);
               showToast('Data pengaturan berhasil disegarkan');
             }}
             className="px-3.5 py-2 text-xs font-bold border border-slate-300 rounded-xl text-slate-700 bg-white hover:bg-slate-50 flex items-center gap-2 transition-all shadow-2xs active:scale-95"
