@@ -18,6 +18,9 @@ import {
   verifySmtpConnection,
   sendTestEmail,
   sendStaffWelcomeEmail,
+  sendEventRegistrationTicketEmail,
+  sendDonationVerifiedReceiptEmail,
+  sendWaqfInquiryConfirmationEmail,
 } from '../../email/service';
 
 // Mock storage config info (can be overridden by env in production)
@@ -749,13 +752,60 @@ export function registerSettingsRoutes(router: Router) {
   // 18. POST /api/settings/send-test-email (Send Live Test Email via SMTP)
   const sendTestEmailSchema = z.object({
     recipientEmail: z.string().email('Format email penerima tidak valid'),
+    templateType: z
+      .enum(['handshake', 'event_ticket', 'donation_receipt', 'waqf_inquiry', 'staff_welcome'])
+      .default('handshake'),
   });
 
   router.post(
     '/api/settings/send-test-email',
     requireAuth(
       validateBody(sendTestEmailSchema, async (ctx, body) => {
-        const sendResult = await sendTestEmail(body.recipientEmail);
+        let sendResult: { success: boolean; messageId?: string; error?: string };
+
+        if (body.templateType === 'event_ticket') {
+          sendResult = await sendEventRegistrationTicketEmail({
+            recipientEmail: body.recipientEmail,
+            recipientName: 'Jamaah YTS (Simulasi)',
+            eventTitle: 'Kajian Rutin Kitab Riyadhus Shalihin',
+            speaker: 'Ustadz Abu Fulan Hafizhahullah',
+            startAtFormatted: 'Ahad, Pukul 09:00 - 11:30 WIB',
+            locationName: 'Masjid Tarbiyah Sunnah (Utama)',
+            ticketCode: `SIM-TIKET-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+            gender: 'ikhwan',
+            familyCount: 2,
+            isPaid: false,
+            eventUrl: 'https://yts.web.id/kajian',
+          });
+        } else if (body.templateType === 'donation_receipt') {
+          sendResult = await sendDonationVerifiedReceiptEmail({
+            recipientEmail: body.recipientEmail,
+            donorName: 'Muhsinin YTS (Simulasi)',
+            programName: 'Infaq Operasional Dakwah Sunnah',
+            amountRupiah: 500000,
+            receiptNumber: `KWT-SIM-${new Date().getFullYear()}-001`,
+            verifiedAtFormatted: new Date().toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' }),
+          });
+        } else if (body.templateType === 'waqf_inquiry') {
+          sendResult = await sendWaqfInquiryConfirmationEmail({
+            recipientEmail: body.recipientEmail,
+            wakifName: 'Calon Wakif (Simulasi)',
+            waqfType: 'tanah',
+            estimatedValue: 750000000,
+            cityRegency: 'Kab. Bandung Barat',
+            inquiryCode: `WQF-SIM-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+          });
+        } else if (body.templateType === 'staff_welcome') {
+          sendResult = await sendStaffWelcomeEmail({
+            recipientEmail: body.recipientEmail,
+            fullName: 'Pengurus Baru YTS (Simulasi)',
+            assignedRoles: ['Admin Kajian & Acara', 'CS Jamaah Care'],
+            loginUrl: 'https://yts.web.id/login',
+          });
+        } else {
+          sendResult = await sendTestEmail(body.recipientEmail);
+        }
+
         if (!sendResult.success) {
           return errorResponse(
             'INTERNAL_ERROR',
@@ -769,8 +819,9 @@ export function registerSettingsRoutes(router: Router) {
           {
             success: true,
             recipientEmail: body.recipientEmail,
+            templateType: body.templateType,
             messageId: sendResult.messageId,
-            message: `Email uji coba berhasil dikirim ke ${body.recipientEmail} melalui no-reply@yts.web.id.`,
+            message: `Email uji coba (${body.templateType}) berhasil dikirim ke ${body.recipientEmail} melalui no-reply@yts.web.id.`,
           },
           { requestId: ctx.requestId }
         );
