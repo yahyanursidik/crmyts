@@ -16,6 +16,11 @@ import {
 } from '../../db/schema';
 import { eq, sql } from 'drizzle-orm';
 import { normalizeIndonesianPhone } from '../../lib/phone';
+import {
+  sendEventRegistrationTicketEmail,
+  sendDonationReceivedEmail,
+  sendWaqfInquiryConfirmationEmail,
+} from '../../email/service';
 
 const publicDonationSchema = z.object({
   fullName: z.string().min(2, 'Nama lengkap minimal 2 karakter'),
@@ -300,6 +305,42 @@ export function registerPublicPortalRoutes(router: Router) {
           dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // Due in 24h
         });
 
+      // Send Email Confirmation to Donor if email provided
+      if (body.email) {
+        if (db.query?.donationPrograms?.findFirst) {
+          db.query.donationPrograms
+            .findFirst({
+              where: eq(donationPrograms.id, body.programId),
+            })
+            .then((program) => {
+              sendDonationReceivedEmail({
+                recipientEmail: body.email!,
+                donorName: displayName,
+                programName: program?.name || 'Infaq Operasional Dakwah',
+                amountRupiah: body.amountRupiah,
+                donationCode: invoiceRef,
+                paymentMethod: body.paymentMethod || 'bank_transfer',
+                bankName: 'Bank Syariah Indonesia (BSI)',
+                accountNumber: '7123456789',
+                accountHolder: 'Yayasan Tarbiyah Sunnah (Infaq Dakwah)',
+              }).catch((err) => console.warn('[Email Donation Error]:', err));
+            })
+            .catch((err) => console.warn('[Email Donation Program Lookup Error]:', err));
+        } else {
+          sendDonationReceivedEmail({
+            recipientEmail: body.email!,
+            donorName: displayName,
+            programName: 'Infaq Operasional Dakwah',
+            amountRupiah: body.amountRupiah,
+            donationCode: invoiceRef,
+            paymentMethod: body.paymentMethod || 'bank_transfer',
+            bankName: 'Bank Syariah Indonesia (BSI)',
+            accountNumber: '7123456789',
+            accountHolder: 'Yayasan Tarbiyah Sunnah (Infaq Dakwah)',
+          }).catch((err) => console.warn('[Email Donation Error]:', err));
+        }
+      }
+
       return successResponse(
         {
           referenceCode: invoiceRef,
@@ -398,6 +439,20 @@ export function registerPublicPortalRoutes(router: Router) {
           dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         });
       }
+
+        // Send Email Confirmation to Wakif if email provided
+        if (body.email) {
+          const datePart = new Date().toISOString().slice(2, 10).replace(/-/g, '');
+          const randPart = Math.random().toString(36).substring(2, 6).toUpperCase();
+          sendWaqfInquiryConfirmationEmail({
+            recipientEmail: body.email,
+            wakifName: body.fullName,
+            waqfType: body.waqfType,
+            estimatedValue: body.estimatedValueRupiah,
+            cityRegency: body.cityRegency,
+            inquiryCode: `WQF-${datePart}-${randPart}`,
+          }).catch((err) => console.warn('[Email Waqf Error]:', err));
+        }
 
         return successResponse(
           {
@@ -648,7 +703,7 @@ export function registerPublicPortalRoutes(router: Router) {
         }
       }
 
-      return successResponse(
+      const res = successResponse(
         {
           ticketCode,
           registrationGroupId,
@@ -692,6 +747,29 @@ export function registerPublicPortalRoutes(router: Router) {
         },
         { requestId: ctx.requestId }
       );
+
+      // Send E-Ticket Email if email provided
+      if (body.email) {
+        sendEventRegistrationTicketEmail({
+          recipientEmail: body.email,
+          recipientName: body.fullName,
+          eventTitle: targetEvent.title,
+          speaker: targetEvent.speaker,
+          startAtFormatted: new Date(targetEvent.startAt).toLocaleString('id-ID', {
+            dateStyle: 'full',
+            timeStyle: 'short',
+          }),
+          locationName: targetEvent.locationName || 'Masjid Tarbiyah Sunnah',
+          ticketCode,
+          gender: body.gender || 'ikhwan',
+          familyCount: additionalList.length > 0 ? additionalList.length : undefined,
+          isPaid: isPaidEvent,
+          priceRupiah: totalGroupPrice,
+          eventUrl: `https://yts.web.id/kajian/${targetEvent.id}`,
+        }).catch((err) => console.warn('[Email Event Ticket Error]:', err));
+      }
+
+      return res;
     })
   );
 

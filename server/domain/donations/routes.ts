@@ -7,6 +7,7 @@ import { donations, donationPrograms, persons, personRoles, auditLogs } from '..
 import { eq, desc, and, sql, inArray } from 'drizzle-orm';
 import { PERMISSIONS } from '../../permissions/constants';
 import { defaultAttachmentService } from '../../storage/service';
+import { sendDonationVerifiedReceiptEmail } from '../../email/service';
 
 const createDonationSchema = z.object({
   personId: z.string().uuid('Jamaah / Donatur wajib dipilih'),
@@ -429,6 +430,31 @@ export function registerDonationsRoutes(router: Router) {
             // Step 8: Commit (handled by Drizzle transaction)
             return updated;
           });
+
+          // Asynchronously dispatch official verification receipt email if person has email
+          if (db.query?.donations?.findFirst) {
+            db.query.donations
+              .findFirst({
+                where: eq(donations.id, verifiedDonation.id),
+                with: {
+                  person: true,
+                  program: true,
+                },
+              })
+              .then((d) => {
+                if (d?.person?.email) {
+                  sendDonationVerifiedReceiptEmail({
+                    recipientEmail: d.person.email,
+                    donorName: d.person.fullName,
+                    programName: d.program?.name || 'Infaq Dakwah Sunnah',
+                    amountRupiah: Number(verifiedDonation.amountRupiah),
+                    receiptNumber: `KWT-YTS-${new Date().getFullYear()}-${verifiedDonation.id.slice(0, 8).toUpperCase()}`,
+                    verifiedAtFormatted: new Date().toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' }),
+                  }).catch((err) => console.warn('[Email Receipt Error]:', err));
+                }
+              })
+              .catch((err) => console.warn('[Email Receipt Lookup Error]:', err));
+          }
 
           return successResponse(
             { ...verifiedDonation, amountRupiah: Number(verifiedDonation.amountRupiah) },

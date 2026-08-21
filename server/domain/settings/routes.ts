@@ -14,6 +14,11 @@ import {
 import { eq, desc, sql } from 'drizzle-orm';
 import { PERMISSIONS } from '../../permissions/constants';
 import { logAuditEvent } from '../../audit/service';
+import {
+  verifySmtpConnection,
+  sendTestEmail,
+  sendStaffWelcomeEmail,
+} from '../../email/service';
 
 // Mock storage config info (can be overridden by env in production)
 const FOUNDATION_DEFAULT = {
@@ -268,6 +273,16 @@ export function registerSettingsRoutes(router: Router) {
 
             return newUser;
           });
+
+          // Dispatch Welcome Email asynchronously
+          if (result.email) {
+            sendStaffWelcomeEmail({
+              recipientEmail: result.email,
+              fullName: result.fullName,
+              assignedRoles: body.roleCodes,
+              loginUrl: `https://yts.web.id/login`,
+            }).catch((err) => console.warn('[Email Staff Welcome Error]:', err));
+          }
 
           return successResponse(result, { requestId: ctx.requestId }, 201);
         })
@@ -708,5 +723,58 @@ export function registerSettingsRoutes(router: Router) {
         { requestId: ctx.requestId }
       );
     })
+  );
+
+  // 17. GET /api/settings/email-health (Test Kerjamail SMTP Handshake & Connection)
+  router.get(
+    '/api/settings/email-health',
+    requireAuth(async (ctx) => {
+      const health = await verifySmtpConnection();
+      return successResponse(
+        {
+          status: health.success ? 'connected' : 'error',
+          smtpHost: 'mx.kerjamail.co',
+          smtpPort: 465,
+          encryption: 'SSL / TLS',
+          senderEmail: 'no-reply@yts.web.id',
+          latencyMs: health.latencyMs,
+          errorMessage: health.error || null,
+          verifiedAt: new Date().toISOString(),
+        },
+        { requestId: ctx.requestId }
+      );
+    })
+  );
+
+  // 18. POST /api/settings/send-test-email (Send Live Test Email via SMTP)
+  const sendTestEmailSchema = z.object({
+    recipientEmail: z.string().email('Format email penerima tidak valid'),
+  });
+
+  router.post(
+    '/api/settings/send-test-email',
+    requireAuth(
+      validateBody(sendTestEmailSchema, async (ctx, body) => {
+        const sendResult = await sendTestEmail(body.recipientEmail);
+        if (!sendResult.success) {
+          return errorResponse(
+            'INTERNAL_ERROR',
+            sendResult.error || 'Gagal mengirim email uji coba. Periksa koneksi SMTP Kerjamail.',
+            500,
+            ctx.requestId
+          );
+        }
+
+        return successResponse(
+          {
+            success: true,
+            recipientEmail: body.recipientEmail,
+            messageId: sendResult.messageId,
+            message: `Email uji coba berhasil dikirim ke ${body.recipientEmail} melalui no-reply@yts.web.id.`,
+          },
+          { requestId: ctx.requestId }
+        );
+      })
+    )
   );
 }

@@ -23,6 +23,9 @@ import {
   X,
   Activity,
   Zap,
+  Mail,
+  Send,
+  Inbox,
 } from 'lucide-react';
 import { useTheme, THEME_PRESETS, ThemeId } from '@/lib/themeContext';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
@@ -164,6 +167,60 @@ export function SettingsPage() {
   const [systemHealth, setSystemHealth] = useState<any>(null);
   const [pingTesting, setPingTesting] = useState(false);
   const [pingResult, setPingResult] = useState<{ latencyMs: number; status: string; timestamp: string } | null>(null);
+
+  // SMTP Email Health & Testing State
+  const [emailHealth, setEmailHealth] = useState<any>(null);
+  const [emailTesting, setEmailTesting] = useState(false);
+  const [testEmailRecipient, setTestEmailRecipient] = useState('');
+  const [sendingTestEmail, setSendingTestEmail] = useState(false);
+
+  const fetchEmailHealth = async () => {
+    setEmailTesting(true);
+    try {
+      const res = await fetch('/api/settings/email-health');
+      if (res.ok) {
+        const json = await res.json();
+        setEmailHealth(json.data);
+        if (json.data.status === 'connected') {
+          showToast(`Koneksi SMTP Terhubung! Latensi: ${json.data.latencyMs} ms`);
+        } else {
+          showToast(json.data.errorMessage || 'Koneksi SMTP bermasalah', 'error');
+        }
+      }
+    } catch (e) {
+      showToast('Gagal menguji koneksi SMTP server', 'error');
+    } finally {
+      setEmailTesting(false);
+    }
+  };
+
+  const handleSendTestEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!testEmailRecipient.trim()) {
+      showToast('Masukkan alamat email tujuan uji coba', 'error');
+      return;
+    }
+    setSendingTestEmail(true);
+    try {
+      const res = await fetch('/api/settings/send-test-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipientEmail: testEmailRecipient.trim() }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        showToast(json.data.message || 'Email uji coba berhasil dikirim!');
+        setTestEmailRecipient('');
+      } else {
+        const err = await res.json();
+        showToast(err.error?.message || 'Gagal mengirim email uji coba', 'error');
+      }
+    } catch (err) {
+      showToast('Terjadi kesalahan saat mengirim email', 'error');
+    } finally {
+      setSendingTestEmail(false);
+    }
+  };
 
   const fetchProfile = async () => {
     try {
@@ -1307,6 +1364,85 @@ export function SettingsPage() {
                   <span className="font-bold text-teal-800">{systemHealth.storage?.accessControl}</span>
                 </div>
               </div>
+            </div>
+
+            {/* 3. Official SMTP Mail Server (Kerjamail - no-reply@yts.web.id) */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-5 md:col-span-2">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-200">
+                    <Mail className="w-5 h-5 text-emerald-700" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-bold text-slate-900">Layanan Email SMTP Resmi (Kerjamail)</h4>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-900 border border-emerald-200">
+                        {emailHealth?.status === 'connected' ? '✓ Terhubung' : 'Siap Digunakan'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Pengiriman otomatis E-Tiket Kajian, Kuitansi Infaq & Wakaf, dan Undangan Staf melalui <code className="text-emerald-800 font-bold">no-reply@yts.web.id</code>.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={fetchEmailHealth}
+                  disabled={emailTesting}
+                  className="px-3.5 py-1.5 rounded-xl border border-emerald-300 text-emerald-950 bg-emerald-50 hover:bg-emerald-100 text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs active:scale-95 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-emerald-700 ${emailTesting ? 'animate-spin' : ''}`} />
+                  <span>{emailTesting ? 'Menguji Handshake...' : 'Uji Koneksi SMTP'}</span>
+                </button>
+              </div>
+
+              {/* SMTP Technical Parameters */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
+                  <span className="text-slate-500 block text-[11px]">Host SMTP:</span>
+                  <span className="font-mono font-bold text-slate-900 block mt-0.5">mx.kerjamail.co</span>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
+                  <span className="text-slate-500 block text-[11px]">Port & Enkripsi:</span>
+                  <span className="font-bold text-slate-900 block mt-0.5">Port 465 (SSL) / 587 (TLS)</span>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
+                  <span className="text-slate-500 block text-[11px]">Akun Pengirim Resmi:</span>
+                  <span className="font-mono font-bold text-emerald-900 block mt-0.5">no-reply@yts.web.id</span>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
+                  <span className="text-slate-500 block text-[11px]">Status Latensi SMTP:</span>
+                  <span className="font-bold text-slate-900 block mt-0.5">
+                    {emailHealth?.latencyMs ? `${emailHealth.latencyMs} ms` : 'Siap diuji'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Live Test Email Sender Form */}
+              <form onSubmit={handleSendTestEmail} className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row items-center gap-3">
+                <div className="relative flex-1 w-full">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <Inbox className="w-4 h-4 text-slate-400" />
+                  </div>
+                  <input
+                    type="email"
+                    required
+                    value={testEmailRecipient}
+                    onChange={(e) => setTestEmailRecipient(e.target.value)}
+                    placeholder="Masukkan email penerima uji coba (misal: admin@tarbiyahsunnah.id)..."
+                    className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-xl bg-slate-50/50 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={sendingTestEmail}
+                  className="w-full sm:w-auto px-4 py-2 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all active:scale-95 disabled:opacity-50 shrink-0"
+                >
+                  <Send className={`w-3.5 h-3.5 text-gold-300 ${sendingTestEmail ? 'animate-spin' : ''}`} />
+                  <span>{sendingTestEmail ? 'Mengirim...' : 'Kirim Email Uji Coba'}</span>
+                </button>
+              </form>
             </div>
           </div>
         </div>
