@@ -7,6 +7,7 @@ export interface ParsedParticipantRow {
   fullName: string;
   phone: string;
   gender: 'ikhwan' | 'akhwat';
+  email?: string | null;
   age?: number | null;
   province?: string | null;
   city?: string | null;
@@ -182,6 +183,7 @@ export function processParticipantCsvData(rawRows: string[][]): {
 
   const nameIdx = getIndex(['nama lengkap', 'nama', 'full name', 'fullname', 'peserta']);
   const phoneIdx = getIndex(['whatsapp', 'wa', 'telepon', 'phone', 'no hp', 'nomor hp', 'no telp', 'no wa']);
+  const emailIdx = getIndex(['email', 'e-mail', 'surel', 'pos-el']);
   const genderIdx = getIndex(['jenis kelamin', 'gender', 'ikhwan/akhwat', 'kelamin']);
   const ageIdx = getIndex(['umur', 'usia', 'age']);
   const provinceIdx = getIndex(['provinsi', 'prov']);
@@ -208,6 +210,10 @@ export function processParticipantCsvData(rawRows: string[][]): {
 
     const rawName = (nameIdx !== -1 ? row[nameIdx] : '') || '';
     const rawPhone = (phoneIdx !== -1 ? row[phoneIdx] : '') || '';
+    const directEmail = (emailIdx !== -1 ? row[emailIdx] : '') || '';
+    // Auto-extract email from notes/any cell if direct email column is not present
+    const emailRegexMatch = row.join(' ').match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+    const rawEmail = directEmail.trim() || (emailRegexMatch ? emailRegexMatch[0].trim() : '');
     const rawGender = (genderIdx !== -1 ? row[genderIdx] : '') || '';
     const rawAge = (ageIdx !== -1 ? row[ageIdx] : '') || '';
     const rawProvince = (provinceIdx !== -1 ? row[provinceIdx] : '') || '';
@@ -279,12 +285,14 @@ export function processParticipantCsvData(rawRows: string[][]): {
     if (rawMahramName) regData.mahramName = rawMahramName;
     if (rawMahramWa) regData.mahramPhone = rawMahramWa;
     if (rawAddress) regData.address = rawAddress;
+    if (rawEmail) regData.email = rawEmail.toLowerCase();
 
     parsedRows.push({
       rowNumber,
       fullName: rawName.trim(),
       phone: rawPhone.trim(),
       gender,
+      email: rawEmail ? rawEmail.toLowerCase() : null,
       age: parseInt(rawAge, 10) || null,
       province: rawProvince.trim() || null,
       city: rawCity.trim() || null,

@@ -4,7 +4,7 @@ import { requireAuth, validateBody } from '../../http/middleware';
 import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import { events, eventAttendance, persons } from '../../db/schema';
-import { desc, eq, and } from 'drizzle-orm';
+import { desc, eq, and, inArray } from 'drizzle-orm';
 import { normalizeIndonesianPhone } from '../../lib/phone';
 
 const createEventSchema = z.object({
@@ -673,6 +673,31 @@ export function registerEventsRoutes(router: Router) {
         existingPersonIdMap.set(att.personId, att.id);
       });
 
+      // Pre-fetch all existing persons matching normalized phones in this batch
+      const phoneNormMap = new Map<string, string>();
+      participants.forEach((p: any) => {
+        const raw = String(p.phone || '').trim();
+        if (raw) {
+          const norm = normalizeIndonesianPhone(raw);
+          if (norm) phoneNormMap.set(norm, norm);
+        }
+      });
+
+      const allPhoneNorms = Array.from(phoneNormMap.keys());
+      const existingPersonsList =
+        allPhoneNorms.length > 0
+          ? await db.query.persons.findMany({
+              where: inArray(persons.phoneE164, allPhoneNorms),
+            })
+          : [];
+
+      const personByPhoneMap = new Map<string, any>();
+      existingPersonsList.forEach((p) => {
+        if (p.phoneE164) {
+          personByPhoneMap.set(p.phoneE164, p);
+        }
+      });
+
       let importedCount = 0;
       let skippedCount = 0;
       let updatedCount = 0;
@@ -698,9 +723,7 @@ export function registerEventsRoutes(router: Router) {
           const phoneNorm = normalizeIndonesianPhone(rawPhone);
 
           // Find or create Person
-          let person = await db.query.persons.findFirst({
-            where: eq(persons.phoneE164, phoneNorm),
-          });
+          let person = personByPhoneMap.get(phoneNorm);
 
           if (!person) {
             const [newPerson] = await db
@@ -719,6 +742,9 @@ export function registerEventsRoutes(router: Router) {
               })
               .returning();
             person = newPerson;
+            if (person && person.phoneE164) {
+              personByPhoneMap.set(person.phoneE164, person);
+            }
           } else if (updateExistingPerson) {
             // Update missing profile info if existing
             const updates: Record<string, any> = {};
@@ -730,6 +756,7 @@ export function registerEventsRoutes(router: Router) {
 
             if (Object.keys(updates).length > 0) {
               await db.update(persons).set(updates).where(eq(persons.id, person.id));
+              Object.assign(person, updates);
             }
           }
 
@@ -789,6 +816,7 @@ export function registerEventsRoutes(router: Router) {
               .update(persons)
               .set({ engagementStatus: 'aktif', updatedAt: new Date() })
               .where(eq(persons.id, person.id));
+            person.engagementStatus = 'aktif';
           }
 
           existingPersonIdMap.set(person.id, ticketCode);

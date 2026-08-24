@@ -54,6 +54,8 @@ export const EventImportModal: React.FC<EventImportModalProps> = ({
   const [totalErrors, setTotalErrors] = useState(0);
   const [previewFilter, setPreviewFilter] = useState<'all' | 'valid' | 'warning' | 'error'>('all');
   const [previewSearch, setPreviewSearch] = useState('');
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importProgress, setImportProgress] = useState<{ current: number; total: number; percent: number } | null>(null);
 
   // Result State
   const [importResult, setImportResult] = useState<{
@@ -84,6 +86,7 @@ export const EventImportModal: React.FC<EventImportModalProps> = ({
 
   const processFile = (selectedFile: File) => {
     setFile(selectedFile);
+    setImportError(null);
     const reader = new FileReader();
     reader.onload = (event) => {
       const content = event.target?.result as string;
@@ -104,52 +107,95 @@ export const EventImportModal: React.FC<EventImportModalProps> = ({
   const handleExecuteImport = async () => {
     if (parsedRows.length === 0) return;
 
+    const validParticipants = parsedRows
+      .filter((r) => r.validationStatus !== 'error')
+      .map((r) => ({
+        fullName: r.fullName,
+        phone: r.phone,
+        gender: r.gender,
+        email: r.email || null,
+        province: r.province,
+        city: r.city,
+        district: r.district,
+        address: r.address,
+        ticketCode: r.ticketCode,
+        status: r.status || defaultStatus,
+        vehicleType: r.vehicleType,
+        vehiclePlateNumber: r.vehiclePlateNumber,
+        registrationData: r.registrationData,
+      }));
+
+    if (validParticipants.length === 0) {
+      setImportError('Tidak ada data peserta valid yang dapat diimpor.');
+      return;
+    }
+
     try {
       setLoading(true);
+      setImportError(null);
 
-      const payload = {
-        participants: parsedRows
-          .filter((r) => r.validationStatus !== 'error')
-          .map((r) => ({
-            fullName: r.fullName,
-            phone: r.phone,
-            gender: r.gender,
-            email: null,
-            province: r.province,
-            city: r.city,
-            district: r.district,
-            address: r.address,
-            ticketCode: r.ticketCode,
-            status: r.status || defaultStatus,
-            vehicleType: r.vehicleType,
-            vehiclePlateNumber: r.vehiclePlateNumber,
-            registrationData: r.registrationData,
-          })),
-        skipDuplicates,
-        updateExistingPerson,
+      // Chunk participants into batches of 50 to ensure zero serverless timeout
+      const CHUNK_SIZE = 50;
+      const chunks: typeof validParticipants[] = [];
+      for (let i = 0; i < validParticipants.length; i += CHUNK_SIZE) {
+        chunks.push(validParticipants.slice(i, i + CHUNK_SIZE));
+      }
+
+      const aggregatedResult = {
+        totalProcessed: 0,
+        importedCount: 0,
+        skippedCount: 0,
+        updatedCount: 0,
+        errorCount: 0,
+        errors: [] as Array<{ row: number; name: string; phone: string; reason: string }>,
       };
 
-      const res = await apiClient<{
-        totalProcessed: number;
-        importedCount: number;
-        skippedCount: number;
-        updatedCount: number;
-        errorCount: number;
-        errors: Array<{ row: number; name: string; phone: string; reason: string }>;
-      }>(`/events/${eventId}/import-participants`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+      for (let c = 0; c < chunks.length; c++) {
+        const chunk = chunks[c];
+        setImportProgress({
+          current: c + 1,
+          total: chunks.length,
+          percent: Math.round(((c + 1) / chunks.length) * 100),
+        });
 
-      if (res.data) {
-        setImportResult(res.data);
-        setStep('result');
-        onSuccess();
+        const payload = {
+          participants: chunk,
+          skipDuplicates,
+          updateExistingPerson,
+        };
+
+        const res = await apiClient<{
+          totalProcessed: number;
+          importedCount: number;
+          skippedCount: number;
+          updatedCount: number;
+          errorCount: number;
+          errors: Array<{ row: number; name: string; phone: string; reason: string }>;
+        }>(`/events/${eventId}/import-participants`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+
+        if (res.data) {
+          aggregatedResult.totalProcessed += res.data.totalProcessed || 0;
+          aggregatedResult.importedCount += res.data.importedCount || 0;
+          aggregatedResult.skippedCount += res.data.skippedCount || 0;
+          aggregatedResult.updatedCount += res.data.updatedCount || 0;
+          aggregatedResult.errorCount += res.data.errorCount || 0;
+          if (Array.isArray(res.data.errors)) {
+            aggregatedResult.errors.push(...res.data.errors);
+          }
+        }
       }
+
+      setImportResult(aggregatedResult);
+      setStep('result');
+      onSuccess();
     } catch (err: any) {
-      alert(`Gagal mengimpor data: ${err.message || 'Terjadi kesalahan'}`);
+      setImportError(err.message || 'Terjadi kesalahan sistem saat menghubungi server');
     } finally {
       setLoading(false);
+      setImportProgress(null);
     }
   };
 
@@ -374,6 +420,36 @@ export const EventImportModal: React.FC<EventImportModalProps> = ({
           {/* STEP 2: PREVIEW & VALIDATION */}
           {step === 'preview' && (
             <div className="space-y-4">
+              {/* Error Banner */}
+              {importError && (
+                <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start gap-3 text-xs text-rose-900 shadow-2xs animate-in fade-in duration-150">
+                  <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-bold text-rose-950">Gagal Mengimpor Peserta</p>
+                    <p className="text-rose-700">{importError}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Progress Bar */}
+              {importProgress && (
+                <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-2xl space-y-2 shadow-2xs animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between text-xs font-bold text-emerald-950">
+                    <span className="flex items-center gap-2">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                      Sedang memproses batch {importProgress.current} dari {importProgress.total}...
+                    </span>
+                    <span className="font-mono text-emerald-800">{importProgress.percent}%</span>
+                  </div>
+                  <div className="w-full bg-emerald-200/60 h-2.5 rounded-full overflow-hidden">
+                    <div
+                      className="bg-emerald-600 h-full rounded-full transition-all duration-300"
+                      style={{ width: `${importProgress.percent}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Metric Summary Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="p-3.5 bg-white rounded-2xl border border-cream-300 shadow-2xs">
