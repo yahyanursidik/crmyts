@@ -562,6 +562,174 @@ export function registerEventsRoutes(router: Router) {
     })
   );
 
+  // 7d. POST /api/events/:id/attendances/bulk-checkin (Bulk Check-in / Uncheck-in)
+  router.post(
+    '/api/events/:id/attendances/bulk-checkin',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const eventId = ctx.params.id;
+      const { attendanceIds = [], status = 'attended' } = (ctx.body as any) || {};
+
+      if (!eventId || !Array.isArray(attendanceIds) || attendanceIds.length === 0) {
+        return errorResponse('VALIDATION_ERROR', 'Event ID dan daftar Attendance ID diperlukan', 400, ctx.requestId);
+      }
+
+      const validStatus = status === 'attended' ? 'attended' : 'registered';
+
+      const updated = await db
+        .update(eventAttendance)
+        .set({
+          status: validStatus,
+          checkInAt: validStatus === 'attended' ? new Date() : undefined,
+        })
+        .where(
+          and(
+            eq(eventAttendance.eventId, eventId),
+            inArray(eventAttendance.id, attendanceIds)
+          )
+        )
+        .returning();
+
+      return successResponse(
+        {
+          message: `Berhasil mengubah status ${updated.length} peserta menjadi ${validStatus === 'attended' ? 'Hadir' : 'Terdaftar'}.`,
+          updatedCount: updated.length,
+          attendances: updated,
+        },
+        { requestId: ctx.requestId }
+      );
+    })
+  );
+
+  // 7e. POST /api/events/:id/attendances/bulk-delete (Bulk Remove Attendances)
+  router.post(
+    '/api/events/:id/attendances/bulk-delete',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const eventId = ctx.params.id;
+      const { attendanceIds = [] } = (ctx.body as any) || {};
+
+      if (!eventId || !Array.isArray(attendanceIds) || attendanceIds.length === 0) {
+        return errorResponse('VALIDATION_ERROR', 'Event ID dan daftar Attendance ID diperlukan', 400, ctx.requestId);
+      }
+
+      const deleted = await db
+        .delete(eventAttendance)
+        .where(
+          and(
+            eq(eventAttendance.eventId, eventId),
+            inArray(eventAttendance.id, attendanceIds)
+          )
+        )
+        .returning();
+
+      return successResponse(
+        {
+          message: `Berhasil menghapus ${deleted.length} pendaftaran peserta.`,
+          deletedCount: deleted.length,
+        },
+        { requestId: ctx.requestId }
+      );
+    })
+  );
+
+  // 7f. POST /api/events/:id/attendances/scan (Fast Gate Scanner with Ticket / Phone / ID Verification)
+  router.post(
+    '/api/events/:id/attendances/scan',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const eventId = ctx.params.id;
+      const { ticketCode, phoneQuery, attendanceId } = (ctx.body as any) || {};
+
+      if (!eventId) {
+        return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
+      }
+
+      let targetAttendance: any = null;
+
+      if (attendanceId) {
+        targetAttendance = await db.query.eventAttendance.findFirst({
+          where: and(eq(eventAttendance.id, attendanceId), eq(eventAttendance.eventId, eventId)),
+          with: { person: true },
+        });
+      } else if (ticketCode) {
+        const cleanCode = String(ticketCode).trim().toUpperCase();
+        targetAttendance = await db.query.eventAttendance.findFirst({
+          where: and(
+            eq(eventAttendance.eventId, eventId),
+            eq(eventAttendance.ticketCode, cleanCode)
+          ),
+          with: { person: true },
+        });
+      } else if (phoneQuery) {
+        const cleanQuery = String(phoneQuery).trim();
+        const norm = normalizeIndonesianPhone(cleanQuery);
+        const candidatePersons = await db.query.persons.findMany({
+          where: inArray(persons.phoneE164, [norm, `+${cleanQuery}`, cleanQuery]),
+          columns: { id: true },
+        });
+
+        const personIds = candidatePersons.map((p) => p.id);
+        if (personIds.length > 0) {
+          targetAttendance = await db.query.eventAttendance.findFirst({
+            where: and(
+              eq(eventAttendance.eventId, eventId),
+              inArray(eventAttendance.personId, personIds)
+            ),
+            with: { person: true },
+          });
+        }
+      }
+
+      if (!targetAttendance) {
+        return errorResponse(
+          'NOT_FOUND',
+          'Tiket atau data jamaah tidak ditemukan untuk kajian ini.',
+          404,
+          ctx.requestId
+        );
+      }
+
+      const alreadyCheckedIn = targetAttendance.status === 'attended';
+      const previousCheckInAt = targetAttendance.checkInAt;
+
+      // Update to attended if not already
+      let updatedAttendance = targetAttendance;
+      if (!alreadyCheckedIn) {
+        const [updated] = await db
+          .update(eventAttendance)
+          .set({ status: 'attended', checkInAt: new Date() })
+          .where(eq(eventAttendance.id, targetAttendance.id))
+          .returning();
+        updatedAttendance = { ...targetAttendance, ...updated };
+      }
+
+      return successResponse(
+        {
+          success: true,
+          alreadyCheckedIn,
+          previousCheckInAt,
+          checkedInNow: !alreadyCheckedIn,
+          attendance: {
+            id: updatedAttendance.id,
+            personId: updatedAttendance.personId,
+            personName: updatedAttendance.person?.fullName || 'Anonim',
+            personPhone: updatedAttendance.person?.phoneE164 || '-',
+            personGender: updatedAttendance.person?.gender || 'ikhwan',
+            personCity: updatedAttendance.person?.cityRegency || null,
+            ticketCode: updatedAttendance.ticketCode,
+            status: 'attended',
+            checkInAt: updatedAttendance.checkInAt,
+            vehicleType: updatedAttendance.vehicleType,
+            vehiclePlateNumber: updatedAttendance.vehiclePlateNumber,
+            registrationData: updatedAttendance.registrationData,
+          },
+        },
+        { requestId: ctx.requestId }
+      );
+    })
+  );
+
   // 8. POST /api/events/:id/participants/manual (Manually add participant by staff)
   router.post(
     '/api/events/:id/participants/manual',
