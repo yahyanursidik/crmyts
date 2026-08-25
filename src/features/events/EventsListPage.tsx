@@ -22,12 +22,14 @@ import {
   List,
   RefreshCw,
   ExternalLink,
+  Store,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { EventManageModal, EventFormConfig } from './EventManageModal';
 import { EventSubmissionsModal } from './EventSubmissionsModal';
 import { EventScannerModal } from './components/EventScannerModal';
+import { EventBazaarManageModal } from './components/EventBazaarManageModal';
 import { useTheme } from '@/lib/themeContext';
 
 interface EventItem {
@@ -88,6 +90,7 @@ export const EventsListPage: React.FC = () => {
   const [selectedManageEventId, setSelectedManageEventId] = useState<string | null>(null);
   const [selectedSubmissionsEventId, setSelectedSubmissionsEventId] = useState<string | null>(null);
   const [selectedScannerEvent, setSelectedScannerEvent] = useState<EventItem | null>(null);
+  const [selectedBazaarEventId, setSelectedBazaarEventId] = useState<string | null>(null);
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
@@ -675,25 +678,35 @@ export const EventsListPage: React.FC = () => {
 
                 {/* Action Buttons Toolbar on Card */}
                 <div className="pt-3 border-t border-cream-200 space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-3 gap-1.5">
                     {/* Daftar Peserta Button */}
                     <button
                       onClick={() => setSelectedSubmissionsEventId(ev.id)}
-                      className="py-2 px-2.5 bg-cream-100 hover:bg-cream-200 text-brand-950 text-xs font-bold rounded-xl border border-cream-300 transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-2xs"
+                      className="py-2 px-1.5 bg-cream-100 hover:bg-cream-200 text-brand-950 text-xs font-bold rounded-xl border border-cream-300 transition-all flex items-center justify-center gap-1 active:scale-95 shadow-2xs"
                       title="Lihat Data Pendaftar & Presensi"
                     >
-                      <Ticket className="w-3.5 h-3.5 text-brand-800" />
-                      <span>Peserta ({ev.attendanceCount})</span>
+                      <Ticket className="w-3.5 h-3.5 text-brand-800 shrink-0" />
+                      <span className="truncate">Peserta ({ev.attendanceCount})</span>
                     </button>
 
                     {/* Scanner Gate Button */}
                     <button
                       onClick={() => setSelectedScannerEvent(ev)}
-                      className="py-2 px-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center justify-center gap-1.5 active:scale-95"
+                      className="py-2 px-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center justify-center gap-1 active:scale-95"
                       title="Buka Kamera Pemindai QR Presensi Gate di Pintu Masjid"
                     >
-                      <QrCode className="w-3.5 h-3.5" />
-                      <span>Scanner Gate</span>
+                      <QrCode className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">Scanner</span>
+                    </button>
+
+                    {/* Bazar & Tenant Button */}
+                    <button
+                      onClick={() => setSelectedBazaarEventId(ev.id)}
+                      className="py-2 px-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center justify-center gap-1 active:scale-95"
+                      title="Kelola Fasilitas Bazar, Slot Booth & Calon Tenant"
+                    >
+                      <Store className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                      <span className="truncate">Bazar</span>
                     </button>
                   </div>
 
@@ -839,6 +852,14 @@ export const EventsListPage: React.FC = () => {
                         title="Daftar Peserta"
                       >
                         <Ticket className="w-4 h-4 text-brand-800" />
+                      </button>
+
+                      <button
+                        onClick={() => setSelectedBazaarEventId(ev.id)}
+                        className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg transition-colors"
+                        title="Kelola Fasilitas Bazar & Tenant"
+                      >
+                        <Store className="w-4 h-4 text-amber-800" />
                       </button>
 
                       <button
@@ -1164,6 +1185,16 @@ export const EventsListPage: React.FC = () => {
           isOpen={true}
           onClose={() => setSelectedSubmissionsEventId(null)}
           onRefreshList={loadEvents}
+        />
+      )}
+
+      {/* 10. MODAL: PENGELOLAAN BAZAR & TENANT */}
+      {selectedBazaarEventId && (
+        <EventBazaarManageModal
+          eventId={selectedBazaarEventId}
+          isOpen={true}
+          onClose={() => setSelectedBazaarEventId(null)}
+          onRefreshParent={loadEvents}
         />
       )}
 

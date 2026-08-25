@@ -17,6 +17,7 @@ import { registerReportsRoutes } from '../../server/domain/reports/routes';
 import { registerAutomationRoutes } from '../../server/domain/automation/routes';
 import { registerDonorsPipelineRoutes } from '../../server/domain/donors/routes';
 import { registerPublicPortalRoutes } from '../../server/domain/public/routes';
+import { registerBazaarRoutes } from '../../server/domain/bazaar/routes';
 import { resolveUserBySubject } from '../../server/auth/service';
 
 interface NetlifyEvent {
@@ -46,6 +47,7 @@ registerAuthRoutes(router);
 registerDashboardRoutes(router);
 registerPersonsRoutes(router);
 registerEventsRoutes(router);
+registerBazaarRoutes(router);
 registerTasksRoutes(router);
 registerDonationsRoutes(router);
 registerWaqfRoutes(router);

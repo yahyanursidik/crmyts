@@ -22,6 +22,7 @@ import { AutomationPage } from './features/automation/AutomationPage';
 import { DonorPipelinePage } from './features/donors/DonorPipelinePage';
 import { DonationsPortalPage } from './features/public-portal/DonationsPortalPage';
 import { EventsPortalPage } from './features/public-portal/EventsPortalPage';
+import { BazaarPortalPage } from './features/public-portal/BazaarPortalPage';
 
 export function App() {
   return (
@@ -119,10 +120,14 @@ export function App() {
             <Route path="/berbagi" element={<DonationsPortalPage />} />
             <Route path="/kajian" element={<EventsPortalPage />} />
             <Route path="/kajian/:id" element={<EventsPortalPage />} />
+            <Route path="/kajian/:id/bazar" element={<BazaarPortalPage />} />
+            <Route path="/bazar/:id" element={<BazaarPortalPage />} />
             <Route path="/event" element={<EventsPortalPage />} />
             <Route path="/event/:id" element={<EventsPortalPage />} />
+            <Route path="/event/:id/bazar" element={<BazaarPortalPage />} />
             <Route path="/daurah" element={<EventsPortalPage />} />
             <Route path="/daurah/:id" element={<EventsPortalPage />} />
+            <Route path="/daurah/:id/bazar" element={<BazaarPortalPage />} />
             <Route path="/public/events/:id" element={<EventsPortalPage />} />
 
             <Route
