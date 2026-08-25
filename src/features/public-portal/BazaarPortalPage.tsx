@@ -6,28 +6,28 @@ import {
   MapPin,
   Calendar,
   CheckCircle2,
-  CreditCard,
   ShieldAlert,
   ArrowLeft,
   Copy,
   Check,
   Sparkles,
+  Send,
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { LoadingState } from '@/components/common/LoadingState';
-import { BAZAAR_CATEGORIES } from '../events/components/EventBazaarManageModal';
 
-interface PublicBooth {
-  id: string;
-  code: string;
-  name: string;
-  zone: string;
-  size: string;
-  facilities: string[];
-  priceRupiah: number;
-  allowedCategory: string;
-  status: 'available' | 'reserved' | 'booked' | 'maintenance';
-}
+const BAZAAR_CATEGORIES = [
+  { value: 'kuliner', label: '🍲 Kuliner Halal & Minuman' },
+  { value: 'busana_muslim', label: "👗 Busana Muslim & Syar'i" },
+  { value: 'buku_kitab', label: '📚 Buku, Kitab & Media Dakwah' },
+  { value: 'herbal_kesehatan', label: '🌿 Herbal & Thibbun Nabawi' },
+  { value: 'pendidikan', label: '🎓 Pendidikan, Pesantren & Sekolah Islam' },
+  { value: 'travel_umroh', label: '🕋 Tour & Travel Umroh / Haji' },
+  { value: 'properti_syariah', label: '🏡 Properti & Developer Syariah' },
+  { value: 'jasa_keuangan', label: '💼 Jasa & Layanan Syariah' },
+  { value: 'aksesoris', label: '🛍️ Aksesoris & Perlengkapan Majelis' },
+  { value: 'lainnya', label: '📦 Kategori Lainnya' },
+];
 
 interface PublicBazaarResponse {
   event: {
@@ -49,8 +49,11 @@ interface PublicBazaarResponse {
     bankAccountNumber?: string | null;
     bankAccountName?: string | null;
     paymentInstructions?: string | null;
+    registrationDeadline?: string | null;
+    paymentDeadline?: string | null;
+    surveyEnabled: boolean;
     layoutZones?: Array<{ id: string; name: string; description?: string; color?: string }> | null;
-    booths: PublicBooth[];
+    booths: any[];
   };
 }
 
@@ -60,11 +63,9 @@ export const BazaarPortalPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Selected Zone & Booth for "War Tempat"
-  const [selectedZone, setSelectedZone] = useState<string>('all');
-  const [selectedBooth, setSelectedBooth] = useState<PublicBooth | null>(null);
+  const [activePortalTab, setActivePortalTab] = useState<'register' | 'survey'>('register');
 
-  // Form State
+  // Application Form State
   const [formData, setFormData] = useState({
     brandName: '',
     businessCategory: 'kuliner',
@@ -72,23 +73,41 @@ export const BazaarPortalPage: React.FC = () => {
     picPhone: '',
     picEmail: '',
     picKtpNumber: '',
-    socialMedia: '',
+    instagram: '',
+    address: '',
     productDescription: '',
+    catalogUrl: '',
     electricityNeeded: false,
     electricityWatts: 0,
     specialRequests: '',
+    boothPreferences: '',
     agreedToRules: false,
     paymentProofUrl: '',
   });
 
+  // Survey Form State
+  const [surveyData, setSurveyData] = useState({
+    applicationId: '',
+    satisfactionOverall: 5,
+    satisfactionLocation: 5,
+    satisfactionFacilities: 5,
+    satisfactionCommunication: 5,
+    satisfactionTraffic: 5,
+    omzetRange: '2-5m' as '<1m' | '1-2m' | '2-5m' | '5-10m' | '>10m',
+    feedback: '',
+    willingToJoinNext: true,
+  });
+
   const [submitting, setSubmitting] = useState(false);
   const [copiedBank, setCopiedBank] = useState(false);
-  const [registeredSuccess, setRegisteredSuccess] = useState<{
-    tenantId: string;
-    brandName: string;
-    boothCode: string | null;
-    infaqAmountRupiah: number;
-  } | null>(null);
+  const [registeredSuccess, setRegisteredSuccess] = useState<any | null>(null);
+  const [surveySuccess, setSurveySuccess] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
 
   useEffect(() => {
     async function loadPublicBazaar() {
@@ -111,6 +130,7 @@ export const BazaarPortalPage: React.FC = () => {
     if (!data?.bazaar.bankAccountNumber) return;
     navigator.clipboard.writeText(data.bazaar.bankAccountNumber);
     setCopiedBank(true);
+    showToast('Nomor rekening bank BSI berhasil disalin!');
     setTimeout(() => setCopiedBank(false), 2500);
   };
 
@@ -118,7 +138,7 @@ export const BazaarPortalPage: React.FC = () => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
-        alert('Ukuran file maksimal 5MB');
+        showToast('Ukuran file bukti transfer maksimal 5MB');
         return;
       }
       const reader = new FileReader();
@@ -132,29 +152,46 @@ export const BazaarPortalPage: React.FC = () => {
   const handleSubmitRegistration = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.agreedToRules) {
-      alert('Harap setujui tata tertib dan adab majelis terlebih dahulu.');
+      showToast('Harap setujui tata tertib dan adab majelis terlebih dahulu.');
       return;
     }
 
     try {
       setSubmitting(true);
-      const res = await apiClient<{
-        tenantId: string;
-        brandName: string;
-        boothCode: string | null;
-        infaqAmountRupiah: number;
-      }>(`/public/events/${id}/bazaar/register`, {
+      const res = await apiClient<any>(`/public/events/${id}/bazaar/apply`, {
         method: 'POST',
         body: JSON.stringify({
           ...formData,
-          boothId: selectedBooth ? selectedBooth.id : null,
-          infaqAmountRupiah: selectedBooth ? selectedBooth.priceRupiah : data?.bazaar.defaultFeeRupiah || 0,
+          infaqAmountRupiah: data?.bazaar.defaultFeeRupiah || 150000,
         }),
       });
 
       setRegisteredSuccess(res.data);
     } catch (err: any) {
-      alert(err.message || 'Pendaftaran tenant gagal diproses. Silakan coba kembali.');
+      showToast(err.message || 'Pendaftaran tenant gagal diproses.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSubmitSurvey = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!surveyData.applicationId.trim()) {
+      showToast('Harap masukkan ID pendaftaran Anda.');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      await apiClient(`/public/events/${id}/bazaar/survey`, {
+        method: 'POST',
+        body: JSON.stringify(surveyData),
+      });
+
+      setSurveySuccess(true);
+      showToast('Jazakumullahu khairan! Survei berhasil dikirim.');
+    } catch (err: any) {
+      showToast(err.message || 'Gagal mengirim survei');
     } finally {
       setSubmitting(false);
     }
@@ -163,7 +200,7 @@ export const BazaarPortalPage: React.FC = () => {
   if (loading) {
     return (
       <div className="min-h-screen bg-brand-950 flex flex-col items-center justify-center p-4">
-        <LoadingState message="Memuat denah dan pendaftaran bazar daurah..." />
+        <LoadingState message="Memuat formulir pendaftaran bazar daurah..." />
       </div>
     );
   }
@@ -190,477 +227,517 @@ export const BazaarPortalPage: React.FC = () => {
   }
 
   const { event, bazaar } = data;
-  const allZones = Array.from(new Set(bazaar.booths.map((b) => b.zone)));
-  const filteredBooths = bazaar.booths.filter((b) => selectedZone === 'all' || b.zone === selectedZone);
-
-  const availableCount = bazaar.booths.filter((b) => b.status === 'available').length;
 
   return (
     <div className="min-h-screen bg-[#FDFBF7] text-surface-900 selection:bg-gold-500 selection:text-white flex flex-col justify-between">
-      {/* 1. TOP HEADER NAVIGATION */}
-      <header className="sticky top-0 z-40 bg-brand-950/95 backdrop-blur-md border-b border-brand-800 text-white shadow-md">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between">
-          <Link to="/kajian" className="flex items-center gap-2 text-white/80 hover:text-white text-xs font-bold transition-colors">
-            <ArrowLeft className="w-4 h-4" />
-            <span className="hidden sm:inline">Kembali ke Portal Kajian</span>
-          </Link>
+      {/* Toast */}
+      {toastMessage && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-60 bg-brand-950 text-gold-300 px-5 py-2.5 rounded-2xl shadow-xl text-xs font-bold border border-gold-500/30 flex items-center gap-2 animate-bounce">
+          <Sparkles className="w-4 h-4 text-gold-400" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
 
-          <div className="flex items-center gap-2.5">
-            <BrandEmblem useImage={true} className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl shadow-xs" />
-            <span className="font-display font-black text-sm sm:text-base text-gold-300">
-              Pendaftaran Bazar Daurah
-            </span>
+      {/* TOP HEADER */}
+      <header className="border-b border-cream-300 bg-white/80 backdrop-blur-md sticky top-0 z-30">
+        <div className="max-w-5xl mx-auto px-4 py-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <BrandEmblem size="sm" />
+            <div>
+              <span className="text-[10px] font-black text-gold-700 uppercase tracking-widest block">
+                Yayasan Tarbiyah Sunnah
+              </span>
+              <h1 className="text-sm sm:text-base font-black text-brand-950 font-display leading-tight">
+                Pendaftaran Bazar UMKM Jamaah
+              </h1>
+            </div>
           </div>
 
-          <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-emerald-900/80 text-emerald-300 border border-emerald-700">
-            {availableCount} Slot Tersedia
-          </span>
+          <Link
+            to="/portal"
+            className="text-xs font-bold text-surface-600 hover:text-brand-900 flex items-center gap-1.5 transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Portal Utama YTS</span>
+          </Link>
         </div>
       </header>
 
-      {/* 2. MAIN REGISTRATION CONTAINER */}
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-6 flex-1 w-full">
-        {/* SUCCESS CONFIRMATION RECEIPT */}
-        {registeredSuccess ? (
-          <div className="bg-white rounded-3xl p-6 sm:p-10 border border-cream-300 shadow-xl max-w-xl mx-auto text-center space-y-5 animate-in zoom-in-95 duration-200">
-            <div className="w-16 h-16 rounded-3xl bg-emerald-100 border border-emerald-300 text-emerald-800 flex items-center justify-center mx-auto shadow-sm">
-              <CheckCircle2 className="w-8 h-8 text-emerald-600" />
+      {/* MAIN CONTAINER */}
+      <main className="max-w-3xl mx-auto px-4 py-6 sm:py-10 flex-1 w-full space-y-6">
+        {/* Event Banner Card */}
+        <div className="bg-gradient-to-br from-brand-950 via-brand-900 to-brand-950 rounded-3xl p-5 sm:p-7 text-white shadow-xl relative overflow-hidden">
+          <div className="relative z-10 space-y-3">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gold-500/20 text-gold-300 border border-gold-500/30 text-[10px] font-bold uppercase tracking-wider">
+              <Store className="w-3 h-3 text-gold-400" />
+              <span>Bazar & Stan UMKM Daurah</span>
             </div>
 
-            <div>
-              <span className="text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full bg-emerald-50 text-emerald-900 border border-emerald-200">
-                Pendaftaran Berhasil Terkirim
-              </span>
-              <h2 className="text-xl sm:text-2xl font-black text-brand-950 font-display mt-2">
-                Ahlan wa Sahlan, {registeredSuccess.brandName}!
-              </h2>
-              <p className="text-xs text-surface-600 mt-1">
-                Data pendaftaran dan alokasi booth telah kami terima. Panitia akan meninjau kelayakan produk dan memverifikasi bukti transfer infaq.
-              </p>
-            </div>
+            <h2 className="text-xl sm:text-2xl font-black font-display text-white leading-tight">
+              {bazaar.title || event.title}
+            </h2>
 
-            <div className="p-4 bg-cream-50 rounded-2xl border border-cream-300 text-xs space-y-2 text-left">
-              <div className="flex justify-between border-b border-cream-200 pb-2">
-                <span className="text-surface-500">Kajian Daurah:</span>
-                <span className="font-bold text-brand-950 text-right">{event.title}</span>
-              </div>
-              <div className="flex justify-between border-b border-cream-200 pb-2">
-                <span className="text-surface-500">Nomor Slot Booth:</span>
-                <span className="font-mono font-black text-emerald-800 text-sm">
-                  {registeredSuccess.boothCode || 'Menunggu Alokasi Panitia'}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-xs text-cream-200">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-gold-400 shrink-0" />
+                <span>
+                  {new Date(event.startAt).toLocaleDateString('id-ID', {
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                  })}
                 </span>
               </div>
-              <div className="flex justify-between border-b border-cream-200 pb-2">
-                <span className="text-surface-500">Nominal Infaq Booth:</span>
-                <span className="font-mono font-bold text-brand-950">
-                  Rp {registeredSuccess.infaqAmountRupiah.toLocaleString('id-ID')}
-                </span>
+              <div className="flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-gold-400 shrink-0" />
+                <span className="truncate">{event.locationName}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-surface-500">Status Pendaftaran:</span>
-                <span className="font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                  Menunggu Review Panitia
-                </span>
-              </div>
-            </div>
-
-            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2">
-              <Link
-                to="/kajian"
-                className="w-full sm:w-auto px-6 py-2.5 bg-brand-900 hover:bg-brand-950 text-white rounded-2xl text-xs font-bold shadow-md transition-all text-center"
-              >
-                Selesai & Kembali ke Portal
-              </Link>
             </div>
           </div>
-        ) : (
+        </div>
+
+        {/* Tab Switcher: Pendaftaran vs Survei */}
+        {bazaar.surveyEnabled && (
+          <div className="bg-white p-1.5 rounded-2xl border border-cream-300 flex items-center gap-1 text-xs font-bold shadow-2xs">
+            <button
+              onClick={() => setActivePortalTab('register')}
+              className={`flex-1 py-2 rounded-xl transition-all ${
+                activePortalTab === 'register' ? 'bg-brand-900 text-white shadow-xs' : 'text-surface-600 hover:bg-cream-100'
+              }`}
+            >
+              Formulir Pendaftaran Tenant
+            </button>
+            <button
+              onClick={() => setActivePortalTab('survey')}
+              className={`flex-1 py-2 rounded-xl transition-all ${
+                activePortalTab === 'survey' ? 'bg-brand-900 text-white shadow-xs' : 'text-surface-600 hover:bg-cream-100'
+              }`}
+            >
+              Survei Pasca-Event (Omzet & Kepuasan)
+            </button>
+          </div>
+        )}
+
+        {/* ========================================================
+            MODE 1: FORMULIR PENDAFTARAN TENANT
+        ======================================================== */}
+        {activePortalTab === 'register' && (
           <>
-            {/* EVENT BANNER CARD */}
-            <div className="bg-gradient-to-br from-brand-950 via-brand-900 to-brand-950 rounded-3xl p-5 sm:p-7 text-white shadow-lg space-y-3 relative overflow-hidden border border-brand-800">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-gold-400 text-gold-950 font-display">
-                  Pendaftaran Tenant Bazar
-                </span>
-                <span className="text-[10px] font-bold text-white/80">
-                  Kajian & Daurah Khusus
-                </span>
-              </div>
+            {registeredSuccess ? (
+              <div className="bg-white rounded-3xl p-6 sm:p-8 border border-cream-300 shadow-xl text-center space-y-5 animate-fade-in">
+                <div className="w-16 h-16 rounded-3xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto border border-emerald-200 shadow-xs">
+                  <CheckCircle2 className="w-9 h-9" />
+                </div>
 
-              <h1 className="text-xl sm:text-2xl font-black font-display text-white tracking-tight">
-                {bazaar.title}
-              </h1>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-white/80 pt-2 border-t border-brand-800/80">
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-gold-300 shrink-0" />
-                  <span>
-                    {new Date(event.startAt).toLocaleDateString('id-ID', {
-                      weekday: 'long',
-                      day: 'numeric',
-                      month: 'long',
-                      year: 'numeric',
-                    })}
+                <div className="space-y-1">
+                  <span className="text-[10px] font-black uppercase text-emerald-800 tracking-wider">
+                    Pendaftaran Berhasil Dikirim
                   </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-gold-300 shrink-0" />
-                  <span className="truncate">{event.locationName || 'Masjid Tarbiyah Sunnah'}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-gold-300 shrink-0" />
-                  <span>Pemateri: {event.speaker}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* STEP 1: INTERACTIVE "WAR TEMPAT" BOOTH SELECTION */}
-            <div className="bg-white rounded-3xl p-5 sm:p-6 border border-cream-300 shadow-2xs space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-cream-200 pb-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="w-6 h-6 rounded-full bg-brand-900 text-gold-300 flex items-center justify-center text-xs font-black">
-                      1
-                    </span>
-                    <h3 className="text-base font-black text-brand-950 font-display">
-                      Pilih Posisi Stand / Booth Favorit ("War Tempat")
-                    </h3>
-                  </div>
-                  <p className="text-xs text-surface-600 mt-0.5">
-                    Klik pada slot booth yang berwarna <strong className="text-emerald-700">Hijau (Tersedia)</strong> untuk memesan spot secara langsung.
+                  <h3 className="text-xl font-black text-brand-950 font-display">
+                    Jazakumullahu Khairan, {registeredSuccess.tenant?.brandName}!
+                  </h3>
+                  <p className="text-xs text-surface-600 max-w-md mx-auto leading-relaxed">
+                    Formulir pendaftaran telah masuk ke sistem panitia. Nomor booth dan penempatan akan dikurasi secara
+                    tertib dan dikonfirmasi melalui WhatsApp.
                   </p>
                 </div>
 
-                {/* Zone Filter */}
-                <div className="flex items-center gap-1.5 overflow-x-auto">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedZone('all')}
-                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-                      selectedZone === 'all'
-                        ? 'bg-brand-900 text-white shadow-2xs'
-                        : 'bg-cream-100 text-surface-700 hover:bg-cream-200'
-                    }`}
-                  >
-                    Semua Area
-                  </button>
-                  {allZones.map((z) => (
-                    <button
-                      key={z}
-                      type="button"
-                      onClick={() => setSelectedZone(z)}
-                      className={`px-3 py-1 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-                        selectedZone === z
-                          ? 'bg-brand-900 text-white shadow-2xs'
-                          : 'bg-cream-100 text-surface-700 hover:bg-cream-200'
-                      }`}
-                    >
-                      {z}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Booths Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                {filteredBooths.map((b) => {
-                  const isAvailable = b.status === 'available';
-                  const isSelected = selectedBooth?.id === b.id;
-
-                  return (
-                    <button
-                      key={b.id}
-                      type="button"
-                      disabled={!isAvailable}
-                      onClick={() => setSelectedBooth(b)}
-                      className={`p-3.5 rounded-2xl border text-left transition-all relative flex flex-col justify-between space-y-2 active:scale-95 ${
-                        isSelected
-                          ? 'bg-brand-950 text-white border-brand-950 ring-4 ring-gold-400 shadow-md'
-                          : isAvailable
-                          ? 'bg-emerald-50/90 border-emerald-300 hover:border-emerald-500 hover:shadow-xs cursor-pointer'
-                          : 'bg-cream-200/70 border-cream-300 text-surface-400 cursor-not-allowed opacity-75'
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center justify-between">
-                          <span className={`font-mono text-sm font-black ${isSelected ? 'text-gold-300' : 'text-brand-950'}`}>
-                            {b.code}
-                          </span>
-                          <span
-                            className={`text-[9px] font-black uppercase px-1.5 py-0.2 rounded-full ${
-                              isSelected
-                                ? 'bg-gold-400 text-gold-950'
-                                : isAvailable
-                                ? 'bg-emerald-200 text-emerald-950'
-                                : 'bg-surface-300 text-surface-700'
-                            }`}
-                          >
-                            {isSelected ? 'Dipilih' : isAvailable ? 'Kosong' : 'Terisi'}
-                          </span>
-                        </div>
-
-                        <p className={`text-xs font-bold mt-1 truncate ${isSelected ? 'text-white' : 'text-surface-800'}`}>
-                          {b.name}
-                        </p>
-                        <p className={`text-[10px] ${isSelected ? 'text-white/80' : 'text-surface-500'}`}>{b.zone}</p>
-                      </div>
-
-                      <div className={`pt-2 border-t text-[11px] font-mono font-bold ${isSelected ? 'border-brand-800 text-gold-300' : 'border-cream-200 text-brand-900'}`}>
-                        Rp {b.priceRupiah.toLocaleString('id-ID')}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Selected Booth Confirmation Box */}
-              {selectedBooth && (
-                <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-700 text-white flex items-center justify-center font-mono font-black text-sm">
-                      {selectedBooth.code}
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-black text-emerald-950">{selectedBooth.name} ({selectedBooth.zone})</h4>
-                      <p className="text-[11px] text-emerald-800">
-                        Ukuran: {selectedBooth.size} • Fasilitas: {(selectedBooth.facilities || []).join(', ') || 'Standard'}
-                      </p>
-                    </div>
+                <div className="p-4 bg-cream-50/70 rounded-2xl border border-cream-200 max-w-md mx-auto text-xs space-y-2 text-left">
+                  <div className="flex items-center justify-between">
+                    <span className="text-surface-500">ID Pendaftaran:</span>
+                    <span className="font-mono font-bold text-surface-900">{registeredSuccess.application?.id}</span>
                   </div>
-                  <div className="text-right">
-                    <span className="text-[10px] text-emerald-700 block">Tarif Infaq Booth:</span>
-                    <span className="font-mono font-black text-sm text-emerald-950">
-                      Rp {selectedBooth.priceRupiah.toLocaleString('id-ID')}
+                  <div className="flex items-center justify-between">
+                    <span className="text-surface-500">Status Awal:</span>
+                    <span className="font-bold text-emerald-800">
+                      {registeredSuccess.application?.status === 'payment_verification'
+                        ? 'Menunggu Verifikasi Keuangan'
+                        : 'Formulir Diterima (Review Panitia)'}
                     </span>
                   </div>
                 </div>
-              )}
-            </div>
-
-            {/* STEP 2: REGISTRATION FORM */}
-            <form onSubmit={handleSubmitRegistration} className="bg-white rounded-3xl p-5 sm:p-6 border border-cream-300 shadow-2xs space-y-5">
-              <div className="flex items-center gap-2 border-b border-cream-200 pb-3">
-                <span className="w-6 h-6 rounded-full bg-brand-900 text-gold-300 flex items-center justify-center text-xs font-black">
-                  2
-                </span>
-                <h3 className="text-base font-black text-brand-950 font-display">
-                  Kelengkapan Administrasi & Data Usaha
-                </h3>
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            ) : (
+              <form
+                onSubmit={handleSubmitRegistration}
+                className="bg-white rounded-3xl p-6 sm:p-8 border border-cream-300 shadow-xl space-y-6"
+              >
                 <div>
-                  <label className="block text-xs font-bold text-brand-950 mb-1">Nama Brand / Usaha *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Contoh: Madu Murni Al-Barokah"
-                    value={formData.brandName}
-                    onChange={(e) => setFormData({ ...formData, brandName: e.target.value })}
-                    className="w-full p-2.5 border border-cream-300 rounded-xl text-xs focus:ring-2 focus:ring-brand-700"
-                  />
+                  <h3 className="text-base font-black text-brand-950 font-display">
+                    Formulir Profil Usaha & Pengajuan Tenant
+                  </h3>
+                  <p className="text-xs text-surface-600 mt-0.5">
+                    Data ini akan tersimpan ke Profil Master Tenant CRM YTS untuk kemudahan keikutsertaan event mendatang.
+                  </p>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-brand-950 mb-1">Kategori Produk / Usaha *</label>
-                  <select
-                    value={formData.businessCategory}
-                    onChange={(e) => setFormData({ ...formData, businessCategory: e.target.value })}
-                    className="w-full p-2.5 border border-cream-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-brand-700"
-                  >
-                    {BAZAAR_CATEGORIES.map((c) => (
-                      <option key={c.id} value={c.id}>{c.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+                {/* Section 1: Data Usaha & PIC */}
+                <div className="space-y-4 pt-2 border-t border-cream-200">
+                  <h4 className="text-xs font-bold text-brand-900 uppercase tracking-wider">
+                    1. Identitas Brand & Penanggung Jawab
+                  </h4>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-brand-950 mb-1">Nama Penanggung Jawab (PIC) *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Nama Lengkap Sesuai KTP"
-                    value={formData.picName}
-                    onChange={(e) => setFormData({ ...formData, picName: e.target.value })}
-                    className="w-full p-2.5 border border-cream-300 rounded-xl text-xs focus:ring-2 focus:ring-brand-700"
-                  />
-                </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
+                    <div>
+                      <label className="font-bold text-surface-700 block mb-1">
+                        Nama Brand / Usaha <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Contoh: Kopi Sunnah / Gamis Khimar"
+                        value={formData.brandName}
+                        onChange={(e) => setFormData({ ...formData, brandName: e.target.value })}
+                        className="w-full p-2.5 border border-cream-300 rounded-xl bg-cream-50/30 font-medium"
+                        required
+                      />
+                    </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-brand-950 mb-1">Nomor WhatsApp Aktif *</label>
-                  <input
-                    type="tel"
-                    required
-                    placeholder="0812xxxxxxxx"
-                    value={formData.picPhone}
-                    onChange={(e) => setFormData({ ...formData, picPhone: e.target.value })}
-                    className="w-full p-2.5 border border-cream-300 rounded-xl text-xs focus:ring-2 focus:ring-brand-700"
-                  />
-                </div>
+                    <div>
+                      <label className="font-bold text-surface-700 block mb-1">
+                        Kategori Usaha <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={formData.businessCategory}
+                        onChange={(e) => setFormData({ ...formData, businessCategory: e.target.value })}
+                        className="w-full p-2.5 border border-cream-300 rounded-xl bg-cream-50/30 font-medium"
+                        required
+                      >
+                        {BAZAAR_CATEGORIES.map((cat) => (
+                          <option key={cat.value} value={cat.value}>
+                            {cat.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-brand-950 mb-1">Nomor KTP (Opsional)</label>
-                  <input
-                    type="text"
-                    maxLength={16}
-                    placeholder="16 Digit NIK KTP"
-                    value={formData.picKtpNumber}
-                    onChange={(e) => setFormData({ ...formData, picKtpNumber: e.target.value })}
-                    className="w-full p-2.5 border border-cream-300 rounded-xl text-xs font-mono"
-                  />
-                </div>
-              </div>
+                    <div>
+                      <label className="font-bold text-surface-700 block mb-1">
+                        Nama Lengkap PIC / Penanggung Jawab <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Nama penanggung jawab stand"
+                        value={formData.picName}
+                        onChange={(e) => setFormData({ ...formData, picName: e.target.value })}
+                        className="w-full p-2.5 border border-cream-300 rounded-xl bg-cream-50/30 font-medium"
+                        required
+                      />
+                    </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-brand-950 mb-1">Link Instagram / Toko Online / Website</label>
-                  <input
-                    type="text"
-                    placeholder="https://instagram.com/namabrand"
-                    value={formData.socialMedia}
-                    onChange={(e) => setFormData({ ...formData, socialMedia: e.target.value })}
-                    className="w-full p-2.5 border border-cream-300 rounded-xl text-xs"
-                  />
-                </div>
+                    <div>
+                      <label className="font-bold text-surface-700 block mb-1">
+                        Nomor WhatsApp Aktif <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="tel"
+                        placeholder="08123456789"
+                        value={formData.picPhone}
+                        onChange={(e) => setFormData({ ...formData, picPhone: e.target.value })}
+                        className="w-full p-2.5 border border-cream-300 rounded-xl bg-cream-50/30 font-mono font-medium"
+                        required
+                      />
+                    </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-brand-950 mb-1">Email Aktif (Opsional)</label>
-                  <input
-                    type="email"
-                    placeholder="email@domain.com"
-                    value={formData.picEmail}
-                    onChange={(e) => setFormData({ ...formData, picEmail: e.target.value })}
-                    className="w-full p-2.5 border border-cream-300 rounded-xl text-xs"
-                  />
-                </div>
-              </div>
+                    <div>
+                      <label className="font-bold text-surface-700 block mb-1">Akun Instagram / Medsos</label>
+                      <input
+                        type="text"
+                        placeholder="@username_brand"
+                        value={formData.instagram}
+                        onChange={(e) => setFormData({ ...formData, instagram: e.target.value })}
+                        className="w-full p-2.5 border border-cream-300 rounded-xl bg-cream-50/30 font-medium"
+                      />
+                    </div>
 
-              <div>
-                <label className="block text-xs font-bold text-brand-950 mb-1">Deskripsi Menu / Produk yang Dijual *</label>
-                <textarea
-                  rows={3}
-                  required
-                  placeholder="Sebutkan jenis produk, menu makanan/minuman, atau layanan yang akan dipasarkan di stan bazar..."
-                  value={formData.productDescription}
-                  onChange={(e) => setFormData({ ...formData, productDescription: e.target.value })}
-                  className="w-full p-2.5 border border-cream-300 rounded-xl text-xs focus:ring-2 focus:ring-brand-700"
-                />
-              </div>
+                    <div>
+                      <label className="font-bold text-surface-700 block mb-1">Nomor KTP (NIK)</label>
+                      <input
+                        type="text"
+                        placeholder="16 digit NIK"
+                        value={formData.picKtpNumber}
+                        onChange={(e) => setFormData({ ...formData, picKtpNumber: e.target.value })}
+                        className="w-full p-2.5 border border-cream-300 rounded-xl bg-cream-50/30 font-mono font-medium"
+                      />
+                    </div>
 
-              {/* Electricity Requirement */}
-              <div className="p-3.5 bg-cream-50/80 rounded-2xl border border-cream-300 space-y-2">
-                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-brand-950">
-                  <input
-                    type="checkbox"
-                    checked={formData.electricityNeeded}
-                    onChange={(e) => setFormData({ ...formData, electricityNeeded: e.target.checked })}
-                    className="rounded border-cream-300 text-brand-900 focus:ring-brand-700"
-                  />
-                  <span>Memerlukan Sambungan Daya Listrik Tambahan</span>
-                </label>
-
-                {formData.electricityNeeded && (
-                  <div className="pt-2 animate-in fade-in">
-                    <label className="block text-[11px] font-semibold text-surface-600 mb-1">
-                      Estimasi Daya Listrik yang Dibutuhkan (Watt)
-                    </label>
-                    <input
-                      type="number"
-                      placeholder="Contoh: 450 atau 900 Watt"
-                      value={formData.electricityWatts}
-                      onChange={(e) => setFormData({ ...formData, electricityWatts: parseInt(e.target.value) || 0 })}
-                      className="w-full max-w-xs p-2 border border-cream-300 rounded-xl text-xs bg-white font-mono"
-                    />
+                    <div className="sm:col-span-2">
+                      <label className="font-bold text-surface-700 block mb-1">
+                        Deskripsi Menu / Produk yang Dijual <span className="text-red-500">*</span>
+                      </label>
+                      <textarea
+                        rows={3}
+                        placeholder="Tuliskan daftar produk, makanan/minuman, busana, atau layanan..."
+                        value={formData.productDescription}
+                        onChange={(e) => setFormData({ ...formData, productDescription: e.target.value })}
+                        className="w-full p-2.5 border border-cream-300 rounded-xl bg-cream-50/30 font-medium"
+                        required
+                      />
+                    </div>
                   </div>
-                )}
-              </div>
-
-              {/* STEP 3: PAYMENT INSTRUCTIONS */}
-              <div className="p-4 bg-brand-50/80 rounded-2xl border border-brand-200 space-y-3">
-                <div className="flex items-center gap-2 text-brand-950 font-bold text-xs">
-                  <CreditCard className="w-4 h-4 text-brand-800" />
-                  <span>Petunjuk Pembayaran Infaq / Biaya Sewa Booth</span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                  <div className="p-3 bg-white rounded-xl border border-brand-200 space-y-1">
-                    <span className="text-[10px] text-surface-500 block">Transfer ke Rekening Resmi Yayasan:</span>
-                    <p className="font-bold text-brand-950">{bazaar.bankName || 'BSI (Bank Syariah Indonesia)'}</p>
-                    <div className="flex items-center justify-between pt-1">
-                      <span className="font-mono text-sm font-black text-brand-900">{bazaar.bankAccountNumber || '7144778899'}</span>
+                {/* Section 2: Preferensi Stand & Listrik */}
+                <div className="space-y-4 pt-2 border-t border-cream-200">
+                  <h4 className="text-xs font-bold text-brand-900 uppercase tracking-wider">
+                    2. Kebutuhan Teknis & Preferensi Lokasi Stand
+                  </h4>
+
+                  <div className="space-y-3 text-xs">
+                    <div>
+                      <label className="font-bold text-surface-700 block mb-1">
+                        Catatan Preferensi / Kebutuhan Khusus Stand
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="misal: Butuh dekat pintu keluar logistik, dekat sumber air wudhu, dll."
+                        value={formData.boothPreferences}
+                        onChange={(e) => setFormData({ ...formData, boothPreferences: e.target.value })}
+                        className="w-full p-2.5 border border-cream-300 rounded-xl bg-cream-50/30"
+                      />
+                    </div>
+
+                    <div className="p-3.5 bg-cream-50/70 rounded-2xl border border-cream-200 space-y-2">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formData.electricityNeeded}
+                          onChange={(e) => setFormData({ ...formData, electricityNeeded: e.target.checked })}
+                          className="rounded text-brand-900 focus:ring-brand-700"
+                        />
+                        <span className="font-bold text-surface-800">Memerlukan Sambungan Daya Listrik Tambahan</span>
+                      </label>
+
+                      {formData.electricityNeeded && (
+                        <div className="pt-2">
+                          <label className="font-bold text-surface-700 block mb-1">Estimasi Daya (Watt):</label>
+                          <input
+                            type="number"
+                            placeholder="Contoh: 450 atau 900 Watt"
+                            value={formData.electricityWatts || ''}
+                            onChange={(e) => setFormData({ ...formData, electricityWatts: Number(e.target.value) })}
+                            className="w-full max-w-xs p-2 border border-cream-300 rounded-xl bg-white font-mono"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 3: Infaq Stand & Bukti Transfer */}
+                <div className="space-y-4 pt-2 border-t border-cream-200">
+                  <h4 className="text-xs font-bold text-brand-900 uppercase tracking-wider">
+                    3. Rekening Penerimaan & Bukti Infaq Stand
+                  </h4>
+
+                  <div className="p-4 bg-emerald-50/70 rounded-2xl border border-emerald-200 text-xs space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] font-bold text-emerald-800 uppercase block">
+                          Nominal Infaq / Biaya Stand:
+                        </span>
+                        <span className="text-lg font-black text-emerald-950 font-display">
+                          Rp {bazaar.defaultFeeRupiah.toLocaleString('id-ID')}
+                        </span>
+                      </div>
+
                       <button
                         type="button"
                         onClick={handleCopyBankAccount}
-                        className="py-1 px-2 bg-cream-100 hover:bg-cream-200 text-brand-950 rounded-lg text-[10px] font-bold border border-cream-300 flex items-center gap-1"
+                        className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold flex items-center gap-1 shadow-2xs"
                       >
-                        {copiedBank ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                        <span>{copiedBank ? 'Tersalin' : 'Salin'}</span>
+                        {copiedBank ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedBank ? 'Tersalin' : 'Salin Rekening'}</span>
                       </button>
                     </div>
-                    <p className="text-[10px] text-surface-600">a.n. {bazaar.bankAccountName || 'Yayasan Tarbiyah Sunnah (Bazar)'}</p>
+
+                    <div className="border-t border-emerald-200/60 pt-2 text-[11px] text-emerald-900">
+                      <p className="font-bold">{bazaar.bankName || 'Bank Syariah Indonesia (BSI)'}</p>
+                      <p className="font-mono font-black text-sm">{bazaar.bankAccountNumber || '7144778899'}</p>
+                      <p className="text-emerald-700">a.n {bazaar.bankAccountName || 'Yayasan Tarbiyah Sunnah'}</p>
+                    </div>
                   </div>
 
-                  <div className="space-y-1">
-                    <label className="block text-xs font-bold text-brand-950">Unggah Bukti Transfer (Opsional saat daftar):</label>
+                  <div className="text-xs">
+                    <label className="font-bold text-surface-700 block mb-1">Upload Bukti Transfer / Struk (Opsional saat daftar):</label>
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/*,.pdf"
                       onChange={handleFileUpload}
-                      className="block w-full text-xs text-surface-500 file:mr-2 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-brand-900 file:text-white hover:file:bg-brand-950"
+                      className="w-full text-xs text-surface-600 file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-brand-900 file:text-white hover:file:bg-brand-950 cursor-pointer"
                     />
-                    <p className="text-[10px] text-surface-500 mt-1">
-                      * Bukti transfer juga dapat dikonfirmasi via WhatsApp setelah pengajuan disetujui panitia.
-                    </p>
                   </div>
                 </div>
-              </div>
 
-              {/* RULES & TERMS OF THE MAJELIS */}
-              <div className="p-4 bg-cream-50 rounded-2xl border border-cream-300 space-y-2 text-xs">
-                <div className="flex items-center gap-1.5 text-brand-950 font-bold">
-                  <ShieldAlert className="w-4 h-4 text-emerald-700" />
-                  <span>Tata Tertib & Adab Berjualan di Lingkungan Majelis</span>
+                {/* Section 4: Persetujuan Adab Majelis */}
+                <div className="p-4 bg-cream-50 rounded-2xl border border-cream-200 text-xs space-y-2">
+                  <div className="flex items-start gap-2">
+                    <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                    <div>
+                      <h5 className="font-bold text-surface-900">Tata Tertib & Adab Majelis Syar'i</h5>
+                      <p className="text-surface-600 mt-1 whitespace-pre-line leading-relaxed text-[11px]">
+                        {bazaar.rulesAndTerms ||
+                          "1. Seluruh produk wajib halal & thayyib.\n2. Berpakaian syar'i dan santun selama di area majelis.\n3. Wajib menutup stand/lapak saat adzan & sholat berjamaah berlangsung.\n4. Dilarang memutar musik dan transaksi ribawi/syubhat."}
+                      </p>
+                    </div>
+                  </div>
+
+                  <label className="flex items-center gap-2 pt-2 cursor-pointer font-bold text-brand-950 border-t border-cream-200">
+                    <input
+                      type="checkbox"
+                      checked={formData.agreedToRules}
+                      onChange={(e) => setFormData({ ...formData, agreedToRules: e.target.checked })}
+                      className="rounded text-brand-900 focus:ring-brand-700"
+                      required
+                    />
+                    <span>Saya memahami dan menyetujui seluruh tata tertib majelis di atas.</span>
+                  </label>
                 </div>
-                <div className="p-3 bg-white rounded-xl border border-cream-200 text-[11px] text-surface-700 whitespace-pre-line leading-relaxed font-mono">
-                  {bazaar.rulesAndTerms ||
-                    '1. Seluruh produk wajib halal & thayyib.\n2. Berpakaian syar\'i dan santun selama di area majelis.\n3. Wajib menutup stand/lapak saat adzan & sholat berjamaah berlangsung.\n4. Dilarang memutar musik dan transaksi ribawi/syubhat.'}
-                </div>
 
-                <label className="flex items-center gap-2 cursor-pointer pt-1 text-xs font-bold text-brand-950">
-                  <input
-                    type="checkbox"
-                    required
-                    checked={formData.agreedToRules}
-                    onChange={(e) => setFormData({ ...formData, agreedToRules: e.target.checked })}
-                    className="rounded border-cream-300 text-brand-900 focus:ring-brand-700"
-                  />
-                  <span>Saya memahami dan menyetujui seluruh tata tertib & adab majelis di atas *</span>
-                </label>
-              </div>
-
-              {/* SUBMIT BUTTON */}
-              <div className="pt-3 border-t border-cream-200 flex items-center justify-end gap-3">
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="w-full sm:w-auto px-8 py-3 bg-brand-900 hover:bg-brand-950 text-white rounded-2xl text-xs font-black shadow-lg hover:shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2"
+                  className="w-full py-3.5 bg-brand-900 hover:bg-brand-950 text-white rounded-2xl font-bold text-sm shadow-xl active:scale-98 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  <Store className="w-4 h-4 text-gold-300" />
-                  <span>{submitting ? 'Memproses Pendaftaran...' : 'Kirim Pendaftaran Tenant Sekarang'}</span>
+                  <Send className="w-4 h-4 text-gold-300" />
+                  <span>{submitting ? 'Mengirim Pendaftaran...' : 'Kirim Formulir Pendaftaran Tenant'}</span>
                 </button>
-              </div>
-            </form>
+              </form>
+            )}
           </>
+        )}
+
+        {/* ========================================================
+            MODE 2: SURVEI PASCA-EVENT (OMZET & KEPUASAN)
+        ======================================================== */}
+        {activePortalTab === 'survey' && (
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-cream-300 shadow-xl space-y-6">
+            <div>
+              <h3 className="text-base font-black text-brand-950 font-display">
+                Kuesioner Evaluasi & Survei Pasca-Event
+              </h3>
+              <p className="text-xs text-surface-600 mt-0.5">
+                Evaluasi Anda sangat berharga untuk peningkatan kualitas operasional dan kenyamanan bazar kajian berikutnya.
+              </p>
+            </div>
+
+            {surveySuccess ? (
+              <div className="p-8 text-center bg-emerald-50 rounded-2xl border border-emerald-200 space-y-3">
+                <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto" />
+                <h4 className="font-bold text-emerald-950">Jazakumullahu Khairan atas Masukan Anda!</h4>
+                <p className="text-xs text-emerald-800">
+                  Data survei telah tersimpan dan menjadi histori performa kemitraan tenant di YTS.
+                </p>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmitSurvey} className="space-y-4 text-xs">
+                <div>
+                  <label className="font-bold text-surface-700 block mb-1">
+                    ID Pendaftaran / Tenant ID <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Masukkan ID Pendaftaran yang Anda terima saat mendaftar"
+                    value={surveyData.applicationId}
+                    onChange={(e) => setSurveyData({ ...surveyData, applicationId: e.target.value })}
+                    className="w-full p-2.5 border border-cream-300 rounded-xl font-mono"
+                    required
+                  />
+                </div>
+
+                {/* Omzet Range Selector */}
+                <div className="space-y-1.5 pt-2 border-t border-cream-200">
+                  <label className="font-bold text-surface-800 block">
+                    Estimasi Rentang Omzet Penjualan Selama Event: <span className="text-red-500">*</span>
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    {[
+                      { key: '<1m', label: '< Rp 1 Juta' },
+                      { key: '1-2m', label: 'Rp 1 - 2 Juta' },
+                      { key: '2-5m', label: 'Rp 2 - 5 Juta' },
+                      { key: '5-10m', label: 'Rp 5 - 10 Juta' },
+                      { key: '>10m', label: '> Rp 10 Juta' },
+                    ].map((item) => (
+                      <button
+                        type="button"
+                        key={item.key}
+                        onClick={() => setSurveyData({ ...surveyData, omzetRange: item.key as any })}
+                        className={`p-2.5 rounded-xl border text-center font-bold transition-all ${
+                          surveyData.omzetRange === item.key
+                            ? 'bg-brand-900 text-white border-brand-900 shadow-2xs'
+                            : 'bg-cream-50 text-surface-700 border-cream-300 hover:bg-cream-100'
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Satisfaction Questions */}
+                <div className="space-y-3 pt-2 border-t border-cream-200">
+                  <h5 className="font-bold text-brand-900 uppercase tracking-wider text-[11px]">
+                    Tingkat Kepuasan Fasilitas & Layanan (Skala 1 - 5)
+                  </h5>
+
+                  {[
+                    { key: 'satisfactionOverall', label: 'Kepuasan Keseluruhan Pelaksanaan Bazar' },
+                    { key: 'satisfactionLocation', label: 'Kenyamanan Lokasi Stand & Fasilitas' },
+                    { key: 'satisfactionTraffic', label: 'Kepadatan Arus Traffic Pengunjung Jamaah' },
+                    { key: 'satisfactionCommunication', label: 'Komunikasi & Pendampingan Panitia' },
+                  ].map((q) => (
+                    <div key={q.key} className="flex items-center justify-between p-2.5 bg-cream-50/50 rounded-xl border border-cream-200">
+                      <span className="font-medium text-surface-800">{q.label}</span>
+                      <div className="flex items-center gap-1">
+                        {[1, 2, 3, 4, 5].map((val) => (
+                          <button
+                            type="button"
+                            key={val}
+                            onClick={() => setSurveyData({ ...surveyData, [q.key]: val })}
+                            className={`w-7 h-7 rounded-lg text-xs font-bold transition-all ${
+                              (surveyData as any)[q.key] === val
+                                ? 'bg-amber-500 text-white shadow-xs'
+                                : 'bg-white text-surface-600 border border-cream-300'
+                            }`}
+                          >
+                            {val}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div>
+                  <label className="font-bold text-surface-700 block mb-1">Kritik, Saran & Masukan untuk Panitia:</label>
+                  <textarea
+                    rows={3}
+                    placeholder="Tuliskan masukan atau hal yang perlu ditingkatkan..."
+                    value={surveyData.feedback}
+                    onChange={(e) => setSurveyData({ ...surveyData, feedback: e.target.value })}
+                    className="w-full p-2.5 border border-cream-300 rounded-xl bg-cream-50/30"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="w-full py-3 bg-brand-900 hover:bg-brand-950 text-white rounded-2xl font-bold text-xs shadow-md transition-all disabled:opacity-50"
+                >
+                  {submitting ? 'Mengirim Survei...' : 'Kirim Jawaban Survei'}
+                </button>
+              </form>
+            )}
+          </div>
         )}
       </main>
 
-      {/* 3. FOOTER */}
-      <footer className="bg-brand-950 text-white/70 py-6 text-center text-xs border-t border-brand-800">
-        <p className="font-bold text-white">Yayasan Tarbiyah Sunnah (YTS) • Panitia Penyelenggara Bazar Daurah</p>
-        <p className="text-[11px] text-white/50 mt-1">
-          Jl. Jurang No.64, Pasteur, Sukajadi, Kota Bandung • WhatsApp: 0811-2401-476
-        </p>
+      {/* FOOTER */}
+      <footer className="border-t border-cream-300 bg-white py-6 mt-12">
+        <div className="max-w-5xl mx-auto px-4 text-center text-xs text-surface-500 space-y-1">
+          <p className="font-bold text-brand-950">Yayasan Tarbiyah Sunnah (YTS)</p>
+          <p>Jl. Jurang No.64, Pasteur, Kec. Sukajadi, Kota Bandung, Jawa Barat 40161</p>
+        </div>
       </footer>
     </div>
   );
