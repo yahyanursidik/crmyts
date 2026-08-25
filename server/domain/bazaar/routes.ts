@@ -342,7 +342,9 @@ const publicApplySchema = z.object({
 });
 
 const publicSurveySchema = z.object({
-  applicationId: z.string().uuid(),
+  applicationId: z.string().optional().nullable(),
+  phone: z.string().optional().nullable(),
+  brandName: z.string().optional().nullable(),
   satisfactionOverall: z.number().int().min(1).max(5),
   satisfactionLocation: z.number().int().min(1).max(5),
   satisfactionFacilities: z.number().int().min(1).max(5),
@@ -1114,7 +1116,7 @@ export function registerBazaarRoutes(router: Router) {
         },
       });
 
-      // Omzet distribution stats
+      // Omzet distribution stats & Average Satisfaction
       const omzetCounts: Record<string, number> = {
         '<1m': 0,
         '1-2m': 0,
@@ -1123,17 +1125,41 @@ export function registerBazaarRoutes(router: Router) {
         '>10m': 0,
       };
 
+      let sumOverall = 0;
+      let sumLocation = 0;
+      let sumFacilities = 0;
+      let sumTraffic = 0;
+      let sumCommunication = 0;
+      let willingCount = 0;
+
       surveys.forEach((s) => {
         const key = s.omzetRange as string;
         if (omzetCounts[key] !== undefined) {
           omzetCounts[key]++;
         }
+        sumOverall += s.satisfactionOverall || 0;
+        sumLocation += s.satisfactionLocation || 0;
+        sumFacilities += s.satisfactionFacilities || 0;
+        sumTraffic += s.satisfactionTraffic || 0;
+        sumCommunication += s.satisfactionCommunication || 0;
+        if (s.willingToJoinNext) willingCount++;
       });
+
+      const n = surveys.length || 1;
+      const averages = {
+        overall: surveys.length ? +(sumOverall / n).toFixed(1) : 0,
+        location: surveys.length ? +(sumLocation / n).toFixed(1) : 0,
+        facilities: surveys.length ? +(sumFacilities / n).toFixed(1) : 0,
+        traffic: surveys.length ? +(sumTraffic / n).toFixed(1) : 0,
+        communication: surveys.length ? +(sumCommunication / n).toFixed(1) : 0,
+        willingPercentage: surveys.length ? Math.round((willingCount / surveys.length) * 100) : 0,
+      };
 
       return successResponse(
         {
           items: surveys,
           omzetDistribution: omzetCounts,
+          averages,
           totalResponses: surveys.length,
         },
         { requestId: ctx.requestId }
@@ -1235,6 +1261,12 @@ export function registerBazaarRoutes(router: Router) {
         booths: {
           orderBy: [asc(bazaarBooths.zone), asc(bazaarBooths.code)],
         },
+        applications: {
+          with: {
+            tenant: true,
+            assignedBooth: true,
+          },
+        },
       },
     });
 
@@ -1253,6 +1285,17 @@ export function registerBazaarRoutes(router: Router) {
       allowedCategory: b.allowedCategory,
       status: b.status,
     }));
+
+    const registeredTenants = bazaar.applications
+      .filter((a) => a.status !== 'rejected' && a.status !== 'cancelled')
+      .map((a) => ({
+        id: a.id,
+        brandName: a.tenant?.brandName || 'Tenant',
+        picName: a.tenant?.picName || '',
+        category: a.tenant?.businessCategory || '',
+        boothCode: a.assignedBooth?.code || null,
+        status: a.status,
+      }));
 
     return successResponse(
       {
@@ -1277,9 +1320,11 @@ export function registerBazaarRoutes(router: Router) {
           paymentInstructions: bazaar.paymentInstructions,
           registrationDeadline: bazaar.registrationDeadline,
           paymentDeadline: bazaar.paymentDeadline,
+          surveyDeadline: bazaar.surveyDeadline,
           surveyEnabled: bazaar.surveyEnabled,
           layoutZones: bazaar.layoutZones,
           booths: sanitizedBooths,
+          registeredTenants,
         },
       },
       { requestId: ctx.requestId }
@@ -1426,26 +1471,58 @@ export function registerBazaarRoutes(router: Router) {
         return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
       }
 
-      const application = await db.query.bazaarApplications.findFirst({
-        where: eq(bazaarApplications.id, body.applicationId),
-      });
+      let application: any = null;
+
+      if (body.applicationId) {
+        application = await db.query.bazaarApplications.findFirst({
+          where: eq(bazaarApplications.id, body.applicationId),
+          with: { tenant: true },
+        });
+      }
+
+      if (!application && (body.phone || body.brandName)) {
+        const bazaar = await db.query.bazaarEvents.findFirst({
+          where: eq(bazaarEvents.eventId, eventId),
+        });
+
+        if (bazaar) {
+          const apps = await db.query.bazaarApplications.findMany({
+            where: eq(bazaarApplications.bazaarId, bazaar.id),
+            with: { tenant: true },
+          });
+
+          const normalizedPhone = body.phone ? normalizeIndonesianPhone(body.phone) : null;
+          const searchBrand = body.brandName ? body.brandName.trim().toLowerCase() : null;
+
+          application = apps.find((a) => {
+            if (normalizedPhone && a.tenant?.picPhone && normalizeIndonesianPhone(a.tenant.picPhone) === normalizedPhone) return true;
+            if (searchBrand && a.tenant?.brandName && a.tenant.brandName.toLowerCase().includes(searchBrand)) return true;
+            return false;
+          });
+        }
+      }
 
       if (!application) {
-        return errorResponse('NOT_FOUND', 'Data pendaftaran tidak ditemukan.', 404, ctx.requestId);
+        return errorResponse(
+          'NOT_FOUND',
+          'Data pendaftaran tenant tidak ditemukan. Pastikan No. WhatsApp atau Nama Brand terdaftar pada event ini.',
+          404,
+          ctx.requestId
+        );
       }
 
       const existingSurvey = await db.query.bazaarSurveys.findFirst({
-        where: eq(bazaarSurveys.applicationId, body.applicationId),
+        where: eq(bazaarSurveys.applicationId, application.id),
       });
 
       if (existingSurvey) {
-        return errorResponse('CONFLICT', 'Anda sudah pernah mengisi survei untuk event ini.', 409, ctx.requestId);
+        return errorResponse('CONFLICT', 'Anda sudah pernah mengisi survei untuk event ini. Jazakumullahu khairan!', 409, ctx.requestId);
       }
 
       const [survey] = await db
         .insert(bazaarSurveys)
         .values({
-          applicationId: body.applicationId,
+          applicationId: application.id,
           tenantId: application.tenantId,
           eventId,
           satisfactionOverall: body.satisfactionOverall,
@@ -1462,9 +1539,9 @@ export function registerBazaarRoutes(router: Router) {
       await db
         .update(bazaarApplications)
         .set({ status: 'completed', updatedAt: new Date() })
-        .where(eq(bazaarApplications.id, body.applicationId));
+        .where(eq(bazaarApplications.id, application.id));
 
-      return successResponse(survey, { requestId: ctx.requestId, message: 'Jazakumullahu khairan! Survei berhasil dikirim.' });
+      return successResponse(survey, { requestId: ctx.requestId, message: 'Jazakumullahu khairan! Survei pasca-event berhasil dikirim.' });
     })
   );
 }

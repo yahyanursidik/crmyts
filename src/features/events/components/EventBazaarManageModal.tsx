@@ -16,6 +16,10 @@ import {
   Clock,
   Lock,
   BarChart3,
+  ExternalLink,
+  ThumbsUp,
+  Star,
+  MessageSquare,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
 
@@ -246,10 +250,60 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
 
   const [incidentList, setIncidentList] = useState<any[]>([]);
   const [surveyStats, setSurveyStats] = useState<any>(null);
+  const [copiedSurveyLink, setCopiedSurveyLink] = useState(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const handleExportSurveysCsv = () => {
+    if (!surveyStats?.items || surveyStats.items.length === 0) {
+      showToast('Belum ada data survei untuk diekspor');
+      return;
+    }
+
+    const headers = [
+      'Brand Name',
+      'PIC',
+      'No. WhatsApp',
+      'Stand / Booth',
+      'Rentang Omzet',
+      'Kepuasan Keseluruhan (1-5)',
+      'Kenyamanan Lokasi (1-5)',
+      'Fasilitas & Listrik (1-5)',
+      'Arus Traffic Jamaah (1-5)',
+      'Pelayanan Panitia (1-5)',
+      'Bersedia Ikut Lagi',
+      'Kritik & Saran',
+      'Waktu Pengisian',
+    ];
+
+    const rows = surveyStats.items.map((s: any) => [
+      `"${s.tenant?.brandName || ''}"`,
+      `"${s.tenant?.picName || ''}"`,
+      `"${s.tenant?.picPhone || ''}"`,
+      `"${s.application?.assignedBooth?.code || '-'}"`,
+      `"${s.omzetRange || ''}"`,
+      s.satisfactionOverall || 0,
+      s.satisfactionLocation || 0,
+      s.satisfactionFacilities || 0,
+      s.satisfactionTraffic || 0,
+      s.satisfactionCommunication || 0,
+      s.willingToJoinNext ? 'Ya' : 'Tidak',
+      `"${(s.feedback || '').replace(/"/g, '""')}"`,
+      `"${new Date(s.submittedAt).toLocaleString('id-ID')}"`,
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map((r: any) => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `survei-bazar-${eventInfo?.title || 'event'}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    showToast('File CSV hasil survei berhasil diunduh!');
   };
 
   const loadIncidents = async () => {
@@ -1195,22 +1249,107 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
               {/* TAB 5: SURVEI & EVALUASI */}
               {activeTab === 'surveys' && (
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between bg-cream-50/50 p-4 rounded-2xl border border-cream-300">
-                    <div>
-                      <h4 className="text-xs font-bold text-brand-950">Survei Tenant & Evaluasi Panitia</h4>
-                      <p className="text-[11px] text-surface-600">
-                        Hasil survei kepuasan tenant, data rentang omzet, dan penilaian internal panitia.
-                      </p>
+                  {/* TOP HEADER & LINK SHARING */}
+                  <div className="bg-brand-950 text-white p-5 rounded-3xl border border-brand-900 shadow-md space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <span className="text-[10px] font-bold text-gold-400 tracking-wider uppercase block">
+                          Tautan Publik Survei Pasca-Event
+                        </span>
+                        <h4 className="text-sm font-black text-white font-display">
+                          Bagikan Form Survei ke Tenant Pasca-Event
+                        </h4>
+                        <p className="text-[11px] text-brand-200 mt-0.5">
+                          Tautan ini dibagikan ke WhatsApp / email tenant setelah acara daurah selesai untuk mengumpulkan masukan dan data omzet.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            const surveyUrl = `${window.location.origin}/bazar/${eventId}/survey`;
+                            navigator.clipboard.writeText(surveyUrl);
+                            setCopiedSurveyLink(true);
+                            setTimeout(() => setCopiedSurveyLink(false), 2500);
+                            showToast('Tautan survei pasca-event berhasil disalin!');
+                          }}
+                          className="px-4 py-2.5 bg-gold-500 hover:bg-gold-400 text-brand-950 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+                        >
+                          {copiedSurveyLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                          <span>{copiedSurveyLink ? 'Tersalin!' : 'Salin Link Survei'}</span>
+                        </button>
+
+                        <a
+                          href={`/bazar/${eventId}/survey`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2.5 bg-brand-800/80 hover:bg-brand-800 text-white rounded-xl text-xs font-bold border border-brand-700/60"
+                          title="Buka Form Survei Pasca-Event"
+                        >
+                          <ExternalLink className="w-4 h-4 text-gold-400" />
+                        </a>
+                      </div>
                     </div>
 
-                    <button
-                      onClick={() => setIsEvaluationModalOpen(true)}
-                      className="px-3.5 py-2 bg-brand-900 hover:bg-brand-950 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> + Isi Evaluasi Panitia
-                    </button>
+                    <div className="p-2.5 bg-brand-900/80 rounded-xl border border-brand-800 text-xs font-mono text-gold-300 truncate">
+                      {window.location.origin}/bazar/{eventId}/survey
+                    </div>
                   </div>
 
+                  {/* KPI STATS CARDS */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                    <div className="p-3.5 bg-white rounded-2xl border border-cream-300 shadow-2xs text-center">
+                      <span className="text-[10px] font-bold text-surface-500 block">Total Responden</span>
+                      <span className="text-xl font-black text-brand-950 font-display mt-0.5 block">
+                        {surveyStats?.totalResponses || 0}
+                      </span>
+                      <span className="text-[9px] text-surface-400">Tenant Mengisi</span>
+                    </div>
+
+                    <div className="p-3.5 bg-white rounded-2xl border border-cream-300 shadow-2xs text-center">
+                      <span className="text-[10px] font-bold text-surface-500 block">Kepuasan Umum</span>
+                      <span className="text-xl font-black text-emerald-700 font-display mt-0.5 block flex items-center justify-center gap-1">
+                        <Star className="w-4 h-4 fill-emerald-600 text-emerald-600" />
+                        {surveyStats?.averages?.overall || '-'}
+                      </span>
+                      <span className="text-[9px] text-surface-400">Skala 1 – 5</span>
+                    </div>
+
+                    <div className="p-3.5 bg-white rounded-2xl border border-cream-300 shadow-2xs text-center">
+                      <span className="text-[10px] font-bold text-surface-500 block">Kenyamanan Lokasi</span>
+                      <span className="text-xl font-black text-brand-900 font-display mt-0.5 block">
+                        {surveyStats?.averages?.location || '-'}/5
+                      </span>
+                      <span className="text-[9px] text-surface-400">Tata Letak Stand</span>
+                    </div>
+
+                    <div className="p-3.5 bg-white rounded-2xl border border-cream-300 shadow-2xs text-center">
+                      <span className="text-[10px] font-bold text-surface-500 block">Fasilitas & Listrik</span>
+                      <span className="text-xl font-black text-brand-900 font-display mt-0.5 block">
+                        {surveyStats?.averages?.facilities || '-'}/5
+                      </span>
+                      <span className="text-[9px] text-surface-400">Sarana Pendukung</span>
+                    </div>
+
+                    <div className="p-3.5 bg-white rounded-2xl border border-cream-300 shadow-2xs text-center">
+                      <span className="text-[10px] font-bold text-surface-500 block">Traffic Pengunjung</span>
+                      <span className="text-xl font-black text-brand-900 font-display mt-0.5 block">
+                        {surveyStats?.averages?.traffic || '-'}/5
+                      </span>
+                      <span className="text-[9px] text-surface-400">Antusiasme Jamaah</span>
+                    </div>
+
+                    <div className="p-3.5 bg-white rounded-2xl border border-cream-300 shadow-2xs text-center">
+                      <span className="text-[10px] font-bold text-surface-500 block">Ikut Lagi Berikutnya</span>
+                      <span className="text-xl font-black text-gold-600 font-display mt-0.5 block flex items-center justify-center gap-1">
+                        <ThumbsUp className="w-4 h-4 text-gold-600" />
+                        {surveyStats?.averages?.willingPercentage || 0}%
+                      </span>
+                      <span className="text-[9px] text-surface-400">Minat Re-apply</span>
+                    </div>
+                  </div>
+
+                  {/* OMZET DISTRIBUTION CARD */}
                   <div className="bg-white p-5 rounded-3xl border border-cream-300 shadow-2xs space-y-3">
                     <h4 className="text-xs font-bold text-brand-950 uppercase tracking-wider flex items-center gap-1.5">
                       <BarChart3 className="w-4 h-4 text-brand-700" /> Distribusi Rentang Omzet Penjualan Tenant
@@ -1228,36 +1367,121 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                         { key: '>10m', label: '> Rp 10 Juta' },
                       ].map((item) => {
                         const count = surveyStats?.omzetDistribution?.[item.key] || 0;
+                        const total = surveyStats?.totalResponses || 0;
+                        const percent = total > 0 ? Math.round((count / total) * 100) : 0;
                         return (
                           <div key={item.key} className="p-3 bg-cream-50/60 rounded-2xl border border-cream-300 text-center">
                             <span className="text-[10px] font-bold text-surface-600 block">{item.label}</span>
                             <span className="text-xl font-black text-brand-950 font-display mt-1 block">{count}</span>
-                            <span className="text-[9px] text-surface-400">Tenant</span>
+                            <div className="w-full bg-cream-200 rounded-full h-1.5 my-1.5 overflow-hidden">
+                              <div className="bg-brand-900 h-1.5 rounded-full" style={{ width: `${percent}%` }} />
+                            </div>
+                            <span className="text-[9px] text-surface-500 font-bold">{percent}% ({count} Tenant)</span>
                           </div>
                         );
                       })}
                     </div>
                   </div>
 
+                  {/* SURVEY RESPONSES TABLE & EXPORT */}
                   <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-surface-700">Hasil Jawaban Survei Tenant ({surveyStats?.totalResponses || 0})</h4>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <h4 className="text-xs font-bold text-brand-950 uppercase tracking-wider">
+                          Daftar Respon Survei Tenant ({surveyStats?.totalResponses || 0})
+                        </h4>
+                        <p className="text-[11px] text-surface-500">
+                          Rekapitulasi feedback, kepuasan, dan kesediaan berpartisipasi di event mendatang.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleExportSurveysCsv}
+                          disabled={!surveyStats?.items || surveyStats.items.length === 0}
+                          className="px-3.5 py-2 bg-cream-100 hover:bg-cream-200 text-brand-950 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-cream-300 transition-all disabled:opacity-50"
+                        >
+                          <Download className="w-3.5 h-3.5" /> Ekspor CSV
+                        </button>
+
+                        <button
+                          onClick={() => setIsEvaluationModalOpen(true)}
+                          className="px-3.5 py-2 bg-brand-900 hover:bg-brand-950 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> + Isi Evaluasi Panitia
+                        </button>
+                      </div>
+                    </div>
+
                     {surveyStats?.items?.length === 0 ? (
-                      <div className="p-8 text-center border border-cream-300 rounded-2xl bg-white text-xs text-surface-500">
-                        Belum ada survei yang masuk dari tenant untuk event ini.
+                      <div className="p-8 text-center border border-cream-300 rounded-3xl bg-white space-y-2">
+                        <MessageSquare className="w-8 h-8 text-surface-400 mx-auto" />
+                        <p className="text-xs font-bold text-surface-700">Belum ada survei yang masuk dari tenant untuk event ini.</p>
+                        <p className="text-[11px] text-surface-500">
+                          Bagikan tautan survei di atas ke grup WhatsApp tenant untuk mulai mengumpulkan respons.
+                        </p>
                       </div>
                     ) : (
-                      <div className="space-y-2.5">
-                        {surveyStats?.items?.map((s: any) => (
-                          <div key={s.id} className="p-4 bg-white rounded-2xl border border-cream-300 text-xs space-y-1.5">
-                            <div className="flex items-center justify-between">
-                              <span className="font-bold text-brand-950">{s.tenant?.brandName}</span>
-                              <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full">
-                                Omzet: {s.omzetRange}
-                              </span>
-                            </div>
-                            <p className="text-surface-700 italic">"{s.feedback || 'Tidak ada catatan tambahan'}"</p>
-                          </div>
-                        ))}
+                      <div className="bg-white rounded-2xl border border-cream-300 overflow-hidden shadow-2xs">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead className="bg-cream-50/80 border-b border-cream-300 text-surface-700 font-bold">
+                            <tr>
+                              <th className="p-3">Tenant & PIC</th>
+                              <th className="p-3">Stand</th>
+                              <th className="p-3">Rentang Omzet</th>
+                              <th className="p-3">Skor Kepuasan</th>
+                              <th className="p-3">Ikut Lagi?</th>
+                              <th className="p-3">Kritik & Masukan</th>
+                              <th className="p-3">Waktu</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-cream-200">
+                            {surveyStats?.items?.map((s: any) => (
+                              <tr key={s.id} className="hover:bg-cream-50/40 transition-colors">
+                                <td className="p-3">
+                                  <span className="font-bold text-brand-950 block">{s.tenant?.brandName}</span>
+                                  <span className="text-[10px] text-surface-500">PIC: {s.tenant?.picName}</span>
+                                </td>
+                                <td className="p-3 font-mono font-bold text-surface-800">
+                                  {s.application?.assignedBooth?.code || '-'}
+                                </td>
+                                <td className="p-3">
+                                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                    {s.omzetRange}
+                                  </span>
+                                </td>
+                                <td className="p-3">
+                                  <span className="font-bold text-brand-950">{s.satisfactionOverall}/5</span>
+                                  <span className="text-[10px] text-surface-500 block">
+                                    Lok:{s.satisfactionLocation} | Fas:{s.satisfactionFacilities} | Traf:{s.satisfactionTraffic}
+                                  </span>
+                                </td>
+                                <td className="p-3">
+                                  {s.willingToJoinNext ? (
+                                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
+                                      Ya
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] font-bold text-surface-600 bg-surface-100 px-2 py-0.5 rounded-full">
+                                      Belum
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-3 text-surface-700 max-w-xs truncate" title={s.feedback || '-'}>
+                                  {s.feedback || <span className="text-surface-400 italic">-</span>}
+                                </td>
+                                <td className="p-3 text-[10px] text-surface-400 whitespace-nowrap">
+                                  {new Date(s.submittedAt).toLocaleDateString('id-ID', {
+                                    day: 'numeric',
+                                    month: 'short',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     )}
                   </div>
