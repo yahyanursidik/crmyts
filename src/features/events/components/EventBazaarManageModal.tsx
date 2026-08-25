@@ -125,14 +125,14 @@ interface EventBazaarManageModalProps {
 
 const CATEGORY_LABELS: Record<string, string> = {
   kuliner: '🍲 Kuliner Halal & Minuman',
-  busana_muslim: "👗 Busana Muslim & Syar'i",
+  busana_muslim: "🧵 Busana Muslim & Syar'i",
   buku_kitab: '📚 Buku, Kitab & Media Dakwah',
   herbal_kesehatan: '🌿 Herbal & Thibbun Nabawi',
-  pendidikan: '🎓 Pendidikan, Pesantren & Sekolah Islam',
+  pendidikan: '🏛️ Pendidikan, Pesantren & Sekolah Islam',
   travel_umroh: '🕋 Tour & Travel Umroh / Haji',
   properti_syariah: '🏡 Properti & Developer Syariah',
   jasa_keuangan: '💼 Jasa & Layanan Syariah',
-  aksesoris: '🛍️ Aksesoris & Perlengkapan Majelis',
+  aksesoris: '🛍️ Perlengkapan Majelis & Aksesoris',
   lainnya: '📦 Kategori Lainnya',
 };
 

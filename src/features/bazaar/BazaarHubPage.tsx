@@ -63,14 +63,14 @@ interface EventWithBazaar {
 
 const CATEGORY_LABELS: Record<string, string> = {
   kuliner: '🍲 Kuliner & Minuman',
-  busana_muslim: "👗 Busana Muslim & Syar'i",
+  busana_muslim: "🧵 Busana Muslim & Syar'i",
   buku_kitab: '📚 Buku, Kitab & Media Dakwah',
   herbal_kesehatan: '🌿 Herbal & Thibbun Nabawi',
-  pendidikan: '🎓 Pendidikan & Pesantren',
+  pendidikan: '🏛️ Pendidikan & Pesantren',
   travel_umroh: '🕋 Travel Umroh / Haji',
   properti_syariah: '🏡 Properti Syariah',
   jasa_keuangan: '💼 Jasa Syariah',
-  aksesoris: '🛍️ Aksesoris & Perlengkapan',
+  aksesoris: '🛍️ Perlengkapan & Aksesoris',
   lainnya: '📦 Kategori Lainnya',
 };
 

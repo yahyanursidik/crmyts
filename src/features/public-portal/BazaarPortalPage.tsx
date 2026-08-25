@@ -18,14 +18,14 @@ import { LoadingState } from '@/components/common/LoadingState';
 
 const BAZAAR_CATEGORIES = [
   { value: 'kuliner', label: '🍲 Kuliner Halal & Minuman' },
-  { value: 'busana_muslim', label: "👗 Busana Muslim & Syar'i" },
+  { value: 'busana_muslim', label: "🧵 Busana Muslim & Syar'i" },
   { value: 'buku_kitab', label: '📚 Buku, Kitab & Media Dakwah' },
   { value: 'herbal_kesehatan', label: '🌿 Herbal & Thibbun Nabawi' },
-  { value: 'pendidikan', label: '🎓 Pendidikan, Pesantren & Sekolah Islam' },
+  { value: 'pendidikan', label: '🏛️ Pendidikan, Pesantren & Sekolah Islam' },
   { value: 'travel_umroh', label: '🕋 Tour & Travel Umroh / Haji' },
   { value: 'properti_syariah', label: '🏡 Properti & Developer Syariah' },
   { value: 'jasa_keuangan', label: '💼 Jasa & Layanan Syariah' },
-  { value: 'aksesoris', label: '🛍️ Aksesoris & Perlengkapan Majelis' },
+  { value: 'aksesoris', label: '🛍️ Perlengkapan Majelis & Aksesoris' },
   { value: 'lainnya', label: '📦 Kategori Lainnya' },
 ];
 
