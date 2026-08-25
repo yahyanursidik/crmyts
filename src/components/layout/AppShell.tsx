@@ -22,6 +22,7 @@ import {
   PanelLeftOpen,
   Sparkles,
   TrendingUp,
+  Store,
 } from 'lucide-react';
 import { UserIdentity } from '../../lib/authProvider';
 import { PermissionCode, PERMISSIONS, ROLES } from '@server/permissions/constants';
@@ -35,7 +36,7 @@ interface NavGroup {
   items: NavItem[];
 }
 
-interface NavItem {
+export interface NavItem {
   name: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -66,6 +67,14 @@ const NAV_GROUPS: NavGroup[] = [
         badge: 'Gate Scanner & Kuota',
         permission: PERMISSIONS.EVENTS_VIEW,
         description: 'Jadwal, Kuota, Form & Pemindai QR',
+      },
+      {
+        name: 'Bazar & Tenant Daurah',
+        href: '/bazaar',
+        icon: Store,
+        badge: 'War Tempat',
+        permission: PERMISSIONS.EVENTS_VIEW,
+        description: 'Plotting Stand, Denah & Infaq Booth',
       },
       {
         name: 'Direktori Jamaah',

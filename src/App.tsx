@@ -23,6 +23,7 @@ import { DonorPipelinePage } from './features/donors/DonorPipelinePage';
 import { DonationsPortalPage } from './features/public-portal/DonationsPortalPage';
 import { EventsPortalPage } from './features/public-portal/EventsPortalPage';
 import { BazaarPortalPage } from './features/public-portal/BazaarPortalPage';
+import { BazaarHubPage } from './features/bazaar/BazaarHubPage';
 
 export function App() {
   return (
@@ -83,6 +84,10 @@ export function App() {
               list: '/automation',
             },
             {
+              name: 'bazaar',
+              list: '/bazaar',
+            },
+            {
               name: 'donors-pipeline',
               list: '/donors-pipeline',
             },
@@ -102,6 +107,7 @@ export function App() {
               <Route path="people" element={<PersonsListPage />} />
               <Route path="people/:id" element={<PersonDetailPage />} />
               <Route path="events" element={<EventsListPage />} />
+              <Route path="bazaar" element={<BazaarHubPage />} />
               <Route path="interactions" element={<InteractionsListPage />} />
               <Route path="tasks" element={<TasksListPage />} />
               <Route path="donations" element={<DonationsListPage />} />
