@@ -19,7 +19,7 @@ import { normalizeIndonesianPhone } from '../../lib/phone';
 
 let bazaarTablesInitialized = false;
 
-async function ensureBazaarTablesExist(db: any) {
+export async function ensureBazaarTablesExist(db: any) {
   if (bazaarTablesInitialized) return;
   try {
     if (typeof db.execute === 'function') {
@@ -159,6 +159,49 @@ async function ensureBazaarTablesExist(db: any) {
           evaluated_by uuid NOT NULL REFERENCES app_users(id),
           evaluated_at timestamp with time zone DEFAULT now() NOT NULL
         );
+
+        -- Ensure columns exist in already-created tables (safe schema evolution):
+        ALTER TABLE bazaar_events ADD COLUMN IF NOT EXISTS registration_deadline timestamp with time zone;
+        ALTER TABLE bazaar_events ADD COLUMN IF NOT EXISTS payment_deadline timestamp with time zone;
+        ALTER TABLE bazaar_events ADD COLUMN IF NOT EXISTS survey_deadline timestamp with time zone;
+        ALTER TABLE bazaar_events ADD COLUMN IF NOT EXISTS survey_enabled boolean DEFAULT true NOT NULL;
+        ALTER TABLE bazaar_events ADD COLUMN IF NOT EXISTS layout_zones jsonb;
+
+        ALTER TABLE bazaar_events ADD COLUMN IF NOT EXISTS created_at timestamp with time zone DEFAULT now() NOT NULL;
+        ALTER TABLE bazaar_events ADD COLUMN IF NOT EXISTS updated_at timestamp with time zone DEFAULT now() NOT NULL;
+
+        ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS person_id uuid REFERENCES persons(id) ON DELETE SET NULL;
+        ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS pic_email text;
+        ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS pic_ktp_number text;
+        ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS instagram text;
+        ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS address text;
+        ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS product_description text;
+        ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS catalog_urls jsonb;
+        ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS internal_tags jsonb DEFAULT '[]'::jsonb;
+        ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS internal_flag text DEFAULT 'normal' NOT NULL;
+        ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS internal_notes text;
+        ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS is_legacy_data boolean DEFAULT false NOT NULL;
+        ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS created_at timestamp with time zone DEFAULT now() NOT NULL;
+        ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS updated_at timestamp with time zone DEFAULT now() NOT NULL;
+
+        ALTER TABLE bazaar_booths ADD COLUMN IF NOT EXISTS reserved_reason text;
+        ALTER TABLE bazaar_booths ADD COLUMN IF NOT EXISTS reserved_for_partner_name text;
+        ALTER TABLE bazaar_booths ADD COLUMN IF NOT EXISTS reserved_by uuid REFERENCES app_users(id);
+        ALTER TABLE bazaar_booths ADD COLUMN IF NOT EXISTS created_at timestamp with time zone DEFAULT now() NOT NULL;
+        ALTER TABLE bazaar_booths ADD COLUMN IF NOT EXISTS updated_at timestamp with time zone DEFAULT now() NOT NULL;
+
+        ALTER TABLE bazaar_applications ADD COLUMN IF NOT EXISTS placement_reason text;
+        ALTER TABLE bazaar_applications ADD COLUMN IF NOT EXISTS placement_notes text;
+        ALTER TABLE bazaar_applications ADD COLUMN IF NOT EXISTS assigned_by uuid REFERENCES app_users(id);
+        ALTER TABLE bazaar_applications ADD COLUMN IF NOT EXISTS assigned_at timestamp with time zone;
+        ALTER TABLE bazaar_applications ADD COLUMN IF NOT EXISTS is_published boolean DEFAULT false NOT NULL;
+        ALTER TABLE bazaar_applications ADD COLUMN IF NOT EXISTS rejection_reason text;
+        ALTER TABLE bazaar_applications ADD COLUMN IF NOT EXISTS admin_notes text;
+        ALTER TABLE bazaar_applications ADD COLUMN IF NOT EXISTS payment_notes text;
+        ALTER TABLE bazaar_applications ADD COLUMN IF NOT EXISTS checked_in_at timestamp with time zone;
+        ALTER TABLE bazaar_applications ADD COLUMN IF NOT EXISTS checked_in_by uuid REFERENCES app_users(id);
+        ALTER TABLE bazaar_applications ADD COLUMN IF NOT EXISTS registered_at timestamp with time zone DEFAULT now() NOT NULL;
+        ALTER TABLE bazaar_applications ADD COLUMN IF NOT EXISTS updated_at timestamp with time zone DEFAULT now() NOT NULL;
       `);
     }
     bazaarTablesInitialized = true;

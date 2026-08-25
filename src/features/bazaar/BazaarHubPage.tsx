@@ -105,19 +105,28 @@ export const BazaarHubPage: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [resEvents, resTenants] = await Promise.all([
-        apiClient<any>('/events'),
-        apiClient<MasterTenantItem[]>('/bazaar/tenants'),
-      ]);
-
       let eventItems: any[] = [];
-      if (Array.isArray(resEvents.data)) {
-        eventItems = resEvents.data;
-      } else if (resEvents.data && Array.isArray((resEvents.data as any).items)) {
-        eventItems = (resEvents.data as any).items;
+      let tenants: MasterTenantItem[] = [];
+
+      try {
+        const resEvents = await apiClient<any>('/events');
+        if (Array.isArray(resEvents.data)) {
+          eventItems = resEvents.data;
+        } else if (resEvents.data && Array.isArray((resEvents.data as any).items)) {
+          eventItems = (resEvents.data as any).items;
+        }
+      } catch (e) {
+        console.error('Failed fetching events for bazaar hub:', e);
       }
 
-      setMasterTenants(resTenants.data || []);
+      try {
+        const resTenants = await apiClient<MasterTenantItem[]>('/bazaar/tenants');
+        tenants = Array.isArray(resTenants.data) ? resTenants.data : [];
+      } catch (e) {
+        console.error('Failed fetching master tenants for bazaar hub:', e);
+      }
+
+      setMasterTenants(tenants);
 
       // Fetch bazaar details for each event
       const eventsWithBazaar: EventWithBazaar[] = await Promise.all(
@@ -164,7 +173,6 @@ export const BazaarHubPage: React.FC = () => {
       setEvents(eventsWithBazaar);
     } catch (err: any) {
       console.error('Failed to load bazaar hub data:', err);
-      showToast('Gagal memuat data bazar');
     } finally {
       setLoading(false);
     }
