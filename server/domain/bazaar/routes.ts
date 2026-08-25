@@ -4,8 +4,83 @@ import { requireAuth, validateBody } from '../../http/middleware';
 import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import { events, bazaarEvents, bazaarBooths, bazaarTenants, persons } from '../../db/schema';
-import { eq, and, desc, asc } from 'drizzle-orm';
+import { eq, and, desc, asc, sql } from 'drizzle-orm';
 import { normalizeIndonesianPhone } from '../../lib/phone';
+
+let bazaarTablesInitialized = false;
+
+async function ensureBazaarTablesExist(db: any) {
+  if (bazaarTablesInitialized) return;
+  try {
+    if (typeof db.execute === 'function') {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS bazaar_events (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          event_id uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+          title text NOT NULL,
+          description text,
+          is_open boolean DEFAULT true NOT NULL,
+          rules_and_terms text,
+          default_fee_rupiah integer DEFAULT 0 NOT NULL,
+          bank_name text,
+          bank_account_number text,
+          bank_account_name text,
+          payment_instructions text,
+          layout_zones jsonb,
+          created_at timestamp with time zone DEFAULT now() NOT NULL,
+          updated_at timestamp with time zone DEFAULT now() NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS bazaar_booths (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          bazaar_id uuid NOT NULL REFERENCES bazaar_events(id) ON DELETE CASCADE,
+          code text NOT NULL,
+          name text NOT NULL,
+          zone text DEFAULT 'Zona Utama' NOT NULL,
+          size text DEFAULT '2x2 meter',
+          facilities jsonb,
+          price_rupiah integer DEFAULT 0 NOT NULL,
+          allowed_category text DEFAULT 'all' NOT NULL,
+          status text DEFAULT 'available' NOT NULL,
+          position_x integer DEFAULT 0,
+          position_y integer DEFAULT 0,
+          created_at timestamp with time zone DEFAULT now() NOT NULL,
+          updated_at timestamp with time zone DEFAULT now() NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS bazaar_tenants (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          bazaar_id uuid NOT NULL REFERENCES bazaar_events(id) ON DELETE CASCADE,
+          booth_id uuid REFERENCES bazaar_booths(id) ON DELETE SET NULL,
+          person_id uuid REFERENCES persons(id) ON DELETE SET NULL,
+          brand_name text NOT NULL,
+          business_category text DEFAULT 'kuliner' NOT NULL,
+          pic_name text NOT NULL,
+          pic_phone text NOT NULL,
+          pic_email text,
+          pic_ktp_number text,
+          social_media text,
+          product_description text,
+          electricity_needed boolean DEFAULT false NOT NULL,
+          electricity_watts integer DEFAULT 0,
+          special_requests text,
+          status text DEFAULT 'pending_review' NOT NULL,
+          infaq_amount_rupiah integer DEFAULT 0 NOT NULL,
+          payment_proof_url text,
+          payment_verified_at timestamp with time zone,
+          payment_verified_by uuid REFERENCES app_users(id),
+          rejection_reason text,
+          admin_notes text,
+          registered_at timestamp with time zone DEFAULT now() NOT NULL,
+          updated_at timestamp with time zone DEFAULT now() NOT NULL
+        );
+      `);
+    }
+    bazaarTablesInitialized = true;
+  } catch (err) {
+    console.error('ensureBazaarTablesExist error:', err);
+  }
+}
 
 const createBazaarSchema = z.object({
   title: z.string().min(3, 'Nama bazar minimal 3 karakter'),
@@ -86,6 +161,7 @@ export function registerBazaarRoutes(router: Router) {
     '/api/events/:id/bazaar',
     requireAuth(async (ctx) => {
       const db = getDb();
+      await ensureBazaarTablesExist(db);
       const eventId = ctx.params?.id;
 
       if (!eventId) {
@@ -147,6 +223,7 @@ export function registerBazaarRoutes(router: Router) {
     requireAuth(
       validateBody(createBazaarSchema, async (ctx, body) => {
         const db = getDb();
+        await ensureBazaarTablesExist(db);
         const eventId = ctx.params?.id;
 
         if (!eventId) {
@@ -469,6 +546,7 @@ export function registerBazaarRoutes(router: Router) {
   // ========================================================
   router.get('/api/public/events/:id/bazaar', async (ctx) => {
     const db = getDb();
+    await ensureBazaarTablesExist(db);
     const eventId = ctx.params?.id;
 
     if (!eventId) {
@@ -547,6 +625,7 @@ export function registerBazaarRoutes(router: Router) {
     '/api/public/events/:id/bazaar/register',
     validateBody(publicTenantRegisterSchema, async (ctx, body) => {
       const db = getDb();
+      await ensureBazaarTablesExist(db);
       const eventId = ctx.params?.id;
 
       if (!eventId) {
