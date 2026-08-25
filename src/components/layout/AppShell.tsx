@@ -60,12 +60,12 @@ const NAV_GROUPS: NavGroup[] = [
     category: 'Layanan Jamaah & Dakwah',
     items: [
       {
-        name: 'Pengaturan Event & Kajian',
+        name: 'Kajian, Daurah & Presensi',
         href: '/events',
         icon: Calendar,
-        badge: 'Form & Kuota',
+        badge: 'Gate Scanner & Kuota',
         permission: PERMISSIONS.EVENTS_VIEW,
-        description: 'Atur Kuota, Parkir & Form Builder',
+        description: 'Jadwal, Kuota, Form & Pemindai QR',
       },
       {
         name: 'Direktori Jamaah',

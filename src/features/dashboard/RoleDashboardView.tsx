@@ -20,10 +20,14 @@ import {
   QrCode,
   FileSpreadsheet,
   Edit3,
-  MapPin
+  MapPin,
+  Globe,
+  Ticket
 } from 'lucide-react';
 import { Link } from 'react-router';
+import { useGetIdentity } from '@refinedev/core';
 import { LoadingState } from '@/components/common/LoadingState';
+import { UserIdentity } from '@/lib/authProvider';
 
 interface RoleDashboardData {
   role: string;
@@ -69,10 +73,10 @@ interface RoleDashboardData {
 }
 
 const ROLES_LIST = [
+  { key: 'event_admin', label: '🕌 Admin Kajian & Presensi' },
   { key: 'crm_admin', label: 'CRM Admin' },
   { key: 'data_steward', label: 'Data Steward' },
   { key: 'cs_officer', label: 'CS Officer' },
-  { key: 'event_admin', label: 'Admin Kajian' },
   { key: 'fundraising_officer', label: 'Fundraising' },
   { key: 'waqf_officer', label: 'Wakaf Officer' },
   { key: 'finance_verifier', label: 'Finance' },
@@ -94,15 +98,30 @@ const renderIcon = (name: string) => {
     case 'Edit3': return <Edit3 className="w-4 h-4 text-amber-700" />;
     case 'MapPin': return <MapPin className="w-4 h-4 text-rose-700" />;
     case 'UserPlus': return <IdCard className="w-4 h-4 text-brand-800" />;
+    case 'Globe': return <Globe className="w-4 h-4 text-emerald-700" />;
+    case 'Ticket': return <Ticket className="w-4 h-4 text-brand-800" />;
     default: return <Plus className="w-4 h-4 text-brand-800" />;
   }
 };
 
 export const RoleDashboardView: React.FC = () => {
-  const [activeRole, setActiveRole] = useState<string>('cs_officer');
+  const { data: identity } = useGetIdentity<UserIdentity>();
+  const initialRole = identity?.roles?.includes('event_admin')
+    ? 'event_admin'
+    : identity?.roles?.[0] || 'event_admin';
+
+  const [activeRole, setActiveRole] = useState<string>(initialRole);
   const [data, setData] = useState<RoleDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (identity?.roles?.includes('event_admin')) {
+      setActiveRole('event_admin');
+    } else if (identity?.roles?.[0] && ROLES_LIST.some((r) => r.key === identity.roles[0])) {
+      setActiveRole(identity.roles[0]);
+    }
+  }, [identity]);
 
   const fetchRoleData = async (roleKey: string) => {
     try {

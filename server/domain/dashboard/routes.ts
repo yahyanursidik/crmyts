@@ -484,49 +484,99 @@ export function registerDashboardRoutes(router: Router) {
         // 4. ADMIN KAJIAN (EVENT ADMIN)
         // ==========================================
         case ROLES.EVENT_ADMIN: {
-          roleName = 'Admin Kajian & Dakwah';
+          roleName = 'Admin Kajian, Daurah & Presensi';
 
           const [upcomingEventsRes] = await db.select({ count: sql<number>`count(*)::int` }).from(events).where(gte(events.startAt, now));
           const [todayEventsRes] = await db.select({ count: sql<number>`count(*)::int` }).from(events).where(and(gte(events.startAt, todayStart), lte(events.startAt, todayEnd)));
+          const [totalRegisteredRes] = await db.select({ count: sql<number>`count(*)::int` }).from(eventAttendance);
+          const [totalAttendedRes] = await db.select({ count: sql<number>`count(*)::int` }).from(eventAttendance).where(eq(eventAttendance.status, 'attended'));
+          const [pendingPaymentsRes] = await db.select({ count: sql<number>`count(*)::int` }).from(eventAttendance).where(eq(eventAttendance.paymentStatus, 'waiting_verification'));
 
           const todayEventsList = await db.query.events.findMany({
             where: and(gte(events.startAt, todayStart), lte(events.startAt, todayEnd)),
             orderBy: [asc(events.startAt)],
+            with: {
+              attendances: {
+                columns: {
+                  id: true,
+                  status: true,
+                },
+              },
+            },
+          });
+
+          const upcomingEventsList = await db.query.events.findMany({
+            where: gte(events.startAt, now),
+            orderBy: [asc(events.startAt)],
+            limit: 5,
+            with: {
+              attendances: {
+                columns: {
+                  id: true,
+                  status: true,
+                },
+              },
+            },
           });
 
           roleKpis = [
-            { label: 'Kajian Hari Ini', value: todayEventsRes?.count || 0, color: 'text-brand-800' },
+            { label: 'Kajian Hari Ini', value: todayEventsRes?.count || 0, color: 'text-brand-900' },
             { label: 'Kajian Terjadwal', value: upcomingEventsRes?.count || 0, color: 'text-blue-800' },
-            { label: 'Tugas Presensi', value: overdueTasks.length, color: 'text-amber-800' },
-            { label: 'Evaluasi Kajian', value: '100% Siap', color: 'text-emerald-800' },
+            { label: 'Total Jamaah Presensi', value: `${totalAttendedRes?.count || 0} / ${totalRegisteredRes?.count || 0}`, color: 'text-emerald-800' },
+            { label: 'Verifikasi Slip Daurah', value: pendingPaymentsRes?.count || 0, color: (pendingPaymentsRes?.count || 0) > 0 ? 'text-amber-800' : 'text-slate-600' },
           ];
 
           quickActions = [
             { label: '+ Jadwal Kajian Baru', href: '/events', icon: 'Plus', description: 'Buat agenda kajian tematik / rutin' },
-            { label: 'Buka Scanner Presensi', href: '/events', icon: 'QrCode', description: 'Live check-in kehadiran jamaah' },
-            { label: 'Rekap Presensi Kajian', href: '/events', icon: 'FileSpreadsheet', description: 'Unduh presensi jamaah' },
+            { label: 'Buka Scanner Gate', href: '/events', icon: 'QrCode', description: 'Live check-in barcode tiket di pintu masjid' },
+            { label: 'Kelola Peserta & Presensi', href: '/events', icon: 'FileSpreadsheet', description: 'Cek daftar jamaah, ekspor & impor' },
+            { label: 'Portal Kajian Publik', href: '/kajian', icon: 'Globe', description: 'Buka halaman pendaftaran online jamaah' },
+            { label: 'Database Jamaah', href: '/people', icon: 'IdCard', description: 'Direktori kontak 360° jamaah majelis' },
           ];
 
           todayItems = [
-            ...todayEventsList.map((e) => ({
+            ...todayEventsList.map((e) => {
+              const attendedInEvent = e.attendances.filter((a) => a.status === 'attended').length;
+              return {
+                id: e.id,
+                title: e.title,
+                subtitle: `Pemateri: ${e.speaker} • ${attendedInEvent} Hadir / ${e.attendances.length} Terdaftar • Lokasi: ${e.locationName || 'Masjid Tarbiyah Sunnah'}`,
+                dueTime: new Date(e.startAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+                href: `/events`,
+                tag: 'Kajian Hari Ini',
+                badgeColor: 'bg-emerald-50 text-emerald-900 border-emerald-300 font-bold',
+              };
+            }),
+            ...upcomingEventsList.map((e) => ({
               id: e.id,
               title: e.title,
-              subtitle: `Pemateri: ${e.speaker} • Lokasi: ${e.locationName || 'Markaz YTS'}`,
-              dueTime: new Date(e.startAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+              subtitle: `Pemateri: ${e.speaker} • ${e.attendances.length} Terdaftar ${e.quota ? `(Max ${e.quota})` : ''} • Lokasi: ${e.locationName || 'Masjid Tarbiyah Sunnah'}`,
+              dueTime: new Date(e.startAt).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' }),
               href: `/events`,
-              tag: 'Kajian Hari Ini',
-              badgeColor: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+              tag: 'Mendatang',
+              badgeColor: 'bg-blue-50 text-blue-900 border-blue-200',
             })),
             ...mapToday(todayTasks),
           ];
 
           overdueItems = mapOverdue(overdueTasks);
 
+          if ((pendingPaymentsRes?.count || 0) > 0) {
+            attentionItems.push({
+              id: 'att_pending_event_payments',
+              title: `${pendingPaymentsRes?.count} Pendaftaran Daurah Menunggu Verifikasi Pembayaran`,
+              description: 'Terdapat bukti transfer infaq/tiket daurah yang perlu direview agar tiket jamaah aktif.',
+              level: 'warning',
+              href: '/events',
+              count: pendingPaymentsRes?.count,
+            });
+          }
+
           if (todayEventsList.length === 0) {
             attentionItems.push({
               id: 'att_no_event_today',
-              title: 'Tidak Ada Jadwal Kajian Hari Ini',
-              description: 'Gunakan waktu untuk persiapan materi kajian dan publikasi broadcast pekanan.',
+              title: 'Tidak Ada Jadwal Majelis Ilmu Hari Ini',
+              description: 'Gunakan waktu untuk mematangkan kuota kajian mendatang, publikasi materi, dan penyebaran poster dakwah.',
               level: 'info',
             });
           }

@@ -63,7 +63,7 @@ describe('Role-Specific Dashboards (Step 16 / M12)', () => {
     { role: ROLES.CRM_ADMIN, expectedTitle: 'CRM Administrator' },
     { role: ROLES.DATA_STEWARD, expectedTitle: 'Data Steward & Quality' },
     { role: ROLES.CS_OFFICER, expectedTitle: 'Customer Service & Jamaah Care' },
-    { role: ROLES.EVENT_ADMIN, expectedTitle: 'Admin Kajian & Dakwah' },
+    { role: ROLES.EVENT_ADMIN, expectedTitle: 'Admin Kajian, Daurah & Presensi' },
     { role: ROLES.FUNDRAISING_OFFICER, expectedTitle: 'Fundraising & Donor Care' },
     { role: ROLES.WAQF_OFFICER, expectedTitle: 'Waqf Pipeline & Stewardship' },
     { role: ROLES.FINANCE_VERIFIER, expectedTitle: 'Finance & Verification Officer' },

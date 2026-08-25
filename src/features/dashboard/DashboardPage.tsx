@@ -104,12 +104,21 @@ const WAQF_STAGE_NAMES: Record<string, string> = {
 
 import { RoleDashboardView } from './RoleDashboardView';
 import { BrandEmblem } from '@/components/common/BrandLogo';
+import { useGetIdentity } from '@refinedev/core';
+import { UserIdentity } from '@/lib/authProvider';
 
 export const DashboardPage: React.FC = () => {
+  const { data: identity } = useGetIdentity<UserIdentity>();
   const [viewTab, setViewTab] = useState<'executive' | 'role'>('executive');
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (identity?.roles?.includes('event_admin') && !identity?.roles?.includes('crm_admin')) {
+      setViewTab('role');
+    }
+  }, [identity]);
 
   useEffect(() => {
     async function loadStats() {
