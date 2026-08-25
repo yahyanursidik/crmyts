@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router';
 import { apiClient } from '@/lib/apiClient';
 import {
   Store,
@@ -45,6 +46,7 @@ export const BazaarHubPage: React.FC = () => {
   const [selectedBazaarEventId, setSelectedBazaarEventId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -54,8 +56,13 @@ export const BazaarHubPage: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const res = await apiClient<{ items: any[] }>('/events?pageSize=50');
-      const eventItems = res.data.items || [];
+      const res = await apiClient<any>('/events');
+      let eventItems: any[] = [];
+      if (Array.isArray(res.data)) {
+        eventItems = res.data;
+      } else if (res.data && Array.isArray((res.data as any).items)) {
+        eventItems = (res.data as any).items;
+      }
 
       // Fetch bazaar details for each event
       const eventsWithBazaar: EventWithBazaar[] = await Promise.all(
@@ -120,13 +127,21 @@ export const BazaarHubPage: React.FC = () => {
 
   const filteredEvents = events.filter((ev) => {
     const q = searchQuery.toLowerCase().trim();
-    if (!q) return true;
-    return (
+    const matchSearch =
+      !q ||
       ev.title.toLowerCase().includes(q) ||
       ev.speaker.toLowerCase().includes(q) ||
       (ev.locationName && ev.locationName.toLowerCase().includes(q)) ||
-      (ev.bazaar && ev.bazaar.title.toLowerCase().includes(q))
-    );
+      (ev.bazaar && ev.bazaar.title.toLowerCase().includes(q));
+
+    const matchStatus =
+      statusFilter === 'all'
+        ? true
+        : statusFilter === 'active'
+        ? !!ev.bazaar
+        : !ev.bazaar;
+
+    return matchSearch && matchStatus;
   });
 
   // Global KPIs
@@ -159,6 +174,12 @@ export const BazaarHubPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <Link
+            to="/events"
+            className="p-2.5 bg-brand-900 hover:bg-brand-950 text-white rounded-2xl transition-all active:scale-95 flex items-center gap-1.5 text-xs font-bold shadow-sm"
+          >
+            <span>+ Jadwal Kajian / Daurah</span>
+          </Link>
           <button
             onClick={loadData}
             disabled={loading}
@@ -221,8 +242,8 @@ export const BazaarHubPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 3. SEARCH & TOOLBAR */}
-      <div className="bg-white p-3.5 rounded-2xl border border-cream-300 shadow-2xs flex items-center justify-between gap-3">
+      {/* 3. SEARCH & FILTER TABS */}
+      <div className="bg-white p-3.5 rounded-2xl border border-cream-300 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <div className="relative flex-1 max-w-md">
           <Search className="w-4 h-4 text-surface-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
@@ -233,9 +254,39 @@ export const BazaarHubPage: React.FC = () => {
             className="w-full pl-9 pr-3 py-1.5 text-xs font-medium border border-cream-300 rounded-xl bg-cream-50/40 focus:ring-2 focus:ring-brand-700"
           />
         </div>
-        <span className="text-xs font-bold text-surface-600 hidden sm:inline">
-          Menampilkan {filteredEvents.length} Jadwal Kajian
-        </span>
+
+        <div className="flex items-center gap-1.5 overflow-x-auto text-xs font-bold">
+          <button
+            onClick={() => setStatusFilter('all')}
+            className={`px-3 py-1.5 rounded-xl transition-all ${
+              statusFilter === 'all'
+                ? 'bg-brand-900 text-white shadow-2xs'
+                : 'bg-cream-100 text-surface-700 hover:bg-cream-200'
+            }`}
+          >
+            Semua Kajian ({events.length})
+          </button>
+          <button
+            onClick={() => setStatusFilter('active')}
+            className={`px-3 py-1.5 rounded-xl transition-all ${
+              statusFilter === 'active'
+                ? 'bg-brand-900 text-white shadow-2xs'
+                : 'bg-cream-100 text-surface-700 hover:bg-cream-200'
+            }`}
+          >
+            🟢 Bazar Aktif ({totalBazaars})
+          </button>
+          <button
+            onClick={() => setStatusFilter('inactive')}
+            className={`px-3 py-1.5 rounded-xl transition-all ${
+              statusFilter === 'inactive'
+                ? 'bg-brand-900 text-white shadow-2xs'
+                : 'bg-cream-100 text-surface-700 hover:bg-cream-200'
+            }`}
+          >
+            ⚪ Belum Aktif ({events.length - totalBazaars})
+          </button>
+        </div>
       </div>
 
       {/* 4. EVENT BAZAAR CARDS LIST */}
