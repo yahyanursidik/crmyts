@@ -190,16 +190,15 @@ export const DashboardPage: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto pb-10">
-      {/* 1. TOP HEADER & VIEW MODE SELECTOR */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#1B4332]/12 gap-3">
-        {/* Left: View Tabs (Mockup 1a & 1b) */}
-        <div className="bg-[#F7F4EC] p-1 rounded-2xl flex items-center gap-1 border border-[#1B4332]/14">
+      {/* 1. VIEW MODE SELECTOR (Mockup 1a/1b/Role) */}
+      <div className="flex items-center justify-between pb-3 border-b border-[#1B4332]/12">
+        <div className="bg-[#F2EEE4] p-1 rounded-xl flex items-center gap-1 border border-[#1B4332]/12 shadow-2xs">
           <button
             onClick={() => setViewTab('antrean')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
               viewTab === 'antrean'
-                ? 'bg-[#1B4332] text-white shadow-xs'
-                : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-[#EFEBE1]'
+                ? 'bg-[#1B4332] text-white shadow-2xs'
+                : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-white/60'
             }`}
           >
             <CheckSquare className="w-3.5 h-3.5" /> Beranda Kerja (Antrean Hari Ini)
@@ -207,10 +206,10 @@ export const DashboardPage: React.FC = () => {
 
           <button
             onClick={() => setViewTab('executive')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
               viewTab === 'executive'
-                ? 'bg-[#1B4332] text-white shadow-xs'
-                : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-[#EFEBE1]'
+                ? 'bg-[#1B4332] text-white shadow-2xs'
+                : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-white/60'
             }`}
           >
             <TrendingUp className="w-3.5 h-3.5" /> Ikhtisar Lembaga (Pimpinan)
@@ -218,41 +217,20 @@ export const DashboardPage: React.FC = () => {
 
           <button
             onClick={() => setViewTab('role')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
               viewTab === 'role'
-                ? 'bg-[#1B4332] text-white shadow-xs'
-                : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-[#EFEBE1]'
+                ? 'bg-[#1B4332] text-white shadow-2xs'
+                : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-white/60'
             }`}
           >
             <Layers className="w-3.5 h-3.5" /> Dashboard 7 Peran Operasional
           </button>
         </div>
 
-        {/* Right: Quick Action Buttons */}
-        <div className="flex items-center gap-2">
-          <Link
-            to="/interactions"
-            className="h-8.5 px-3 rounded-lg border border-[#1B4332]/18 bg-[#FBF9F4] hover:bg-[#F2EEE4] text-[#1F2A44] font-semibold text-xs flex items-center gap-1.5 transition-all shadow-2xs"
-          >
-            <Plus className="w-3.5 h-3.5 text-[#1B4332]" />
-            <span>Interaksi</span>
-          </Link>
-
-          <Link
-            to="/tasks"
-            className="h-8.5 px-3.5 rounded-lg bg-[#1B4332] hover:bg-[#14352A] text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-xs active:scale-98"
-          >
-            <Plus className="w-3.5 h-3.5 text-[#E0B970]" />
-            <span>Tindak Lanjut</span>
-          </Link>
-
-          <Link
-            to="/people"
-            className="h-8.5 px-3 rounded-lg border border-[#1B4332]/18 bg-[#FBF9F4] hover:bg-[#F2EEE4] text-[#1F2A44] font-semibold text-xs flex items-center gap-1.5 transition-all shadow-2xs"
-          >
-            <Plus className="w-3.5 h-3.5 text-[#1B4332]" />
-            <span>Jamaah</span>
-          </Link>
+        {/* Status indicator */}
+        <div className="hidden sm:flex items-center gap-1.5 text-xs text-[#6B7A72]">
+          <span className="w-2 h-2 rounded-full bg-[#2F7D4F]" />
+          <span>Sistem Aktif &amp; Tersinkronisasi</span>
         </div>
       </div>
 

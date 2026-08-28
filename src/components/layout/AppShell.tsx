@@ -2,197 +2,78 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router';
 import { useGetIdentity, useLogout, usePermissions } from '@refinedev/core';
 import {
-  LayoutDashboard,
   IdCard,
   Calendar,
   CheckSquare,
   MessageSquare,
   Plus,
-  HeartHandshake,
-  Landmark,
-  FileBarChart2,
+  Coins,
+  Building2,
+  TrendingUp,
   ShieldCheck,
   History,
   Settings,
   LogOut,
   Menu,
   X,
-  ChevronRight,
+  Search,
+  Store,
   PanelLeftClose,
   PanelLeftOpen,
-  Sparkles,
-  TrendingUp,
-  Store,
-  Search,
 } from 'lucide-react';
 import { UserIdentity } from '../../lib/authProvider';
 import { PermissionCode, PERMISSIONS, ROLES } from '@server/permissions/constants';
 import { QuickInteractionModal } from '../../features/interactions/QuickInteractionModal';
 import { GlobalSearchModal } from '@/components/common/GlobalSearchModal';
-import { BrandLogo, BrandEmblem } from '@/components/common/BrandLogo';
-import { useTheme } from '@/lib/themeContext';
 import { InactivityAutoLogoutGuard } from '@/components/common/InactivityAutoLogoutGuard';
 
-interface NavGroup {
-  category: string;
-  items: NavItem[];
-}
-
-export interface NavItem {
+export interface NavMenuItem {
   name: string;
   href: string;
-  icon: React.ComponentType<{ className?: string }>;
+  badge?: string | number;
+  badgeColor?: string;
   permission?: PermissionCode;
-  badge?: string;
-  description?: string;
 }
 
-const NAV_GROUPS: NavGroup[] = [
-  {
-    category: 'Utama',
-    items: [
-      {
-        name: 'Dashboard',
-        href: '/',
-        icon: LayoutDashboard,
-        description: 'Ringkasan KPI & Aktivitas',
-      },
-    ],
-  },
-  {
-    category: 'Layanan Jamaah & Dakwah',
-    items: [
-      {
-        name: 'Kajian, Daurah & Presensi',
-        href: '/events',
-        icon: Calendar,
-        badge: 'Gate Scanner & Kuota',
-        permission: PERMISSIONS.EVENTS_VIEW,
-        description: 'Jadwal, Kuota, Form & Pemindai QR',
-      },
-      {
-        name: 'Bazar & Tenant Daurah',
-        href: '/bazaar',
-        icon: Store,
-        badge: 'War Tempat',
-        permission: PERMISSIONS.EVENTS_VIEW,
-        description: 'Plotting Stand, Denah & Infaq Booth',
-      },
-      {
-        name: 'Direktori Jamaah',
-        href: '/people',
-        icon: IdCard,
-        permission: PERMISSIONS.PERSONS_LIST,
-        description: 'Profil 360° Jamaah & Donatur',
-      },
-      {
-        name: 'Riwayat Sapaan',
-        href: '/interactions',
-        icon: MessageSquare,
-        permission: PERMISSIONS.INTERACTIONS_VIEW,
-        description: 'Log Chat & Kontak Jamaah',
-      },
-      {
-        name: 'Tugas & Follow-Up',
-        href: '/tasks',
-        icon: CheckSquare,
-        permission: PERMISSIONS.TASKS_VIEW_OWN,
-        description: 'Agenda Kunjungan & Tindak Lanjut',
-      },
-    ],
-  },
-  {
-    category: 'Infaq, Wakaf & Keuangan',
-    items: [
-      {
-        name: 'Pengaturan Donasi & Infaq',
-        href: '/donations',
-        icon: HeartHandshake,
-        badge: 'Infaq',
-        permission: PERMISSIONS.DONATIONS_LIST,
-        description: 'Verifikasi Mutasi & Bukti Transfer',
-      },
-      {
-        name: 'Pengaturan & Pipeline Wakaf',
-        href: '/waqf',
-        icon: Landmark,
-        badge: '7 Tahap',
-        permission: PERMISSIONS.WAQF_LIST,
-        description: 'Pengelolaan Aset & Ikrar Wakaf',
-      },
-      {
-        name: 'Pipeline Donatur',
-        href: '/donors-pipeline',
-        icon: TrendingUp,
-        permission: PERMISSIONS.DONATIONS_LIST,
-        description: 'Tahapan Stewardship Donatur',
-      },
-      {
-        name: 'Automasi Layanan',
-        href: '/automation',
-        icon: Sparkles,
-        permission: PERMISSIONS.BROADCAST_HISTORY,
-        description: 'Broadcast & Reminder Kajian',
-      },
-      {
-        name: 'Laporan Finansial',
-        href: '/reports',
-        icon: FileBarChart2,
-        permission: PERMISSIONS.REPORTS_VIEW,
-        description: 'Rekap Infaq, Wakaf & Donatur',
-      },
-    ],
-  },
-  {
-    category: 'Tata Kelola & Keamanan',
-    items: [
-      {
-        name: 'Kualitas Data',
-        href: '/data-quality',
-        icon: ShieldCheck,
-        permission: PERMISSIONS.DATA_QUALITY_MANAGE,
-        description: 'Deteksi Duplikat & Normalisasi',
-      },
-      {
-        name: 'Log Audit Sistem',
-        href: '/audit',
-        icon: History,
-        permission: PERMISSIONS.AUDIT_VIEW,
-        description: 'Rekam Jejak Keamanan & Mutasi',
-      },
-      {
-        name: 'Pengaturan Yayasan',
-        href: '/settings',
-        icon: Settings,
-        badge: 'Admin',
-        permission: PERMISSIONS.SYSTEM_CONFIGURE,
-        description: 'Rekening BSI, Profil & Operasional',
-      },
-    ],
-  },
+const MAIN_NAV_ITEMS: NavMenuItem[] = [
+  { name: 'Beranda Kerja', href: '/' },
+  { name: 'Jamaah', href: '/people' },
+  { name: 'Tindak Lanjut', href: '/tasks', badge: '12', badgeColor: 'bg-[#C77A16]' },
+  { name: 'Donasi', href: '/donations', badge: '7', badgeColor: 'bg-[#C77A16]' },
+  { name: 'Wakaf', href: '/waqf' },
+  { name: 'Kajian', href: '/events' },
+  { name: 'Bazar UMKM', href: '/bazaar' },
+  { name: 'Kualitas Data', href: '/data-quality' },
 ];
 
-const PAGE_TITLES: Record<string, string> = {
-  '': 'Dashboard Utama',
-  'people': 'Direktori Jamaah & Donatur',
-  'events': 'Pengelolaan Kajian, Kuota & Form Builder',
-  'interactions': 'Riwayat Sapaan & Kontak',
-  'tasks': 'Agenda Tugas & Follow-Up',
-  'donations': 'Verifikasi Infaq & Donasi',
-  'donors-pipeline': 'Pipeline Siklus Donatur',
-  'waqf': 'Pipeline Amanah Wakaf',
-  'automation': 'Automasi Layanan WhatsApp',
-  'reports': 'Laporan Finansial & Rekap',
-  'data-quality': 'Kualitas & Kebersihan Data',
-  'audit': 'Log Audit & Keamanan Sistem',
-  'settings': 'Pengaturan Sistem & Rekening Yayasan',
-};
+const GOVERNANCE_NAV_ITEMS: NavMenuItem[] = [
+  { name: 'Audit Log', href: '/audit', permission: PERMISSIONS.AUDIT_VIEW },
+  { name: 'Role & Permission', href: '/settings', permission: PERMISSIONS.SYSTEM_CONFIGURE },
+];
+
+function getInitials(name?: string): string {
+  if (!name) return 'RH';
+  const parts = name.trim().split(' ');
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function getRoleLabel(roles?: string[]): string {
+  if (!roles || roles.length === 0) return 'STAFF AMIL';
+  if (roles.includes(ROLES.CRM_ADMIN) || roles.includes('crm_admin' as any)) return 'CRM ADMIN';
+  if (roles.includes('keuangan')) return 'FINANCE';
+  if (roles.includes('wakaf_officer')) return 'WAKAF OFFICER';
+  if (roles.includes('cs_officer')) return 'CS OFFICER';
+  if (roles.includes('data_steward')) return 'DATA STEWARD';
+  if (roles.includes('event_admin')) return 'ADMIN KAJIAN';
+  return roles[0].replace('_', ' ').toUpperCase();
+}
 
 export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [quickInteractionOpen, setQuickInteractionOpen] = useState(false);
-  
-  // Collapse sidebar state persisted in localStorage
+  const [searchModalOpen, setSearchModalOpen] = useState(false);
+
   const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
     const saved = localStorage.getItem('yts_sidebar_collapsed');
     return saved ? JSON.parse(saved) : false;
@@ -203,8 +84,6 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const { data: permissions = [] } = usePermissions<PermissionCode[]>({});
   const { mutate: logout } = useLogout();
 
-  const [searchModalOpen, setSearchModalOpen] = useState(false);
-
   const toggleCollapse = () => {
     setIsCollapsed((prev) => {
       const next = !prev;
@@ -213,7 +92,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     });
   };
 
-  // Keyboard shortcuts: Ctrl+B to toggle sidebar, Cmd+K / Ctrl+K to open search
+  // Keyboard shortcut Ctrl+B / Cmd+B to toggle sidebar & Cmd+K to open search
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
@@ -227,311 +106,221 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
-  const { currentTheme } = useTheme();
+
+  const initials = getInitials(user?.name);
+  const roleLabel = getRoleLabel(user?.roles);
 
   return (
     <InactivityAutoLogoutGuard timeoutMinutes={30} warningSeconds={60}>
-      <div className={`min-h-screen flex ${currentTheme.colors.canvasBg} font-sans text-surface-900 antialiased selection:bg-brand-100 selection:text-brand-900`}>
+      <div className="min-h-screen flex bg-[#F7F4EC] font-sans text-[#1C2321] antialiased selection:bg-[#B58B3C]/30 selection:text-[#14352A]">
         {/* Mobile Drawer Overlay */}
         {mobileMenuOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-surface-950/60 backdrop-blur-xs lg:hidden transition-opacity"
-          onClick={() => setMobileMenuOpen(false)}
-        />
-      )}
-
-      {/* Main Sidebar */}
-      <aside
-        className={`fixed inset-y-0 left-0 z-50 ${currentTheme.colors.sidebarBg} flex flex-col transition-all duration-300 ease-in-out lg:sticky lg:top-0 lg:h-screen lg:max-h-screen lg:translate-x-0 border-r ${currentTheme.colors.sidebarBorder} shadow-2xl h-[100dvh] max-h-[100dvh] overflow-hidden ${
-          mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-        } ${isCollapsed ? 'lg:w-20' : 'lg:w-72'} w-72`}
-      >
-        {/* Brand Header */}
-        <div className={`h-16 flex items-center justify-between px-3.5 border-b ${currentTheme.colors.sidebarBorder} ${currentTheme.colors.sidebarHeaderBg}`}>
-          {isCollapsed ? (
-            <div className="w-full flex items-center justify-center">
-              <div className="p-1 rounded-xl bg-white shadow-xs border border-surface-200/80">
-                <BrandEmblem className="w-7 h-7" useImage={true} />
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 overflow-hidden">
-              <BrandLogo
-                variant="horizontal"
-                theme={currentTheme.sidebarStyle === 'light' ? 'light' : 'dark'}
-                emblemSize="w-8 h-8"
-                badge="PROD"
-                subtitle="Sistem CRM & Dakwah"
-                imageSrc="/logo.png"
-              />
-            </div>
-          )}
-
-          {/* Desktop Collapse Toggle */}
-          <button
-            onClick={toggleCollapse}
-            title={isCollapsed ? 'Perluas Menu (Ctrl+B)' : 'Ciutkan Menu (Ctrl+B)'}
-            className="hidden lg:flex p-1.5 text-surface-400 hover:text-surface-900 hover:bg-black/10 dark:hover:text-white dark:hover:bg-white/10 rounded-lg transition-colors shrink-0"
-          >
-            {isCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
-          </button>
-
-          {/* Mobile Close Button */}
-          <button
+          <div
+            className="fixed inset-0 z-40 bg-[#0F3A2E]/60 backdrop-blur-xs lg:hidden transition-opacity"
             onClick={() => setMobileMenuOpen(false)}
-            className="lg:hidden text-surface-400 hover:text-surface-900 dark:hover:text-white p-1.5 rounded-lg hover:bg-black/10"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Quick Action Button (Expanded only) */}
-        {!isCollapsed && (
-          <div className="px-3.5 pt-4 pb-1.5 shrink-0">
-            <button
-              onClick={() => setQuickInteractionOpen(true)}
-              className={`w-full py-2.5 px-3 ${currentTheme.colors.sidebarCtaBg} ${currentTheme.colors.sidebarCtaText} font-bold text-xs rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 active:scale-95 border border-white/20`}
-            >
-              <Plus className="w-4 h-4 text-gold-300" />
-              <span>Catat Sapaan Jamaah</span>
-            </button>
-          </div>
+          />
         )}
 
-        {/* Navigation Menu Groups */}
-        <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-4 sidebar-scrollbar overscroll-contain">
-          {NAV_GROUPS.map((group) => {
-            const isAdmin =
-              user?.roles?.includes(ROLES.CRM_ADMIN) ||
-              user?.roles?.includes('crm_admin' as any) ||
-              permissions.includes(PERMISSIONS.SYSTEM_CONFIGURE) ||
-              permissions.includes(PERMISSIONS.USERS_MANAGE);
-
-            const visibleItems = group.items.filter(
-              (item) => isAdmin || !item.permission || permissions.includes(item.permission)
-            );
-
-            if (visibleItems.length === 0) return null;
-
-            return (
-              <div key={group.category} className="space-y-1">
-                {/* Category Header */}
-                {!isCollapsed ? (
-                  <h3 className={`px-3 text-[10px] font-extrabold uppercase tracking-wider ${currentTheme.colors.sidebarCategoryText} select-none`}>
-                    {group.category}
-                  </h3>
-                ) : (
-                  <div className={`border-t ${currentTheme.colors.sidebarBorder} my-2`} />
-                )}
-
-                {/* Nav Items */}
-                <div className="space-y-0.5">
-                  {visibleItems.map((item) => {
-                    const isActive =
-                      item.href === '/'
-                        ? location.pathname === '/'
-                        : location.pathname.startsWith(item.href);
-
-                    return (
-                      <Link
-                        key={item.name}
-                        to={item.href}
-                        onClick={() => setMobileMenuOpen(false)}
-                        title={isCollapsed ? `${item.name}${item.description ? ` (${item.description})` : ''}` : undefined}
-                        className={`group flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                          isActive
-                            ? `${currentTheme.colors.sidebarActiveBg} ${currentTheme.colors.sidebarActiveText} shadow-sm ring-1 ${currentTheme.colors.sidebarActiveRing} font-bold`
-                            : `${currentTheme.colors.sidebarText} ${currentTheme.colors.sidebarHoverBg}`
-                        } ${isCollapsed ? 'justify-center py-2.5' : ''}`}
-                      >
-                        <item.icon
-                          className={`w-4 h-4 shrink-0 transition-transform group-hover:scale-110 ${
-                            isActive ? 'text-gold-400' : 'text-brand-500'
-                          }`}
-                        />
-
-                        {!isCollapsed && (
-                          <div className="flex-1 min-w-0 flex items-center justify-between gap-1.5">
-                            <div className="min-w-0">
-                              <span className="block truncate text-sm leading-snug">{item.name}</span>
-                              {item.description && (
-                                <span className={`block truncate text-[11px] ${currentTheme.colors.sidebarTextMuted} font-normal leading-tight`}>
-                                  {item.description}
-                                </span>
-                              )}
-                            </div>
-                            {item.badge && (
-                              <span
-                                className={`px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider rounded-full shadow-2xs shrink-0 border ${
-                                  item.badge === 'Infaq'
-                                    ? 'bg-gold-500/20 text-gold-300 border-gold-400/40'
-                                    : item.badge === '7 Tahap'
-                                    ? 'bg-amber-500/20 text-amber-300 border-amber-400/40'
-                                    : 'bg-brand-800 text-brand-200 border-brand-500/40'
-                                }`}
-                              >
-                                {item.badge}
-                              </span>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Hover Tooltip in Collapsed Mode */}
-                        {isCollapsed && (
-                          <div className="hidden group-hover:block fixed left-20 z-50 ml-2 px-3 py-1.5 bg-surface-900 text-white text-xs font-semibold rounded-lg shadow-xl border border-surface-700 whitespace-nowrap pointer-events-none">
-                            <p className="font-bold text-white">{item.name}</p>
-                            {item.description && <p className="text-[10px] text-gold-300">{item.description}</p>}
-                          </div>
-                        )}
-                      </Link>
-                    );
-                  })}
+        {/* 1. MAIN SIDEBAR (Mockup 1a - Width: 224px, Background: #14352A) */}
+        <aside
+          className={`fixed inset-y-0 left-0 z-50 bg-[#14352A] text-white flex flex-col transition-all duration-200 ease-in-out lg:sticky lg:top-0 lg:h-screen lg:max-h-screen lg:translate-x-0 h-[100dvh] max-h-[100dvh] overflow-hidden ${
+            mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+          } ${isCollapsed ? 'lg:w-18' : 'lg:w-[224px]'} w-[224px] shrink-0 border-r border-[#1B4332]/40 shadow-xl`}
+        >
+          {/* Brand Header */}
+          <div className="pt-4.5 px-4.5 pb-5 flex items-center justify-between shrink-0">
+            {isCollapsed ? (
+              <div className="w-full flex items-center justify-center">
+                <div className="w-8 h-8 rounded-lg bg-[#B58B3C] flex items-center justify-center font-display font-extrabold text-sm text-[#14352A] shadow-xs">
+                  Y
                 </div>
               </div>
-            );
-          })}
-        </nav>
+            ) : (
+              <div className="flex items-center gap-2.5">
+                <div className="w-7.5 h-7.5 rounded-lg bg-[#B58B3C] flex items-center justify-center font-display font-extrabold text-[13px] text-[#14352A] shadow-xs shrink-0">
+                  Y
+                </div>
+                <div>
+                  <div className="font-display font-bold text-[12.5px] text-white leading-none tracking-tight">
+                    CRM YTS
+                  </div>
+                  <div className="font-mono font-medium text-[9.5px] text-white/45 tracking-widest mt-1">
+                    RUANG KENDALI AMANAH
+                  </div>
+                </div>
+              </div>
+            )}
 
-        {/* User Profile & Footer */}
-        <div className={`p-3 border-t shrink-0 ${currentTheme.colors.sidebarBorder} ${currentTheme.colors.sidebarHeaderBg}`}>
-          <div className={`flex items-center ${isCollapsed ? 'justify-center flex-col gap-2' : 'justify-between'}`}>
-            <div className="flex items-center gap-3 overflow-hidden">
-              <div
-                title={user?.name || 'Staf YTS'}
-                className="w-9 h-9 rounded-full bg-brand-700 border-2 border-brand-500/50 flex items-center justify-center font-bold text-xs text-white uppercase shrink-0 shadow-inner"
-              >
-                {user?.name ? user.name.charAt(0) : 'U'}
+            {/* Mobile Close Button */}
+            <button
+              onClick={() => setMobileMenuOpen(false)}
+              className="lg:hidden text-white/60 hover:text-white p-1 rounded-md"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Navigation Menu (Mockup 1a List) */}
+          <nav className="flex-1 overflow-y-auto px-2.5 space-y-0.5 sidebar-scrollbar select-none">
+            {MAIN_NAV_ITEMS.map((item) => {
+              const isActive =
+                item.href === '/'
+                  ? location.pathname === '/'
+                  : location.pathname.startsWith(item.href);
+
+              return (
+                <Link
+                  key={item.name}
+                  to={item.href}
+                  onClick={() => setMobileMenuOpen(false)}
+                  title={isCollapsed ? item.name : undefined}
+                  className={`flex items-center justify-between px-2.5 py-2 rounded-lg text-[12.5px] transition-colors font-display ${
+                    isActive
+                      ? 'bg-[#B58B3C]/18 text-white font-semibold'
+                      : 'text-white/72 hover:text-white hover:bg-white/5 font-medium'
+                  } ${isCollapsed ? 'justify-center py-2.5' : ''}`}
+                >
+                  <span className="flex items-center gap-2.5 min-w-0">
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                        isActive ? 'bg-[#E0B970]' : 'bg-white/30'
+                      }`}
+                    />
+                    {!isCollapsed && <span className="truncate">{item.name}</span>}
+                  </span>
+
+                  {!isCollapsed && item.badge && (
+                    <span
+                      className={`font-mono text-[10px] font-semibold px-1.5 py-0.2 rounded shrink-0 ${
+                        item.badgeColor ? `${item.badgeColor} text-white` : 'text-white/40'
+                      }`}
+                    >
+                      {item.badge}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+
+            {/* Divider */}
+            <div className="h-px bg-white/10 my-3 mx-2" />
+
+            {/* Governance Section */}
+            {GOVERNANCE_NAV_ITEMS.map((item) => {
+              const isActive = location.pathname.startsWith(item.href);
+
+              return (
+                <Link
+                  key={item.name}
+                  to={item.href}
+                  onClick={() => setMobileMenuOpen(false)}
+                  title={isCollapsed ? item.name : undefined}
+                  className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] transition-colors font-display ${
+                    isActive
+                      ? 'bg-[#B58B3C]/18 text-white font-semibold'
+                      : 'text-white/55 hover:text-white hover:bg-white/5 font-medium'
+                  } ${isCollapsed ? 'justify-center py-2.5' : ''}`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                      isActive ? 'bg-[#E0B970]' : 'bg-white/20'
+                    }`}
+                  />
+                  {!isCollapsed && <span className="truncate">{item.name}</span>}
+                </Link>
+              );
+            })}
+          </nav>
+
+          {/* User Profile Bottom Bar (Mockup 1a) */}
+          <div className="p-3.5 px-4 border-t border-white/10 flex items-center justify-between shrink-0 bg-[#14352A]">
+            <div className="flex items-center gap-2.5 overflow-hidden">
+              <div className="w-7 h-7 rounded-full bg-white/14 flex items-center justify-center font-display font-semibold text-[11px] text-white shrink-0">
+                {initials}
               </div>
               {!isCollapsed && (
                 <div className="overflow-hidden">
-                  <p className={`text-xs font-bold truncate leading-tight ${currentTheme.sidebarStyle === 'dark' ? 'text-white' : 'text-slate-950'}`}>
-                    {user?.name || 'Staf YTS'}
-                  </p>
-                  <p className={`text-[11px] ${currentTheme.colors.sidebarTextMuted} truncate mt-0.5 font-medium`}>
-                    {user?.roles && user.roles.length > 0 ? user.roles.join(', ') : 'Operasional'}
-                  </p>
+                  <div className="font-semibold text-[11.5px] text-white truncate leading-tight font-display">
+                    {user?.name || 'Rahmat Hidayat'}
+                  </div>
+                  <div className="font-mono font-medium text-[9.5px] text-[#E0B970] tracking-wider mt-0.5 uppercase">
+                    {roleLabel}
+                  </div>
                 </div>
               )}
             </div>
 
-            <button
-              onClick={() => logout()}
-              title="Keluar dari Sistem (Logout)"
-              className={`p-1.5 ${currentTheme.sidebarStyle === 'dark' ? 'text-surface-300 hover:text-red-300 hover:bg-white/10' : 'text-surface-500 hover:text-red-600 hover:bg-cream-200'} rounded-xl transition-colors shrink-0`}
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
+            {/* Logout & Collapse Controls */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => logout()}
+                title="Keluar dari Sistem (Logout)"
+                className="p-1 text-white/50 hover:text-rose-300 transition-colors rounded"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                onClick={toggleCollapse}
+                title={isCollapsed ? 'Perluas Menu (Ctrl+B)' : 'Ciutkan Menu (Ctrl+B)'}
+                className="hidden lg:flex p-1 text-white/50 hover:text-white transition-colors rounded"
+              >
+                {isCollapsed ? <PanelLeftOpen className="w-3.5 h-3.5" /> : <PanelLeftClose className="w-3.5 h-3.5" />}
+              </button>
+            </div>
           </div>
+        </aside>
+
+        {/* 2. MAIN CONTENT AREA WITH MOCKUP 1a TOPBAR */}
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#F7F4EC]">
+          {/* TopBar (Height: 60px, Background: #FBF9F4, Border: rgba(27,67,50,.12)) */}
+          <header className="h-[60px] bg-[#FBF9F4] border-b border-[#1B4332]/12 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shadow-2xs shrink-0">
+            <div className="flex items-center gap-3">
+              {/* Mobile Drawer Trigger */}
+              <button
+                onClick={() => setMobileMenuOpen(true)}
+                className="lg:hidden p-1.5 text-[#3D4A44] hover:text-[#14352A] rounded-lg hover:bg-[#F2EEE4]"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+
+              {/* Search Box Trigger (Mockup 1a - max-w: 380px, height: 36px, bg: #F2EEE4) */}
+              <button
+                type="button"
+                onClick={() => setSearchModalOpen(true)}
+                className="flex items-center gap-2.5 h-9 px-3 bg-[#F2EEE4] hover:bg-[#EAE4D6] border border-[#1B4332]/12 rounded-lg text-[12.5px] text-[#8A9690] w-52 sm:w-72 lg:w-95 transition-colors cursor-pointer select-none"
+              >
+                <div className="w-2.5 h-2.5 rounded-full border border-[#6B7A72] shrink-0" />
+                <span className="truncate">Cari jamaah, donasi, atau case wakaf…</span>
+                <span className="ml-auto font-mono text-[10px] font-medium text-[#A8B2AC] px-1 py-0.2 rounded bg-white/80 border border-[#1B4332]/10">
+                  ⌘K
+                </span>
+              </button>
+            </div>
+
+            {/* Right Quick Actions (Mockup 1a) */}
+            <div className="flex items-center gap-2.5">
+              <button
+                onClick={() => setQuickInteractionOpen(true)}
+                className="h-[34px] px-3 rounded-lg border border-[#1B4332]/16 bg-[#FBF9F4] hover:bg-[#F2EEE4] font-semibold text-[12px] text-[#1F2A44] transition-all shadow-2xs flex items-center gap-1.5"
+              >
+                <span>+ Interaksi</span>
+              </button>
+
+              <Link
+                to="/tasks"
+                className="h-[34px] px-3.5 rounded-lg bg-[#1B4332] hover:bg-[#14352A] text-white font-semibold text-[12px] transition-all shadow-xs flex items-center gap-1.5 active:scale-98"
+              >
+                <span>+ Tindak Lanjut</span>
+              </Link>
+            </div>
+          </header>
+
+          {/* Main Body Canvas */}
+          <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-7 max-w-[1400px] w-full mx-auto">
+            {children}
+          </main>
         </div>
-      </aside>
-
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#fbfaf6]">
-        {/* Topbar Header */}
-        <header className={`h-16 ${currentTheme.colors.topbarBg} backdrop-blur-md border-b ${currentTheme.colors.topbarBorder} px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs`}>
-          <div className="flex items-center gap-3">
-            {/* Mobile Drawer Trigger */}
-            <button
-              onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden p-2 text-surface-600 hover:text-surface-900 rounded-lg hover:bg-cream-100 transition-colors"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-
-            {/* Breadcrumb Navigation */}
-            <nav className="flex items-center gap-2 text-sm text-surface-500">
-              <Link to="/" className="hover:text-brand-900 font-bold transition-colors">CRM YTS</Link>
-              <ChevronRight className="w-4 h-4 text-surface-400" />
-              <span className="font-black text-brand-950">
-                {PAGE_TITLES[location.pathname.split('/')[1] || ''] || location.pathname.split('/')[1]?.replace('-', ' ')}
-              </span>
-            </nav>
-          </div>
-
-          {/* Center: Global Search Bar Trigger (Mockup 1a) */}
-          <button
-            type="button"
-            onClick={() => setSearchModalOpen(true)}
-            className="hidden md:flex items-center gap-2.5 h-9 px-3.5 bg-[#F2EEE4] hover:bg-[#EBE5D8] border border-[#1B4332]/12 rounded-xl text-xs text-[#8A9690] w-64 lg:w-80 transition-colors cursor-pointer select-none"
-          >
-            <Search className="w-3.5 h-3.5 text-[#6B7A72]" />
-            <span className="truncate">Cari jamaah, donasi, wakaf…</span>
-            <span className="ml-auto font-mono text-[10px] font-semibold text-[#A8B2AC] px-1.5 py-0.5 rounded bg-white/70 border border-[#1B4332]/10">
-              ⌘K
-            </span>
-          </button>
-
-          {/* Right Topbar Actions */}
-          <div className="flex items-center gap-2">
-            {/* 1. Kelola Kajian & Presensi */}
-            <Link
-              to="/events"
-              title="Kelola Jadwal Kajian, Kuota, Parkir & Form Builder"
-              className={`py-1.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-2xs ${
-                location.pathname.startsWith('/events')
-                  ? `${currentTheme.colors.topbarActiveNavBg} ${currentTheme.colors.topbarActiveNavText}`
-                  : 'bg-cream-100 hover:bg-cream-200 text-brand-950 border-cream-300'
-              }`}
-            >
-              <Calendar className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Kelola Kajian</span>
-            </Link>
-
-            {/* 2. Kelola Donasi & Infaq */}
-            <Link
-              to="/donations"
-              title="Kelola & Verifikasi Donasi Infaq"
-              className={`py-1.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-2xs ${
-                location.pathname.startsWith('/donations') || location.pathname.startsWith('/donors-pipeline')
-                  ? `${currentTheme.colors.topbarActiveNavBg} ${currentTheme.colors.topbarActiveNavText}`
-                  : 'bg-cream-100 hover:bg-cream-200 text-brand-950 border-cream-300'
-              }`}
-            >
-              <HeartHandshake className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Kelola Donasi</span>
-            </Link>
-
-            {/* 3. Kelola Wakaf */}
-            <Link
-              to="/waqf"
-              title="Kelola 7 Tahapan Pipeline Wakaf"
-              className={`py-1.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-2xs ${
-                location.pathname.startsWith('/waqf')
-                  ? `${currentTheme.colors.topbarActiveNavBg} ${currentTheme.colors.topbarActiveNavText}`
-                  : 'bg-amber-50 hover:bg-amber-100 text-amber-950 border-amber-200'
-              }`}
-            >
-              <Landmark className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Kelola Wakaf</span>
-            </Link>
-
-            {/* 4. Pengaturan */}
-            <Link
-              to="/settings"
-              title="Pengaturan Yayasan, Rekening BSI & Webhook"
-              className="p-2 text-surface-500 hover:text-brand-900 hover:bg-cream-100 rounded-xl transition-colors"
-            >
-              <Settings className="w-4 h-4" />
-            </Link>
-
-            <div className="h-4 w-px bg-cream-300 mx-1 hidden sm:block" />
-
-            {/* 5. Catat Sapaan Quick Action */}
-            <button
-              onClick={() => setQuickInteractionOpen(true)}
-              className={`py-1.5 px-3 ${currentTheme.colors.topbarCtaBg} ${currentTheme.colors.topbarCtaText} text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 active:scale-95`}
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">Catat Sapaan</span>
-            </button>
-          </div>
-        </header>
-
-        {/* Main View Area */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
-          {children}
-        </main>
-      </div>
 
         {/* Global Quick Interaction Modal */}
         <QuickInteractionModal
