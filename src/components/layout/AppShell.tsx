@@ -23,10 +23,12 @@ import {
   Sparkles,
   TrendingUp,
   Store,
+  Search,
 } from 'lucide-react';
 import { UserIdentity } from '../../lib/authProvider';
 import { PermissionCode, PERMISSIONS, ROLES } from '@server/permissions/constants';
 import { QuickInteractionModal } from '../../features/interactions/QuickInteractionModal';
+import { GlobalSearchModal } from '@/components/common/GlobalSearchModal';
 import { BrandLogo, BrandEmblem } from '@/components/common/BrandLogo';
 import { useTheme } from '@/lib/themeContext';
 import { InactivityAutoLogoutGuard } from '@/components/common/InactivityAutoLogoutGuard';
@@ -201,6 +203,8 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const { data: permissions = [] } = usePermissions<PermissionCode[]>({});
   const { mutate: logout } = useLogout();
 
+  const [searchModalOpen, setSearchModalOpen] = useState(false);
+
   const toggleCollapse = () => {
     setIsCollapsed((prev) => {
       const next = !prev;
@@ -209,12 +213,15 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     });
   };
 
-  // Keyboard shortcut Ctrl+B / Cmd+B to toggle sidebar
+  // Keyboard shortcuts: Ctrl+B to toggle sidebar, Cmd+K / Ctrl+K to open search
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
         e.preventDefault();
         toggleCollapse();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchModalOpen((prev) => !prev);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -441,6 +448,19 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             </nav>
           </div>
 
+          {/* Center: Global Search Bar Trigger (Mockup 1a) */}
+          <button
+            type="button"
+            onClick={() => setSearchModalOpen(true)}
+            className="hidden md:flex items-center gap-2.5 h-9 px-3.5 bg-[#F2EEE4] hover:bg-[#EBE5D8] border border-[#1B4332]/12 rounded-xl text-xs text-[#8A9690] w-64 lg:w-80 transition-colors cursor-pointer select-none"
+          >
+            <Search className="w-3.5 h-3.5 text-[#6B7A72]" />
+            <span className="truncate">Cari jamaah, donasi, wakaf…</span>
+            <span className="ml-auto font-mono text-[10px] font-semibold text-[#A8B2AC] px-1.5 py-0.5 rounded bg-white/70 border border-[#1B4332]/10">
+              ⌘K
+            </span>
+          </button>
+
           {/* Right Topbar Actions */}
           <div className="flex items-center gap-2">
             {/* 1. Kelola Kajian & Presensi */}
@@ -517,6 +537,12 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         <QuickInteractionModal
           isOpen={quickInteractionOpen}
           onClose={() => setQuickInteractionOpen(false)}
+        />
+
+        {/* Global Search Command Palette Modal */}
+        <GlobalSearchModal
+          isOpen={searchModalOpen}
+          onClose={() => setSearchModalOpen(false)}
         />
       </div>
     </InactivityAutoLogoutGuard>
