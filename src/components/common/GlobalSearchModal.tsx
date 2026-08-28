@@ -7,9 +7,6 @@ import {
   Building2, 
   Calendar, 
   CheckSquare, 
-  ShieldCheck, 
-  History, 
-  Settings, 
   X,
   ArrowRight,
   Sparkles
