@@ -171,6 +171,20 @@ export function registerDashboardRoutes(router: Router) {
         },
       });
 
+      const recentAuditLogs = await db.query.auditLogs.findMany({
+        orderBy: (a, { desc }) => [desc(a.createdAt)],
+        limit: 6,
+        with: {
+          actor: {
+            columns: {
+              id: true,
+              fullName: true,
+              email: true,
+            },
+          },
+        },
+      });
+
       return successResponse(
         {
           kpis: {
@@ -231,6 +245,15 @@ export function registerDashboardRoutes(router: Router) {
               programName: d.program?.name || 'Infaq Umum',
               amountRupiah: Number(d.amountRupiah),
               donationDate: d.donationDate,
+            })),
+            recentAuditLogs: recentAuditLogs.map((a) => ({
+              id: a.id,
+              action: a.action,
+              entityType: a.entityType,
+              entityId: a.entityId,
+              actorName: a.actor?.fullName || a.actor?.email || 'Sistem',
+              reason: a.reason,
+              createdAt: a.createdAt,
             })),
           },
         },
