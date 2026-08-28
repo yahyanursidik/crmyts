@@ -5,8 +5,6 @@ import { BrandEmblem } from '@/components/common/BrandLogo';
 import { authProvider } from '@/lib/authProvider';
 
 const SUPPORT_WHATSAPP = '628112401476';
-const SUPPORT_PHONE_DISPLAY = '0811-2401-476';
-const SUPPORT_EMAIL = 'info@tarbiyahsunnah.id';
 
 function supportWhatsAppUrl(message: string): string {
   return `https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent(message)}`;

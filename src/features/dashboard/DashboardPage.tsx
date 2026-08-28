@@ -11,17 +11,11 @@ import {
   Clock, 
   ArrowRight, 
   TrendingUp, 
-  PieChart, 
   Layers, 
   Activity, 
   AlertTriangle,
   Plus,
   Lock,
-  ExternalLink,
-  ShieldCheck,
-  CheckCircle2,
-  Share2,
-  FileSpreadsheet
 } from 'lucide-react';
 import { Link } from 'react-router';
 import { LoadingState } from '@/components/common/LoadingState';

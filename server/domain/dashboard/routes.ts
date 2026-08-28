@@ -171,19 +171,39 @@ export function registerDashboardRoutes(router: Router) {
         },
       });
 
-      const recentAuditLogs = await db.query.auditLogs.findMany({
-        orderBy: (a, { desc }) => [desc(a.createdAt)],
-        limit: 6,
-        with: {
-          actor: {
-            columns: {
-              id: true,
-              fullName: true,
-              email: true,
+      let recentAuditLogs: any[] = [];
+      try {
+        if (db.query?.auditLogs?.findMany) {
+          recentAuditLogs = await db.query.auditLogs.findMany({
+            orderBy: (a, { desc }) => [desc(a.createdAt)],
+            limit: 6,
+            with: {
+              actor: {
+                columns: {
+                  id: true,
+                  fullName: true,
+                  email: true,
+                },
+              },
             },
-          },
-        },
-      });
+          });
+        } else if (db.select) {
+          recentAuditLogs = await db
+            .select({
+              id: auditLogs.id,
+              action: auditLogs.action,
+              entityType: auditLogs.entityType,
+              entityId: auditLogs.entityId,
+              reason: auditLogs.reason,
+              createdAt: auditLogs.createdAt,
+            })
+            .from(auditLogs)
+            .orderBy(desc(auditLogs.createdAt))
+            .limit(6);
+        }
+      } catch (err) {
+        recentAuditLogs = [];
+      }
 
       return successResponse(
         {
@@ -246,7 +266,7 @@ export function registerDashboardRoutes(router: Router) {
               amountRupiah: Number(d.amountRupiah),
               donationDate: d.donationDate,
             })),
-            recentAuditLogs: recentAuditLogs.map((a) => ({
+            recentAuditLogs: recentAuditLogs.map((a: any) => ({
               id: a.id,
               action: a.action,
               entityType: a.entityType,
