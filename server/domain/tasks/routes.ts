@@ -4,8 +4,11 @@ import { requireAuth, validateBody } from '../../http/middleware';
 import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import { tasks, appUsers } from '../../db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and, sql, ilike, or } from 'drizzle-orm';
 import { logAuditEvent } from '../../audit/service';
+
+let cachedTasksStats: { data: any; timestamp: number } | null = null;
+const STATS_CACHE_TTL_MS = 60_000;
 
 const createTaskSchema = z.object({
   title: z.string().min(3, 'Judul tugas tindak lanjut diperlukan'),
@@ -41,22 +44,94 @@ export function registerTasksRoutes(router: Router) {
       const user = ctx.user;
       if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
 
+      const page = ctx.query.page ? Math.max(1, parseInt(ctx.query.page, 10)) : 1;
+      const pageSize = ctx.query.pageSize ? Math.min(100, Math.max(1, parseInt(ctx.query.pageSize, 10))) : (ctx.query.page ? 15 : undefined);
+      const offset = pageSize ? (page - 1) * pageSize : undefined;
+
+      const search = ctx.query.search?.trim();
+      const status = ctx.query.status?.trim();
+      const priority = ctx.query.priority?.trim();
+      const ownerUserId = ctx.query.ownerUserId?.trim();
+      const taskType = ctx.query.taskType?.trim();
+      const isOverdue = ctx.query.isOverdue === 'true';
+
+      const conditions = [];
+      if (search) {
+        conditions.push(
+          or(
+            ilike(tasks.title, `%${search}%`),
+            ilike(tasks.description, `%${search}%`),
+            sql`EXISTS (SELECT 1 FROM people WHERE people.id = ${tasks.personId} AND (people.full_name ILIKE ${'%' + search + '%'} OR people.phone_e164 ILIKE ${'%' + search + '%'}))`
+          )
+        );
+      }
+      if (status && status !== 'all') conditions.push(eq(tasks.status, status as any));
+      if (priority && priority !== 'all') conditions.push(eq(tasks.priority, priority as any));
+      if (ownerUserId && ownerUserId !== 'all') conditions.push(eq(tasks.ownerUserId, ownerUserId));
+      if (taskType && taskType !== 'all') {
+        conditions.push(ilike(tasks.description, `%[TYPE:${taskType}]%`));
+      }
+      if (isOverdue) {
+        conditions.push(and(sql`${tasks.dueAt} < NOW()`, sql`${tasks.status} != 'completed'`));
+      }
+
+      const combinedWhere = conditions.length > 0 ? and(...conditions) : undefined;
+
       const list = await db.query.tasks.findMany({
+        where: combinedWhere,
         orderBy: [desc(tasks.dueAt)],
+        limit: pageSize,
+        offset: offset,
         with: {
           person: true,
           owner: true,
         },
       });
 
+      // Calculate or fetch cached stats
+      let stats = {
+        totalAll: 0,
+        pendingCount: 0,
+        overdueCount: 0,
+        completedCount: 0,
+      };
+
+      const nowTime = Date.now();
+      if (cachedTasksStats && nowTime - cachedTasksStats.timestamp < STATS_CACHE_TTL_MS) {
+        stats = cachedTasksStats.data;
+      } else {
+        try {
+          const [statsRes] = await db
+            .select({
+              totalAll: sql<number>`(SELECT count(*)::int FROM "tasks")`,
+              pendingCount: sql<number>`(SELECT count(*)::int FROM "tasks" WHERE "status" IN ('pending', 'in_progress', 'waiting'))`,
+              overdueCount: sql<number>`(SELECT count(*)::int FROM "tasks" WHERE "due_at" < NOW() AND "status" != 'completed')`,
+              completedCount: sql<number>`(SELECT count(*)::int FROM "tasks" WHERE "status" = 'completed')`,
+            })
+            .from(sql`(SELECT 1) dummy`);
+
+          if (statsRes) {
+            stats = statsRes;
+            cachedTasksStats = { data: statsRes, timestamp: nowTime };
+          }
+        } catch (err) {
+          stats = {
+            totalAll: list.length,
+            pendingCount: list.filter((t) => t.status !== 'completed').length,
+            overdueCount: list.filter((t) => new Date(t.dueAt).getTime() < Date.now() && t.status !== 'completed').length,
+            completedCount: list.filter((t) => t.status === 'completed').length,
+          };
+        }
+      }
+
       const formatted = list.map((t) => {
         // Parse metadata if available in description or standard fields
-        let taskType = 'whatsapp';
+        let parsedTaskType = 'whatsapp';
         let visitLocation: string | null = null;
 
         if (t.description && t.description.includes('[TYPE:')) {
           const match = t.description.match(/\[TYPE:([a-z_]+)\]/);
-          if (match && match[1]) taskType = match[1];
+          if (match && match[1]) parsedTaskType = match[1];
         }
         if (t.description && t.description.includes('[LOKASI:')) {
           const matchLoc = t.description.match(/\[LOKASI:([^\]]+)\]/);
@@ -93,7 +168,7 @@ export function registerTasksRoutes(router: Router) {
           title: t.title,
           description: cleanDescription,
           rawDescription: t.description,
-          taskType,
+          taskType: parsedTaskType,
           visitLocation,
           status: t.status,
           priority: t.priority,
@@ -120,7 +195,17 @@ export function registerTasksRoutes(router: Router) {
         };
       });
 
-      return successResponse(formatted, { requestId: ctx.requestId, total: formatted.length });
+      return successResponse(formatted, {
+        requestId: ctx.requestId,
+        total: formatted.length,
+        pagination: {
+          page,
+          pageSize: pageSize || formatted.length,
+          totalCount: stats.totalAll || formatted.length,
+          totalPages: pageSize ? Math.ceil((stats.totalAll || formatted.length) / pageSize) : 1,
+        },
+        stats,
+      });
     })
   );
 
@@ -311,6 +396,38 @@ export function registerTasksRoutes(router: Router) {
         columns: { id: true, fullName: true, email: true },
       });
       return successResponse(staffUsers, { requestId: ctx.requestId });
+    })
+  );
+
+  // DELETE /api/tasks/:id
+  router.delete(
+    '/api/tasks/:id',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const taskId = ctx.params.id;
+      const actor = ctx.user;
+      if (!actor) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+      if (!taskId) return errorResponse('VALIDATION_ERROR', 'ID Task diperlukan', 400, ctx.requestId);
+
+      const current = await db.query.tasks.findFirst({
+        where: eq(tasks.id, taskId),
+      });
+      if (!current) return errorResponse('NOT_FOUND', 'Tugas tidak ditemukan', 404, ctx.requestId);
+
+      await db.delete(tasks).where(eq(tasks.id, taskId));
+      cachedTasksStats = null;
+
+      await logAuditEvent({
+        actorUserId: actor.id,
+        action: 'delete_task',
+        entityType: 'task',
+        entityId: taskId,
+        beforeJson: { title: current.title, ownerUserId: current.ownerUserId },
+        reason: `Penghapusan amanah tugas ${current.title} oleh ${actor.fullName}`,
+        requestId: ctx.requestId,
+      });
+
+      return successResponse({ success: true }, { requestId: ctx.requestId });
     })
   );
 }
