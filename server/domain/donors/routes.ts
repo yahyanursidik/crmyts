@@ -37,8 +37,20 @@ const reEngageSchema = z.object({
   programFocus: z.string().optional().nullable(),
 });
 
+let cachedMetrics: {
+  totalPipelineDonors: number;
+  totalDonatedDonors: number;
+  conversionRatePercent: number;
+  totalPipelineValueRupiah: number;
+  regularCount: number;
+  loyalCount: number;
+  dormantCount: number;
+  cachedAt: number;
+} | null = null;
+const METRICS_CACHE_TTL_MS = 60 * 1000;
+
 export function registerDonorsPipelineRoutes(router: Router) {
-  // 1. GET /api/donors/pipeline (Kanban Board & Lifecycle Metrics)
+  // 1. GET /api/donors/pipeline (Kanban Board, Table Pagination & Lifecycle Metrics)
   router.get(
     '/api/donors/pipeline',
     requireAuth(
@@ -46,6 +58,12 @@ export function registerDonorsPipelineRoutes(router: Router) {
         const db = getDb();
         const user = ctx.user;
         if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+
+        const page = Math.max(1, parseInt((ctx.query.page as string) || '1', 10));
+        const pageSize = Math.min(100, Math.max(5, parseInt((ctx.query.pageSize as string) || '15', 10)));
+        const searchQuery = ((ctx.query.search as string) || '').trim().toLowerCase();
+        const stageFilter = ((ctx.query.stage as string) || 'all').trim();
+        const sortBy = ((ctx.query.sortBy as string) || 'recent').trim();
 
         const allPersons = await db.query.persons.findMany({
           where: eq(persons.isActive, true),
@@ -82,7 +100,7 @@ export function registerDonorsPipelineRoutes(router: Router) {
 
         const now = Date.now();
 
-        // Group into 7 columns
+        // Group into 7 columns and flat list
         const columns: Record<DonorStageId, any[]> = {
           new_lead: [],
           contacted: [],
@@ -92,6 +110,8 @@ export function registerDonorsPipelineRoutes(router: Router) {
           loyal: [],
           dormant: [],
         };
+
+        const allCards: any[] = [];
 
         for (const p of allPersons) {
           const stats = statsMap.get(p.id) || { count: 0, total: 0, lastDate: null };
@@ -121,27 +141,70 @@ export function registerDonorsPipelineRoutes(router: Router) {
           } else {
             columns.new_lead.push(card);
           }
+
+          allCards.push(card);
         }
 
-        // Compute High-Level Metrics
-        const totalPeople = allPersons.length;
-        const totalDonatedPeople = Array.from(statsMap.values()).filter((s) => s.count > 0).length;
-        const conversionRate = totalPeople > 0 ? Math.round((totalDonatedPeople / totalPeople) * 100) : 0;
-        const totalPipelineValue = Array.from(statsMap.values()).reduce((acc, curr) => acc + curr.total, 0);
+        // Metrics Caching or Computation
+        if (!cachedMetrics || now - cachedMetrics.cachedAt > METRICS_CACHE_TTL_MS) {
+          const totalPeople = allPersons.length;
+          const totalDonatedPeople = Array.from(statsMap.values()).filter((s) => s.count > 0).length;
+          const conversionRate = totalPeople > 0 ? Math.round((totalDonatedPeople / totalPeople) * 100) : 0;
+          const totalPipelineValue = Array.from(statsMap.values()).reduce((acc, curr) => acc + curr.total, 0);
+
+          cachedMetrics = {
+            totalPipelineDonors: totalPeople,
+            totalDonatedDonors: totalDonatedPeople,
+            conversionRatePercent: conversionRate,
+            totalPipelineValueRupiah: totalPipelineValue,
+            regularCount: columns.regular_donor.length,
+            loyalCount: columns.loyal.length,
+            dormantCount: columns.dormant.length,
+            cachedAt: now,
+          };
+        }
+
+        // Filtering & Sorting for Table View
+        let filteredCards = allCards;
+        if (searchQuery) {
+          filteredCards = filteredCards.filter(
+            (c) =>
+              c.fullName.toLowerCase().includes(searchQuery) ||
+              (c.phoneE164 && c.phoneE164.includes(searchQuery)) ||
+              (c.email && c.email.toLowerCase().includes(searchQuery)) ||
+              c.cityRegency.toLowerCase().includes(searchQuery)
+          );
+        }
+
+        if (stageFilter && stageFilter !== 'all') {
+          filteredCards = filteredCards.filter((c) => c.donorStage === stageFilter);
+        }
+
+        if (sortBy === 'amount') {
+          filteredCards.sort((a, b) => b.totalAmountRupiah - a.totalAmountRupiah);
+        } else if (sortBy === 'donations') {
+          filteredCards.sort((a, b) => b.totalDonationsCount - a.totalDonationsCount);
+        } else if (sortBy === 'name') {
+          filteredCards.sort((a, b) => a.fullName.localeCompare(b.fullName));
+        } else {
+          // recent
+          filteredCards.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+        }
+
+        const totalCount = filteredCards.length;
+        const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+        const paginatedItems = filteredCards.slice((page - 1) * pageSize, page * pageSize);
 
         return successResponse(
           {
             stages: DONOR_STAGES,
             columns,
-            metrics: {
-              totalPipelineDonors: totalPeople,
-              totalDonatedDonors: totalDonatedPeople,
-              conversionRatePercent: conversionRate,
-              totalPipelineValueRupiah: totalPipelineValue,
-              regularCount: columns.regular_donor.length,
-              loyalCount: columns.loyal.length,
-              dormantCount: columns.dormant.length,
-            },
+            metrics: cachedMetrics,
+            items: paginatedItems,
+            totalCount,
+            totalPages,
+            page,
+            pageSize,
           },
           { requestId: ctx.requestId }
         );
@@ -215,6 +278,8 @@ export function registerDonorsPipelineRoutes(router: Router) {
               .returning();
             createdTask = newTask;
           }
+
+          cachedMetrics = null;
 
           // Log Audit Event
           await logAuditEvent({
@@ -315,6 +380,8 @@ export function registerDonorsPipelineRoutes(router: Router) {
             updatedCount++;
           }
         }
+
+        cachedMetrics = null;
 
         await logAuditEvent({
           actorUserId: user.id,
