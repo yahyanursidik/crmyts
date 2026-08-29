@@ -21,7 +21,7 @@ import {
   CheckCircle2, 
   ExternalLink, 
   Loader2, 
-  Tag 
+  Tag,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
 import { MergeCompareModal } from './MergeCompareModal';
@@ -141,7 +141,7 @@ export const DataQualityPage: React.FC = () => {
 
   // Pagination states
   const [page, setPage] = useState(1);
-  const pageSize = 15;
+  const [pageSize, setPageSize] = useState(10);
 
   // Merge modal state
   const [mergePair, setMergePair] = useState<{
@@ -184,10 +184,10 @@ export const DataQualityPage: React.FC = () => {
     loadData();
   }, []);
 
-  // Reset page when tab or search changes
+  // Reset page when tab or search or page size changes
   useEffect(() => {
     setPage(1);
-  }, [activeTab, dupSubFilter, searchQuery]);
+  }, [activeTab, dupSubFilter, searchQuery, pageSize]);
 
   const handleQuickFixPhone = async (personId: string, suggestedE164: string) => {
     try {
@@ -284,41 +284,34 @@ export const DataQualityPage: React.FC = () => {
     const rows: string[][] = [];
     const headers = ['Kategori Anomali', 'ID Jamaah', 'Nama Lengkap', 'Nilai Masalah / Data Awal', 'Saran Normalisasi / Keterangan', 'Petugas PIC'];
 
-    // Duplicates Phone
     data.anomalies.duplicateExactPhones.forEach((cl) => {
       cl.persons.forEach((p) => {
         rows.push(['"Duplikasi Nomor HP Identik"', `"${p.id}"`, `"${p.fullName}"`, `"${cl.phone}"`, `"${cl.count} profil dengan nomor sama"`, `"${p.ownerName}"`]);
       });
     });
 
-    // Duplicates Email
     data.anomalies.duplicateEmails.forEach((cl) => {
       cl.persons.forEach((p) => {
         rows.push(['"Duplikasi Email Identik"', `"${p.id}"`, `"${p.fullName}"`, `"${cl.email}"`, `"${cl.count} profil dengan email sama"`, `"${p.ownerName}"`]);
       });
     });
 
-    // Fuzzy duplicates
     data.anomalies.fuzzyDuplicates.forEach((f) => {
       rows.push(['"Kandidat Duplikat Fuzzy (Nama Mirip)"', `"${f.personA.id} | ${f.personB.id}"`, `"${f.personA.fullName} & ${f.personB.fullName}"`, `"${f.similarityScore}% Mirip"`, `"${f.reason}"`, '"Review Manual"']);
     });
 
-    // Invalid phones
     data.anomalies.invalidPhones.forEach((p) => {
       rows.push(['"Format HP Tidak Valid"', `"${p.id}"`, `"${p.fullName}"`, `"${p.phoneRaw}"`, `"${p.suggestedE164}"`, `"${p.ownerName}"`]);
     });
 
-    // Incomplete profiles
     data.anomalies.incompleteProfiles.forEach((p) => {
       rows.push(['"Profil Belum Lengkap"', `"${p.id}"`, `"${p.fullName}"`, `"${p.phoneE164 || '-'}"`, `"Belum ada: ${p.missingFields.join(', ')}"`, `"${p.ownerName}"`]);
     });
 
-    // Missing source
     data.anomalies.missingSource.forEach((p) => {
       rows.push(['"Sumber Data Hilang"', `"${p.id}"`, `"${p.fullName}"`, `"${p.phoneE164 || '-'}"`, '"Belum ada kode sumber pendaftaran"', `"${p.cityRegency || '-'}"`]);
     });
 
-    // Stale sensitive notes
     data.anomalies.staleNotes.forEach((p) => {
       rows.push(['"Catatan Usang >90 Hari"', `"${p.personId}"`, `"${p.personName}"`, `"${p.createdAt}"`, `"${p.ageDays} hari tanpa review (${p.sensitivityLevel})"`, `"${p.authorName}"`]);
     });
@@ -529,7 +522,7 @@ export const DataQualityPage: React.FC = () => {
               Kualitas &amp; Tata Kelola Master Data Jamaah
             </h1>
             <p className="text-xs text-white/80 mt-0.5 max-w-2xl leading-relaxed">
-              Deteksi otomatis 7 aturan kualitas data, deduplikasi master kontak, standardisasi nomor telepon E.164, dan audit kelayakan catatan privasi.
+              Deteksi otomatis 7 aturan kualitas data, deduplikasi kontak tabel responsif, standardisasi nomor telepon E.164, dan audit kelayakan catatan privasi.
             </p>
           </div>
         </div>
@@ -669,7 +662,7 @@ export const DataQualityPage: React.FC = () => {
       <div className="bg-white rounded-2xl border border-[#1B4332]/12 shadow-sm overflow-hidden">
         {/* Navigation Tabs */}
         <div className="p-3 bg-[#FBF9F4] border-b border-[#1B4332]/10 flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-1.5 overflow-x-auto">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
             <button
               onClick={() => setActiveTab('duplicates')}
               className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
@@ -746,24 +739,37 @@ export const DataQualityPage: React.FC = () => {
             </button>
           </div>
 
-          {/* Search Box */}
-          <div className="relative min-w-[220px] sm:min-w-[280px]">
-            <Search className="w-3.5 h-3.5 text-[#6B7A72] absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Cari nama, no. HP, atau domisili..."
-              className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-[#1B4332]/14 bg-white text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none shadow-2xs"
-            />
+          {/* Search Box & Per Page Selector */}
+          <div className="flex items-center gap-2">
+            <div className="relative min-w-[200px] sm:min-w-[240px]">
+              <Search className="w-3.5 h-3.5 text-[#6B7A72] absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Cari nama, no. HP, atau domisili..."
+                className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-[#1B4332]/14 bg-white text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none shadow-2xs"
+              />
+            </div>
+
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="px-2 py-1.5 text-xs rounded-xl border border-[#1B4332]/14 bg-white text-[#14352A] font-bold outline-none"
+              title="Jumlah baris per halaman"
+            >
+              <option value={10}>10 / hal</option>
+              <option value={25}>25 / hal</option>
+              <option value={50}>50 / hal</option>
+            </select>
           </div>
         </div>
 
-        {/* 4. Tab 1: Duplicates Content */}
+        {/* 4. Tab 1: Duplicates Content (HIGH PERFORMANCE DATA TABLE) */}
         {activeTab === 'duplicates' && (
-          <div className="p-5 space-y-5">
+          <div className="p-5 space-y-4">
             {/* Sub-filter chips */}
-            <div className="flex items-center justify-between flex-wrap gap-3 pb-3 border-b border-[#1B4332]/10">
+            <div className="flex items-center justify-between flex-wrap gap-3 pb-2 border-b border-[#1B4332]/10">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-[#6B7A72]">Filter Klaster:</span>
                 <button
@@ -820,191 +826,182 @@ export const DataQualityPage: React.FC = () => {
                 <p>Seluruh profil jamaah pada filter ini sudah bersih dan terorganisir.</p>
               </div>
             ) : (
-              <div className="space-y-4">
-                {currentSlice.map((item: any, idx: number) => {
-                  if (item.type === 'phone') {
-                    const cl = item.data;
-                    return (
-                      <div
-                        key={`phone-${idx}`}
-                        className="p-4 bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/14 space-y-3 shadow-2xs hover:border-[#1B4332]/30 transition-all"
-                      >
-                        <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
-                          <div className="flex items-center gap-2">
-                            <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-900 font-bold text-[10px] border border-purple-200">
-                              Nomor HP Sama
-                            </span>
-                            <span className="font-mono font-bold text-[#14352A] bg-white px-2.5 py-1 rounded-lg border border-[#1B4332]/14">
-                              {cl.phone}
-                            </span>
-                            <span className="text-[#6B7A72]">({cl.count} Akun Jamaah)</span>
-                          </div>
-
-                          <button
-                            onClick={() => {
-                              setMergePair({
-                                personA: cl.persons[0],
-                                personB: cl.persons[1],
-                                matchReason: `Nomor telepon identik: ${cl.phone}`,
-                              });
-                            }}
-                            className="px-3 py-1.5 bg-[#1B4332] hover:bg-[#14352A] text-white font-bold text-xs rounded-xl shadow-xs inline-flex items-center gap-1.5 transition-all active:scale-95"
-                          >
-                            <GitMerge className="w-3.5 h-3.5 text-[#E0B970]" />
-                            <span>Review &amp; Gabungkan</span>
-                          </button>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                          {cl.persons.map((p: any) => (
-                            <div
-                              key={p.id}
-                              className="p-3 bg-white rounded-xl border border-[#1B4332]/10 flex items-center justify-between gap-2 shadow-2xs"
-                            >
-                              <div>
-                                <span className="font-bold text-[#1C2321] block font-display">{p.fullName}</span>
-                                <span className="text-[10px] text-[#6B7A72] block mt-0.5">
-                                  {p.cityRegency || 'Tanpa Domisili'} • Terdaftar {new Date(p.createdAt).toLocaleDateString('id-ID')}
-                                </span>
+              <div className="overflow-x-auto rounded-xl border border-[#1B4332]/12">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-[#FBF9F4] text-[#6B7A72] font-bold border-b border-[#1B4332]/10 uppercase text-[10px] tracking-wider">
+                      <th className="py-3 px-4">Kategori &amp; Nilai Kunci</th>
+                      <th className="py-3 px-4">Kandidat Profil A</th>
+                      <th className="py-3 px-4">Kandidat Profil B</th>
+                      <th className="py-3 px-4 text-center">Jumlah / Skor</th>
+                      <th className="py-3 px-4 text-right">Aksi Deduplikasi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#1B4332]/8 text-[#1C2321]">
+                    {currentSlice.map((item: any, idx: number) => {
+                      if (item.type === 'phone') {
+                        const cl = item.data;
+                        const pA = cl.persons[0];
+                        const pB = cl.persons[1];
+                        return (
+                          <tr key={`phone-${idx}`} className="hover:bg-[#F2EEE4]/40 transition-colors">
+                            <td className="py-3 px-4">
+                              <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-900 font-bold text-[10px] border border-purple-200 inline-block mb-1">
+                                Nomor HP Sama
+                              </span>
+                              <div className="font-mono font-bold text-[#14352A] text-sm">
+                                {cl.phone}
                               </div>
-                              <Link
-                                to={`/people/${p.id}`}
-                                className="px-2 py-1 text-[10px] font-bold text-[#1B4332] bg-[#F2EEE4] hover:bg-[#EAE4D6] rounded-lg border border-[#1B4332]/12 inline-flex items-center gap-1"
+                            </td>
+                            <td className="py-3 px-4">
+                              <strong className="font-display text-sm block">{pA?.fullName || '-'}</strong>
+                              <span className="text-[10px] text-[#6B7A72]">
+                                {pA?.cityRegency || 'Tanpa Domisili'} • PIC: {pA?.ownerName || '-'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <strong className="font-display text-sm block">{pB?.fullName || '-'}</strong>
+                              <span className="text-[10px] text-[#6B7A72]">
+                                {pB?.cityRegency || 'Tanpa Domisili'} • PIC: {pB?.ownerName || '-'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-purple-50 text-purple-900 border border-purple-200">
+                                {cl.count} Akun
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <button
+                                onClick={() => {
+                                  setMergePair({
+                                    personA: pA,
+                                    personB: pB,
+                                    matchReason: `Nomor telepon identik: ${cl.phone}`,
+                                  });
+                                }}
+                                className="px-3 py-1.5 bg-[#1B4332] hover:bg-[#14352A] text-white font-bold text-xs rounded-xl shadow-xs inline-flex items-center gap-1.5 transition-all active:scale-95"
                               >
-                                <span>Lihat Profil</span>
-                                <ExternalLink className="w-2.5 h-2.5" />
-                              </Link>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  }
+                                <GitMerge className="w-3.5 h-3.5 text-[#E0B970]" />
+                                <span>Review &amp; Merge</span>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      }
 
-                  if (item.type === 'email') {
-                    const cl = item.data;
-                    return (
-                      <div
-                        key={`email-${idx}`}
-                        className="p-4 bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/14 space-y-3 shadow-2xs hover:border-[#1B4332]/30 transition-all"
-                      >
-                        <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
-                          <div className="flex items-center gap-2">
-                            <span className="px-2 py-0.5 rounded-md bg-blue-100 text-blue-900 font-bold text-[10px] border border-blue-200">
-                              Email Sama
-                            </span>
-                            <span className="font-mono font-bold text-[#14352A] bg-white px-2.5 py-1 rounded-lg border border-[#1B4332]/14">
-                              {cl.email}
-                            </span>
-                            <span className="text-[#6B7A72]">({cl.count} Akun Jamaah)</span>
-                          </div>
-
-                          <button
-                            onClick={() => {
-                              setMergePair({
-                                personA: cl.persons[0],
-                                personB: cl.persons[1],
-                                matchReason: `Alamat email identik: ${cl.email}`,
-                              });
-                            }}
-                            className="px-3 py-1.5 bg-[#1B4332] hover:bg-[#14352A] text-white font-bold text-xs rounded-xl shadow-xs inline-flex items-center gap-1.5 transition-all active:scale-95"
-                          >
-                            <GitMerge className="w-3.5 h-3.5 text-[#E0B970]" />
-                            <span>Review &amp; Gabungkan</span>
-                          </button>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                          {cl.persons.map((p: any) => (
-                            <div
-                              key={p.id}
-                              className="p-3 bg-white rounded-xl border border-[#1B4332]/10 flex items-center justify-between gap-2 shadow-2xs"
-                            >
-                              <div>
-                                <span className="font-bold text-[#1C2321] block font-display">{p.fullName}</span>
-                                <span className="text-[10px] text-[#6B7A72] block mt-0.5">
-                                  {p.cityRegency || 'Tanpa Domisili'} • Terdaftar {new Date(p.createdAt).toLocaleDateString('id-ID')}
-                                </span>
+                      if (item.type === 'email') {
+                        const cl = item.data;
+                        const pA = cl.persons[0];
+                        const pB = cl.persons[1];
+                        return (
+                          <tr key={`email-${idx}`} className="hover:bg-[#F2EEE4]/40 transition-colors">
+                            <td className="py-3 px-4">
+                              <span className="px-2 py-0.5 rounded-md bg-blue-100 text-blue-900 font-bold text-[10px] border border-blue-200 inline-block mb-1">
+                                Email Sama
+                              </span>
+                              <div className="font-mono font-bold text-[#14352A] text-sm truncate max-w-xs">
+                                {cl.email}
                               </div>
-                              <Link
-                                to={`/people/${p.id}`}
-                                className="px-2 py-1 text-[10px] font-bold text-[#1B4332] bg-[#F2EEE4] hover:bg-[#EAE4D6] rounded-lg border border-[#1B4332]/12 inline-flex items-center gap-1"
+                            </td>
+                            <td className="py-3 px-4">
+                              <strong className="font-display text-sm block">{pA?.fullName || '-'}</strong>
+                              <span className="text-[10px] text-[#6B7A72]">
+                                {pA?.cityRegency || 'Tanpa Domisili'} • PIC: {pA?.ownerName || '-'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <strong className="font-display text-sm block">{pB?.fullName || '-'}</strong>
+                              <span className="text-[10px] text-[#6B7A72]">
+                                {pB?.cityRegency || 'Tanpa Domisili'} • PIC: {pB?.ownerName || '-'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-blue-50 text-blue-900 border border-blue-200">
+                                {cl.count} Akun
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <button
+                                onClick={() => {
+                                  setMergePair({
+                                    personA: pA,
+                                    personB: pB,
+                                    matchReason: `Alamat email identik: ${cl.email}`,
+                                  });
+                                }}
+                                className="px-3 py-1.5 bg-[#1B4332] hover:bg-[#14352A] text-white font-bold text-xs rounded-xl shadow-xs inline-flex items-center gap-1.5 transition-all active:scale-95"
                               >
-                                <span>Lihat Profil</span>
-                                <ExternalLink className="w-2.5 h-2.5" />
-                              </Link>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  }
+                                <GitMerge className="w-3.5 h-3.5 text-[#E0B970]" />
+                                <span>Review &amp; Merge</span>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      }
 
-                  if (item.type === 'fuzzy') {
-                    const f = item.data;
-                    return (
-                      <div
-                        key={`fuzzy-${idx}`}
-                        className="p-4 bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/14 space-y-3 shadow-2xs hover:border-[#1B4332]/30 transition-all"
-                      >
-                        <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
-                          <div className="flex items-center gap-2">
-                            <span className="px-2.5 py-0.5 rounded-md bg-[#B58B3C]/15 text-[#B58B3C] font-bold text-[10px] border border-[#B58B3C]/30 flex items-center gap-1">
-                              <Sparkles className="w-3 h-3 text-[#B58B3C]" />
-                              {f.similarityScore}% Kemiripan
-                            </span>
-                            <span className="text-[#6B7A72] font-medium">{f.reason}</span>
-                          </div>
+                      if (item.type === 'fuzzy') {
+                        const f = item.data;
+                        return (
+                          <tr key={`fuzzy-${idx}`} className="hover:bg-[#F2EEE4]/40 transition-colors">
+                            <td className="py-3 px-4">
+                              <span className="px-2 py-0.5 rounded-md bg-[#B58B3C]/15 text-[#B58B3C] font-bold text-[10px] border border-[#B58B3C]/30 inline-flex items-center gap-1 mb-1">
+                                <Sparkles className="w-3 h-3 text-[#B58B3C]" />
+                                Fuzzy Name Match
+                              </span>
+                              <div className="text-xs text-[#6B7A72]">{f.reason}</div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <strong className="font-display text-sm block">{f.personA.fullName}</strong>
+                              <span className="text-[10px] text-[#6B7A72] font-mono">
+                                {f.personA.phoneE164 || 'Tanpa HP'} • {f.personA.cityRegency || '-'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <strong className="font-display text-sm block">{f.personB.fullName}</strong>
+                              <span className="text-[10px] text-[#6B7A72] font-mono">
+                                {f.personB.phoneE164 || 'Tanpa HP'} • {f.personB.cityRegency || '-'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-[#B58B3C]/15 text-[#B58B3C] border border-[#B58B3C]/30">
+                                {f.similarityScore}%
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => handleIgnoreCandidate(f.personA.id, f.personB.id)}
+                                  className="px-2.5 py-1.5 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#3D4A44] font-bold text-xs rounded-xl border border-[#1B4332]/12 inline-flex items-center gap-1 transition-all"
+                                  title="Abaikan jika bukan orang yang sama (False Positive)"
+                                >
+                                  <EyeOff className="w-3.5 h-3.5 text-[#6B7A72]" />
+                                  <span className="hidden sm:inline">Abaikan</span>
+                                </button>
 
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleIgnoreCandidate(f.personA.id, f.personB.id)}
-                              className="px-2.5 py-1.5 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#3D4A44] font-bold text-xs rounded-xl border border-[#1B4332]/12 inline-flex items-center gap-1 transition-all"
-                            >
-                              <EyeOff className="w-3.5 h-3.5 text-[#6B7A72]" />
-                              <span>Abaikan (Bukan Duplikat)</span>
-                            </button>
+                                <button
+                                  onClick={() => {
+                                    setMergePair({
+                                      personA: f.personA,
+                                      personB: f.personB,
+                                      similarityScore: f.similarityScore,
+                                      matchReason: f.reason,
+                                    });
+                                  }}
+                                  className="px-3 py-1.5 bg-[#1B4332] hover:bg-[#14352A] text-white font-bold text-xs rounded-xl shadow-xs inline-flex items-center gap-1.5 transition-all active:scale-95"
+                                >
+                                  <GitMerge className="w-3.5 h-3.5 text-[#E0B970]" />
+                                  <span>Review &amp; Merge</span>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      }
 
-                            <button
-                              onClick={() => {
-                                setMergePair({
-                                  personA: f.personA,
-                                  personB: f.personB,
-                                  similarityScore: f.similarityScore,
-                                  matchReason: f.reason,
-                                });
-                              }}
-                              className="px-3 py-1.5 bg-[#1B4332] hover:bg-[#14352A] text-white font-bold text-xs rounded-xl shadow-xs inline-flex items-center gap-1.5 transition-all active:scale-95"
-                            >
-                              <GitMerge className="w-3.5 h-3.5 text-[#E0B970]" />
-                              <span>Review &amp; Merge</span>
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                          <div className="p-3 bg-white rounded-xl border border-[#1B4332]/10 space-y-1 shadow-2xs">
-                            <span className="text-[10px] font-bold text-[#6B7A72] uppercase block">Kandidat 1</span>
-                            <strong className="text-[#1C2321] font-display text-sm block">{f.personA.fullName}</strong>
-                            <div className="text-[11px] text-[#6B7A72] font-mono">
-                              {f.personA.phoneE164 || 'Tanpa HP'} • {f.personA.cityRegency || '-'}
-                            </div>
-                          </div>
-
-                          <div className="p-3 bg-white rounded-xl border border-[#1B4332]/10 space-y-1 shadow-2xs">
-                            <span className="text-[10px] font-bold text-[#6B7A72] uppercase block">Kandidat 2</span>
-                            <strong className="text-[#1C2321] font-display text-sm block">{f.personB.fullName}</strong>
-                            <div className="text-[11px] text-[#6B7A72] font-mono">
-                              {f.personB.phoneE164 || 'Tanpa HP'} • {f.personB.cityRegency || '-'}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  return null;
-                })}
+                      return null;
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

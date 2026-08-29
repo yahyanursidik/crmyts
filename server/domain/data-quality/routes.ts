@@ -151,7 +151,7 @@ export function registerDataQualityRoutes(router: Router) {
           }
         });
 
-        // 4. Fuzzy Name + Same City Candidates Rule (Never Auto-Merged!)
+        // 4. Fuzzy Name + Same City Candidates Rule (Optimized with Prefix Blocking Key)
         const fuzzyDuplicates: Array<{
           similarityScore: number;
           reason: string;
@@ -159,22 +159,27 @@ export function registerDataQualityRoutes(router: Router) {
           personB: typeof activePersons[0];
         }> = [];
 
-        // Group persons by city to compare candidates efficiently
-        const cityMap = new Map<string, typeof activePersons>();
+        // Group persons by city and first 2 letters of name to avoid N^2 comparisons
+        const blockMap = new Map<string, typeof activePersons>();
         for (const p of activePersons) {
-          const cityKey = (p.cityRegency || 'unknown').toLowerCase().trim();
-          const list = cityMap.get(cityKey) || [];
-          list.push(p);
-          cityMap.set(cityKey, list);
+          const cityKey = (p.cityRegency || '').toLowerCase().trim();
+          const cleanName = p.fullName.toLowerCase().trim().replace(/^(ustadz|bapak|ibu|h\.|hj\.)\s+/i, '');
+          const prefix = cleanName.slice(0, 2);
+          if (prefix.length >= 2) {
+            const blockKey = `${cityKey}:${prefix}`;
+            const list = blockMap.get(blockKey) || [];
+            list.push(p);
+            blockMap.set(blockKey, list);
+          }
         }
 
-        cityMap.forEach((list) => {
-          if (list.length < 2) return;
+        blockMap.forEach((list) => {
+          if (list.length < 2 || list.length > 200) return;
           for (let i = 0; i < list.length; i++) {
             for (let j = i + 1; j < list.length; j++) {
               const pA = list[i];
               const pB = list[j];
-              if (!pA || !pB) continue;
+              if (!pA || !pB || pA.id === pB.id) continue;
               // Skip if exact phone or exact email already grouped
               if (pA.phoneE164 && pB.phoneE164 && pA.phoneE164 === pB.phoneE164) continue;
               if (pA.email && pB.email && pA.email.toLowerCase() === pB.email.toLowerCase()) continue;
@@ -183,7 +188,7 @@ export function registerDataQualityRoutes(router: Router) {
               if (similarity >= 0.7) {
                 fuzzyDuplicates.push({
                   similarityScore: Math.round(similarity * 100),
-                  reason: `Kemiripan nama ${Math.round(similarity * 100)}% di domisili yang sama (${pA.cityRegency || 'Sama'})`,
+                  reason: `Kemiripan nama ${Math.round(similarity * 100)}% di domisili ${pA.cityRegency || 'terkait'}`,
                   personA: pA,
                   personB: pB,
                 });
