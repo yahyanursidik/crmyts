@@ -4,10 +4,13 @@ import { requireAuth, requirePermission, validateBody } from '../../http/middlew
 import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import { donations, donationPrograms, persons, personRoles, auditLogs } from '../../db/schema';
-import { eq, desc, and, sql, inArray } from 'drizzle-orm';
+import { eq, desc, and, sql, inArray, or, ilike } from 'drizzle-orm';
 import { PERMISSIONS } from '../../permissions/constants';
 import { defaultAttachmentService } from '../../storage/service';
 import { sendDonationVerifiedReceiptEmail } from '../../email/service';
+
+let cachedDonationsStats: { data: any; timestamp: number } | null = null;
+const STATS_CACHE_TTL_MS = 60_000;
 
 const createDonationSchema = z.object({
   personId: z.string().uuid('Jamaah / Donatur wajib dipilih'),
@@ -73,12 +76,22 @@ export function registerDonationsRoutes(router: Router) {
       const pageSize = Math.min(100, Math.max(1, parseInt(ctx.query.pageSize || '15', 10)));
       const offset = (page - 1) * pageSize;
 
+      const search = ctx.query.search?.trim();
       const personId = ctx.query.personId?.trim();
       const programId = ctx.query.programId?.trim();
       const verificationStatus = ctx.query.verificationStatus?.trim();
       const paymentMethod = ctx.query.paymentMethod?.trim();
 
       const conditions = [];
+      if (search) {
+        conditions.push(
+          or(
+            ilike(donations.externalReference, `%${search}%`),
+            sql`EXISTS (SELECT 1 FROM people WHERE people.id = ${donations.personId} AND (people.full_name ILIKE ${'%' + search + '%'} OR people.phone_e164 ILIKE ${'%' + search + '%'}))`,
+            sql`EXISTS (SELECT 1 FROM donation_programs WHERE donation_programs.id = ${donations.programId} AND donation_programs.name ILIKE ${'%' + search + '%'})`
+          )
+        );
+      }
       if (personId) conditions.push(eq(donations.personId, personId));
       if (programId) conditions.push(eq(donations.programId, programId));
       if (verificationStatus) conditions.push(eq(donations.verificationStatus, verificationStatus as any));
@@ -126,6 +139,42 @@ export function registerDonationsRoutes(router: Router) {
         },
       });
 
+      // Compute or retrieve cached stats
+      let stats = {
+        totalVerifiedNominalRupiah: 0,
+        unverifiedCount: 0,
+        verifiedCount: 0,
+        needReviewCount: 0,
+      };
+
+      const nowTime = Date.now();
+      if (cachedDonationsStats && nowTime - cachedDonationsStats.timestamp < STATS_CACHE_TTL_MS) {
+        stats = cachedDonationsStats.data;
+      } else {
+        try {
+          const [statsRes] = await db
+            .select({
+              totalVerifiedNominalRupiah: sql<number>`COALESCE((SELECT SUM("amount_rupiah")::bigint FROM "donations" WHERE "verification_status" = 'verified'), 0)`,
+              unverifiedCount: sql<number>`(SELECT count(*)::int FROM "donations" WHERE "verification_status" = 'unverified')`,
+              verifiedCount: sql<number>`(SELECT count(*)::int FROM "donations" WHERE "verification_status" = 'verified')`,
+              needReviewCount: sql<number>`(SELECT count(*)::int FROM "donations" WHERE "verification_status" = 'need_review')`,
+            })
+            .from(sql`(SELECT 1) dummy`);
+
+          if (statsRes) {
+            stats = {
+              totalVerifiedNominalRupiah: Number(statsRes.totalVerifiedNominalRupiah || 0),
+              unverifiedCount: Number(statsRes.unverifiedCount || 0),
+              verifiedCount: Number(statsRes.verifiedCount || 0),
+              needReviewCount: Number(statsRes.needReviewCount || 0),
+            };
+            cachedDonationsStats = { data: stats, timestamp: nowTime };
+          }
+        } catch (err) {
+          console.warn('[Donations Stats Warn]:', err);
+        }
+      }
+
       const formatted = list.map((d) => ({
         id: d.id,
         donationDate: d.donationDate,
@@ -153,6 +202,7 @@ export function registerDonationsRoutes(router: Router) {
           totalCount,
           totalPages,
         },
+        stats,
       });
     })
   );
