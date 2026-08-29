@@ -32,6 +32,9 @@ const createInteractionSchema = z.object({
   taskPriority: z.enum(['low', 'medium', 'high', 'urgent']).default('medium'),
 });
 
+let cachedInteractionsStats: { data: any; timestamp: number } | null = null;
+const STATS_CACHE_TTL_MS = 60_000;
+
 export function registerInteractionsRoutes(router: Router) {
   // GET /api/interactions
   router.get(
@@ -106,6 +109,37 @@ export function registerInteractionsRoutes(router: Router) {
         },
       });
 
+      // Quick Stats with caching
+      let stats = {
+        totalAll: totalCount,
+        todayCount: 0,
+        needFollowUpCount: 0,
+        positiveOutcomeCount: 0,
+      };
+
+      const nowTime = Date.now();
+      if (cachedInteractionsStats && nowTime - cachedInteractionsStats.timestamp < STATS_CACHE_TTL_MS) {
+        stats = cachedInteractionsStats.data;
+      } else {
+        try {
+          const [statsRes] = await db
+            .select({
+              totalAll: sql<number>`(SELECT count(*)::int FROM "interactions")`,
+              todayCount: sql<number>`(SELECT count(*)::int FROM "interactions" WHERE "occurred_at" >= CURRENT_DATE)`,
+              needFollowUpCount: sql<number>`(SELECT count(*)::int FROM "interactions" WHERE "outcome" IN ('minta_dihubungi_kembali', 'perlu_eskalasi', 'tidak_merespons'))`,
+              positiveOutcomeCount: sql<number>`(SELECT count(*)::int FROM "interactions" WHERE "outcome" IN ('berminat', 'selesai'))`,
+            })
+            .from(sql`(SELECT 1) dummy`);
+
+          if (statsRes) {
+            stats = statsRes;
+            cachedInteractionsStats = { data: statsRes, timestamp: nowTime };
+          }
+        } catch (err) {
+          console.warn('[Interactions Stats Query Warn]:', err);
+        }
+      }
+
       return successResponse(list, {
         requestId: ctx.requestId,
         pagination: {
@@ -114,6 +148,7 @@ export function registerInteractionsRoutes(router: Router) {
           totalCount,
           totalPages,
         },
+        stats,
       });
     })
   );
@@ -206,5 +241,19 @@ export function registerInteractionsRoutes(router: Router) {
         })
       )
     )
+  );
+
+  // DELETE /api/interactions/:id
+  router.delete(
+    '/api/interactions/:id',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const id = ctx.params?.id;
+      if (!id) return errorResponse('VALIDATION_ERROR', 'ID Interaksi diperlukan', 400, ctx.requestId);
+
+      await db.delete(interactions).where(eq(interactions.id, id));
+      cachedInteractionsStats = null;
+      return successResponse({ success: true }, { requestId: ctx.requestId });
+    })
   );
 }
