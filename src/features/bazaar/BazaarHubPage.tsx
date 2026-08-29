@@ -7,16 +7,12 @@ import {
   CheckCircle2,
   Copy,
   Check,
-  ExternalLink,
-  Receipt,
   RefreshCw,
   Search,
-  ShoppingBag,
   Upload,
-  Plus,
-  Sparkles,
   Calendar,
-  X,
+  Coins,
+  IdCard,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
 import { EventBazaarManageModal } from '../events/components/EventBazaarManageModal';
@@ -106,74 +102,17 @@ export const BazaarHubPage: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      let eventItems: any[] = [];
-      let tenants: MasterTenantItem[] = [];
+      // Fast parallel fetch using the dedicated overview endpoint
+      const [resOverview, resTenants] = await Promise.all([
+        apiClient<EventWithBazaar[]>('/bazaar/overview').catch(() => ({ data: [] })),
+        apiClient<MasterTenantItem[]>('/bazaar/tenants').catch(() => ({ data: [] })),
+      ]);
 
-      try {
-        const resEvents = await apiClient<any>('/events');
-        if (Array.isArray(resEvents.data)) {
-          eventItems = resEvents.data;
-        } else if (resEvents.data && Array.isArray((resEvents.data as any).items)) {
-          eventItems = (resEvents.data as any).items;
-        }
-      } catch (e) {
-        console.error('Failed fetching events for bazaar hub:', e);
-      }
-
-      try {
-        const resTenants = await apiClient<MasterTenantItem[]>('/bazaar/tenants');
-        tenants = Array.isArray(resTenants.data) ? resTenants.data : [];
-      } catch (e) {
-        console.error('Failed fetching master tenants for bazaar hub:', e);
-      }
-
-      setMasterTenants(tenants);
-
-      // Fetch bazaar details for each event
-      const eventsWithBazaar: EventWithBazaar[] = await Promise.all(
-        eventItems.map(async (ev: any) => {
-          try {
-            const bazRes = await apiClient<{ bazaar: any }>(`/events/${ev.id}/bazaar`);
-            const baz = bazRes.data?.bazaar;
-            if (!baz) {
-              return { ...ev, bazaar: null };
-            }
-
-            const booths = baz.booths || [];
-            const apps = baz.applications || [];
-            const availableBoothsCount = booths.filter((b: any) => b.status === 'available').length;
-            const bookedBoothsCount = booths.filter((b: any) => b.status === 'assigned').length;
-            const verifiedTenantsCount = apps.filter(
-              (a: any) => a.status === 'payment_verified' || a.status === 'booth_assigned' || a.status === 'checked_in' || a.status === 'completed'
-            ).length;
-            const totalInfaqRupiah = apps
-              .filter((a: any) => a.status === 'payment_verified' || a.status === 'booth_assigned' || a.status === 'checked_in' || a.status === 'completed')
-              .reduce((acc: number, curr: any) => acc + (curr.infaqAmountRupiah || 0), 0);
-
-            return {
-              ...ev,
-              bazaar: {
-                id: baz.id,
-                title: baz.title,
-                isOpen: baz.isOpen,
-                defaultFeeRupiah: baz.defaultFeeRupiah,
-                boothsCount: booths.length,
-                availableBoothsCount,
-                bookedBoothsCount,
-                tenantsCount: apps.length,
-                verifiedTenantsCount,
-                totalInfaqRupiah,
-              },
-            };
-          } catch {
-            return { ...ev, bazaar: null };
-          }
-        })
-      );
-
-      setEvents(eventsWithBazaar);
+      setEvents(resOverview.data || []);
+      setMasterTenants(resTenants.data || []);
     } catch (err: any) {
       console.error('Failed to load bazaar hub data:', err);
+      showToast('Gagal memuat data bazar');
     } finally {
       setLoading(false);
     }
@@ -248,26 +187,49 @@ export const BazaarHubPage: React.FC = () => {
     }
   };
 
-  const filteredEvents = events.filter((ev) => {
+  const formatDateTime = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      return (
+        new Intl.DateTimeFormat('id-ID', {
+          weekday: 'short',
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+        }).format(d)
+      );
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const formatRupiah = (val: number) => {
+    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
+  };
+
+  // KPIs
+  const totalBazaarsActive = events.filter((e) => e.bazaar && e.bazaar.isOpen).length;
+  const totalMasterTenants = masterTenants.length;
+  const totalInfaqAll = events.reduce((acc, curr) => acc + (curr.bazaar?.totalInfaqRupiah || 0), 0);
+  const totalBoothsBooked = events.reduce((acc, curr) => acc + (curr.bazaar?.bookedBoothsCount || 0), 0);
+
+  // Filters
+  const filteredEvents = events.filter((e) => {
     const q = searchQuery.toLowerCase().trim();
     const matchSearch =
       !q ||
-      ev.title.toLowerCase().includes(q) ||
-      ev.speaker.toLowerCase().includes(q) ||
-      (ev.locationName && ev.locationName.toLowerCase().includes(q)) ||
-      (ev.bazaar && ev.bazaar.title.toLowerCase().includes(q));
+      e.title.toLowerCase().includes(q) ||
+      e.speaker.toLowerCase().includes(q) ||
+      (e.bazaar?.title && e.bazaar.title.toLowerCase().includes(q));
 
-    const matchStatus =
-      statusFilter === 'all'
-        ? true
-        : statusFilter === 'active'
-        ? !!ev.bazaar
-        : !ev.bazaar;
+    let matchStatus = true;
+    if (statusFilter === 'active') matchStatus = !!e.bazaar && e.bazaar.isOpen;
+    else if (statusFilter === 'inactive') matchStatus = !e.bazaar || !e.bazaar.isOpen;
 
     return matchSearch && matchStatus;
   });
 
-  const filteredMasterTenants = masterTenants.filter((t) => {
+  const filteredTenants = masterTenants.filter((t) => {
     const q = searchQuery.toLowerCase().trim();
     const matchSearch =
       !q ||
@@ -276,313 +238,284 @@ export const BazaarHubPage: React.FC = () => {
       t.picPhone.includes(q) ||
       (t.instagram && t.instagram.toLowerCase().includes(q));
 
-    const matchCat = tenantCategoryFilter === 'all' || t.businessCategory === tenantCategoryFilter;
+    const matchCategory = tenantCategoryFilter === 'all' || t.businessCategory === tenantCategoryFilter;
     const matchFlag = tenantFlagFilter === 'all' || t.internalFlag === tenantFlagFilter;
 
-    return matchSearch && matchCat && matchFlag;
+    return matchSearch && matchCategory && matchFlag;
   });
 
-  // Global KPIs
-  const totalBazaars = events.filter((e) => e.bazaar).length;
-  const totalBooths = events.reduce((acc, curr) => acc + (curr.bazaar?.boothsCount || 0), 0);
-  const totalInfaqAll = events.reduce((acc, curr) => acc + (curr.bazaar?.totalInfaqRupiah || 0), 0);
-
   return (
-    <div className="space-y-6 pb-12">
-      {/* Toast */}
-      {toastMessage && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-60 bg-brand-950 text-gold-300 px-5 py-2.5 rounded-2xl shadow-xl text-xs font-bold border border-gold-500/30 flex items-center gap-2 animate-bounce">
-          <Sparkles className="w-4 h-4 text-gold-400" />
-          <span>{toastMessage}</span>
-        </div>
-      )}
-
-      {/* 1. PAGE HEADER */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 sm:p-6 rounded-3xl border border-cream-300 shadow-2xs">
-        <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-brand-900 text-gold-300 flex items-center justify-center shrink-0 shadow-xs">
-            <Store className="w-6 h-6" />
+    <div className="space-y-6 max-w-[1400px] mx-auto pb-16">
+      {/* 1. Header Page */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#1B4332]/12 pb-4">
+        <div>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#1C2321] font-display">
+              Bazar &amp; Tenant Daurah
+            </h1>
+            <span className="text-[10.5px] font-mono font-semibold px-2.5 py-0.5 rounded-md bg-[#1B4332]/10 text-[#14352A] border border-[#1B4332]/20 uppercase">
+              PLOTTING STAND · DENAH · INFAQ BOOTH
+            </span>
           </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-xl sm:text-2xl font-black text-brand-950 font-display">
-                YTS Bazar & Tenant Management
-              </h1>
-              <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300">
-                PRD v1.0 End-to-End
-              </span>
-            </div>
-            <p className="text-xs text-surface-600 mt-0.5">
-              Siklus bazar lengkap: Tenant CRM master lintas event, kurasi booth panitia, verifikasi keuangan & evaluasi pasca-event.
-            </p>
-          </div>
+          <p className="text-xs text-[#6B7A72] mt-1 font-normal">
+            Pusat kurasi tenant UMKM, denah stan interaktif, verifikasi infaq booth, survei pasca-event, dan database lintas kajian.
+          </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <Link
             to="/events"
-            className="p-2.5 bg-brand-900 hover:bg-brand-950 text-white rounded-2xl transition-all active:scale-95 flex items-center gap-1.5 text-xs font-bold shadow-sm"
+            className="px-4 py-2.5 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-semibold transition-all flex items-center gap-2 shadow-xs active:scale-98"
           >
-            <span>+ Jadwal Kajian / Daurah</span>
+            <Calendar className="w-4 h-4 text-[#E0B970]" />
+            <span>Kelola Jadwal Kajian</span>
           </Link>
-          <button
-            onClick={loadData}
-            disabled={loading}
-            className="p-2.5 bg-cream-100 hover:bg-cream-200 text-brand-950 rounded-2xl border border-cream-300 transition-all active:scale-95 flex items-center gap-1.5 text-xs font-bold"
-            title="Segarkan Data"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">Segarkan</span>
-          </button>
         </div>
       </div>
 
-      {/* 2. KPI SUMMARY STATS */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-        <div className="p-4 bg-white rounded-3xl border border-cream-300 shadow-2xs space-y-1">
-          <span className="text-[10px] font-bold text-surface-500 uppercase tracking-wider block">Bazar Daurah Aktif</span>
-          <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-black text-brand-950 font-display">{totalBazaars}</span>
-            <span className="text-[11px] font-bold text-brand-900 bg-brand-50 px-2 py-0.5 rounded-full border border-brand-200">
-              Kegiatan
-            </span>
+      {/* 2. Summary KPI Cards (Mockup 1a Strip Style) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        {/* 1. Total Event Bazar */}
+        <div className="p-4 bg-[#FBF9F4] border border-[#1B4332]/12 rounded-xl shadow-2xs border-l-[3px] border-l-[#1B4332] space-y-1">
+          <div className="font-mono text-[10.5px] font-semibold text-[#1B4332] tracking-wider uppercase">
+            EVENT BAZAR AKTIF
+          </div>
+          <div className="text-2xl sm:text-[28px] font-bold font-display text-[#1C2321] leading-none">
+            {totalBazaarsActive}
+          </div>
+          <div className="text-[11.5px] text-[#6B7A72]">
+            Daurah Menerima Tenant
           </div>
         </div>
 
-        <div className="p-4 bg-white rounded-3xl border border-cream-300 shadow-2xs space-y-1">
-          <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block flex items-center gap-1">
-            <Store className="w-3 h-3 text-emerald-600" /> Total Slot Booth
-          </span>
-          <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-black text-emerald-950 font-display">{totalBooths}</span>
-            <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-              Stan
-            </span>
+        {/* 2. Stand Terisi */}
+        <div className="p-4 bg-[#FBF9F4] border border-[#1B4332]/12 rounded-xl shadow-2xs border-l-[3px] border-l-[#2F7D4F] space-y-1">
+          <div className="font-mono text-[10.5px] font-semibold text-[#2F7D4F] tracking-wider uppercase flex items-center gap-1">
+            <CheckCircle2 className="w-3 h-3 text-[#2F7D4F]" /> STAND TERISI
+          </div>
+          <div className="text-2xl sm:text-[28px] font-bold font-display text-[#1C2321] leading-none">
+            {totalBoothsBooked}
+          </div>
+          <div className="text-[11.5px] text-[#6B7A72]">
+            Booth Terplotting
           </div>
         </div>
 
-        <div className="p-4 bg-white rounded-3xl border border-cream-300 shadow-2xs space-y-1">
-          <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider block flex items-center gap-1">
-            <ShoppingBag className="w-3 h-3 text-indigo-600" /> Master Tenant CRM
-          </span>
-          <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-black text-indigo-950 font-display">{masterTenants.length}</span>
-            <span className="text-[11px] font-bold text-indigo-800 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
-              Brand Terdata
-            </span>
+        {/* 3. Database Tenant CRM */}
+        <div className="p-4 bg-[#FBF9F4] border border-[#1B4332]/12 rounded-xl shadow-2xs border-l-[3px] border-l-[#0F4C4A] space-y-1">
+          <div className="font-mono text-[10.5px] font-semibold text-[#0F4C4A] tracking-wider uppercase">
+            DATABASE TENANT CRM
+          </div>
+          <div className="text-2xl sm:text-[28px] font-bold font-display text-[#1C2321] leading-none">
+            {totalMasterTenants}
+          </div>
+          <div className="text-[11.5px] text-[#6B7A72]">
+            Profil UMKM Terdata
           </div>
         </div>
 
-        <div className="p-4 bg-white rounded-3xl border border-cream-300 shadow-2xs space-y-1">
-          <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block flex items-center gap-1">
-            <Receipt className="w-3 h-3 text-amber-600" /> Infaq Booth Terkumpul
-          </span>
-          <div className="flex items-baseline justify-between">
-            <span className="text-lg sm:text-xl font-black text-amber-950 font-display truncate">
-              Rp {totalInfaqAll.toLocaleString('id-ID')}
-            </span>
+        {/* 4. Infaq Stand Terkumpul */}
+        <div className="p-4 bg-[#FBF9F4] border border-[#1B4332]/12 rounded-xl shadow-2xs border-l-[3px] border-l-[#B58B3C] space-y-1">
+          <div className="font-mono text-[10.5px] font-semibold text-[#8E6B22] tracking-wider uppercase flex items-center gap-1">
+            <Coins className="w-3 h-3 text-[#B58B3C]" /> INFAQ TERVERIFIKASI
+          </div>
+          <div className="text-xl sm:text-2xl font-bold font-display text-[#1C2321] leading-none">
+            {formatRupiah(totalInfaqAll)}
+          </div>
+          <div className="text-[11.5px] text-[#6B7A72]">
+            Infaq Booth Masuk
           </div>
         </div>
       </div>
 
-      {/* 3. MAIN NAVIGATION TABS */}
-      <div className="bg-white p-2 rounded-2xl border border-cream-300 flex items-center gap-2 overflow-x-auto text-xs font-bold">
+      {/* 3. Main Navigation Hub Tabs */}
+      <div className="flex items-center gap-1 bg-[#F2EEE4] p-1 rounded-xl border border-[#1B4332]/12 w-fit shadow-2xs text-xs font-semibold">
         <button
           onClick={() => setHubTab('events')}
-          className={`px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 ${
-            hubTab === 'events' ? 'bg-brand-900 text-white shadow-2xs font-black' : 'text-surface-600 hover:bg-cream-100'
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition-all ${
+            hubTab === 'events' ? 'bg-[#1B4332] text-white shadow-2xs font-bold' : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-white/60'
           }`}
         >
-          <Calendar className="w-4 h-4" /> Daftar Event Kajian & Bazar ({events.length})
+          <Store className="w-3.5 h-3.5" />
+          <span>Bazar per Event Daurah ({events.length})</span>
         </button>
 
         <button
           onClick={() => setHubTab('tenants_crm')}
-          className={`px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 ${
-            hubTab === 'tenants_crm' ? 'bg-brand-900 text-white shadow-2xs font-black' : 'text-surface-600 hover:bg-cream-100'
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition-all ${
+            hubTab === 'tenants_crm' ? 'bg-[#1B4332] text-white shadow-2xs font-bold' : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-white/60'
           }`}
         >
-          <ShoppingBag className="w-4 h-4" /> Direktori Master Tenant CRM ({masterTenants.length})
+          <IdCard className="w-3.5 h-3.5" />
+          <span>Database Tenant CRM ({masterTenants.length})</span>
         </button>
 
         <button
           onClick={() => setHubTab('import_legacy')}
-          className={`px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 ${
-            hubTab === 'import_legacy' ? 'bg-brand-900 text-white shadow-2xs font-black' : 'text-surface-600 hover:bg-cream-100'
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition-all ${
+            hubTab === 'import_legacy' ? 'bg-[#1B4332] text-white shadow-2xs font-bold' : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-white/60'
           }`}
         >
-          <Upload className="w-4 h-4" /> Impor Data 4 Event Lama (Google Form / CSV)
+          <Upload className="w-3.5 h-3.5" />
+          <span>Import Data Historis (CSV)</span>
         </button>
       </div>
 
-      {/* ========================================================
-          TAB 1: DAFTAR EVENT KAJIAN & BAZAR
-      ======================================================== */}
+      {/* TAB 1: BAZAR PER EVENT */}
       {hubTab === 'events' && (
         <div className="space-y-4">
           {/* Search & Filter */}
-          <div className="bg-white p-3.5 rounded-2xl border border-cream-300 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-            <div className="relative flex-1 max-w-md">
-              <Search className="w-4 h-4 text-surface-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <div className="bg-[#FBF9F4] p-4 rounded-2xl border border-[#1B4332]/12 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="relative flex-1 min-w-[240px]">
+              <Search className="w-4 h-4 text-[#8A9690] absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Cari kajian atau judul bazar..."
+                placeholder="Cari nama kajian daurah atau bazar..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 text-xs font-medium border border-cream-300 rounded-xl bg-cream-50/40 focus:ring-2 focus:ring-brand-700"
+                className="w-full pl-9 pr-4 py-2 text-xs font-medium border border-[#1B4332]/14 rounded-xl focus:ring-2 focus:ring-[#1B4332] bg-[#F2EEE4] text-[#1C2321] placeholder-[#8A9690] outline-none"
               />
             </div>
 
-            <div className="flex items-center gap-1.5 overflow-x-auto text-xs font-bold">
-              <button
-                onClick={() => setStatusFilter('all')}
-                className={`px-3 py-1.5 rounded-xl transition-all ${
-                  statusFilter === 'all' ? 'bg-brand-900 text-white shadow-2xs' : 'bg-cream-100 text-surface-700 hover:bg-cream-200'
-                }`}
+            <div className="flex items-center gap-2">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as any)}
+                className="py-1.5 px-3 border border-[#1B4332]/14 rounded-lg text-xs font-semibold bg-[#FBF9F4] text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
               >
-                Semua Kajian ({events.length})
-              </button>
+                <option value="all">Semua Status Bazar</option>
+                <option value="active">Bazar Aktif (Buka)</option>
+                <option value="inactive">Bazar Non-Aktif / Belum Dibuka</option>
+              </select>
+
               <button
-                onClick={() => setStatusFilter('active')}
-                className={`px-3 py-1.5 rounded-xl transition-all ${
-                  statusFilter === 'active' ? 'bg-brand-900 text-white shadow-2xs' : 'bg-cream-100 text-surface-700 hover:bg-cream-200'
-                }`}
+                onClick={loadData}
+                disabled={loading}
+                className="p-2 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#3D4A44] rounded-xl border border-[#1B4332]/12 transition-all"
+                title="Segarkan Data"
               >
-                🟢 Bazar Aktif ({totalBazaars})
-              </button>
-              <button
-                onClick={() => setStatusFilter('inactive')}
-                className={`px-3 py-1.5 rounded-xl transition-all ${
-                  statusFilter === 'inactive' ? 'bg-brand-900 text-white shadow-2xs' : 'bg-cream-100 text-surface-700 hover:bg-cream-200'
-                }`}
-              >
-                ⚪ Belum Aktif ({events.length - totalBazaars})
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
               </button>
             </div>
           </div>
 
-          {/* Cards Grid */}
+          {/* Event Cards Grid */}
           {loading ? (
-            <div className="p-12 text-center">
-              <LoadingState message="Memuat daftar bazar kajian..." />
-            </div>
+            <LoadingState message="Memuat hub bazar daurah..." />
           ) : filteredEvents.length === 0 ? (
-            <div className="bg-white rounded-3xl p-12 text-center border border-cream-300 space-y-3">
-              <Store className="w-8 h-8 text-surface-400 mx-auto" />
-              <h4 className="text-sm font-bold text-surface-800">Tidak Ada Jadwal Kajian Ditemukan</h4>
-              <p className="text-xs text-surface-500">
-                Jadwal kajian yang dibuat di menu "Kajian, Daurah & Presensi" akan otomatis muncul di sini.
+            <div className="p-16 bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/12 text-center space-y-3">
+              <div className="w-12 h-12 bg-[#F2EEE4] rounded-xl flex items-center justify-center mx-auto text-[#6B7A72]">
+                <Store className="w-6 h-6" />
+              </div>
+              <h3 className="text-sm font-bold text-[#1C2321]">Belum Ada Event Bazar</h3>
+              <p className="text-xs text-[#6B7A72] max-w-md mx-auto">
+                Silakan buka menu kajian dan aktifkan modul bazar pada kajian daurah yang diinginkan.
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {filteredEvents.map((ev) => {
-                const hasBazaar = !!ev.bazaar;
                 const b = ev.bazaar;
 
                 return (
                   <div
                     key={ev.id}
-                    className="bg-white rounded-3xl border border-cream-300 shadow-2xs p-5 flex flex-col justify-between space-y-4 hover:border-brand-300 hover:shadow-xs transition-all"
+                    className="bg-[#FBF9F4] border border-[#1B4332]/12 rounded-2xl p-5 shadow-2xs hover:shadow-xs transition-all flex flex-col justify-between space-y-4"
                   >
                     <div className="space-y-3">
+                      {/* Top status */}
                       <div className="flex items-center justify-between gap-2">
+                        <span className="text-[9.5px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-[#1B4332]/10 text-[#14352A] border border-[#1B4332]/20">
+                          DAURAH BAZAR
+                        </span>
+
                         <span
-                          className={`text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full ${
-                            hasBazaar
-                              ? b?.isOpen
-                                ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
-                                : 'bg-amber-100 text-amber-900 border border-amber-300'
-                              : 'bg-cream-100 text-surface-600 border border-cream-300'
+                          className={`text-[9.5px] font-mono font-bold uppercase px-2 py-0.5 rounded ${
+                            b && b.isOpen
+                              ? 'bg-[#2F7D4F]/12 text-[#2F7D4F] border border-[#2F7D4F]/30'
+                              : 'bg-[#F2EEE4] text-[#6B7A72] border border-[#1B4332]/10'
                           }`}
                         >
-                          {hasBazaar ? (b?.isOpen ? '🟢 Pendaftaran Buka' : '🔴 Ditutup') : '⚪ Belum Diaktifkan'}
-                        </span>
-
-                        <span className="text-[10px] font-bold text-surface-500">
-                          {new Date(ev.startAt).toLocaleDateString('id-ID', {
-                            day: 'numeric',
-                            month: 'short',
-                            year: 'numeric',
-                          })}
+                          {b && b.isOpen ? 'Bazar Aktif' : 'Non-Aktif'}
                         </span>
                       </div>
 
+                      {/* Title & Info */}
                       <div>
-                        <h3 className="font-black text-brand-950 text-base leading-snug font-display line-clamp-2">
-                          {ev.title}
+                        <h3 className="font-bold text-[#1C2321] text-sm leading-snug line-clamp-2 font-display">
+                          {b ? b.title : `Bazar ${ev.title}`}
                         </h3>
-                        <p className="text-xs font-bold text-brand-900 mt-1">Pemateri: {ev.speaker}</p>
-                        {ev.locationName && (
-                          <p className="text-[11px] text-surface-500 flex items-center gap-1 mt-0.5">
-                            <MapPin className="w-3 h-3 text-surface-400 shrink-0" />
-                            <span className="truncate">{ev.locationName}</span>
-                          </p>
-                        )}
+                        <p className="text-xs font-semibold text-[#14352A] mt-1">Kajian: {ev.title}</p>
                       </div>
 
-                      {hasBazaar && b ? (
-                        <div className="grid grid-cols-3 gap-2 bg-cream-50/50 p-2.5 rounded-2xl border border-cream-200 text-center text-xs">
-                          <div>
-                            <span className="text-[10px] text-surface-500 block">Total Stand</span>
-                            <span className="font-black text-brand-950">{b.boothsCount}</span>
+                      {/* Date & Location */}
+                      <div className="space-y-1 text-xs text-[#6B7A72]">
+                        <p className="flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-[#1B4332] shrink-0" />
+                          <span>{formatDateTime(ev.startAt)}</span>
+                        </p>
+                        <p className="flex items-center gap-1.5">
+                          <MapPin className="w-3.5 h-3.5 text-[#8A9690] shrink-0" />
+                          <span className="truncate">{ev.locationName || 'Masjid Tarbiyah Sunnah'}</span>
+                        </p>
+                      </div>
+
+                      {/* Stats Box */}
+                      {b ? (
+                        <div className="p-3 bg-[#F2EEE4]/70 rounded-xl border border-[#1B4332]/10 space-y-2 text-[11px]">
+                          <div className="flex items-center justify-between text-[#3D4A44]">
+                            <span>Slot Stan / Booth:</span>
+                            <span className="font-bold text-[#1C2321]">
+                              <strong className="text-[#2F7D4F]">{b.bookedBoothsCount} Terisi</strong> / {b.boothsCount} Total
+                            </span>
                           </div>
-                          <div>
-                            <span className="text-[10px] text-emerald-700 block">Tersedia</span>
-                            <span className="font-black text-emerald-800">{b.availableBoothsCount}</span>
+                          <div className="flex items-center justify-between text-[#3D4A44]">
+                            <span>Pendaftar / Terverifikasi:</span>
+                            <span className="font-bold text-[#1C2321]">
+                              {b.verifiedTenantsCount} / {b.tenantsCount} Tenant
+                            </span>
                           </div>
-                          <div>
-                            <span className="text-[10px] text-indigo-700 block">Pendaftar</span>
-                            <span className="font-black text-indigo-900">{b.tenantsCount}</span>
+                          <div className="flex items-center justify-between text-[#3D4A44] pt-1 border-t border-[#1B4332]/10">
+                            <span>Infaq Booth Masuk:</span>
+                            <span className="font-bold text-[#14352A] font-mono">
+                              {formatRupiah(b.totalInfaqRupiah)}
+                            </span>
                           </div>
                         </div>
                       ) : (
-                        <div className="bg-cream-50/30 p-3 rounded-2xl border border-dashed border-cream-300 text-center">
-                          <p className="text-[11px] text-surface-500 italic">Modul bazar belum aktif untuk kajian ini</p>
+                        <div className="p-4 bg-[#F2EEE4]/40 rounded-xl border border-dashed border-[#1B4332]/20 text-center text-xs text-[#6B7A72]">
+                          Modul bazar belum diaktifkan pada kajian ini.
                         </div>
                       )}
                     </div>
 
-                    <div className="pt-2 border-t border-cream-200 flex flex-wrap items-center justify-between gap-2">
-                      {hasBazaar ? (
-                        <>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <button
-                              onClick={() => handleCopyLink(ev.id)}
-                              className="p-2 bg-cream-100 hover:bg-cream-200 text-brand-950 rounded-xl transition-all text-xs font-bold flex items-center gap-1"
-                              title="Salin Link Pendaftaran Calon Tenant"
-                            >
-                              {copiedId === ev.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                              <span>{copiedId === ev.id ? 'Tersalin' : 'Form Daftar'}</span>
-                            </button>
+                    {/* Action Buttons */}
+                    <div className="pt-3 border-t border-[#1B4332]/10 space-y-2">
+                      <button
+                        onClick={() => setSelectedBazaarEventId(ev.id)}
+                        className="w-full py-2 bg-[#1B4332] hover:bg-[#14352A] text-white text-xs font-semibold rounded-lg shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-98"
+                      >
+                        <Store className="w-3.5 h-3.5 text-[#E0B970]" />
+                        <span>Plotting Stand &amp; Denah</span>
+                      </button>
 
-                            <button
-                              onClick={() => handleCopySurveyLink(ev.id)}
-                              className="p-2 bg-gold-50 hover:bg-gold-100 text-gold-950 rounded-xl border border-gold-300 transition-all text-xs font-bold flex items-center gap-1"
-                              title="Salin Link Survei Pasca-Event"
-                            >
-                              {copiedSurveyId === ev.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-gold-600" />}
-                              <span>{copiedSurveyId === ev.id ? 'Tersalin' : 'Form Survei'}</span>
-                            </button>
-                          </div>
-
-                          <button
-                            onClick={() => setSelectedBazaarEventId(ev.id)}
-                            className="flex-1 py-2 px-3 bg-brand-900 hover:bg-brand-950 text-white rounded-xl transition-all text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 min-w-[130px]"
-                          >
-                            <Store className="w-3.5 h-3.5 text-gold-300" />
-                            <span>Kelola Bazar & Booth</span>
-                          </button>
-                        </>
-                      ) : (
+                      <div className="grid grid-cols-2 gap-2">
                         <button
-                          onClick={() => setSelectedBazaarEventId(ev.id)}
-                          className="w-full py-2.5 px-3 bg-emerald-800 hover:bg-emerald-900 text-white rounded-xl transition-all text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs active:scale-95"
+                          onClick={() => handleCopyLink(ev.id)}
+                          className="py-1.5 px-2 bg-[#FBF9F4] hover:bg-[#F2EEE4] border border-[#1B4332]/14 text-[#3D4A44] text-[11px] font-semibold rounded-lg transition-all flex items-center justify-center gap-1"
                         >
-                          <Plus className="w-3.5 h-3.5 text-emerald-200" />
-                          <span>+ Aktifkan Fasilitas Bazar</span>
+                          {copiedId === ev.id ? <Check className="w-3 h-3 text-[#2F7D4F]" /> : <Copy className="w-3 h-3 text-[#8A9690]" />}
+                          <span>Link Daftar</span>
                         </button>
-                      )}
+
+                        <button
+                          onClick={() => handleCopySurveyLink(ev.id)}
+                          className="py-1.5 px-2 bg-[#FBF9F4] hover:bg-[#F2EEE4] border border-[#1B4332]/14 text-[#3D4A44] text-[11px] font-semibold rounded-lg transition-all flex items-center justify-center gap-1"
+                        >
+                          {copiedSurveyId === ev.id ? <Check className="w-3 h-3 text-[#2F7D4F]" /> : <Copy className="w-3 h-3 text-[#8A9690]" />}
+                          <span>Link Survei</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -592,33 +525,32 @@ export const BazaarHubPage: React.FC = () => {
         </div>
       )}
 
-      {/* ========================================================
-          TAB 2: DIREKTORI MASTER TENANT CRM
-      ======================================================== */}
+      {/* TAB 2: DATABASE TENANT CRM */}
       {hubTab === 'tenants_crm' && (
         <div className="space-y-4">
-          <div className="bg-white p-3.5 rounded-2xl border border-cream-300 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-            <div className="relative flex-1 max-w-md">
-              <Search className="w-4 h-4 text-surface-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          {/* Search & Filters */}
+          <div className="bg-[#FBF9F4] p-4 rounded-2xl border border-[#1B4332]/12 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="relative flex-1 min-w-[240px]">
+              <Search className="w-4 h-4 text-[#8A9690] absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Cari nama brand, PIC, WhatsApp, Instagram..."
+                placeholder="Cari nama brand, nama PIC, nomor WhatsApp, atau Instagram..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 text-xs font-medium border border-cream-300 rounded-xl bg-cream-50/40 focus:ring-2 focus:ring-brand-700"
+                className="w-full pl-9 pr-4 py-2 text-xs font-medium border border-[#1B4332]/14 rounded-xl focus:ring-2 focus:ring-[#1B4332] bg-[#F2EEE4] text-[#1C2321] placeholder-[#8A9690] outline-none"
               />
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap text-xs">
+            <div className="flex items-center gap-2 flex-wrap">
               <select
                 value={tenantCategoryFilter}
                 onChange={(e) => setTenantCategoryFilter(e.target.value)}
-                className="px-3 py-1.5 border border-cream-300 rounded-xl bg-white font-bold text-surface-700"
+                className="py-1.5 px-3 border border-[#1B4332]/14 rounded-lg text-xs font-semibold bg-[#FBF9F4] text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
               >
-                <option value="all">Semua Kategori</option>
-                {Object.entries(CATEGORY_LABELS).map(([k, v]) => (
+                <option value="all">Semua Kategori Usaha</option>
+                {Object.entries(CATEGORY_LABELS).map(([k, label]) => (
                   <option key={k} value={k}>
-                    {v}
+                    {label}
                   </option>
                 ))}
               </select>
@@ -626,114 +558,106 @@ export const BazaarHubPage: React.FC = () => {
               <select
                 value={tenantFlagFilter}
                 onChange={(e) => setTenantFlagFilter(e.target.value)}
-                className="px-3 py-1.5 border border-cream-300 rounded-xl bg-white font-bold text-surface-700"
+                className="py-1.5 px-3 border border-[#1B4332]/14 rounded-lg text-xs font-semibold bg-[#FBF9F4] text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
               >
                 <option value="all">Semua Flag Internal</option>
                 <option value="normal">🟢 Normal</option>
-                <option value="review_next_event">🟡 Perlu Review Event Berikutnya</option>
+                <option value="review_next_event">🟡 Perlu Review Event Depan</option>
                 <option value="do_not_auto_accept">🔴 Jangan Auto-Accept</option>
               </select>
             </div>
           </div>
 
-          {filteredMasterTenants.length === 0 ? (
-            <div className="p-12 text-center bg-white rounded-3xl border border-cream-300 space-y-2">
-              <ShoppingBag className="w-8 h-8 text-surface-400 mx-auto" />
-              <p className="text-xs font-bold text-surface-700">Tidak ada profil tenant yang sesuai filter.</p>
+          {/* Tenants Table */}
+          {loading ? (
+            <LoadingState message="Memuat database tenant CRM..." />
+          ) : filteredTenants.length === 0 ? (
+            <div className="p-16 bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/12 text-center space-y-3">
+              <div className="w-12 h-12 bg-[#F2EEE4] rounded-xl flex items-center justify-center mx-auto text-[#6B7A72]">
+                <IdCard className="w-6 h-6" />
+              </div>
+              <h3 className="text-sm font-bold text-[#1C2321]">Tidak Ada Tenant yang Sesuai</h3>
+              <p className="text-xs text-[#6B7A72] max-w-md mx-auto">
+                Silakan sesuaikan kata kunci pencarian atau impor data historis dari Google Form sebelumnya.
+              </p>
             </div>
           ) : (
-            <div className="bg-white rounded-3xl border border-cream-300 overflow-hidden shadow-2xs">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-cream-100 text-surface-700 uppercase font-black tracking-wider text-[10px]">
-                  <tr>
-                    <th className="p-3.5">Brand & Kategori</th>
-                    <th className="p-3.5">PIC & Kontak</th>
-                    <th className="p-3.5">Instagram</th>
-                    <th className="p-3.5">Histori Partisipasi</th>
-                    <th className="p-3.5">Tag & Status Flag</th>
-                    <th className="p-3.5 text-right">Aksi</th>
+            <div className="bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/12 shadow-2xs overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-[#F2EEE4] border-b border-[#1B4332]/12 text-[10.5px] font-mono font-bold text-[#14352A] uppercase tracking-wider">
+                    <th className="py-3 px-4">Brand / Usaha</th>
+                    <th className="py-3 px-3">Kategori</th>
+                    <th className="py-3 px-3">PIC &amp; Kontak</th>
+                    <th className="py-3 px-3">Partisipasi</th>
+                    <th className="py-3 px-3">Flag Internal</th>
+                    <th className="py-3 px-4 text-right">Aksi</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-cream-200 font-medium">
-                  {filteredMasterTenants.map((tenant) => {
-                    const appsCount = tenant.applications?.length || 0;
-                    const isLegacy = tenant.isLegacyData;
-
-                    return (
-                      <tr key={tenant.id} className="hover:bg-cream-50/50 transition-colors">
-                        <td className="p-3.5">
-                          <span className="font-bold text-brand-950 text-sm block">{tenant.brandName}</span>
-                          <span className="text-[10px] text-surface-500">
-                            {CATEGORY_LABELS[tenant.businessCategory] || tenant.businessCategory}
-                          </span>
-                        </td>
-
-                        <td className="p-3.5">
-                          <span className="font-bold text-surface-900 block">{tenant.picName}</span>
-                          <span className="text-[10px] text-surface-500 font-mono">{tenant.picPhone}</span>
-                        </td>
-
-                        <td className="p-3.5">
-                          {tenant.instagram ? (
+                <tbody className="divide-y divide-[#1B4332]/8 font-medium text-[#1C2321]">
+                  {filteredTenants.map((t) => (
+                    <tr key={t.id} className="hover:bg-[#F2EEE4]/50 transition-colors">
+                      <td className="py-3 px-4">
+                        <div>
+                          <p className="font-bold text-[#1C2321] text-xs font-display">{t.brandName}</p>
+                          {t.instagram && (
                             <a
-                              href={`https://instagram.com/${tenant.instagram.replace(/^@/, '')}`}
+                              href={`https://instagram.com/${t.instagram.replace('@', '')}`}
                               target="_blank"
                               rel="noreferrer"
-                              className="text-brand-900 font-bold hover:underline flex items-center gap-0.5"
+                              className="text-[11px] text-[#1B4332] hover:underline"
                             >
-                              <span>@{tenant.instagram.replace(/^@/, '')}</span>
-                              <ExternalLink className="w-3 h-3 text-surface-400" />
+                              @{t.instagram.replace('@', '')}
                             </a>
-                          ) : (
-                            <span className="text-[10px] text-surface-400">-</span>
                           )}
-                        </td>
+                        </div>
+                      </td>
 
-                        <td className="p-3.5">
-                          <span className="font-bold text-surface-900 bg-cream-100 px-2 py-0.5 rounded-full border border-cream-300">
-                            {appsCount} Event Diikuti
-                          </span>
-                          {isLegacy && (
-                            <span className="text-[9px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200 ml-1">
-                              Legacy
-                            </span>
-                          )}
-                        </td>
+                      <td className="py-3 px-3">
+                        <span className="text-[11px] text-[#3D4A44]">
+                          {CATEGORY_LABELS[t.businessCategory] || t.businessCategory}
+                        </span>
+                      </td>
 
-                        <td className="p-3.5">
-                          <div className="flex items-center gap-1 flex-wrap">
-                            {tenant.internalTags?.map((tag, idx) => (
-                              <span
-                                key={idx}
-                                className="text-[9px] font-bold px-1.5 py-0.2 bg-blue-50 text-blue-800 rounded border border-blue-200"
-                              >
-                                {tag}
-                              </span>
-                            ))}
-                            {tenant.internalFlag === 'review_next_event' && (
-                              <span className="text-[9px] font-bold px-1.5 py-0.2 bg-amber-100 text-amber-900 rounded border border-amber-300">
-                                🟡 Review Next
-                              </span>
-                            )}
-                            {tenant.internalFlag === 'do_not_auto_accept' && (
-                              <span className="text-[9px] font-bold px-1.5 py-0.2 bg-red-100 text-red-900 rounded border border-red-300">
-                                🔴 No Auto-Accept
-                              </span>
-                            )}
-                          </div>
-                        </td>
+                      <td className="py-3 px-3">
+                        <p className="font-semibold text-[#14352A]">{t.picName}</p>
+                        <p className="font-mono text-[11px] text-[#6B7A72]">{t.picPhone}</p>
+                      </td>
 
-                        <td className="p-3.5 text-right">
-                          <button
-                            onClick={() => setSelectedTenantDetail(tenant)}
-                            className="px-3 py-1.5 bg-cream-100 hover:bg-cream-200 text-brand-950 rounded-xl font-bold text-xs"
-                          >
-                            Detail Profil
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                      <td className="py-3 px-3">
+                        <span className="font-mono text-[11px] font-bold text-[#1B4332]">
+                          {(t.applications || []).length} Event
+                        </span>
+                      </td>
+
+                      <td className="py-3 px-3">
+                        <span
+                          className={`text-[9.5px] font-mono font-bold uppercase px-2 py-0.5 rounded ${
+                            t.internalFlag === 'review_next_event'
+                              ? 'bg-[#C77A16]/15 text-[#C77A16] border border-[#C77A16]/30'
+                              : t.internalFlag === 'do_not_auto_accept'
+                              ? 'bg-[#A8412F]/15 text-[#A8412F] border border-[#A8412F]/30'
+                              : 'bg-[#2F7D4F]/12 text-[#2F7D4F]'
+                          }`}
+                        >
+                          {t.internalFlag === 'review_next_event'
+                            ? 'Perlu Review'
+                            : t.internalFlag === 'do_not_auto_accept'
+                            ? 'Blacklist/Tolak'
+                            : 'Normal'}
+                        </span>
+                      </td>
+
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          onClick={() => setSelectedTenantDetail(t)}
+                          className="py-1 px-2.5 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#1C2321] text-xs font-semibold rounded-lg border border-[#1B4332]/12"
+                        >
+                          Detail 360°
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -741,132 +665,143 @@ export const BazaarHubPage: React.FC = () => {
         </div>
       )}
 
-      {/* ========================================================
-          TAB 3: ALAT IMPOR DATA 4 EVENT LAMA (GOOGLE FORM / CSV)
-      ======================================================== */}
+      {/* TAB 3: IMPORT DATA HISTORIS (CSV) */}
       {hubTab === 'import_legacy' && (
-        <div className="bg-white p-6 rounded-3xl border border-cream-300 shadow-2xs space-y-5 max-w-3xl">
+        <div className="bg-[#FBF9F4] border border-[#1B4332]/12 rounded-2xl p-6 shadow-2xs space-y-4 max-w-3xl">
           <div>
-            <h3 className="text-base font-black text-brand-950">Impor Data Historis 4 Event Bazar Sebelumnya</h3>
-            <p className="text-xs text-surface-600 mt-1">
-              Migrasikan data pendaftaran dari Google Form atau spreadsheet event lama. Sistem secara otomatis melakukan
-              deduplikasi berdasarkan nomor WhatsApp dan Nama Brand untuk membangun Master Profil Tenant.
+            <h3 className="font-bold text-base text-[#1C2321] font-display">
+              Import Data Historis Tenant Bazar (CSV)
+            </h3>
+            <p className="text-xs text-[#6B7A72] mt-1">
+              Tempelkan data pendaftaran bazar dari Google Form sebelumnya untuk membangun rekam jejak tenant.
             </p>
           </div>
 
-          <div className="space-y-2 text-xs">
-            <label className="font-bold text-surface-700 block">Format Kolom CSV (Pisahkan dengan Koma):</label>
-            <div className="p-3 bg-cream-50 rounded-xl border border-cream-200 font-mono text-[11px] text-surface-600">
-              Nama Brand, Kategori, Nama PIC, No WhatsApp, Email, Instagram, Alamat, Deskripsi Produk
-            </div>
-
-            <textarea
-              rows={8}
-              value={csvText}
-              onChange={(e) => setCsvText(e.target.value)}
-              placeholder={`"Kedai Kopi Sunnah","kuliner","Abu Raihan","08123456789","reihan@gmail.com","@kopi.sunnah","Bandung","Kopi V60 & Donat"\n"Gamis Syar'i Aisyah","busana_muslim","Ummu Aisyah","08198765432","","@aisyah.syari","Pasteur","Gamis & Khimar Muslimah"`}
-              className="w-full p-3 border border-cream-300 rounded-2xl font-mono text-xs leading-relaxed focus:ring-2 focus:ring-brand-700"
-            />
+          <div className="p-3.5 bg-[#F2EEE4] rounded-xl border border-[#1B4332]/10 text-xs text-[#3D4A44] space-y-1 font-mono text-[11px]">
+            <p className="font-bold text-[#14352A]">Format kolom CSV yang didukung:</p>
+            <p>Nama Brand, Kategori, Nama PIC, No WhatsApp, Email, Instagram, Alamat, Deskripsi Produk</p>
           </div>
 
-          <div className="flex items-center justify-between pt-2">
-            <span className="text-xs text-surface-500">
-              {csvText.trim() ? `${csvText.trim().split('\n').length - 1} baris terdeteksi` : 'Siap memproses data CSV'}
-            </span>
+          <textarea
+            rows={8}
+            value={csvText}
+            onChange={(e) => setCsvText(e.target.value)}
+            placeholder={`Nama Brand,Kategori,Nama PIC,No WhatsApp,Email,Instagram,Alamat,Deskripsi Produk\nKebab Barokah,kuliner,Ahmad Fauzi,08123456789,ahmad@email.com,@kebabbarokah,Bandung,Kebab Daging Sapi Halal\nAbaya Syari,busana_muslim,Siti Maryam,08219876543,siti@email.com,@abayasyari,Bandung,Gamis dan Khimar`}
+            className="w-full p-3 font-mono text-xs bg-[#F2EEE4] border border-[#1B4332]/14 rounded-xl focus:ring-2 focus:ring-[#1B4332] outline-none text-[#1C2321]"
+          />
 
+          <div className="flex items-center justify-between">
             <button
               onClick={handleProcessCsvImport}
-              disabled={importing || !csvText.trim()}
-              className="px-5 py-2.5 bg-brand-900 hover:bg-brand-950 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 disabled:opacity-50 flex items-center gap-1.5"
+              disabled={importing}
+              className="px-5 py-2.5 bg-[#1B4332] hover:bg-[#14352A] text-white text-xs font-bold rounded-lg shadow-xs flex items-center gap-2"
             >
-              <Upload className="w-4 h-4" />
-              <span>{importing ? 'Memproses Migrasi...' : 'Mulai Impor & Deduplikasi Data'}</span>
+              <Upload className="w-4 h-4 text-[#E0B970]" />
+              <span>{importing ? 'Memproses Data...' : 'Proses Import Sekarang'}</span>
             </button>
-          </div>
 
-          {importResult && (
-            <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 text-xs space-y-1">
-              <p className="font-bold text-emerald-950 flex items-center gap-1">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Hasil Impor Berhasil:
-              </p>
-              <p className="text-emerald-800">
-                • {importResult.imported} Master Profil Tenant baru berhasil dibuat.
-              </p>
-              <p className="text-emerald-800">
-                • {importResult.merged} profil terduplikasi berhasil digabungkan (*merged*) secara cerdas.
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* MASTER TENANT DETAIL MODAL */}
-      {selectedTenantDetail && (
-        <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 border border-cream-300 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-black text-brand-950">Profil 360° Master Tenant CRM</h4>
-              <button onClick={() => setSelectedTenantDetail(null)} className="p-1 text-surface-400 hover:text-surface-600">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-4 bg-cream-50/50 rounded-2xl border border-cream-200 text-xs space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-black text-base text-brand-950">{selectedTenantDetail.brandName}</span>
-                <span className="text-[10px] font-bold px-2 py-0.5 bg-brand-100 text-brand-900 rounded-full">
-                  {CATEGORY_LABELS[selectedTenantDetail.businessCategory] || selectedTenantDetail.businessCategory}
-                </span>
-              </div>
-              <p className="text-surface-700">
-                <span className="font-bold">PIC:</span> {selectedTenantDetail.picName} ({selectedTenantDetail.picPhone})
-              </p>
-              {selectedTenantDetail.instagram && (
-                <p className="text-surface-700">
-                  <span className="font-bold">Instagram:</span> @{selectedTenantDetail.instagram.replace(/^@/, '')}
-                </p>
-              )}
-              {selectedTenantDetail.address && (
-                <p className="text-surface-700">
-                  <span className="font-bold">Alamat:</span> {selectedTenantDetail.address}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2 text-xs">
-              <h5 className="font-bold text-surface-800">Histori Partisipasi Event Bazar:</h5>
-              {selectedTenantDetail.applications?.length ? (
-                <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                  {selectedTenantDetail.applications.map((app: any, idx: number) => (
-                    <div key={idx} className="p-2.5 bg-white rounded-xl border border-cream-200 flex items-center justify-between">
-                      <span className="font-bold text-brand-950">{app.bazaar?.event?.title || 'Kajian Daurah'}</span>
-                      <span className="text-[10px] text-surface-500">Stand: {app.assignedBooth?.code || '-'}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-surface-400 italic">Belum ada catatan partisipasi event.</p>
-              )}
-            </div>
-
-            <button
-              onClick={() => setSelectedTenantDetail(null)}
-              className="w-full py-2.5 bg-brand-900 text-white rounded-xl font-bold text-xs shadow-md"
-            >
-              Tutup Profil
-            </button>
+            {importResult && (
+              <span className="text-xs text-[#2F7D4F] font-bold">
+                ✓ {importResult.imported} baru, {importResult.merged} digabung
+              </span>
+            )}
           </div>
         </div>
       )}
 
-      {/* EVENT BAZAAR MANAGE MODAL */}
+      {/* MODAL: BAZAAR MANAGEMENT */}
       {selectedBazaarEventId && (
         <EventBazaarManageModal
           eventId={selectedBazaarEventId}
-          isOpen={!!selectedBazaarEventId}
-          onClose={() => setSelectedBazaarEventId(null)}
-          onRefreshParent={loadData}
+          isOpen={true}
+          onClose={() => {
+            setSelectedBazaarEventId(null);
+            loadData();
+          }}
         />
+      )}
+
+      {/* MODAL: TENANT 360 DETAIL */}
+      {selectedTenantDetail && (
+        <div className="fixed inset-0 z-50 bg-[#0F3A2E]/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/20 shadow-2xl max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="px-5 py-4 border-b border-[#1B4332]/12 flex items-center justify-between bg-white">
+              <div>
+                <h3 className="font-bold text-base text-[#1C2321] font-display">
+                  Profil Tenant: {selectedTenantDetail.brandName}
+                </h3>
+                <p className="text-xs text-[#6B7A72]">
+                  {CATEGORY_LABELS[selectedTenantDetail.businessCategory] || selectedTenantDetail.businessCategory}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedTenantDetail(null)}
+                className="text-[#8A9690] hover:text-[#1C2321] p-1 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-3 p-3.5 bg-[#F2EEE4] rounded-xl border border-[#1B4332]/10">
+                <div>
+                  <span className="text-[10.5px] text-[#6B7A72] block">Nama PIC</span>
+                  <span className="font-bold text-[#1C2321]">{selectedTenantDetail.picName}</span>
+                </div>
+                <div>
+                  <span className="text-[10.5px] text-[#6B7A72] block">WhatsApp</span>
+                  <span className="font-mono font-bold text-[#14352A]">{selectedTenantDetail.picPhone}</span>
+                </div>
+                <div>
+                  <span className="text-[10.5px] text-[#6B7A72] block">Instagram</span>
+                  <span className="font-bold text-[#1C2321]">{selectedTenantDetail.instagram || '-'}</span>
+                </div>
+                <div>
+                  <span className="text-[10.5px] text-[#6B7A72] block">Email</span>
+                  <span className="font-bold text-[#1C2321]">{selectedTenantDetail.picEmail || '-'}</span>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-bold text-[#1C2321] mb-1.5">Riwayat Partisipasi Event</h4>
+                {(selectedTenantDetail.applications || []).length === 0 ? (
+                  <p className="text-xs text-[#6B7A72]">Belum ada data partisipasi event.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {(selectedTenantDetail.applications || []).map((app: any, idx: number) => (
+                      <div key={idx} className="p-3 bg-white rounded-xl border border-[#1B4332]/10 flex items-center justify-between">
+                        <div>
+                          <p className="font-bold text-[#1C2321]">{app.bazaar?.event?.title || 'Kajian Daurah'}</p>
+                          <p className="text-[11px] text-[#6B7A72]">Stand: {app.assignedBooth?.code || 'Belum diplot'}</p>
+                        </div>
+                        <span className="font-mono text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-[#1B4332]/10 text-[#14352A]">
+                          {app.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-[#1B4332]/10 bg-white flex justify-end">
+              <button
+                onClick={() => setSelectedTenantDetail(null)}
+                className="px-4 py-2 bg-[#1B4332] text-white rounded-lg text-xs font-bold"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TOAST NOTIFICATION */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 bg-[#14352A] text-white px-4 py-3 rounded-xl shadow-2xl border border-[#B58B3C]/40 flex items-center gap-2 animate-in slide-in-from-bottom-3 duration-200 text-xs font-semibold">
+          <CheckCircle2 className="w-4 h-4 text-[#E0B970]" />
+          <span>{toastMessage}</span>
+        </div>
       )}
     </div>
   );

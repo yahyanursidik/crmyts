@@ -18,12 +18,15 @@ import { eq, and, desc, asc, sql, ilike, or } from 'drizzle-orm';
 import { normalizeIndonesianPhone } from '../../lib/phone';
 
 let bazaarTablesInitialized = false;
+let bazaarInitPromise: Promise<void> | null = null;
 
 export async function ensureBazaarTablesExist(db: any) {
   if (bazaarTablesInitialized) return;
-  try {
-    if (typeof db.execute === 'function') {
-      await db.execute(sql`
+  if (!bazaarInitPromise) {
+    bazaarInitPromise = (async () => {
+      try {
+        if (typeof db.execute === 'function') {
+          await db.execute(sql`
         CREATE TABLE IF NOT EXISTS bazaar_events (
           id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
           event_id uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -207,7 +210,11 @@ export async function ensureBazaarTablesExist(db: any) {
     bazaarTablesInitialized = true;
   } catch (err) {
     console.error('ensureBazaarTablesExist error:', err);
+    bazaarTablesInitialized = true;
   }
+  })();
+  }
+  await bazaarInitPromise;
 }
 
 // Schemas
@@ -356,6 +363,94 @@ const publicSurveySchema = z.object({
 });
 
 export function registerBazaarRoutes(router: Router) {
+  // 0. GET /api/bazaar/overview (Single fast query for Bazaar Hub list)
+  router.get(
+    '/api/bazaar/overview',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      await ensureBazaarTablesExist(db);
+
+      const eventList = await db.query.events.findMany({
+        orderBy: [desc(events.startAt)],
+        columns: {
+          id: true,
+          title: true,
+          speaker: true,
+          startAt: true,
+          endAt: true,
+          locationName: true,
+        },
+      });
+
+      const bazaarList = await db.query.bazaarEvents.findMany({
+        with: {
+          booths: {
+            columns: {
+              id: true,
+              status: true,
+            },
+          },
+          applications: {
+            columns: {
+              id: true,
+              status: true,
+              infaqAmountRupiah: true,
+            },
+          },
+        },
+      });
+
+      const bazaarMap = new Map<string, any>();
+      for (const baz of bazaarList) {
+        const booths = baz.booths || [];
+        const apps = baz.applications || [];
+        const availableBoothsCount = booths.filter((b: any) => b.status === 'available').length;
+        const bookedBoothsCount = booths.filter((b: any) => b.status === 'assigned').length;
+        const verifiedTenantsCount = apps.filter(
+          (a: any) =>
+            a.status === 'payment_verified' ||
+            a.status === 'booth_assigned' ||
+            a.status === 'checked_in' ||
+            a.status === 'completed'
+        ).length;
+        const totalInfaqRupiah = apps
+          .filter(
+            (a: any) =>
+              a.status === 'payment_verified' ||
+              a.status === 'booth_assigned' ||
+              a.status === 'checked_in' ||
+              a.status === 'completed'
+          )
+          .reduce((sum: number, a: any) => sum + (a.infaqAmountRupiah || 0), 0);
+
+        bazaarMap.set(baz.eventId, {
+          id: baz.id,
+          title: baz.title,
+          isOpen: baz.isOpen,
+          defaultFeeRupiah: baz.defaultFeeRupiah,
+          boothsCount: booths.length,
+          availableBoothsCount,
+          bookedBoothsCount,
+          tenantsCount: apps.length,
+          verifiedTenantsCount,
+          totalInfaqRupiah,
+        });
+      }
+
+      const eventsWithBazaar = eventList.map((ev) => ({
+        id: ev.id,
+        title: ev.title,
+        speaker: ev.speaker,
+        startAt: ev.startAt,
+        endAt: ev.endAt,
+        locationName: ev.locationName,
+        bazaar: bazaarMap.get(ev.id) || null,
+      }));
+
+      return successResponse(eventsWithBazaar, { requestId: ctx.requestId, total: eventsWithBazaar.length });
+    })
+  );
+
   // 1. GET /api/events/:id/bazaar
   router.get(
     '/api/events/:id/bazaar',
