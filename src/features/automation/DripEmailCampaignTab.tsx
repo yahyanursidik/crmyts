@@ -92,9 +92,10 @@ export function DripEmailCampaignTab() {
   // Create Campaign Form State
   const [newTitle, setNewTitle] = useState('Program Sapaan Ukhuwah Jamaah (Pekan 2)');
   const [newSubject, setNewSubject] = useState('Bismillah, Salam Hangat & Doa Kebaikan dari Yayasan Tarbiyah Sunnah');
-  const [newDailyQuota, setNewDailyQuota] = useState<number>(50);
+  const [newDailyQuota, setNewDailyQuota] = useState<number>(235);
   const [newTotalDays, setNewTotalDays] = useState<number>(14);
   const [newGenderFilter, setNewGenderFilter] = useState<'all' | 'ikhwan' | 'akhwat'>('all');
+  const [newTargetScope, setNewTargetScope] = useState<'all_jamaah' | 'email_only'>('all_jamaah');
   const [newBodyHtml, setNewBodyHtml] = useState(`
 <p>Bismillah, Assalamu'alaikum Warahmatullahi Wabarakatuh.</p>
 <p>Semoga <strong>{{genderTitle}} {{fullName}}</strong> beserta seluruh keluarga senantiasa berada dalam lindungan, taufik, dan rahmat Allah Ta'ala di <em>{{city}}</em>.</p>
@@ -211,6 +212,7 @@ export function DripEmailCampaignTab() {
           dailyQuota: newDailyQuota,
           totalDays: newTotalDays,
           filterGender: newGenderFilter,
+          targetScope: newTargetScope,
         }),
       });
       showToast('Program drip email campaign baru berhasil dibuat!');
@@ -335,7 +337,7 @@ export function DripEmailCampaignTab() {
             <div className="text-2xl sm:text-[28px] font-bold font-display text-[#1C2321]">
               {currentCampaign.stats.totalRecipients.toLocaleString('id-ID')}
             </div>
-            <div className="text-[11.5px] text-[#6B7A72]">Memiliki email valid di CRM</div>
+            <div className="text-[11.5px] text-[#6B7A72]">Database jamaah aktif di CRM</div>
           </div>
 
           <div className="p-4 bg-[#FBF9F4] rounded-xl border border-[#1B4332]/12 shadow-2xs border-l-[3px] border-l-[#2F7D4F] space-y-1">
@@ -708,7 +710,34 @@ export function DripEmailCampaignTab() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-semibold text-[#1C2321]">Target Jangkauan Audiens:</label>
+                  <select
+                    value={newTargetScope}
+                    onChange={(e) => setNewTargetScope(e.target.value as any)}
+                    className="w-full px-3 py-2 border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] bg-[#F2EEE4] focus:ring-2 focus:ring-[#1B4332] outline-none"
+                  >
+                    <option value="all_jamaah">Seluruh Database Jamaah CRM (3.288 Jamaah)</option>
+                    <option value="email_only">Hanya Jamaah yang Memiliki Email (397 Jamaah)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-[#1C2321]">Target Gender Jamaah:</label>
+                  <select
+                    value={newGenderFilter}
+                    onChange={(e) => setNewGenderFilter(e.target.value as any)}
+                    className="w-full px-3 py-2 border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] bg-[#F2EEE4] focus:ring-2 focus:ring-[#1B4332] outline-none"
+                  >
+                    <option value="all">Semua Jamaah (Ikhwan &amp; Akhwat)</option>
+                    <option value="ikhwan">Ikhwan Saja</option>
+                    <option value="akhwat">Akhwat Saja</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="font-semibold text-[#1C2321]">Kuota Email per Hari (Warm-up):</label>
                   <select
@@ -716,10 +745,10 @@ export function DripEmailCampaignTab() {
                     onChange={(e) => setNewDailyQuota(parseInt(e.target.value, 10))}
                     className="w-full px-3 py-2 border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] bg-[#F2EEE4] focus:ring-2 focus:ring-[#1B4332] outline-none"
                   >
-                    <option value={20}>20 Email / Hari (Sangat Aman)</option>
-                    <option value={50}>50 Email / Hari (Direkomendasikan)</option>
+                    <option value={50}>50 Email / Hari (Sangat Aman)</option>
                     <option value={100}>100 Email / Hari (Standar)</option>
-                    <option value={200}>200 Email / Hari (Cepat)</option>
+                    <option value={235}>235 Email / Hari (14 Hari Tuntas 3.288 Jamaah)</option>
+                    <option value={500}>500 Email / Hari (Cepat)</option>
                   </select>
                 </div>
 
@@ -734,19 +763,6 @@ export function DripEmailCampaignTab() {
                     <option value={14}>14 Hari (2 Pekan - Optimal)</option>
                     <option value={21}>21 Hari (3 Pekan)</option>
                     <option value={30}>30 Hari (1 Bulan)</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="font-semibold text-[#1C2321]">Target Gender Jamaah:</label>
-                  <select
-                    value={newGenderFilter}
-                    onChange={(e) => setNewGenderFilter(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] bg-[#F2EEE4] focus:ring-2 focus:ring-[#1B4332] outline-none"
-                  >
-                    <option value="all">Semua Jamaah (Ikhwan &amp; Akhwat)</option>
-                    <option value="ikhwan">Ikhwan Saja</option>
-                    <option value="akhwat">Akhwat Saja</option>
                   </select>
                 </div>
               </div>

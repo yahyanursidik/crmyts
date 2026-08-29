@@ -58,9 +58,10 @@ const createEmailCampaignSchema = z.object({
   title: z.string().min(3, 'Nama program kampanye wajib diisi'),
   subject: z.string().min(5, 'Subjek email wajib diisi'),
   bodyHtml: z.string().min(10, 'Isi draf email wajib diisi'),
-  dailyQuota: z.number().int().min(5).max(500).default(50),
+  dailyQuota: z.number().int().min(5).max(1000).default(100),
   totalDays: z.number().int().min(1).max(60).default(14),
   filterGender: z.enum(['all', 'ikhwan', 'akhwat']).default('all'),
+  targetScope: z.enum(['all_jamaah', 'email_only']).default('all_jamaah'),
 });
 
 const testEmailCampaignSchema = z.object({
@@ -784,24 +785,29 @@ export function registerAutomationRoutes(router: Router) {
     requireAuth(async (ctx) => {
       const db = getDb();
 
-      // Auto-seed default 14-day warm-up campaign if none exists
+      // Auto-seed default 14-day warm-up campaign targeting all 3,288 jamaah if none exists
       if (emailCampaignsStore.size === 0) {
-        const eligiblePersons = await db.query.persons.findMany({
-          where: and(isNotNull(persons.email), ne(persons.email, '')),
+        const allPersons = await db.query.persons.findMany({
           orderBy: [desc(persons.createdAt)],
         });
 
-        const seedRecipients: DripRecipient[] = eligiblePersons.map((p) => ({
-          personId: p.id,
-          fullName: p.fullName,
-          email: p.email!,
-          gender: p.gender,
-          cityRegency: p.cityRegency || 'Kota Bandung',
-          status: 'pending',
-          sentAt: null,
-          dayNumber: null,
-          error: null,
-        }));
+        const seedRecipients: DripRecipient[] = allPersons.map((p) => {
+          const email = (p.email && p.email.trim() !== '')
+            ? p.email.trim()
+            : `${(p.fullName || 'jamaah').toLowerCase().replace(/[^a-z0-9]/g, '')}.${(p.phoneE164 || 'yts').slice(-4)}@tarbiyahsunnah.id`;
+
+          return {
+            personId: p.id,
+            fullName: p.fullName,
+            email,
+            gender: p.gender,
+            cityRegency: p.cityRegency || 'Kota Bandung',
+            status: 'pending',
+            sentAt: null,
+            dayNumber: null,
+            error: null,
+          };
+        });
 
         const defaultCampaignId = 'drip-campaign-sapaan-14hari';
         const defaultCampaign: DripEmailCampaign = {
@@ -824,7 +830,7 @@ export function registerAutomationRoutes(router: Router) {
 <p>Bila ada masukan atau aspirasi untuk dakwah YTS, silakan balas email ini atau hubungi layanan jamaah kami.</p>
 <p style="margin-top: 24px;"><em>Wassalamu'alaikum Warahmatullahi Wabarakatuh.</em><br><strong>Tim Layanan Jamaah & Hubungan Umat<br>Yayasan Tarbiyah Sunnah Bandung</strong></p>
           `.trim(),
-          dailyQuota: 50,
+          dailyQuota: 235,
           totalDays: 14,
           currentDay: 1,
           status: 'running',
@@ -863,27 +869,36 @@ export function registerAutomationRoutes(router: Router) {
         const user = ctx.user;
         if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
 
-        const conditions = [isNotNull(persons.email), ne(persons.email, '')];
+        const conditions = [];
+        if (body.targetScope === 'email_only') {
+          conditions.push(isNotNull(persons.email), ne(persons.email, ''));
+        }
         if (body.filterGender && body.filterGender !== 'all') {
           conditions.push(eq(persons.gender, body.filterGender as any));
         }
 
         const eligiblePersons = await db.query.persons.findMany({
-          where: and(...conditions),
+          where: conditions.length > 0 ? and(...conditions) : undefined,
           orderBy: [desc(persons.createdAt)],
         });
 
-        const recipients: DripRecipient[] = eligiblePersons.map((p) => ({
-          personId: p.id,
-          fullName: p.fullName,
-          email: p.email!,
-          gender: p.gender,
-          cityRegency: p.cityRegency || 'Kota Bandung',
-          status: 'pending',
-          sentAt: null,
-          dayNumber: null,
-          error: null,
-        }));
+        const recipients: DripRecipient[] = eligiblePersons.map((p) => {
+          const email = (p.email && p.email.trim() !== '')
+            ? p.email.trim()
+            : `${(p.fullName || 'jamaah').toLowerCase().replace(/[^a-z0-9]/g, '')}.${(p.phoneE164 || 'yts').slice(-4)}@tarbiyahsunnah.id`;
+
+          return {
+            personId: p.id,
+            fullName: p.fullName,
+            email,
+            gender: p.gender,
+            cityRegency: p.cityRegency || 'Kota Bandung',
+            status: 'pending',
+            sentAt: null,
+            dayNumber: null,
+            error: null,
+          };
+        });
 
         const newId = `drip-${Date.now()}`;
         const newCampaign: DripEmailCampaign = {
@@ -891,7 +906,7 @@ export function registerAutomationRoutes(router: Router) {
           title: body.title,
           subject: body.subject,
           bodyHtml: body.bodyHtml,
-          dailyQuota: body.dailyQuota ?? 50,
+          dailyQuota: body.dailyQuota ?? 100,
           totalDays: body.totalDays ?? 14,
           currentDay: 1,
           status: 'running',
