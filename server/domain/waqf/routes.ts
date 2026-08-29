@@ -12,9 +12,12 @@ import {
   personRoles,
   auditLogs
 } from '../../db/schema';
-import { eq, desc, and } from 'drizzle-orm';
+import { eq, desc, and, sql, or, ilike } from 'drizzle-orm';
 import { PERMISSIONS } from '../../permissions/constants';
 import { defaultAttachmentService } from '../../storage/service';
+
+let cachedWaqfStats: { data: any; timestamp: number } | null = null;
+const STATS_CACHE_TTL_MS = 60_000;
 
 export const WAQF_STAGES = [
   'interested',
@@ -60,12 +63,23 @@ export function registerWaqfRoutes(router: Router) {
     requireAuth(async (ctx) => {
       const db = getDb();
 
+      const search = ctx.query.search?.trim();
       const stage = ctx.query.stage?.trim();
+      const waqfType = ctx.query.waqfType?.trim();
       const personId = ctx.query.personId?.trim();
       const ownerUserId = ctx.query.ownerUserId?.trim();
 
       const conditions = [];
+      if (search) {
+        conditions.push(
+          or(
+            ilike(waqfCases.notesSummary, `%${search}%`),
+            sql`EXISTS (SELECT 1 FROM people WHERE people.id = ${waqfCases.personId} AND (people.full_name ILIKE ${'%' + search + '%'} OR people.phone_e164 ILIKE ${'%' + search + '%'} OR people.city_regency ILIKE ${'%' + search + '%'}))`
+          )
+        );
+      }
       if (stage) conditions.push(eq(waqfCases.currentStage, stage as any));
+      if (waqfType) conditions.push(eq(waqfCases.waqfType, waqfType as any));
       if (personId) conditions.push(eq(waqfCases.personId, personId));
       if (ownerUserId) conditions.push(eq(waqfCases.ownerUserId, ownerUserId));
 
@@ -107,6 +121,41 @@ export function registerWaqfRoutes(router: Router) {
 
       const now = Date.now();
 
+      // Compute or retrieve cached stats
+      let stats = {
+        totalCases: 0,
+        totalEstimatedValueRupiah: 0,
+        completedCases: 0,
+        inProgressCases: 0,
+      };
+
+      if (cachedWaqfStats && now - cachedWaqfStats.timestamp < STATS_CACHE_TTL_MS) {
+        stats = cachedWaqfStats.data;
+      } else {
+        try {
+          const [statsRes] = await db
+            .select({
+              totalCases: sql<number>`(SELECT count(*)::int FROM "waqf_cases")`,
+              totalEstimatedValueRupiah: sql<number>`COALESCE((SELECT SUM("estimated_value_rupiah")::bigint FROM "waqf_cases"), 0)`,
+              completedCases: sql<number>`(SELECT count(*)::int FROM "waqf_cases" WHERE "current_stage" IN ('completed', 'stewardship'))`,
+              inProgressCases: sql<number>`(SELECT count(*)::int FROM "waqf_cases" WHERE "current_stage" IN ('in_progress', 'document_preparation', 'pledged'))`,
+            })
+            .from(sql`(SELECT 1) dummy`);
+
+          if (statsRes) {
+            stats = {
+              totalCases: Number(statsRes.totalCases || 0),
+              totalEstimatedValueRupiah: Number(statsRes.totalEstimatedValueRupiah || 0),
+              completedCases: Number(statsRes.completedCases || 0),
+              inProgressCases: Number(statsRes.inProgressCases || 0),
+            };
+            cachedWaqfStats = { data: stats, timestamp: now };
+          }
+        } catch (err) {
+          console.warn('[Waqf Stats Warn]:', err);
+        }
+      }
+
       const formatted = list.map((w) => {
         // Calculate aging in days since opened
         const openedTime = new Date(w.openedAt).getTime();
@@ -145,7 +194,7 @@ export function registerWaqfRoutes(router: Router) {
         };
       });
 
-      return successResponse(formatted, { requestId: ctx.requestId, total: formatted.length });
+      return successResponse(formatted, { requestId: ctx.requestId, total: formatted.length, stats });
     })
   );
 
@@ -238,6 +287,8 @@ export function registerWaqfRoutes(router: Router) {
 
             return newCase;
           });
+
+          cachedWaqfStats = null;
 
           return successResponse(
             { ...result, estimatedValueRupiah: result.estimatedValueRupiah ? Number(result.estimatedValueRupiah) : null },
@@ -363,6 +414,8 @@ export function registerWaqfRoutes(router: Router) {
           if (!transitionResult.case) {
             return errorResponse('INTERNAL_ERROR', 'Gagal memperbarui status kasus wakaf', 500, ctx.requestId);
           }
+
+          cachedWaqfStats = null;
 
           return successResponse(
             {
