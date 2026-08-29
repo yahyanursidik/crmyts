@@ -25,6 +25,8 @@ import {
   FileCheck,
   Trash2,
   Plus,
+  Store,
+  ClipboardList,
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -506,15 +508,31 @@ export function EventsPortalPage() {
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2">
-            {!isSingleEvent && (
-              <Link
-                to="/donasi"
-                className="hidden md:flex px-3 py-2 rounded-xl text-xs font-bold text-surface-600 hover:text-brand-950 hover:bg-cream-100 items-center gap-1.5 transition-all"
-              >
-                <HeartHandshake className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Portal Donasi & Wakaf</span>
-              </Link>
-            )}
+            <Link
+              to="/kajian"
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                !isSingleEvent ? 'bg-emerald-100/70 text-emerald-950 shadow-2xs' : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5 text-emerald-700" />
+              <span className="hidden sm:inline">Jadwal Kajian</span>
+            </Link>
+
+            <Link
+              to={isSingleEvent && selectedEvent ? `/kajian/${selectedEvent.id}/bazar` : '/bazar'}
+              className="px-3 py-2 rounded-xl text-xs font-bold text-slate-700 hover:text-emerald-950 hover:bg-emerald-50 items-center gap-1.5 transition-all flex border border-slate-200/80 shadow-2xs bg-white"
+            >
+              <Store className="w-3.5 h-3.5 text-amber-600" />
+              <span className="hidden sm:inline">Bazar UMKM</span>
+            </Link>
+
+            <Link
+              to="/donasi"
+              className="hidden md:flex px-3 py-2 rounded-xl text-xs font-bold text-slate-700 hover:text-emerald-950 hover:bg-emerald-50 items-center gap-1.5 transition-all border border-slate-200/80 shadow-2xs bg-white"
+            >
+              <HeartHandshake className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Infaq & Donasi</span>
+            </Link>
 
             {isSingleEvent && selectedEvent && (
               <button
@@ -548,14 +566,29 @@ export function EventsPortalPage() {
       {/* Single Event Breadcrumb & Quick Action Strip */}
       {isSingleEvent && selectedEvent && (
         <div className="bg-white border-b border-cream-300 py-3 px-4 sm:px-6 lg:px-8">
-          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-3">
             <Link
               to="/kajian"
               className="inline-flex items-center gap-2 text-xs font-bold text-teal-800 hover:text-teal-950 transition-colors"
             >
               <ArrowLeft className="w-4 h-4" /> Lihat Seluruh Jadwal Majelis Lainnya
             </Link>
-            <div className="flex items-center gap-2">
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <Link
+                to={`/kajian/${selectedEvent.id}/bazar`}
+                className="px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-all active:scale-95"
+              >
+                <Store className="w-3.5 h-3.5 text-amber-700" /> Stan Bazar Kajian Ini
+              </Link>
+
+              <Link
+                to={`/kajian/${selectedEvent.id}/bazar/survey`}
+                className="px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-all active:scale-95"
+              >
+                <ClipboardList className="w-3.5 h-3.5 text-slate-600" /> Survei Evaluasi
+              </Link>
+
               <button
                 type="button"
                 onClick={() => handleCopyShareLink(selectedEvent.id)}
@@ -567,7 +600,7 @@ export function EventsPortalPage() {
                 title="Salin tautan formulir pendaftaran kajian ini"
               >
                 {copiedShareLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-slate-600" />}
-                <span>{copiedShareLink ? 'Link Tersalin!' : 'Salin Link Kajian'}</span>
+                <span>{copiedShareLink ? 'Link Tersalin!' : 'Salin Link'}</span>
               </button>
 
               <a
@@ -1993,6 +2026,14 @@ export function EventsPortalPage() {
             </p>
 
             <div className="pt-2 flex flex-col gap-2">
+              <Link
+                to={`/kajian/${eventSuccess.event.id}/bazar`}
+                className="w-full py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-950 font-bold text-xs rounded-xl border border-amber-300 transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95"
+              >
+                <Store className="w-3.5 h-3.5 text-amber-700" />
+                <span>Kunjungi Stan Bazar Kajian Ini</span>
+              </Link>
+
               <button
                 type="button"
                 onClick={() => handleCopyShareLink(eventSuccess.event.id)}

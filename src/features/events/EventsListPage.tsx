@@ -21,6 +21,8 @@ import {
   RefreshCw,
   ExternalLink,
   Store,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
@@ -84,6 +86,7 @@ export const EventsListPage: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [audienceFilter, setAudienceFilter] = useState('all');
   const [deliveryFilter, setDeliveryFilter] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Copy & Delete
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -262,6 +265,10 @@ export const EventsListPage: React.FC = () => {
 
     return matchSearch && matchStatus && matchCat && matchAudience && matchDelivery;
   });
+
+  const itemsPerPage = viewMode === 'grid' ? 12 : 15;
+  const totalPages = Math.ceil(filteredEvents.length / itemsPerPage) || 1;
+  const paginatedEvents = filteredEvents.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto pb-16">
@@ -527,7 +534,7 @@ export const EventsListPage: React.FC = () => {
       ) : viewMode === 'grid' ? (
         /* GRID CARDS VIEW */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filteredEvents.map((ev) => {
+          {paginatedEvents.map((ev) => {
             const hasQuota = ev.quota && ev.quota > 0;
             const quotaPercent = hasQuota ? Math.min(100, Math.round((ev.attendanceCount / (ev.quota || 1)) * 100)) : 0;
 
@@ -740,7 +747,7 @@ export const EventsListPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#1B4332]/8 font-medium text-[#1C2321]">
-              {filteredEvents.map((ev) => (
+              {paginatedEvents.map((ev) => (
                 <tr key={ev.id} className="hover:bg-[#F2EEE4]/50 transition-colors">
                   {/* Title & Category */}
                   <td className="py-3 px-4">
@@ -862,6 +869,36 @@ export const EventsListPage: React.FC = () => {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Pagination Footer Controls */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between pt-3 px-2 text-xs text-[#6B7A72]">
+          <span>
+            Menampilkan hal <strong className="font-semibold text-[#1C2321]">{currentPage}</strong> dari{' '}
+            <strong className="font-semibold text-[#1C2321]">{totalPages}</strong> ({filteredEvents.length} majelis kajian)
+          </span>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage <= 1}
+              className="p-1.5 rounded-lg border border-[#1B4332]/14 bg-white hover:bg-[#F2EEE4] disabled:opacity-40 transition-colors"
+              title="Halaman Sebelumnya"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <span className="font-mono font-bold px-2 text-[#1C2321]">{currentPage}</span>
+            <button
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage >= totalPages}
+              className="p-1.5 rounded-lg border border-[#1B4332]/14 bg-white hover:bg-[#F2EEE4] disabled:opacity-40 transition-colors"
+              title="Halaman Berikutnya"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 
