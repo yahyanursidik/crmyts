@@ -49,6 +49,35 @@ const FOUNDATION_DEFAULT = {
 
 let foundationData = { ...FOUNDATION_DEFAULT };
 
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+
+let usersCache: CacheEntry<any> | null = null;
+let programsCache: CacheEntry<any> | null = null;
+let tagsCache: CacheEntry<any> | null = null;
+let systemHealthCache: CacheEntry<any> | null = null;
+
+const CACHE_TTL_MS = 60 * 1000;
+
+export function invalidateSettingsCache(key?: 'users' | 'programs' | 'tags' | 'system' | 'all') {
+  if (!key || key === 'all') {
+    usersCache = null;
+    programsCache = null;
+    tagsCache = null;
+    systemHealthCache = null;
+  } else if (key === 'users') {
+    usersCache = null;
+  } else if (key === 'programs') {
+    programsCache = null;
+  } else if (key === 'tags') {
+    tagsCache = null;
+  } else if (key === 'system') {
+    systemHealthCache = null;
+  }
+}
+
 const updateProfileSchema = z.object({
   fullName: z.string().min(2, 'Nama lengkap minimal 2 karakter'),
 });
@@ -179,11 +208,16 @@ export function registerSettingsRoutes(router: Router) {
     )
   );
 
-  // 4. GET /api/settings/users (List Internal Staff Users)
+  // 4. GET /api/settings/users (List Internal Staff Users with Caching)
   router.get(
     '/api/settings/users',
     requireAuth(
       requirePermission(PERMISSIONS.USERS_MANAGE, async (ctx) => {
+        const forceRefresh = ctx.query?.refresh === 'true' || ctx.query?.refresh === '1';
+        if (!forceRefresh && usersCache && Date.now() - usersCache.timestamp < CACHE_TTL_MS) {
+          return successResponse(usersCache.data, { requestId: ctx.requestId, total: usersCache.data.length });
+        }
+
         const db = getDb();
 
         const userList = await db.query.appUsers.findMany({
@@ -209,6 +243,11 @@ export function registerSettingsRoutes(router: Router) {
             name: ur.role.name,
           })),
         }));
+
+        usersCache = {
+          data: formatted,
+          timestamp: Date.now(),
+        };
 
         return successResponse(formatted, { requestId: ctx.requestId, total: formatted.length });
       })
@@ -277,6 +316,8 @@ export function registerSettingsRoutes(router: Router) {
             return newUser;
           });
 
+          invalidateSettingsCache('users');
+
           // Dispatch Welcome Email asynchronously
           if (result.email) {
             sendStaffWelcomeEmail({
@@ -338,6 +379,8 @@ export function registerSettingsRoutes(router: Router) {
           requestId: ctx.requestId,
         });
 
+        invalidateSettingsCache('users');
+
         return successResponse(updated, { requestId: ctx.requestId });
       })
     )
@@ -387,6 +430,8 @@ export function registerSettingsRoutes(router: Router) {
             });
           });
 
+          invalidateSettingsCache('users');
+
           return successResponse({ updated: true, roleCodes: body.roleCodes }, { requestId: ctx.requestId });
         })
       )
@@ -431,10 +476,21 @@ export function registerSettingsRoutes(router: Router) {
   router.get(
     '/api/settings/programs',
     requireAuth(async (ctx) => {
+      const forceRefresh = ctx.query?.refresh === 'true' || ctx.query?.refresh === '1';
+      if (!forceRefresh && programsCache && Date.now() - programsCache.timestamp < CACHE_TTL_MS) {
+        return successResponse(programsCache.data, { requestId: ctx.requestId, total: programsCache.data.length });
+      }
+
       const db = getDb();
       const programs = await db.query.donationPrograms.findMany({
         orderBy: [desc(donationPrograms.createdAt)],
       });
+
+      programsCache = {
+        data: programs,
+        timestamp: Date.now(),
+      };
+
       return successResponse(programs, { requestId: ctx.requestId, total: programs.length });
     })
   );
@@ -459,6 +515,8 @@ export function registerSettingsRoutes(router: Router) {
           if (!created) {
             return errorResponse('INTERNAL_ERROR', 'Gagal membuat program donasi', 500, ctx.requestId);
           }
+
+          invalidateSettingsCache('programs');
 
           if (ctx.user) {
             await logAuditEvent({
@@ -503,6 +561,8 @@ export function registerSettingsRoutes(router: Router) {
           .where(eq(donationPrograms.id, programId))
           .returning();
 
+        invalidateSettingsCache('programs');
+
         return successResponse(updated, { requestId: ctx.requestId });
       })
     )
@@ -512,10 +572,21 @@ export function registerSettingsRoutes(router: Router) {
   router.get(
     '/api/settings/tags',
     requireAuth(async (ctx) => {
+      const forceRefresh = ctx.query?.refresh === 'true' || ctx.query?.refresh === '1';
+      if (!forceRefresh && tagsCache && Date.now() - tagsCache.timestamp < CACHE_TTL_MS) {
+        return successResponse(tagsCache.data, { requestId: ctx.requestId, total: tagsCache.data.length });
+      }
+
       const db = getDb();
       const allTags = await db.query.tags.findMany({
         orderBy: [desc(tags.createdAt)],
       });
+
+      tagsCache = {
+        data: allTags,
+        timestamp: Date.now(),
+      };
+
       return successResponse(allTags, { requestId: ctx.requestId, total: allTags.length });
     })
   );
@@ -536,6 +607,8 @@ export function registerSettingsRoutes(router: Router) {
               isActive: true,
             })
             .returning();
+
+          invalidateSettingsCache('tags');
 
           return successResponse(created, { requestId: ctx.requestId }, 201);
         })
@@ -564,6 +637,8 @@ export function registerSettingsRoutes(router: Router) {
           .where(eq(tags.id, tagId))
           .returning();
 
+        invalidateSettingsCache('tags');
+
         return successResponse(updated, { requestId: ctx.requestId });
       })
     )
@@ -585,6 +660,8 @@ export function registerSettingsRoutes(router: Router) {
 
         await db.delete(tags).where(eq(tags.id, tagId));
 
+        invalidateSettingsCache('tags');
+
         return successResponse({ success: true, message: `Tag ${current.name} berhasil dihapus` }, { requestId: ctx.requestId });
       })
     )
@@ -605,6 +682,8 @@ export function registerSettingsRoutes(router: Router) {
         if (!current) return errorResponse('NOT_FOUND', 'Program tidak ditemukan', 404, ctx.requestId);
 
         await db.delete(donationPrograms).where(eq(donationPrograms.id, programId));
+
+        invalidateSettingsCache('programs');
 
         if (ctx.user) {
           await logAuditEvent({
@@ -657,6 +736,8 @@ export function registerSettingsRoutes(router: Router) {
           });
         });
 
+        invalidateSettingsCache('users');
+
         return successResponse({ success: true, message: `Akun staf ${target.fullName} berhasil dihapus` }, { requestId: ctx.requestId });
       })
     )
@@ -666,6 +747,11 @@ export function registerSettingsRoutes(router: Router) {
   router.get(
     '/api/settings/system-health',
     requireAuth(async (ctx) => {
+      const forceRefresh = ctx.query?.refresh === 'true' || ctx.query?.refresh === '1';
+      if (!forceRefresh && systemHealthCache && Date.now() - systemHealthCache.timestamp < CACHE_TTL_MS) {
+        return successResponse(systemHealthCache.data, { requestId: ctx.requestId });
+      }
+
       const db = getDb();
 
       const [[personsCount], [donationsCount], [auditCount]] = await Promise.all([
@@ -674,36 +760,40 @@ export function registerSettingsRoutes(router: Router) {
         db.select({ count: sql<number>`count(*)::int` }).from(auditLogs),
       ]);
 
-      return successResponse(
-        {
-          environment: process.env.NODE_ENV || 'production',
-          database: {
-            engine: 'Neon Serverless PostgreSQL (Drizzle ORM)',
-            connectionPooling: 'SSL Encrypted (Transaction Scoped RLS)',
-            pitrRecovery: 'Continuous Point-in-Time Active',
-            recordsTotal: {
-              persons: personsCount?.count || 0,
-              users: donationsCount?.count || 0,
-              auditLogs: auditCount?.count || 0,
-            },
-          },
-          storage: {
-            provider: process.env.STORAGE_PROVIDER || 'Contabo S3 Storage Vault (Abstraction Layer)',
-            bucket: process.env.S3_BUCKET || 'crm-yts-vault',
-            endpoint: process.env.S3_ENDPOINT || 'https://sin1.contabostorage.com',
-            maxFileSize: '10 MB',
-            mimeAllowlist: ['PDF', 'JPEG', 'PNG', 'WEBP'],
-            accessControl: 'Private Bucket (15-Min Signed URLs Only)',
-          },
-          security: {
-            authMechanism: 'HMAC-SHA256 Signed Tokens (24H TTL)',
-            segregationOfDuties: 'Strictly Enforced (Finance vs Fundraising)',
-            auditLogging: 'Append-Only (No Delete/Edit APIs)',
-            secretSanitization: 'Active on all JSON payloads',
+      const healthData = {
+        environment: process.env.NODE_ENV || 'production',
+        database: {
+          engine: 'Neon Serverless PostgreSQL (Drizzle ORM)',
+          connectionPooling: 'SSL Encrypted (Transaction Scoped RLS)',
+          pitrRecovery: 'Continuous Point-in-Time Active',
+          recordsTotal: {
+            persons: personsCount?.count || 0,
+            users: donationsCount?.count || 0,
+            auditLogs: auditCount?.count || 0,
           },
         },
-        { requestId: ctx.requestId }
-      );
+        storage: {
+          provider: process.env.STORAGE_PROVIDER || 'Contabo S3 Storage Vault (Abstraction Layer)',
+          bucket: process.env.S3_BUCKET || 'crm-yts-vault',
+          endpoint: process.env.S3_ENDPOINT || 'https://sin1.contabostorage.com',
+          maxFileSize: '10 MB',
+          mimeAllowlist: ['PDF', 'JPEG', 'PNG', 'WEBP'],
+          accessControl: 'Private Bucket (15-Min Signed URLs Only)',
+        },
+        security: {
+          authMechanism: 'HMAC-SHA256 Signed Tokens (24H TTL)',
+          segregationOfDuties: 'Strictly Enforced (Finance vs Fundraising)',
+          auditLogging: 'Append-Only (No Delete/Edit APIs)',
+          secretSanitization: 'Active on all JSON payloads',
+        },
+      };
+
+      systemHealthCache = {
+        data: healthData,
+        timestamp: Date.now(),
+      };
+
+      return successResponse(healthData, { requestId: ctx.requestId });
     })
   );
 
