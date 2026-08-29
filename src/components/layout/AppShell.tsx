@@ -1,28 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router';
-import { useGetIdentity, useLogout, usePermissions } from '@refinedev/core';
+import { useGetIdentity, useLogout } from '@refinedev/core';
 import {
-  IdCard,
-  Calendar,
-  CheckSquare,
-  MessageSquare,
-  Plus,
-  Coins,
-  Building2,
-  TrendingUp,
-  ShieldCheck,
-  History,
-  Settings,
   LogOut,
   Menu,
   X,
-  Search,
-  Store,
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
 import { UserIdentity } from '../../lib/authProvider';
-import { PermissionCode, PERMISSIONS, ROLES } from '@server/permissions/constants';
+import { ROLES } from '@server/permissions/constants';
 import { QuickInteractionModal } from '../../features/interactions/QuickInteractionModal';
 import { GlobalSearchModal } from '@/components/common/GlobalSearchModal';
 import { InactivityAutoLogoutGuard } from '@/components/common/InactivityAutoLogoutGuard';
@@ -32,7 +19,6 @@ export interface NavMenuItem {
   href: string;
   badge?: string | number;
   badgeColor?: string;
-  permission?: PermissionCode;
 }
 
 const MAIN_NAV_ITEMS: NavMenuItem[] = [
@@ -47,15 +33,21 @@ const MAIN_NAV_ITEMS: NavMenuItem[] = [
 ];
 
 const GOVERNANCE_NAV_ITEMS: NavMenuItem[] = [
-  { name: 'Audit Log', href: '/audit', permission: PERMISSIONS.AUDIT_VIEW },
-  { name: 'Role & Permission', href: '/settings', permission: PERMISSIONS.SYSTEM_CONFIGURE },
+  { name: 'Audit Log', href: '/audit' },
+  { name: 'Role & Permission', href: '/settings' },
 ];
 
 function getInitials(name?: string): string {
-  if (!name) return 'RH';
-  const parts = name.trim().split(' ');
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
+  if (!name || !name.trim()) return 'RH';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 0) return 'RH';
+  if (parts.length === 1) {
+    const first = parts[0];
+    return first ? first.slice(0, 2).toUpperCase() : 'RH';
+  }
+  const p0 = parts[0] || '';
+  const p1 = parts[1] || '';
+  return ((p0[0] || '') + (p1[0] || '')).toUpperCase() || 'RH';
 }
 
 function getRoleLabel(roles?: string[]): string {
@@ -66,7 +58,8 @@ function getRoleLabel(roles?: string[]): string {
   if (roles.includes('cs_officer')) return 'CS OFFICER';
   if (roles.includes('data_steward')) return 'DATA STEWARD';
   if (roles.includes('event_admin')) return 'ADMIN KAJIAN';
-  return roles[0].replace('_', ' ').toUpperCase();
+  const firstRole = roles[0];
+  return firstRole ? firstRole.replace('_', ' ').toUpperCase() : 'STAFF';
 }
 
 export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -81,7 +74,6 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
   const location = useLocation();
   const { data: user } = useGetIdentity<UserIdentity>();
-  const { data: permissions = [] } = usePermissions<PermissionCode[]>({});
   const { mutate: logout } = useLogout();
 
   const toggleCollapse = () => {

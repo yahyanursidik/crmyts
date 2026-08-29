@@ -14,7 +14,6 @@ import {
   Layers, 
   Activity, 
   AlertTriangle,
-  Plus,
   Lock,
 } from 'lucide-react';
 import { Link } from 'react-router';
