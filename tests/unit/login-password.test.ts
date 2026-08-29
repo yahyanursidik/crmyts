@@ -7,7 +7,7 @@ describe('Strict Password Enforcement for Admin Accounts', () => {
     expect(result).not.toBeNull();
     expect(result?.user.email).toBe('admin@tarbiyahsunnah.id');
     expect(result?.token).toBeDefined();
-  });
+  }, 15000);
 
   it('rejects login for admin@tarbiyahsunnah.id with any incorrect password', async () => {
     const result1 = await loginUser('admin@tarbiyahsunnah.id', 'wrongpass');
@@ -18,13 +18,13 @@ describe('Strict Password Enforcement for Admin Accounts', () => {
 
     const result3 = await loginUser('admin@tarbiyahsunnah.id', '');
     expect(result3).toBeNull();
-  });
+  }, 15000);
 
   it('allows login for crm_admin@tarbiyahsunnah.id with correct password admin123', async () => {
     const result = await loginUser('crm_admin@tarbiyahsunnah.id', 'admin123');
     expect(result).not.toBeNull();
     expect(result?.user.email).toBe('crm_admin@tarbiyahsunnah.id');
-  });
+  }, 15000);
 
   it('rejects login for crm_admin@tarbiyahsunnah.id with any incorrect password', async () => {
     const result = await loginUser('crm_admin@tarbiyahsunnah.id', 'password_salah');

@@ -123,21 +123,6 @@ interface EventAttendanceItem {
   totalAttendees: number;
 }
 
-interface AttendanceResponse {
-  total: number;
-  metrics: {
-    totalEvents: number;
-    totalAttendeesSum: number;
-    avgAttendees: number;
-  };
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-  };
-}
-
 const WAQF_STAGE_LABELS: Record<string, { label: string; bg: string; color: string }> = {
   interested: { label: '1. Penjajakan', bg: 'bg-[#F2EEE4]', color: 'text-[#6B7A72]' },
   consulted: { label: '2. Konsultasi', bg: 'bg-[#EAE4D6]', color: 'text-[#1C2321]' },
