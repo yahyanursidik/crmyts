@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router';
 import { apiClient } from '@/lib/apiClient';
 import {
@@ -11,7 +11,14 @@ import {
   Check,
   X,
   Download,
+  MessageSquare,
+  RefreshCw,
+  ChevronLeft,
+  ChevronRight,
+  AlertTriangle,
+  Loader2,
 } from 'lucide-react';
+import { formatPhoneDisplay } from '@/lib/phone';
 import { LoadingState } from '@/components/common/LoadingState';
 
 interface InactiveAttendee {
@@ -52,6 +59,16 @@ interface InactiveResponse {
   items: InactiveAttendee[];
 }
 
+function getInitials(name: string): string {
+  if (!name || typeof name !== 'string') return 'JM';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'JM';
+  if (parts.length === 1) return (parts[0] || 'JM').substring(0, 2).toUpperCase();
+  const first = parts[0] || 'J';
+  const last = parts[parts.length - 1] || 'M';
+  return ((first[0] || 'J') + (last[0] || 'M')).toUpperCase();
+}
+
 export function InactiveAttendeesTab() {
   const [data, setData] = useState<InactiveResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -60,7 +77,12 @@ export function InactiveAttendeesTab() {
   // Filters
   const [minDaysFilter, setMinDaysFilter] = useState<number>(30);
   const [genderFilter, setGenderFilter] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [search, setSearch] = useState<string>('');
+  const [debouncedSearch, setDebouncedSearch] = useState<string>('');
+
+  // Pagination State
+  const [page, setPage] = useState<number>(1);
+  const pageSize = 15;
 
   // Modal Sapaan State
   const [selectedAttendee, setSelectedAttendee] = useState<InactiveAttendee | null>(null);
@@ -70,12 +92,20 @@ export function InactiveAttendeesTab() {
   const [taskDueDate, setTaskDueDate] = useState<string>(() => {
     const d = new Date();
     d.setDate(d.getDate() + 3);
-    const dateStr = d.toISOString().split('T')[0];
-    return dateStr ?? '';
+    return d.toISOString().split('T')[0] || '';
   });
   const [sending, setSending] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
+
+  // Debounce search
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(handler);
+  }, [search]);
 
   const fetchInactiveAttendees = async () => {
     try {
@@ -84,7 +114,7 @@ export function InactiveAttendeesTab() {
       const queryParams = new URLSearchParams();
       queryParams.set('minDays', minDaysFilter.toString());
       if (genderFilter !== 'all') queryParams.set('gender', genderFilter);
-      if (searchQuery.trim()) queryParams.set('search', searchQuery.trim());
+      if (debouncedSearch.trim()) queryParams.set('search', debouncedSearch.trim());
 
       const res = await apiClient<InactiveResponse>(`/automation/inactive-attendees?${queryParams.toString()}`);
       setData(res.data);
@@ -97,7 +127,7 @@ export function InactiveAttendeesTab() {
 
   useEffect(() => {
     fetchInactiveAttendees();
-  }, [minDaysFilter, genderFilter]);
+  }, [minDaysFilter, genderFilter, debouncedSearch]);
 
   const handleOpenGreetingModal = (attendee: InactiveAttendee) => {
     setSelectedAttendee(attendee);
@@ -154,25 +184,19 @@ export function InactiveAttendeesTab() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const filteredItems = (data?.items || []).filter((item) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      item.fullName.toLowerCase().includes(q) ||
-      item.phoneE164.includes(q) ||
-      item.cityRegency.toLowerCase().includes(q) ||
-      item.lastEventTitle.toLowerCase().includes(q)
-    );
-  });
+  const allItems = data?.items || [];
+  const totalItems = allItems.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const paginatedItems = allItems.slice((page - 1) * pageSize, page * pageSize);
 
   const handleExportCsv = () => {
-    if (!data?.items || data.items.length === 0) {
+    if (allItems.length === 0) {
       alert('Tidak ada data jamaah inaktif untuk diekspor');
       return;
     }
 
     const headers = ['Nama Jamaah', 'Gender', 'Nomor WhatsApp', 'Domisili', 'Total Kehadiran', 'Kajian Terakhir', 'Pemateri Terakhir', 'Tanggal Terakhir Hadir', 'Hari Absen', 'Status Sapaan'];
-    const rows = filteredItems.map((item) => [
+    const rows = allItems.map((item) => [
       `"${item.fullName}"`,
       `"${item.gender || '-'}"`,
       `"${item.phoneE164}"`,
@@ -199,243 +223,301 @@ export function InactiveAttendeesTab() {
     <div className="space-y-6">
       {/* Toast Notification */}
       {successToast && (
-        <div className="p-4 bg-emerald-800 text-white rounded-2xl shadow-lg border border-emerald-700 flex items-center justify-between animate-fadeIn">
+        <div className="p-4 bg-[#1B4332] text-white rounded-2xl shadow-xl border border-[#1B4332] flex items-center justify-between animate-in fade-in duration-200">
           <div className="flex items-center gap-3">
-            <CheckCircle2 className="w-5 h-5 text-emerald-300 shrink-0" />
+            <CheckCircle2 className="w-5 h-5 text-[#E0B970] shrink-0" />
             <span className="text-xs sm:text-sm font-bold">{successToast}</span>
           </div>
-          <button onClick={() => setSuccessToast(null)} className="p-1 hover:bg-emerald-700 rounded-lg">
+          <button onClick={() => setSuccessToast(null)} className="p-1 hover:bg-white/20 rounded-lg">
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
       {/* Header Banner */}
-      <div className="p-5 bg-gradient-to-r from-emerald-900 via-teal-900 to-[#07241d] text-white rounded-3xl shadow-sm border border-emerald-800/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="p-5 bg-gradient-to-r from-[#14352A] via-[#1B4332] to-[#0F4C4A] text-white rounded-2xl shadow-xs border border-[#1B4332] flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-800/80 border border-emerald-500/40 flex items-center justify-center shrink-0 shadow-inner">
-            <Heart className="w-6 h-6 text-rose-300" />
+          <div className="w-12 h-12 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center shrink-0 shadow-inner">
+            <Heart className="w-6 h-6 text-[#E0B970]" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-black tracking-tight">Sapaan Ukhuwah Jamaah Rindu Majelis</h2>
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-amber-400 text-amber-950">
-                Retention & Dakwah
+              <h2 className="text-base sm:text-lg font-bold tracking-tight font-display">
+                Sapaan Ukhuwah Jamaah Rindu Majelis
+              </h2>
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase bg-[#E0B970] text-[#14352A]">
+                RETENTION &amp; DAKWAH
               </span>
             </div>
-            <p className="text-xs text-emerald-200/90 mt-0.5 max-w-2xl">
-              Deteksi jamaah yang telah lama tidak hadir di majelis ilmu. Kirimkan sapaan menanyakan kabar, doa kebaikan, dan undangan kajian secara santun & personal via WhatsApp 1-klik yang otomatis tercatat di CRM.
+            <p className="text-xs text-white/80 mt-0.5 max-w-2xl">
+              Deteksi jamaah yang telah lama tidak hadir di majelis ilmu. Kirimkan sapaan menanyakan kabar, doa kebaikan, dan undangan kajian secara santun &amp; personal via WhatsApp 1-klik yang otomatis tercatat di CRM.
             </p>
           </div>
         </div>
 
         {data?.nextUpcomingEvent && (
-          <div className="bg-emerald-950/80 p-3 rounded-2xl border border-emerald-700/60 text-xs shrink-0 max-w-xs space-y-1">
-            <span className="text-[10px] font-bold text-emerald-300 uppercase tracking-wider block">
+          <div className="bg-white/10 p-3 rounded-xl border border-white/20 text-xs shrink-0 max-w-xs space-y-1">
+            <span className="text-[10px] font-mono font-bold text-[#E0B970] uppercase tracking-wider block">
               📖 Kajian Terdekat yang Ditawarkan:
             </span>
             <p className="font-bold text-white truncate">{data.nextUpcomingEvent.title}</p>
-            <p className="text-[11px] text-emerald-200 truncate">
+            <p className="text-[11px] text-white/80 truncate">
               🎙️ {data.nextUpcomingEvent.speaker} • {data.nextUpcomingEvent.startAtFormatted.split(' pukul ')[0]}
             </p>
           </div>
         )}
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-1">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Total Perlu Disapa</span>
+      {/* 3 Alert Strip KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+        <div className="p-4 bg-[#FBF9F4] rounded-xl border border-[#1B4332]/12 shadow-2xs border-l-[3px] border-l-[#1B4332] space-y-1">
+          <span className="text-[10.5px] font-mono font-semibold text-[#1B4332] uppercase tracking-wider block">
+            TOTAL PERLU DISAPA
+          </span>
           <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-black text-slate-900">{data?.needGreetingCount || 0}</span>
-            <span className="text-xs font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full">&gt;{minDaysFilter} Hari Absen</span>
+            <span className="text-2xl sm:text-[28px] font-bold font-display text-[#1C2321]">
+              {(data?.needGreetingCount || 0).toLocaleString('id-ID')}
+            </span>
+            <span className="text-xs font-mono font-semibold text-[#14352A] bg-[#1B4332]/10 px-2 py-0.5 rounded-md">
+              &gt;{minDaysFilter} Hari Absen
+            </span>
           </div>
+          <div className="text-[11.5px] text-[#6B7A72]">Jamaah belum disapa bulan ini</div>
         </div>
 
-        <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-1">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Sudah Disapa Bulan Ini</span>
+        <div className="p-4 bg-[#FBF9F4] rounded-xl border border-[#1B4332]/12 shadow-2xs border-l-[3px] border-l-[#2F7D4F] space-y-1">
+          <span className="text-[10.5px] font-mono font-semibold text-[#2F7D4F] uppercase tracking-wider block">
+            SUDAH DISAPA BULAN INI
+          </span>
           <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-black text-emerald-700">{data?.greetedRecentlyCount || 0}</span>
-            <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full">Tersapa</span>
+            <span className="text-2xl sm:text-[28px] font-bold font-display text-[#2F7D4F]">
+              {(data?.greetedRecentlyCount || 0).toLocaleString('id-ID')}
+            </span>
+            <span className="text-xs font-mono font-semibold text-[#2F7D4F] bg-[#2F7D4F]/10 px-2 py-0.5 rounded-md">
+              Tersapa
+            </span>
           </div>
+          <div className="text-[11.5px] text-[#6B7A72]">Tercatat dalam interaksi CRM</div>
         </div>
 
-        <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-1">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Inaktif Kritis</span>
+        <div className="p-4 bg-[#FBF9F4] rounded-xl border border-[#1B4332]/12 shadow-2xs border-l-[3px] border-l-[#C77A16] space-y-1">
+          <span className="text-[10.5px] font-mono font-semibold text-[#C77A16] uppercase tracking-wider block">
+            INAKTIF KRITIS (&gt;90 HARI)
+          </span>
           <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-black text-amber-700">{data?.criticalCount || 0}</span>
-            <span className="text-xs font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full">&gt;90 Hari Absen</span>
+            <span className="text-2xl sm:text-[28px] font-bold font-display text-[#C77A16]">
+              {(data?.criticalCount || 0).toLocaleString('id-ID')}
+            </span>
+            <span className="text-xs font-mono font-semibold text-[#C77A16] bg-[#C77A16]/10 px-2 py-0.5 rounded-md">
+              Prioritas Tinggi
+            </span>
           </div>
+          <div className="text-[11.5px] text-[#6B7A72]">Perlu tabayyun &amp; silaturahmi</div>
         </div>
       </div>
 
-      {/* Filter Controls */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 flex-wrap">
-          <span className="text-xs font-bold text-slate-500 whitespace-nowrap">Durasi Absen:</span>
-          {[
-            { label: '30+ Hari', val: 30 },
-            { label: '60+ Hari', val: 60 },
-            { label: '90+ Hari (Kritis)', val: 90 },
-          ].map((item) => (
-            <button
-              key={item.val}
-              onClick={() => setMinDaysFilter(item.val)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-                minDaysFilter === item.val
-                  ? 'bg-teal-800 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-
-          <div className="h-4 w-px bg-slate-200 mx-1 hidden sm:block" />
-
-          <select
-            value={genderFilter}
-            onChange={(e) => setGenderFilter(e.target.value)}
-            className="px-3 py-1.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 bg-white focus:ring-2 focus:ring-teal-500 outline-hidden"
-          >
-            <option value="all">Semua Jamaah</option>
-            <option value="ikhwan">🕌 Jamaah Ikhwan</option>
-            <option value="akhwat">🌸 Jamaah Akhwat</option>
-          </select>
+      {/* Filter & Search Bar */}
+      <div className="bg-[#FBF9F4] p-4 rounded-2xl border border-[#1B4332]/12 shadow-2xs space-y-3">
+        <div className="flex flex-col sm:flex-row gap-2.5">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-[#8A9690] absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Cari nama jamaah, nomor telepon, domisili, atau tema kajian..."
+              className="w-full pl-10 pr-9 py-2 text-xs font-medium border border-[#1B4332]/14 rounded-xl focus:ring-2 focus:ring-[#1B4332] bg-[#F2EEE4] text-[#1C2321] placeholder-[#8A9690] outline-none"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A9690] hover:text-[#1C2321] p-0.5"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
 
           <button
+            type="button"
             onClick={handleExportCsv}
-            className="px-3 py-1.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 flex items-center gap-1.5 shadow-2xs transition-all ml-auto"
-            title="Ekspor daftar jamaah rindu majelis ke file CSV"
+            className="px-3.5 py-2 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#1C2321] border border-[#1B4332]/12 rounded-xl text-xs font-semibold shadow-2xs transition-all flex items-center gap-1.5 active:scale-98"
+            title="Ekspor daftar ke format CSV"
           >
-            <Download className="w-3.5 h-3.5 text-slate-500" />
+            <Download className="w-3.5 h-3.5 text-[#6B7A72]" />
             <span>Ekspor CSV</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={fetchInactiveAttendees}
+            disabled={loading}
+            className="p-2 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#3D4A44] rounded-xl border border-[#1B4332]/12 transition-all flex items-center gap-1 text-xs font-semibold px-3"
+            title="Segarkan Data"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span>Segarkan</span>
           </button>
         </div>
 
-        {/* Search */}
-        <div className="relative flex-1 max-w-sm">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Cari nama, nomor WA, kota..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && fetchInactiveAttendees()}
-            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:ring-2 focus:ring-teal-500 outline-hidden transition-all"
-          />
+        {/* Filter Chips & Dropdowns */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-[#1B4332]/8 text-xs">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-bold text-[#6B7A72]">Durasi Absen:</span>
+            {[
+              { label: '30+ Hari', val: 30 },
+              { label: '60+ Hari', val: 60 },
+              { label: '90+ Hari (Kritis)', val: 90 },
+            ].map((item) => (
+              <button
+                key={item.val}
+                onClick={() => { setMinDaysFilter(item.val); setPage(1); }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  minDaysFilter === item.val
+                    ? 'bg-[#1B4332] text-white shadow-2xs'
+                    : 'bg-[#F2EEE4] text-[#3D4A44] hover:bg-[#EAE4D6]'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+
+            <div className="h-4 w-px bg-[#1B4332]/12 mx-1 hidden sm:block" />
+
+            <select
+              value={genderFilter}
+              onChange={(e) => { setGenderFilter(e.target.value); setPage(1); }}
+              className="px-2.5 py-1.5 rounded-lg border border-[#1B4332]/14 text-xs font-semibold text-[#1C2321] bg-[#FBF9F4] focus:ring-2 focus:ring-[#1B4332] outline-none"
+            >
+              <option value="all">Semua Kategori (Ikhwan &amp; Akhwat)</option>
+              <option value="ikhwan">🧔 Ikhwan Saja</option>
+              <option value="akhwat">🧕 Akhwat Saja</option>
+            </select>
+          </div>
+
+          <div className="text-xs text-[#6B7A72] font-mono">
+            Total terdeteksi: <strong className="text-[#1C2321]">{totalItems}</strong> jamaah
+          </div>
         </div>
       </div>
 
-      {/* Table / List */}
-      <div className="bg-white rounded-3xl border border-slate-200 shadow-2xs overflow-hidden">
+      {/* Table Data */}
+      <div className="bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/12 shadow-2xs overflow-hidden">
         {loading ? (
           <div className="py-16">
-            <LoadingState message="Memindai riwayat kehadiran jamaah & menghitung hari absen..." />
+            <LoadingState message="Memuat data jamaah rindu majelis..." />
           </div>
         ) : error ? (
-          <div className="p-8 text-center text-rose-600 text-xs">{error}</div>
-        ) : filteredItems.length === 0 ? (
-          <div className="py-16 text-center text-slate-400 text-xs space-y-2">
-            <Heart className="w-10 h-10 mx-auto text-emerald-400 opacity-60" />
-            <p className="font-bold text-slate-700 text-sm">Alhamdulillah, Tidak Ada Jamaah yang Inaktif!</p>
-            <p className="text-slate-500">Semua jamaah aktif menghadiri majelis ilmu dalam rentang waktu yang dipilih.</p>
+          <div className="p-6 text-rose-700 text-xs bg-rose-50 border-b border-rose-200">{error}</div>
+        ) : allItems.length === 0 ? (
+          <div className="py-16 text-center text-[#6B7A72] text-xs space-y-3">
+            <div className="w-12 h-12 bg-[#F2EEE4] rounded-xl flex items-center justify-center mx-auto text-[#6B7A72]">
+              <Heart className="w-6 h-6" />
+            </div>
+            <p className="font-bold text-sm text-[#1C2321]">Alhamdulillah! Tidak ada jamaah inaktif pada kriteria ini</p>
+            <p className="text-xs text-[#6B7A72] max-w-sm mx-auto">
+              Seluruh jamaah aktif mengikuti kajian atau kriteria filter tidak menemukan data.
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/80 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
-                  <th className="py-3.5 px-5">Nama Jamaah</th>
-                  <th className="py-3.5 px-4">Kontak & Domisili</th>
-                  <th className="py-3.5 px-4">Kajian Terakhir</th>
-                  <th className="py-3.5 px-4 text-center">Durasi Absen</th>
-                  <th className="py-3.5 px-4 text-center">Status Sapaan</th>
-                  <th className="py-3.5 px-5 text-right">Aksi Sapaan</th>
+                <tr className="border-b border-[#1B4332]/12 bg-[#F2EEE4] text-[#14352A] text-[10.5px] font-mono font-bold uppercase tracking-wider">
+                  <th className="py-3 px-4">Nama Jamaah</th>
+                  <th className="py-3 px-4">Kontak &amp; Domisili</th>
+                  <th className="py-3 px-4">Kehadiran Terakhir</th>
+                  <th className="py-3 px-3">Durasi Absen</th>
+                  <th className="py-3 px-3">Status Sapaan</th>
+                  <th className="py-3 px-4 text-right">Aksi Sapaan</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredItems.map((item) => {
-                  const urgencyBadge =
-                    item.daysSinceLastAttendance >= 90
-                      ? { bg: 'bg-rose-50 text-rose-800 border-rose-200', label: `${item.daysSinceLastAttendance} Hari Lalu`, tag: 'Kritis' }
-                      : item.daysSinceLastAttendance >= 60
-                      ? { bg: 'bg-amber-50 text-amber-800 border-amber-200', label: `${item.daysSinceLastAttendance} Hari Lalu`, tag: 'Rindu' }
-                      : { bg: 'bg-yellow-50 text-yellow-800 border-yellow-200', label: `${item.daysSinceLastAttendance} Hari Lalu`, tag: 'Perlu Sapa' };
-
+              <tbody className="divide-y divide-[#1B4332]/8 font-medium text-[#1C2321]">
+                {paginatedItems.map((item) => {
+                  const initials = getInitials(item.fullName);
                   return (
-                    <tr key={item.personId} className="hover:bg-slate-50/80 transition-colors">
+                    <tr key={item.personId} className="hover:bg-[#F2EEE4]/50 transition-colors">
                       {/* Nama Jamaah */}
-                      <td className="py-4 px-5">
+                      <td className="py-3.5 px-4 font-bold text-[#1C2321]">
                         <div className="flex items-center gap-2">
-                          <Link
-                            to={`/people/${item.personId}`}
-                            className="font-bold text-slate-900 text-sm hover:text-teal-800 hover:underline block"
-                          >
-                            {item.fullName}
-                          </Link>
-                          {item.gender && (
-                            <span
-                              className={`text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded-full border ${
-                                item.gender === 'akhwat'
-                                  ? 'bg-pink-50 text-pink-700 border-pink-200'
-                                  : 'bg-blue-50 text-blue-700 border-blue-200'
-                              }`}
-                            >
-                              {item.gender}
+                          <div className="w-7 h-7 rounded-lg bg-[#1B4332]/10 border border-[#1B4332]/20 flex items-center justify-center font-mono text-[11px] font-bold text-[#14352A] shrink-0">
+                            {initials}
+                          </div>
+                          <div>
+                            <Link to={`/people/${item.personId}`} className="hover:text-[#1B4332] block font-display">
+                              {item.fullName}
+                            </Link>
+                            <span className="text-[10px] font-mono text-[#6B7A72]">
+                              {item.totalAttendances}x hadir kajian
                             </span>
-                          )}
+                          </div>
                         </div>
-                        <span className="text-[10px] text-slate-400 block mt-0.5">
-                          Total Hadir: {item.totalAttendances}x kajian
-                        </span>
                       </td>
 
                       {/* Kontak & Domisili */}
-                      <td className="py-4 px-4">
-                        <span className="font-mono text-slate-700 font-semibold block">{item.phoneE164}</span>
-                        <span className="text-[11px] text-slate-400 block mt-0.5">{item.cityRegency}</span>
+                      <td className="py-3.5 px-4">
+                        <p className="font-mono text-xs text-[#1C2321]">{formatPhoneDisplay(item.phoneE164)}</p>
+                        <p className="text-[10px] text-[#6B7A72]">{item.cityRegency}</p>
                       </td>
 
-                      {/* Kajian Terakhir */}
-                      <td className="py-4 px-4 max-w-xs">
-                        <span className="font-bold text-teal-900 block truncate" title={item.lastEventTitle}>
+                      {/* Kehadiran Terakhir */}
+                      <td className="py-3.5 px-4 max-w-xs">
+                        <p className="font-bold text-xs text-[#1C2321] truncate" title={item.lastEventTitle}>
                           {item.lastEventTitle}
-                        </span>
-                        <span className="text-[10px] text-slate-400 block truncate">
-                          🎙️ {item.lastEventSpeaker} • {new Date(item.lastAttendedAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
-                        </span>
+                        </p>
+                        <p className="text-[10px] text-[#6B7A72]">
+                          🎙️ {item.lastEventSpeaker} •{' '}
+                          {new Date(item.lastAttendedAt).toLocaleDateString('id-ID', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                          })}
+                        </p>
                       </td>
 
                       {/* Durasi Absen */}
-                      <td className="py-4 px-4 text-center whitespace-nowrap">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black border ${urgencyBadge.bg}`}>
-                          <Clock className="w-3 h-3" />
-                          <span>{urgencyBadge.label}</span>
+                      <td className="py-3.5 px-3 whitespace-nowrap">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
+                            item.urgencyLevel === 'critical'
+                              ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                              : item.urgencyLevel === 'warning'
+                              ? 'bg-[#C77A16]/10 text-[#C77A16] border border-[#C77A16]/25'
+                              : 'bg-[#0F4C4A]/10 text-[#0F4C4A] border border-[#0F4C4A]/25'
+                          }`}
+                        >
+                          <Clock className="w-3 h-3 inline mr-1" />
+                          {item.daysSinceLastAttendance} Hari Absen
                         </span>
                       </td>
 
-                      {/* Status Sapaan Terakhir */}
-                      <td className="py-4 px-4 text-center whitespace-nowrap">
+                      {/* Status Sapaan */}
+                      <td className="py-3.5 px-3 whitespace-nowrap">
                         {item.isGreetedRecently ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                            <Check className="w-3 h-3" /> Disapa {item.daysSinceLastGreeting} hari lalu
-                          </span>
+                          <div className="space-y-0.5">
+                            <span className="px-2 py-0.5 rounded text-[9.5px] font-mono font-bold bg-[#2F7D4F]/10 text-[#2F7D4F] border border-[#2F7D4F]/25 inline-flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" /> Sudah Disapa
+                            </span>
+                            <p className="text-[9.5px] text-[#8A9690] font-mono">
+                              {item.daysSinceLastGreeting} hari lalu
+                            </p>
+                          </div>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500">
-                            Belum disapa bulan ini
+                          <span className="px-2 py-0.5 rounded text-[9.5px] font-mono font-semibold bg-[#F2EEE4] text-[#6B7A72] border border-[#1B4332]/12">
+                            Belum Disapa
                           </span>
                         )}
                       </td>
 
                       {/* Aksi Sapaan */}
-                      <td className="py-4 px-5 text-right whitespace-nowrap">
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <button
                           onClick={() => handleOpenGreetingModal(item)}
-                          className="py-1.5 px-3.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs inline-flex items-center gap-1.5 active:scale-95"
+                          className="px-3 py-1.5 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-semibold shadow-2xs transition-all inline-flex items-center gap-1.5 active:scale-98"
                         >
-                          <Send className="w-3.5 h-3.5" />
-                          <span>Sapa Jamaah</span>
+                          <Send className="w-3.5 h-3.5 text-[#E0B970]" />
+                          <span>Kirim Sapaan</span>
                         </button>
                       </td>
                     </tr>
@@ -445,166 +527,169 @@ export function InactiveAttendeesTab() {
             </table>
           </div>
         )}
+
+        {/* Server/Client Pagination Controls */}
+        <div className="px-4 py-3 border-t border-[#1B4332]/10 bg-[#F2EEE4]/60 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-[#6B7A72]">
+          <div>
+            Menampilkan <strong className="text-[#1C2321]">{paginatedItems.length}</strong> dari{' '}
+            <strong className="text-[#1C2321]">{totalItems.toLocaleString('id-ID')}</strong> jamaah rindu majelis
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(page - 1)}
+              disabled={page <= 1 || loading}
+              className="py-1 px-2.5 bg-[#FBF9F4] hover:bg-[#F2EEE4] text-[#1C2321] rounded-lg border border-[#1B4332]/12 font-semibold disabled:opacity-40 flex items-center gap-1"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              <span>Sebelumnya</span>
+            </button>
+            <span className="font-mono text-xs font-semibold text-[#1C2321] px-2">
+              Halaman {page} dari {totalPages}
+            </span>
+            <button
+              onClick={() => setPage(page + 1)}
+              disabled={page >= totalPages || loading}
+              className="py-1 px-2.5 bg-[#FBF9F4] hover:bg-[#F2EEE4] text-[#1C2321] rounded-lg border border-[#1B4332]/12 font-semibold disabled:opacity-40 flex items-center gap-1"
+            >
+              <span>Berikutnya</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* MODAL POPUP: Kirim Sapaan Ukhuwah */}
+      {/* MODAL SAPAAN KHUSUS */}
       {selectedAttendee && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-[#FBF9F4] rounded-2xl shadow-2xl border border-[#1B4332]/20 w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
-            <div className="px-6 py-4 bg-gradient-to-r from-emerald-900 to-teal-900 text-white flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-800 border border-emerald-600 flex items-center justify-center">
-                  <Heart className="w-5 h-5 text-rose-300" />
+            <div className="px-6 py-4 border-b border-[#1B4332]/10 flex items-center justify-between bg-[#F2EEE4]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-[#1B4332] text-white flex items-center justify-center font-mono font-bold text-xs">
+                  {getInitials(selectedAttendee.fullName)}
                 </div>
                 <div>
-                  <h3 className="text-base font-bold">Kirim Sapaan Ukhuwah Personal</h3>
-                  <p className="text-xs text-emerald-200">
-                    Kepada: <span className="font-bold text-white">{selectedAttendee.fullName}</span> ({selectedAttendee.phoneE164})
+                  <h2 className="text-sm font-bold font-display text-[#1C2321]">
+                    Kirim Sapaan Ukhuwah ke {selectedAttendee.fullName}
+                  </h2>
+                  <p className="text-xs text-[#6B7A72]">
+                    Absen {selectedAttendee.daysSinceLastAttendance} hari • Terakhir: {selectedAttendee.lastEventTitle}
                   </p>
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setSelectedAttendee(null)}
-                className="p-1.5 text-emerald-200 hover:text-white rounded-xl hover:bg-emerald-800/80 transition-colors"
+                className="p-1.5 rounded-lg text-[#6B7A72] hover:text-[#1C2321] hover:bg-[#1B4332]/8 transition-colors"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 overflow-y-auto space-y-5 flex-1 text-xs">
-              {/* Context Summary Strip */}
-              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between gap-4">
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Kajian Terakhir Dihadiri</span>
-                  <span className="font-bold text-teal-950">{selectedAttendee.lastEventTitle}</span>
-                </div>
-                <div className="text-right">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Hari Absen</span>
-                  <span className="font-black text-rose-700 text-sm">{selectedAttendee.daysSinceLastAttendance} Hari</span>
-                </div>
-              </div>
-
-              {/* Template Picker */}
-              <div className="space-y-2">
-                <label className="font-bold text-slate-900 block">Pilih Template Pesan Sapaan:</label>
+            <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+              {/* Template Selector */}
+              <div>
+                <label className="block text-xs font-semibold text-[#1C2321] mb-1.5">
+                  Pilih Template Pendekatan Sapaan:
+                </label>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleTemplateChange('kabar_doa')}
-                    className={`p-3 rounded-2xl border text-left transition-all ${
-                      selectedTemplateKey === 'kabar_doa'
-                        ? 'bg-emerald-50 border-emerald-600 text-emerald-950 ring-2 ring-emerald-500/20 font-bold'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span className="block text-sm mb-1">🌸</span>
-                    <span className="font-bold block text-xs">Kabar & Doa</span>
-                    <span className="text-[10px] text-slate-500 block mt-0.5">Menanyakan kabar & doa keistiqomahan</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleTemplateChange('undangan_kajian')}
-                    className={`p-3 rounded-2xl border text-left transition-all ${
-                      selectedTemplateKey === 'undangan_kajian'
-                        ? 'bg-teal-50 border-teal-600 text-teal-950 ring-2 ring-teal-500/20 font-bold'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span className="block text-sm mb-1">📖</span>
-                    <span className="font-bold block text-xs">Undangan Kajian</span>
-                    <span className="text-[10px] text-slate-500 block mt-0.5">Info jadwal & pemateri majelis terdekat</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleTemplateChange('tabayyun_taawun')}
-                    className={`p-3 rounded-2xl border text-left transition-all ${
-                      selectedTemplateKey === 'tabayyun_taawun'
-                        ? 'bg-amber-50 border-amber-600 text-amber-950 ring-2 ring-amber-500/20 font-bold'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span className="block text-sm mb-1">🤝</span>
-                    <span className="font-bold block text-xs">Tabayyun & Ta'awun</span>
-                    <span className="text-[10px] text-slate-500 block mt-0.5">Bantuan kendala/sakit dari yayasan</span>
-                  </button>
+                  {[
+                    { key: 'kabar_doa', label: '🌸 Kabar & Doa Kesehatan' },
+                    { key: 'undangan_kajian', label: '📖 Undangan Majelis Terdekat' },
+                    { key: 'tabayyun_taawun', label: '🤝 Tabayyun & Bantuan Ta\'awun' },
+                  ].map((tpl) => (
+                    <button
+                      key={tpl.key}
+                      type="button"
+                      onClick={() => handleTemplateChange(tpl.key as any)}
+                      className={`p-2.5 rounded-xl border text-left text-xs font-semibold transition-all ${
+                        selectedTemplateKey === tpl.key
+                          ? 'bg-[#1B4332] text-white border-[#1B4332] shadow-2xs font-bold'
+                          : 'bg-[#F2EEE4] text-[#3D4A44] border-[#1B4332]/12 hover:bg-[#EAE4D6]'
+                      }`}
+                    >
+                      {tpl.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* Message Preview & Editor */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="font-bold text-slate-900">Preview & Edit Pesan WhatsApp:</label>
+              {/* Message Draft */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-semibold text-[#1C2321]">
+                    Draf Pesan WhatsApp (Dapat Diedit):
+                  </label>
                   <button
                     type="button"
                     onClick={handleCopyMessage}
-                    className="text-teal-700 hover:text-teal-900 font-semibold flex items-center gap-1 text-[11px]"
+                    className="text-xs text-[#1B4332] hover:underline font-semibold flex items-center gap-1"
                   >
-                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copied ? 'Tersalin!' : 'Salin Teks'}</span>
+                    {copied ? <Check className="w-3.5 h-3.5 text-[#2F7D4F]" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copied ? 'Tersalin' : 'Salin Teks'}</span>
                   </button>
                 </div>
                 <textarea
-                  rows={8}
+                  rows={7}
                   value={messageDraft}
                   onChange={(e) => {
                     setMessageDraft(e.target.value);
                     setSelectedTemplateKey('custom');
                   }}
-                  className="w-full p-4 bg-slate-50 border border-slate-300 rounded-2xl font-mono text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-hidden transition-all resize-y leading-relaxed"
+                  className="w-full p-3 border border-[#1B4332]/14 rounded-xl text-xs focus:ring-2 focus:ring-[#1B4332] bg-[#F2EEE4] text-[#1C2321] leading-relaxed font-sans outline-none"
                 />
               </div>
 
-              {/* Follow-Up Task Integration */}
-              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
-                <label className="flex items-center gap-2 cursor-pointer select-none">
+              {/* Task Creation Checkbox */}
+              <div className="p-3.5 bg-[#F2EEE4] rounded-xl border border-[#1B4332]/12 space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-[#1C2321]">
                   <input
                     type="checkbox"
                     checked={createTask}
                     onChange={(e) => setCreateTask(e.target.checked)}
-                    className="w-4 h-4 text-emerald-600 rounded-md border-slate-300 focus:ring-emerald-500"
+                    className="w-4 h-4 rounded text-[#1B4332] border-[#1B4332]/20 focus:ring-[#1B4332]"
                   />
-                  <span className="font-bold text-slate-900 text-xs">
-                    Buat tugas agenda follow-up di modul Tugas CRM
-                  </span>
+                  <span>Buat Agenda Tugas Follow-Up di Jadwal CRM</span>
                 </label>
 
                 {createTask && (
-                  <div className="pl-6 flex items-center gap-3">
-                    <span className="text-slate-500 text-[11px]">Tenggat Waktu Cek Respon:</span>
+                  <div className="pl-6 pt-1 flex items-center gap-2 text-xs">
+                    <span className="text-[#6B7A72]">Tenggat Waktu Cek Respon:</span>
                     <input
                       type="date"
                       value={taskDueDate}
                       onChange={(e) => setTaskDueDate(e.target.value)}
-                      className="px-3 py-1 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-700 focus:ring-2 focus:ring-emerald-500 outline-hidden"
+                      className="px-2.5 py-1 border border-[#1B4332]/14 rounded-lg bg-[#FBF9F4] text-xs font-semibold text-[#1C2321] outline-none"
                     />
                   </div>
                 )}
               </div>
-            </div>
 
-            {/* Modal Footer */}
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
-              <button
-                type="button"
-                onClick={() => setSelectedAttendee(null)}
-                className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-100 transition-all"
-              >
-                Batal
-              </button>
-
-              <button
-                type="button"
-                disabled={sending || !messageDraft.trim()}
-                onClick={handleSendGreeting}
-                className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs transition-all shadow-md flex items-center gap-2 active:scale-95 disabled:opacity-50"
-              >
-                <Send className="w-4 h-4" />
-                <span>{sending ? 'Mencatat & Membuka WA...' : 'Buka WhatsApp & Catat ke CRM'}</span>
-              </button>
+              {/* Modal Actions */}
+              <div className="pt-3 border-t border-[#1B4332]/10 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedAttendee(null)}
+                  className="px-3.5 py-2 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#1C2321] rounded-xl text-xs font-semibold border border-[#1B4332]/12"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSendGreeting}
+                  disabled={sending}
+                  className="px-4 py-2 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 active:scale-98 disabled:opacity-50"
+                >
+                  {sending ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
+                  ) : (
+                    <Send className="w-3.5 h-3.5 text-[#E0B970]" />
+                  )}
+                  <span>Catat CRM &amp; Buka WhatsApp</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

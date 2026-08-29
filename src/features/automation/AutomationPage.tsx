@@ -8,12 +8,13 @@ import {
   Copy,
   Check,
   RefreshCw,
-  FileSpreadsheet,
-  Clock,
   CheckCircle2,
   Heart,
+  MessageSquare,
+  FileText,
+  Loader2,
 } from 'lucide-react';
-import { LoadingState } from '@/components/common/LoadingState';
+import { apiClient } from '@/lib/apiClient';
 import { InactiveAttendeesTab } from './InactiveAttendeesTab';
 
 export function AutomationPage() {
@@ -52,34 +53,40 @@ export function AutomationPage() {
   const [impactResult, setImpactResult] = useState<any | null>(null);
   const [generatingImpact, setGeneratingImpact] = useState(false);
 
-  // Copy state
+  // Copy and Toast State
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  const showToast = (text: string) => {
+    setToastMsg(text);
+    setTimeout(() => setToastMsg(null), 4000);
+  };
 
   const loadTemplatesAndData = async () => {
     try {
       setLoading(true);
       const [evtRes, donRes, wqfRes, prgRes] = await Promise.all([
-        fetch('/api/events').then((r) => r.json()),
-        fetch('/api/donations?verificationStatus=verified&limit=20').then((r) => r.json()),
-        fetch('/api/waqf').then((r) => r.json()),
-        fetch('/api/settings/programs').then((r) => r.json()),
+        apiClient<any[]>('/events'),
+        apiClient<any[]>('/donations?verificationStatus=verified&pageSize=50'),
+        apiClient<any[]>('/waqf'),
+        apiClient<any[]>('/donation-programs'),
       ]);
 
-      if (evtRes.data) {
+      if (evtRes.data && evtRes.data.length > 0) {
         setEventsList(evtRes.data);
-        if (evtRes.data.length > 0) setSelectedEventId(evtRes.data[0].id);
+        setSelectedEventId(evtRes.data[0].id);
       }
-      if (donRes.data?.items) {
-        setDonationsList(donRes.data.items);
-        if (donRes.data.items.length > 0) setSelectedDonationId(donRes.data.items[0].id);
+      if (donRes.data && donRes.data.length > 0) {
+        setDonationsList(donRes.data);
+        setSelectedDonationId(donRes.data[0].id);
       }
-      if (wqfRes.data) {
+      if (wqfRes.data && wqfRes.data.length > 0) {
         setWaqfList(wqfRes.data);
-        if (wqfRes.data.length > 0) setSelectedWaqfId(wqfRes.data[0].id);
+        setSelectedWaqfId(wqfRes.data[0].id);
       }
-      if (prgRes.data) {
+      if (prgRes.data && prgRes.data.length > 0) {
         setProgramsList(prgRes.data);
-        if (prgRes.data.length > 0) setSelectedProgramId(prgRes.data[0].id);
+        setSelectedProgramId(prgRes.data[0].id);
       }
     } catch (err) {
       console.error('Failed to load automation data:', err);
@@ -97,34 +104,32 @@ export function AutomationPage() {
     setGeneratingKajianMsg(true);
     try {
       if (kajianMode === 'reminder') {
-        const res = await fetch('/api/automation/trigger-event-reminder', {
+        const res = await apiClient<any>('/automation/trigger-event-reminder', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             eventId: selectedEventId,
             notes: 'Pengingat otomatis H-1 jadwal kajian Tarbiyah Sunnah',
           }),
         });
-        if (res.ok) {
-          const json = await res.json();
-          setReminderBatchResult(json.data);
+        if (res.data) {
+          setReminderBatchResult(res.data);
+          showToast(`Berhasil men-generate pengingat untuk ${res.data.totalGenerated || 0} jamaah!`);
         }
       } else {
-        const res = await fetch('/api/automation/trigger-attendance-thanks', {
+        const res = await apiClient<any>('/automation/trigger-attendance-thanks', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             eventId: selectedEventId,
             notes: 'Ucapan alhamdulillah telah hadir di kajian & doa istiqomah mengamalkan ilmu',
           }),
         });
-        if (res.ok) {
-          const json = await res.json();
-          setAttendanceThanksResult(json.data);
+        if (res.data) {
+          setAttendanceThanksResult(res.data);
+          showToast(`Berhasil men-generate ucapan terima kasih untuk ${res.data.totalAttendees || 0} jamaah!`);
         }
       }
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      alert(err.message || 'Gagal membuat draf pesan kajian');
     } finally {
       setGeneratingKajianMsg(false);
     }
@@ -134,20 +139,19 @@ export function AutomationPage() {
     if (!selectedDonationId) return;
     setGeneratingThanks(true);
     try {
-      const res = await fetch('/api/automation/trigger-donation-thanks', {
+      const res = await apiClient<any>('/automation/trigger-donation-thanks', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           donationId: selectedDonationId,
           notes: 'Kirim bukti tanda terima resmi infaq terverifikasi',
         }),
       });
-      if (res.ok) {
-        const json = await res.json();
-        setDonationThanksResult(json.data);
+      if (res.data) {
+        setDonationThanksResult(res.data);
+        showToast('Bukti tanda terima donasi resmi (E-Receipt) berhasil di-generate!');
       }
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      alert(err.message || 'Gagal membuat tanda terima donasi');
     } finally {
       setGeneratingThanks(false);
     }
@@ -157,20 +161,19 @@ export function AutomationPage() {
     if (!selectedWaqfId) return;
     setGeneratingWaqf(true);
     try {
-      const res = await fetch('/api/automation/trigger-waqf-followup', {
+      const res = await apiClient<any>('/automation/trigger-waqf-followup', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           waqfCaseId: selectedWaqfId,
-          nextStepNotes: waqfNotes || 'Berkas sedang dalam verifikasi kelayakan legalitas BPN.',
+          nextStepNotes: waqfNotes || 'Pemberkasan dan kelengkapan administrasi wakaf sedang diproses.',
         }),
       });
-      if (res.ok) {
-        const json = await res.json();
-        setWaqfFollowupResult(json.data);
+      if (res.data) {
+        setWaqfFollowupResult(res.data);
+        showToast('Pesan perkembangan amanah wakaf berhasil di-generate!');
       }
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      alert(err.message || 'Gagal membuat pesan follow-up wakaf');
     } finally {
       setGeneratingWaqf(false);
     }
@@ -180,9 +183,8 @@ export function AutomationPage() {
     if (!selectedProgramId) return;
     setGeneratingImpact(true);
     try {
-      const res = await fetch('/api/automation/trigger-program-report', {
+      const res = await apiClient<any>('/automation/trigger-program-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           programId: selectedProgramId,
           reportTitle: impactTitle,
@@ -190,12 +192,12 @@ export function AutomationPage() {
           documentationUrl: impactDocUrl,
         }),
       });
-      if (res.ok) {
-        const json = await res.json();
-        setImpactResult(json.data);
+      if (res.data) {
+        setImpactResult(res.data);
+        showToast(`Laporan penyaluran berhasil di-generate untuk ${res.data.totalDonorsReached || 0} donatur!`);
       }
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      alert(err.message || 'Gagal membuat laporan penyaluran program');
     } finally {
       setGeneratingImpact(false);
     }
@@ -208,583 +210,646 @@ export function AutomationPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+    <div className="space-y-6 max-w-[1400px] mx-auto pb-16">
+      {/* 1. Header Page */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#1B4332]/12 pb-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-amber-500" />
-            Automasi Layanan & Pesan Resmi Yayasan
-          </h1>
-          <p className="text-sm text-slate-600 mt-1">
-            Pengingat kajian, ucapan pasca-kehadiran & doa istiqomah, tanda terima sah donasi (*E-Receipt*), follow-up wakaf, dan laporan dampak penyaluran infaq.
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#1C2321] font-display flex items-center gap-2">
+              <Sparkles className="w-6 h-6 text-[#1B4332]" />
+              <span>Otomasi &amp; Komunikasi Dakwah</span>
+            </h1>
+            <span className="text-[10.5px] font-mono font-semibold px-2.5 py-0.5 rounded-md bg-[#1B4332]/10 text-[#14352A] border border-[#1B4332]/20 uppercase">
+              WORKFLOW OTOMATIS · OUTBOUND WA 1-KLIK · INTEGRASI CRM
+            </span>
+          </div>
+          <p className="text-xs text-[#6B7A72] mt-1 font-normal">
+            Pusat otomasi sapaan ukhuwah, pengingat majelis ilmu, tanda terima donasi sah (E-Receipt), progres wakaf, dan laporan stewardship.
           </p>
         </div>
 
         <button
           onClick={loadTemplatesAndData}
-          className="px-3.5 py-2 text-sm font-medium border border-slate-300 rounded-lg text-slate-700 bg-white hover:bg-slate-50 flex items-center gap-2 transition-colors"
+          disabled={loading}
+          className="px-3.5 py-2 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#1C2321] border border-[#1B4332]/12 rounded-xl text-xs font-semibold shadow-2xs transition-all flex items-center gap-1.5 self-start sm:self-auto active:scale-98"
         >
-          <RefreshCw className="w-4 h-4" />
-          Segarkan Data
+          <RefreshCw className={`w-3.5 h-3.5 text-[#6B7A72] ${loading ? 'animate-spin' : ''}`} />
+          <span>Segarkan Data Master</span>
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-slate-200 gap-6 overflow-x-auto">
+      {/* 2. Top Navigation Tabs */}
+      <div className="bg-[#F2EEE4] p-1 rounded-2xl flex items-center gap-1 border border-[#1B4332]/12 overflow-x-auto">
         <button
           onClick={() => setActiveTab('inactive')}
-          className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 whitespace-nowrap transition-colors ${
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
             activeTab === 'inactive'
-              ? 'border-emerald-600 text-emerald-800 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
+              ? 'bg-[#1B4332] text-white shadow-2xs'
+              : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-[#EAE4D6]/60'
           }`}
         >
-          <Heart className="w-4 h-4 text-rose-500" />
-          <span>Sapaan Jamaah Rindu Majelis</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[9px] font-extrabold uppercase bg-amber-400 text-amber-950">
-            Kabar & Doa
-          </span>
+          <Heart className="w-4 h-4 text-[#E0B970]" />
+          <span>Jamaah Rindu Majelis (Retensi)</span>
         </button>
 
         <button
           onClick={() => setActiveTab('reminder')}
-          className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 whitespace-nowrap transition-colors ${
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
             activeTab === 'reminder'
-              ? 'border-emerald-600 text-emerald-700'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
+              ? 'bg-[#1B4332] text-white shadow-2xs'
+              : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-[#EAE4D6]/60'
           }`}
         >
-          <Calendar className="w-4 h-4" />
-          1. Reminder & Pasca-Kehadiran Kajian
+          <Calendar className="w-4 h-4 text-[#E0B970]" />
+          <span>Pengingat &amp; Pasca-Kajian</span>
         </button>
+
         <button
           onClick={() => setActiveTab('donation')}
-          className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 whitespace-nowrap transition-colors ${
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
             activeTab === 'donation'
-              ? 'border-emerald-600 text-emerald-700'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
+              ? 'bg-[#1B4332] text-white shadow-2xs'
+              : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-[#EAE4D6]/60'
           }`}
         >
-          <HeartHandshake className="w-4 h-4" />
-          2. Ucapan Terima Kasih & Bukti Sah Donasi
+          <HeartHandshake className="w-4 h-4 text-[#E0B970]" />
+          <span>Tanda Terima Donasi (E-Receipt)</span>
         </button>
+
         <button
           onClick={() => setActiveTab('waqf')}
-          className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 whitespace-nowrap transition-colors ${
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
             activeTab === 'waqf'
-              ? 'border-emerald-600 text-emerald-700'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
+              ? 'bg-[#1B4332] text-white shadow-2xs'
+              : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-[#EAE4D6]/60'
           }`}
         >
-          <Landmark className="w-4 h-4" />
-          3. Follow-Up Progres Wakaf Aset
+          <Landmark className="w-4 h-4 text-[#E0B970]" />
+          <span>Follow-Up Progres Wakaf</span>
         </button>
+
         <button
           onClick={() => setActiveTab('impact')}
-          className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 whitespace-nowrap transition-colors ${
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
             activeTab === 'impact'
-              ? 'border-emerald-600 text-emerald-700'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
+              ? 'bg-[#1B4332] text-white shadow-2xs'
+              : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-[#EAE4D6]/60'
           }`}
         >
-          <FileSpreadsheet className="w-4 h-4" />
-          4. Laporan Penyaluran Program Donatur
+          <FileText className="w-4 h-4 text-[#E0B970]" />
+          <span>Laporan Penyaluran Program</span>
         </button>
       </div>
 
-      {loading ? (
-        <LoadingState message="Memuat modul automasi layanan..." />
-      ) : (
-        <>
-          {/* TAB 0: SAPAAN JAMAAH RINDU MAJELIS */}
-          {activeTab === 'inactive' && <InactiveAttendeesTab />}
+      {/* 3. Tab Contents */}
 
-          {/* TAB 1: EVENT REMINDER & ATTENDANCE THANKS */}
-          {activeTab === 'reminder' && (
-            <div className="space-y-6">
-              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4">
-                  <div>
-                    <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                      <Calendar className="w-5 h-5 text-emerald-600" />
-                      Layanan Pesan Kajian & Tabligh Akbar
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Pilih apakah ingin mengirimkan pengingat sebelum kajian atau ucapan doa istiqomah pasca-kehadiran.
-                    </p>
-                  </div>
+      {/* TAB 1: JAMAAH RINDU MAJELIS */}
+      {activeTab === 'inactive' && <InactiveAttendeesTab />}
 
-                  {/* Mode Selector Pill */}
-                  <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
-                    <button
-                      onClick={() => setKajianMode('reminder')}
-                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
-                        kajianMode === 'reminder'
-                          ? 'bg-emerald-700 text-white shadow-xs'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      <Clock className="w-3.5 h-3.5" />
-                      1. Reminder H-1 / Hari-H
-                    </button>
-                    <button
-                      onClick={() => setKajianMode('post_attendance')}
-                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
-                        kajianMode === 'post_attendance'
-                          ? 'bg-emerald-700 text-white shadow-xs'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      2. Ucapan Hadir & Doa Istiqomah
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Pilih Kajian / Acara Dakwah *</label>
-                    <select
-                      value={selectedEventId}
-                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedEventId(e.target.value)}
-                      className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-800"
-                    >
-                      {eventsList.map((e) => (
-                        <option key={e.id} value={e.id}>
-                          {e.title} — {e.speaker} ({new Date(e.startAt).toLocaleDateString('id-ID')})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="flex items-end">
-                    <button
-                      onClick={handleGenerateKajianMessage}
-                      disabled={generatingKajianMsg || !selectedEventId}
-                      className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                    >
-                      <Sparkles className="w-4 h-4" />
-                      {generatingKajianMsg
-                        ? 'Mengompilasi Pesan...'
-                        : kajianMode === 'reminder'
-                        ? 'Generate Batch Pengingat Jamaah'
-                        : 'Generate Ucapan Hadir & Doa Istiqomah'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Reminder Batch Results */}
-              {kajianMode === 'reminder' && reminderBatchResult && (
-                <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
-                  <div className="flex items-center justify-between border-b pb-3">
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-900">
-                        Hasil Pengingat Kajian: {reminderBatchResult.eventTitle}
-                      </h4>
-                      <p className="text-xs text-slate-500">
-                        {reminderBatchResult.totalGenerated} jamaah siap menerima pengingat jadwal kajian.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    {reminderBatchResult.items.map((item: any) => (
-                      <div key={item.personId} className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-900 text-sm">{item.fullName}</span>
-                            <span className="text-xs font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                              {item.phoneE164}
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-600 line-clamp-1 font-mono">{item.message}</p>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            onClick={() => handleCopyText(item.personId, item.message)}
-                            className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-white flex items-center gap-1 transition-colors"
-                          >
-                            {copiedKey === item.personId ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                            {copiedKey === item.personId ? 'Tersalin' : 'Salin'}
-                          </button>
-
-                          <a
-                            href={item.waDirectUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs flex items-center gap-1.5 transition-all"
-                          >
-                            <Send className="w-3.5 h-3.5" /> Kirim WA (wa.me)
-                          </a>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Attendance Thanks & Doa Istiqomah Results */}
-              {kajianMode === 'post_attendance' && attendanceThanksResult && (
-                <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
-                  <div className="flex items-center justify-between border-b pb-3">
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-900">
-                        Hasil Ucapan Hadir & Doa Istiqomah: {attendanceThanksResult.eventTitle}
-                      </h4>
-                      <p className="text-xs text-slate-500">
-                        {attendanceThanksResult.totalAttendees} jamaah terdata hadir & siap menerima doa istiqomah.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    {attendanceThanksResult.items.map((item: any) => (
-                      <div key={item.personId} className="p-4 bg-emerald-50/40 border border-emerald-200 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-900 text-sm">{item.fullName}</span>
-                            <span className="text-xs font-mono text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300">
-                              {item.phoneE164}
-                            </span>
-                            <span className="text-[10px] font-semibold text-emerald-700 bg-white px-2 py-0.5 rounded border border-emerald-200">
-                              Telah Presensi Hadir
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-600 font-mono whitespace-pre-line bg-white/80 p-2.5 rounded-lg border border-slate-200 mt-1">
-                            {item.message}
-                          </p>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
-                          <button
-                            onClick={() => handleCopyText(`attend_${item.personId}`, item.message)}
-                            className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-white flex items-center gap-1 transition-colors"
-                          >
-                            {copiedKey === `attend_${item.personId}` ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                            {copiedKey === `attend_${item.personId}` ? 'Tersalin' : 'Salin'}
-                          </button>
-
-                          <a
-                            href={item.waDirectUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white shadow-2xs flex items-center gap-1.5 transition-all"
-                          >
-                            <Send className="w-3.5 h-3.5" /> Kirim WA (wa.me)
-                          </a>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 2: DONATION GRATITUDE */}
-          {activeTab === 'donation' && (
-            <div className="space-y-6">
-              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
-                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                  <HeartHandshake className="w-5 h-5 text-emerald-600" />
-                  Kirim Tanda Terima Sah & Ucapan Terima Kasih (E-Receipt)
+      {/* TAB 2: PENGINGAT & PASCA-KAJIAN */}
+      {activeTab === 'reminder' && (
+        <div className="space-y-6">
+          <div className="bg-[#FBF9F4] p-5 rounded-2xl border border-[#1B4332]/12 shadow-2xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#1B4332]/10 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-[#1C2321] font-display flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-[#1B4332]" />
+                  <span>Pengingat Jadwal &amp; Doa Pasca-Kehadiran Kajian</span>
                 </h3>
-                <p className="text-xs text-slate-500">
-                  Secara otomatis membuat tanda terima donasi sah dengan nomor referensi transaksi, nominal rupiah, dan doa keberkahan.
+                <p className="text-xs text-[#6B7A72]">
+                  Pilih majelis ilmu untuk menghasilkan draf broadcast pengingat atau ucapan terima kasih bagi jamaah.
                 </p>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Pilih Donasi Terverifikasi *</label>
-                    <select
-                      value={selectedDonationId}
-                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedDonationId(e.target.value)}
-                      className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                    >
-                      {donationsList.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.person?.fullName || 'Hamba Allah'} — Rp {Number(d.amountRupiah).toLocaleString('id-ID')} ({d.program?.name || 'Infaq Umum'})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="flex items-end">
-                    <button
-                      onClick={handleGenerateDonationThanks}
-                      disabled={generatingThanks || !selectedDonationId}
-                      className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                    >
-                      <Sparkles className="w-4 h-4" />
-                      {generatingThanks ? 'Mengompilasi E-Receipt...' : 'Buat Bukti Sah & Doa Donatur'}
-                    </button>
-                  </div>
-                </div>
               </div>
 
-              {/* Donation Thanks Card Preview */}
-              {donationThanksResult && (
-                <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
-                  <div className="flex items-center justify-between border-b pb-3">
-                    <h4 className="text-sm font-bold text-slate-900">
-                      Tanda Terima Sah Donasi Donatur: {donationThanksResult.donorName}
-                    </h4>
-                    <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                      Rp {donationThanksResult.amountRupiah.toLocaleString('id-ID')}
-                    </span>
-                  </div>
+              {/* Mode Toggle */}
+              <div className="bg-[#F2EEE4] p-1 rounded-xl flex items-center gap-1 border border-[#1B4332]/12">
+                <button
+                  onClick={() => setKajianMode('reminder')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    kajianMode === 'reminder'
+                      ? 'bg-[#1B4332] text-white shadow-2xs'
+                      : 'text-[#3D4A44] hover:text-[#14352A]'
+                  }`}
+                >
+                  Pengingat H-1 / Hari-H
+                </button>
+                <button
+                  onClick={() => setKajianMode('post_attendance')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    kajianMode === 'post_attendance'
+                      ? 'bg-[#1B4332] text-white shadow-2xs'
+                      : 'text-[#3D4A44] hover:text-[#14352A]'
+                  }`}
+                >
+                  Ucapan &amp; Doa Pasca-Hadir
+                </button>
+              </div>
+            </div>
 
-                  <div className="p-4 bg-slate-900 text-emerald-300 rounded-xl font-mono text-xs whitespace-pre-line space-y-2">
-                    {donationThanksResult.message}
-                  </div>
+            {/* Event Selector */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+              <div className="sm:col-span-2 space-y-1">
+                <label className="text-xs font-semibold text-[#1C2321]">Pilih Majelis Ilmu / Kajian:</label>
+                <select
+                  value={selectedEventId}
+                  onChange={(e) => setSelectedEventId(e.target.value)}
+                  className="w-full px-3 py-2 border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] bg-[#F2EEE4] focus:ring-2 focus:ring-[#1B4332] outline-none"
+                >
+                  {eventsList.length === 0 ? (
+                    <option value="">Belum ada agenda kajian aktif</option>
+                  ) : (
+                    eventsList.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.title} — 🎙️ {e.speaker} (
+                        {new Date(e.startAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })})
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
 
-                  <div className="flex justify-end gap-2 pt-2">
-                    <button
-                      onClick={() => handleCopyText('donation_receipt', donationThanksResult.message)}
-                      className="px-4 py-2 text-sm font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 transition-colors"
-                    >
-                      {copiedKey === 'donation_receipt' ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                      {copiedKey === 'donation_receipt' ? 'Tersalin!' : 'Salin Teks E-Receipt'}
-                    </button>
+              <button
+                type="button"
+                onClick={handleGenerateKajianMessage}
+                disabled={generatingKajianMsg || !selectedEventId}
+                className="px-4 py-2 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-semibold shadow-xs flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50 h-[38px]"
+              >
+                {generatingKajianMsg ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-[#E0B970]" />
+                ) : (
+                  <Send className="w-4 h-4 text-[#E0B970]" />
+                )}
+                <span>Generate Batch Pesan WhatsApp</span>
+              </button>
+            </div>
+          </div>
 
-                    {donationThanksResult.waDirectUrl && (
+          {/* Results Display */}
+          {(kajianMode === 'reminder' ? reminderBatchResult : attendanceThanksResult) && (
+            <div className="bg-[#FBF9F4] p-5 rounded-2xl border border-[#1B4332]/12 shadow-2xs space-y-4">
+              <div className="flex items-center justify-between border-b border-[#1B4332]/10 pb-3">
+                <div>
+                  <h4 className="text-xs font-bold uppercase font-mono text-[#1B4332]">
+                    Hasil Generate {kajianMode === 'reminder' ? 'Pengingat Kajian' : 'Doa Pasca-Hadir'}
+                  </h4>
+                  <p className="text-xs text-[#1C2321] font-bold">
+                    {(kajianMode === 'reminder' ? reminderBatchResult : attendanceThanksResult)?.eventTitle} • 🎙️{' '}
+                    {(kajianMode === 'reminder' ? reminderBatchResult : attendanceThanksResult)?.speaker}
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-[#1B4332]/10 text-[#14352A] border border-[#1B4332]/20">
+                  Total:{' '}
+                  {
+                    (kajianMode === 'reminder'
+                      ? reminderBatchResult?.totalGenerated
+                      : attendanceThanksResult?.totalAttendees) || 0
+                  }{' '}
+                  Pesan
+                </span>
+              </div>
+
+              {/* Items List */}
+              <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                {(
+                  (kajianMode === 'reminder' ? reminderBatchResult?.items : attendanceThanksResult?.items) || []
+                ).map((item: any, idx: number) => (
+                  <div
+                    key={item.personId || idx}
+                    className="p-3.5 bg-[#F2EEE4] rounded-xl border border-[#1B4332]/12 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="space-y-1 flex-1">
+                      <div className="flex items-center gap-2">
+                        <strong className="text-[#1C2321]">{item.fullName}</strong>
+                        <span className="text-[10.5px] font-mono text-[#6B7A72]">{item.phoneE164}</span>
+                      </div>
+                      <p className="text-[11px] text-[#3D4A44] line-clamp-2 italic bg-[#FBF9F4] p-2 rounded-lg border border-[#1B4332]/8">
+                        &quot;{item.message}&quot;
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyText(`k_${idx}`, item.message)}
+                        className="px-2.5 py-1.5 bg-[#FBF9F4] hover:bg-white text-[#1C2321] rounded-lg border border-[#1B4332]/12 text-[11px] font-semibold flex items-center gap-1"
+                      >
+                        {copiedKey === `k_${idx}` ? (
+                          <Check className="w-3.5 h-3.5 text-[#2F7D4F]" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5 text-[#6B7A72]" />
+                        )}
+                        <span>{copiedKey === `k_${idx}` ? 'Tersalin' : 'Salin'}</span>
+                      </button>
+
                       <a
-                        href={donationThanksResult.waDirectUrl}
+                        href={item.waDirectUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="px-5 py-2 text-sm font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs flex items-center gap-2 transition-all"
+                        className="px-3 py-1.5 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-lg text-[11px] font-semibold shadow-2xs flex items-center gap-1.5 active:scale-98"
                       >
-                        <Send className="w-4 h-4" /> Kirim Tanda Terima via WA (wa.me)
+                        <MessageSquare className="w-3.5 h-3.5 text-[#E0B970]" />
+                        <span>Kirim WA</span>
                       </a>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 3: WAQF FOLLOWUP */}
-          {activeTab === 'waqf' && (
-            <div className="space-y-6">
-              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
-                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                  <Landmark className="w-5 h-5 text-emerald-600" />
-                  Follow-Up Progres Perkembangan Wakaf Aset
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Menyampaikan transparansi proses tahapan ikrar wakaf (AIW), sertifikasi KUA/BPN, hingga pengelolaan aset kepada Waqif.
-                </p>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Pilih Kasus Wakaf Aset *</label>
-                    <select
-                      value={selectedWaqfId}
-                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedWaqfId(e.target.value)}
-                      className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                    >
-                      {waqfList.map((w) => (
-                        <option key={w.id} value={w.id}>
-                          {w.person?.fullName || 'Waqif'} — Wakaf {w.waqfType.toUpperCase()} (Tahap: {w.currentStage})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Catatan Perkembangan Terkini</label>
-                    <input
-                      type="text"
-                      value={waqfNotes}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setWaqfNotes(e.target.value)}
-                      placeholder="Contoh: Berkas Akta Ikrar Wakaf telah ditandatangani di KUA"
-                      className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-2">
-                  <button
-                    onClick={handleGenerateWaqfFollowup}
-                    disabled={generatingWaqf || !selectedWaqfId}
-                    className="py-2.5 px-5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm rounded-lg shadow-sm transition-all flex items-center gap-2 disabled:opacity-50"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    {generatingWaqf ? 'Mengompilasi Laporan...' : 'Generate Pesan Progres Wakaf'}
-                  </button>
-                </div>
-              </div>
-
-              {/* Waqf Followup Card Preview */}
-              {waqfFollowupResult && (
-                <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
-                  <div className="flex items-center justify-between border-b pb-3">
-                    <h4 className="text-sm font-bold text-slate-900">
-                      Update Progres Wakaf untuk: {waqfFollowupResult.waqifName}
-                    </h4>
-                    <span className="text-xs font-semibold text-purple-800 bg-purple-50 px-2.5 py-1 rounded-full border border-purple-200">
-                      {waqfFollowupResult.stageTitle}
-                    </span>
-                  </div>
-
-                  <div className="p-4 bg-slate-900 text-emerald-300 rounded-xl font-mono text-xs whitespace-pre-line space-y-2">
-                    {waqfFollowupResult.message}
-                  </div>
-
-                  <div className="flex justify-end gap-2 pt-2">
-                    <button
-                      onClick={() => handleCopyText('waqf_update', waqfFollowupResult.message)}
-                      className="px-4 py-2 text-sm font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 transition-colors"
-                    >
-                      {copiedKey === 'waqf_update' ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                      {copiedKey === 'waqf_update' ? 'Tersalin!' : 'Salin Pesan'}
-                    </button>
-
-                    {waqfFollowupResult.waDirectUrl && (
-                      <a
-                        href={waqfFollowupResult.waDirectUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-5 py-2 text-sm font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs flex items-center gap-2 transition-all"
-                      >
-                        <Send className="w-4 h-4" /> Kirim Update ke Waqif (wa.me)
-                      </a>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 4: PROGRAM IMPACT REPORT */}
-          {activeTab === 'impact' && (
-            <div className="space-y-6">
-              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
-                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                  <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
-                  Kirim Laporan Realisasi Penyaluran Program ke Para Donatur
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Laporan berkala akuntabilitas penyaluran infaq dilengkapi tautan foto dokumentasi kegiatan dakwah.
-                </p>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Pilih Program Infaq *</label>
-                    <select
-                      value={selectedProgramId}
-                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedProgramId(e.target.value)}
-                      className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                    >
-                      {programsList.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} ({p.code})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Judul Laporan Penyaluran *</label>
-                    <input
-                      type="text"
-                      required
-                      value={impactTitle}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setImpactTitle(e.target.value)}
-                      className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Ringkasan Penyaluran & Manfaat *</label>
-                    <textarea
-                      rows={3}
-                      required
-                      value={impactSummary}
-                      onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setImpactSummary(e.target.value)}
-                      className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Tautan Foto / Video Dokumentasi</label>
-                    <input
-                      type="url"
-                      value={impactDocUrl}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setImpactDocUrl(e.target.value)}
-                      className="w-full px-3.5 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-2">
-                  <button
-                    onClick={handleGenerateProgramImpact}
-                    disabled={generatingImpact || !selectedProgramId}
-                    className="py-2.5 px-5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm rounded-lg shadow-sm transition-all flex items-center gap-2 disabled:opacity-50"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    {generatingImpact ? 'Mengompilasi Laporan...' : 'Generate Laporan ke Seluruh Donatur Program'}
-                  </button>
-                </div>
-              </div>
-
-              {/* Impact Batch Results */}
-              {impactResult && (
-                <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
-                  <div className="flex items-center justify-between border-b pb-3">
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-900">
-                        Laporan Penyaluran: {impactResult.programName}
-                      </h4>
-                      <p className="text-xs text-slate-500">
-                        {impactResult.totalDonorsReached} donatur siap menerima laporan dampak penyaluran.
-                      </p>
                     </div>
                   </div>
-
-                  <div className="space-y-3">
-                    {impactResult.items.map((item: any) => (
-                      <div key={item.personId} className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-900 text-sm">{item.fullName}</span>
-                            <span className="text-xs font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                              {item.phoneE164}
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-600 line-clamp-1 font-mono">{item.message}</p>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            onClick={() => handleCopyText(`impact_${item.personId}`, item.message)}
-                            className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-white flex items-center gap-1 transition-colors"
-                          >
-                            {copiedKey === `impact_${item.personId}` ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                            {copiedKey === `impact_${item.personId}` ? 'Tersalin' : 'Salin'}
-                          </button>
-
-                          <a
-                            href={item.waDirectUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs flex items-center gap-1.5 transition-all"
-                          >
-                            <Send className="w-3.5 h-3.5" /> Kirim WA (wa.me)
-                          </a>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                ))}
+              </div>
             </div>
           )}
-        </>
+        </div>
+      )}
+
+      {/* TAB 3: TANDA TERIMA DONASI SAH (E-RECEIPT) */}
+      {activeTab === 'donation' && (
+        <div className="space-y-6">
+          <div className="bg-[#FBF9F4] p-5 rounded-2xl border border-[#1B4332]/12 shadow-2xs space-y-4">
+            <div className="border-b border-[#1B4332]/10 pb-3">
+              <h3 className="text-sm font-bold text-[#1C2321] font-display flex items-center gap-2">
+                <HeartHandshake className="w-4 h-4 text-[#1B4332]" />
+                <span>Bukti Sah &amp; Tanda Terima Donasi Terverifikasi (E-Receipt)</span>
+              </h3>
+              <p className="text-xs text-[#6B7A72]">
+                Kirimkan bukti penerimaan infaq/donasi yang telah diverifikasi oleh tim keuangan sebagai bentuk transparansi dan doa keberkahan.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+              <div className="sm:col-span-2 space-y-1">
+                <label className="text-xs font-semibold text-[#1C2321]">
+                  Pilih Transaksi Donasi Sah Terverifikasi:
+                </label>
+                <select
+                  value={selectedDonationId}
+                  onChange={(e) => setSelectedDonationId(e.target.value)}
+                  className="w-full px-3 py-2 border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] bg-[#F2EEE4] focus:ring-2 focus:ring-[#1B4332] outline-none"
+                >
+                  {donationsList.length === 0 ? (
+                    <option value="">Belum ada donasi terverifikasi</option>
+                  ) : (
+                    donationsList.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.person?.fullName || 'Hamba Allah'} — Rp {Number(d.amountRupiah).toLocaleString('id-ID')} (
+                        {d.program?.name || 'Infaq'}) • #{d.id.substring(0, 8).toUpperCase()}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleGenerateDonationThanks}
+                disabled={generatingThanks || !selectedDonationId}
+                className="px-4 py-2 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-semibold shadow-xs flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50 h-[38px]"
+              >
+                {generatingThanks ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-[#E0B970]" />
+                ) : (
+                  <Send className="w-4 h-4 text-[#E0B970]" />
+                )}
+                <span>Generate E-Receipt &amp; WhatsApp</span>
+              </button>
+            </div>
+          </div>
+
+          {donationThanksResult && (
+            <div className="bg-[#FBF9F4] p-5 rounded-2xl border border-[#1B4332]/12 shadow-2xs space-y-4">
+              <div className="flex items-center justify-between border-b border-[#1B4332]/10 pb-3">
+                <div>
+                  <h4 className="text-xs font-bold uppercase font-mono text-[#2F7D4F]">
+                    Bukti Tanda Terima Donasi Siap Dikirim
+                  </h4>
+                  <p className="text-xs text-[#1C2321] font-bold">
+                    Donatur: {donationThanksResult.donorName} • Rp{' '}
+                    {donationThanksResult.amountRupiah.toLocaleString('id-ID')}
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-[#2F7D4F]/10 text-[#2F7D4F] border border-[#2F7D4F]/20">
+                  {donationThanksResult.programName}
+                </span>
+              </div>
+
+              <div className="p-4 bg-[#F2EEE4] rounded-xl border border-[#1B4332]/12 space-y-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-[#1C2321]">Pratinjau Pesan WhatsApp E-Receipt:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyText('don_msg', donationThanksResult.message)}
+                    className="text-xs text-[#1B4332] hover:underline font-semibold flex items-center gap-1"
+                  >
+                    {copiedKey === 'don_msg' ? (
+                      <Check className="w-3.5 h-3.5 text-[#2F7D4F]" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                    <span>{copiedKey === 'don_msg' ? 'Tersalin' : 'Salin Pesan'}</span>
+                  </button>
+                </div>
+                <pre className="whitespace-pre-wrap font-sans text-xs bg-[#FBF9F4] p-3 rounded-lg border border-[#1B4332]/10 leading-relaxed text-[#1C2321]">
+                  {donationThanksResult.message}
+                </pre>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#1B4332]/8">
+                {donationThanksResult.waDirectUrl ? (
+                  <a
+                    href={donationThanksResult.waDirectUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-4 py-2 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-2 active:scale-98"
+                  >
+                    <MessageSquare className="w-4 h-4 text-[#E0B970]" />
+                    <span>Kirim via WhatsApp ke {donationThanksResult.donorName}</span>
+                  </a>
+                ) : (
+                  <span className="text-xs text-[#C77A16] font-semibold">
+                    Nomor WhatsApp donatur belum terdaftar di profil.
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 4: FOLLOW-UP PROGRES WAKAF */}
+      {activeTab === 'waqf' && (
+        <div className="space-y-6">
+          <div className="bg-[#FBF9F4] p-5 rounded-2xl border border-[#1B4332]/12 shadow-2xs space-y-4">
+            <div className="border-b border-[#1B4332]/10 pb-3">
+              <h3 className="text-sm font-bold text-[#1C2321] font-display flex items-center gap-2">
+                <Landmark className="w-4 h-4 text-[#1B4332]" />
+                <span>Follow-Up &amp; Laporan Berkala Progres Wakaf Aset</span>
+              </h3>
+              <p className="text-xs text-[#6B7A72]">
+                Sampaikan laporan perkembangan tahapan legalitas, sertifikasi, atau pengelolaan aset kepada wakif secara personal.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-[#1C2321]">Pilih Kasus Amanah Wakaf:</label>
+                <select
+                  value={selectedWaqfId}
+                  onChange={(e) => setSelectedWaqfId(e.target.value)}
+                  className="w-full px-3 py-2 border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] bg-[#F2EEE4] focus:ring-2 focus:ring-[#1B4332] outline-none"
+                >
+                  {waqfList.length === 0 ? (
+                    <option value="">Belum ada kasus wakaf aktif</option>
+                  ) : (
+                    waqfList.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.person?.fullName || 'Wakif'} — Wakaf {w.waqfType.toUpperCase()} (Tahap: {w.currentStage})
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-[#1C2321]">
+                  Catatan Progres Tambahan (Opsional):
+                </label>
+                <input
+                  type="text"
+                  value={waqfNotes}
+                  onChange={(e) => setWaqfNotes(e.target.value)}
+                  placeholder="Contoh: Berkas Akta Ikrar Wakaf (AIW) telah rampung ditandatangani di KUA setempat..."
+                  className="w-full px-3 py-2 border border-[#1B4332]/14 rounded-xl text-xs font-medium text-[#1C2321] bg-[#F2EEE4] focus:ring-2 focus:ring-[#1B4332] outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={handleGenerateWaqfFollowup}
+                  disabled={generatingWaqf || !selectedWaqfId}
+                  className="px-4 py-2 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-2 active:scale-98 disabled:opacity-50"
+                >
+                  {generatingWaqf ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-[#E0B970]" />
+                  ) : (
+                    <Send className="w-4 h-4 text-[#E0B970]" />
+                  )}
+                  <span>Generate Pesan Progres Wakaf</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {waqfFollowupResult && (
+            <div className="bg-[#FBF9F4] p-5 rounded-2xl border border-[#1B4332]/12 shadow-2xs space-y-4">
+              <div className="flex items-center justify-between border-b border-[#1B4332]/10 pb-3">
+                <div>
+                  <h4 className="text-xs font-bold uppercase font-mono text-[#1B4332]">
+                    Laporan Tahapan Wakaf Siap Dikirim
+                  </h4>
+                  <p className="text-xs text-[#1C2321] font-bold">
+                    Wakif: {waqfFollowupResult.waqifName} • Tahapan: {waqfFollowupResult.stageTitle}
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-[#1B4332]/10 text-[#14352A] border border-[#1B4332]/20">
+                  {waqfFollowupResult.currentStage}
+                </span>
+              </div>
+
+              <div className="p-4 bg-[#F2EEE4] rounded-xl border border-[#1B4332]/12 space-y-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-[#1C2321]">Pratinjau Pesan WhatsApp Wakif:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyText('wqf_msg', waqfFollowupResult.message)}
+                    className="text-xs text-[#1B4332] hover:underline font-semibold flex items-center gap-1"
+                  >
+                    {copiedKey === 'wqf_msg' ? (
+                      <Check className="w-3.5 h-3.5 text-[#2F7D4F]" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                    <span>{copiedKey === 'wqf_msg' ? 'Tersalin' : 'Salin Pesan'}</span>
+                  </button>
+                </div>
+                <pre className="whitespace-pre-wrap font-sans text-xs bg-[#FBF9F4] p-3 rounded-lg border border-[#1B4332]/10 leading-relaxed text-[#1C2321]">
+                  {waqfFollowupResult.message}
+                </pre>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#1B4332]/8">
+                {waqfFollowupResult.waDirectUrl ? (
+                  <a
+                    href={waqfFollowupResult.waDirectUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-4 py-2 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-2 active:scale-98"
+                  >
+                    <MessageSquare className="w-4 h-4 text-[#E0B970]" />
+                    <span>Kirim via WhatsApp ke {waqfFollowupResult.waqifName}</span>
+                  </a>
+                ) : (
+                  <span className="text-xs text-[#C77A16] font-semibold">
+                    Nomor WhatsApp wakif belum terdaftar di profil.
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 5: LAPORAN PENYALURAN PROGRAM */}
+      {activeTab === 'impact' && (
+        <div className="space-y-6">
+          <div className="bg-[#FBF9F4] p-5 rounded-2xl border border-[#1B4332]/12 shadow-2xs space-y-4">
+            <div className="border-b border-[#1B4332]/10 pb-3">
+              <h3 className="text-sm font-bold text-[#1C2321] font-display flex items-center gap-2">
+                <FileText className="w-4 h-4 text-[#1B4332]" />
+                <span>Broadcast Laporan Dampak &amp; Penyaluran Program Donatur</span>
+              </h3>
+              <p className="text-xs text-[#6B7A72]">
+                Kirimkan akuntabilitas dan laporan penyaluran dana infaq beserta tautan dokumentasi kepada para donatur program terkait.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="sm:col-span-2 space-y-1">
+                <label className="text-xs font-semibold text-[#1C2321]">Pilih Program Donasi / Infaq:</label>
+                <select
+                  value={selectedProgramId}
+                  onChange={(e) => setSelectedProgramId(e.target.value)}
+                  className="w-full px-3 py-2 border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] bg-[#F2EEE4] focus:ring-2 focus:ring-[#1B4332] outline-none"
+                >
+                  {programsList.length === 0 ? (
+                    <option value="">Belum ada program donasi</option>
+                  ) : (
+                    programsList.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.category || 'Dakwah'})
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-[#1C2321]">Judul Laporan Penyaluran:</label>
+                <input
+                  type="text"
+                  value={impactTitle}
+                  onChange={(e) => setImpactTitle(e.target.value)}
+                  className="w-full px-3 py-2 border border-[#1B4332]/14 rounded-xl text-xs font-medium text-[#1C2321] bg-[#F2EEE4] focus:ring-2 focus:ring-[#1B4332] outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-[#1C2321]">Link Dokumentasi / Berita:</label>
+                <input
+                  type="url"
+                  value={impactDocUrl}
+                  onChange={(e) => setImpactDocUrl(e.target.value)}
+                  className="w-full px-3 py-2 border border-[#1B4332]/14 rounded-xl text-xs font-medium text-[#1C2321] bg-[#F2EEE4] focus:ring-2 focus:ring-[#1B4332] outline-none"
+                />
+              </div>
+
+              <div className="sm:col-span-2 space-y-1">
+                <label className="text-xs font-semibold text-[#1C2321]">Ringkasan Realisasi Penyaluran:</label>
+                <textarea
+                  rows={3}
+                  value={impactSummary}
+                  onChange={(e) => setImpactSummary(e.target.value)}
+                  className="w-full p-3 border border-[#1B4332]/14 rounded-xl text-xs font-medium text-[#1C2321] bg-[#F2EEE4] focus:ring-2 focus:ring-[#1B4332] outline-none leading-relaxed"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={handleGenerateProgramImpact}
+                disabled={generatingImpact || !selectedProgramId}
+                className="px-4 py-2 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-2 active:scale-98 disabled:opacity-50"
+              >
+                {generatingImpact ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-[#E0B970]" />
+                ) : (
+                  <Send className="w-4 h-4 text-[#E0B970]" />
+                )}
+                <span>Generate Broadcast ke Para Donatur</span>
+              </button>
+            </div>
+          </div>
+
+          {impactResult && (
+            <div className="bg-[#FBF9F4] p-5 rounded-2xl border border-[#1B4332]/12 shadow-2xs space-y-4">
+              <div className="flex items-center justify-between border-b border-[#1B4332]/10 pb-3">
+                <div>
+                  <h4 className="text-xs font-bold uppercase font-mono text-[#1B4332]">
+                    Hasil Broadcast Laporan Program
+                  </h4>
+                  <p className="text-xs text-[#1C2321] font-bold">
+                    {impactResult.programName}
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-[#1B4332]/10 text-[#14352A] border border-[#1B4332]/20">
+                  Total: {impactResult.totalDonorsReached || 0} Donatur
+                </span>
+              </div>
+
+              <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                {(impactResult.items || []).map((item: any, idx: number) => (
+                  <div
+                    key={item.personId || idx}
+                    className="p-3.5 bg-[#F2EEE4] rounded-xl border border-[#1B4332]/12 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="space-y-1 flex-1">
+                      <div className="flex items-center gap-2">
+                        <strong className="text-[#1C2321]">{item.fullName}</strong>
+                        <span className="text-[10.5px] font-mono text-[#6B7A72]">{item.phoneE164}</span>
+                      </div>
+                      <p className="text-[11px] text-[#3D4A44] line-clamp-2 italic bg-[#FBF9F4] p-2 rounded-lg border border-[#1B4332]/8">
+                        &quot;{item.message}&quot;
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyText(`imp_${idx}`, item.message)}
+                        className="px-2.5 py-1.5 bg-[#FBF9F4] hover:bg-white text-[#1C2321] rounded-lg border border-[#1B4332]/12 text-[11px] font-semibold flex items-center gap-1"
+                      >
+                        {copiedKey === `imp_${idx}` ? (
+                          <Check className="w-3.5 h-3.5 text-[#2F7D4F]" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5 text-[#6B7A72]" />
+                        )}
+                        <span>{copiedKey === `imp_${idx}` ? 'Tersalin' : 'Salin'}</span>
+                      </button>
+
+                      <a
+                        href={item.waDirectUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-1.5 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-lg text-[11px] font-semibold shadow-2xs flex items-center gap-1.5 active:scale-98"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 text-[#E0B970]" />
+                        <span>Kirim WA</span>
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Floating Toast Notification */}
+      {toastMsg && (
+        <div className="fixed bottom-6 right-6 z-60 animate-in slide-in-from-bottom-5 duration-200">
+          <div className="px-4 py-3 rounded-2xl shadow-xl border bg-[#1B4332] text-white border-[#1B4332] flex items-center gap-2.5 text-xs font-bold">
+            <CheckCircle2 className="w-4 h-4 text-[#E0B970] shrink-0" />
+            <span>{toastMsg}</span>
+          </div>
+        </div>
       )}
     </div>
   );
