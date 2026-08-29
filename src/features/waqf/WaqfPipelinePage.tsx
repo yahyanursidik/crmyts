@@ -19,6 +19,8 @@ import {
   RefreshCw,
   X,
   FileCheck2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { formatPhoneDisplay, getWhatsAppLink } from '@/lib/phone';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -100,6 +102,14 @@ export const WaqfPipelinePage: React.FC = () => {
     inProgressCases: 0,
   });
 
+  // Pagination State for Table View
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: 15,
+    totalCount: 0,
+    totalPages: 1,
+  });
+
   // Filters
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -125,7 +135,7 @@ export const WaqfPipelinePage: React.FC = () => {
     return () => clearTimeout(handler);
   }, [search]);
 
-  const fetchCases = async () => {
+  const fetchCases = async (pageToFetch = 1) => {
     try {
       setLoading(true);
       setError(null);
@@ -135,9 +145,17 @@ export const WaqfPipelinePage: React.FC = () => {
       if (stageFilter) params.append('stage', stageFilter);
       if (typeFilter) params.append('waqfType', typeFilter);
 
+      if (viewMode === 'table') {
+        params.append('page', pageToFetch.toString());
+        params.append('pageSize', pagination.pageSize.toString());
+      }
+
       const res = await apiClient<WaqfCaseItem[]>(`/waqf?${params.toString()}`);
       setCases(res.data || []);
 
+      if (res.meta?.pagination) {
+        setPagination(res.meta.pagination as any);
+      }
       if ((res.meta as any)?.stats) {
         setStats((res.meta as any).stats);
       }
@@ -149,8 +167,8 @@ export const WaqfPipelinePage: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchCases();
-  }, [debouncedSearch, stageFilter, typeFilter]);
+    fetchCases(1);
+  }, [debouncedSearch, stageFilter, typeFilter, viewMode, pagination.pageSize]);
 
   const resetAllFilters = () => {
     setSearch('');
@@ -397,7 +415,7 @@ export const WaqfPipelinePage: React.FC = () => {
 
           <button
             type="button"
-            onClick={fetchCases}
+            onClick={() => fetchCases(1)}
             disabled={loading}
             className="p-2 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#3D4A44] rounded-xl border border-[#1B4332]/12 transition-all flex items-center gap-1 text-xs font-semibold px-3"
             title="Segarkan Data"
@@ -618,7 +636,7 @@ export const WaqfPipelinePage: React.FC = () => {
           </div>
         </div>
       ) : (
-        /* TABLE VIEW */
+        /* TABLE VIEW WITH SERVER-SIDE PAGINATION */
         <div className="bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/12 shadow-2xs overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
@@ -668,7 +686,7 @@ export const WaqfPipelinePage: React.FC = () => {
                                     className="text-[#2F7D4F] hover:bg-[#2F7D4F]/10 p-0.5 rounded"
                                     title="Chat WhatsApp Wakif"
                                   >
-                                    <MessageSquare className="w-3 h-3" />
+                                    <MessageSquare className="w-3.5 h-3.5" />
                                   </a>
                                 )}
                               </div>
@@ -711,7 +729,9 @@ export const WaqfPipelinePage: React.FC = () => {
 
                       {/* Aging */}
                       <td className="py-3.5 px-3 text-[#6B7A72] font-mono whitespace-nowrap">
-                        {c.agingDays} hari
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-semibold ${c.agingDays > 30 ? 'bg-amber-100 text-amber-900' : 'bg-[#F2EEE4] text-[#6B7A72]'}`}>
+                          {c.agingDays} hari
+                        </span>
                       </td>
 
                       {/* PIC Staf */}
@@ -738,6 +758,36 @@ export const WaqfPipelinePage: React.FC = () => {
               </tbody>
             </table>
           </div>
+
+          {/* Table Pagination Controls */}
+          <div className="px-4 py-3 border-t border-[#1B4332]/10 bg-[#F2EEE4]/60 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-[#6B7A72]">
+            <div>
+              Menampilkan <strong className="text-[#1C2321]">{cases.length}</strong> dari{' '}
+              <strong className="text-[#1C2321]">{pagination.totalCount.toLocaleString('id-ID')}</strong> portofolio amanah wakaf
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => fetchCases(pagination.page - 1)}
+                disabled={pagination.page <= 1 || loading}
+                className="py-1 px-2.5 bg-[#FBF9F4] hover:bg-[#F2EEE4] text-[#1C2321] rounded-lg border border-[#1B4332]/12 font-semibold disabled:opacity-40 flex items-center gap-1"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span>Sebelumnya</span>
+              </button>
+              <span className="font-mono text-xs font-semibold text-[#1C2321] px-2">
+                Halaman {pagination.page} dari {pagination.totalPages || 1}
+              </span>
+              <button
+                onClick={() => fetchCases(pagination.page + 1)}
+                disabled={pagination.page >= pagination.totalPages || loading}
+                className="py-1 px-2.5 bg-[#FBF9F4] hover:bg-[#F2EEE4] text-[#1C2321] rounded-lg border border-[#1B4332]/12 font-semibold disabled:opacity-40 flex items-center gap-1"
+              >
+                <span>Berikutnya</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -746,7 +796,7 @@ export const WaqfPipelinePage: React.FC = () => {
         isOpen={createModalOpen}
         onClose={() => setCreateModalOpen(false)}
         onSuccess={() => {
-          fetchCases();
+          fetchCases(1);
           showToast('Inisiasi kasus amanah wakaf berhasil dicatat!');
         }}
       />
@@ -756,7 +806,7 @@ export const WaqfPipelinePage: React.FC = () => {
         isOpen={transitionModalOpen}
         onClose={() => setTransitionModalOpen(false)}
         onSuccess={() => {
-          fetchCases();
+          fetchCases(pagination.page);
           showToast('Perpindahan tahapan wakaf berhasil disimpan!');
         }}
         waqfCase={selectedCase}

@@ -57,11 +57,16 @@ const toggleChecklistSchema = z.object({
 });
 
 export function registerWaqfRoutes(router: Router) {
-  // GET /api/waqf (List with Kanban metrics, checklist completeness, and aging)
+  // GET /api/waqf (List with Kanban metrics, checklist completeness, aging, and pagination)
   router.get(
     '/api/waqf',
     requireAuth(async (ctx) => {
       const db = getDb();
+
+      const page = ctx.query.page ? Math.max(1, parseInt(ctx.query.page, 10)) : 1;
+      const pageSize = ctx.query.pageSize ? Math.min(100, Math.max(1, parseInt(ctx.query.pageSize, 10))) : 15;
+      const isPaginated = ctx.query.page !== undefined;
+      const offset = (page - 1) * pageSize;
 
       const search = ctx.query.search?.trim();
       const stage = ctx.query.stage?.trim();
@@ -85,9 +90,19 @@ export function registerWaqfRoutes(router: Router) {
 
       const combinedWhere = conditions.length > 0 ? and(...conditions) : undefined;
 
+      // Count total matching cases
+      const [countResult] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(waqfCases)
+        .where(combinedWhere);
+
+      const totalCount = countResult?.count || 0;
+      const totalPages = Math.ceil(totalCount / pageSize);
+
       const list = await db.query.waqfCases.findMany({
         where: combinedWhere,
         orderBy: [desc(waqfCases.openedAt)],
+        ...(isPaginated ? { limit: pageSize, offset } : {}),
         with: {
           person: {
             columns: {
@@ -194,7 +209,17 @@ export function registerWaqfRoutes(router: Router) {
         };
       });
 
-      return successResponse(formatted, { requestId: ctx.requestId, total: formatted.length, stats });
+      return successResponse(formatted, {
+        requestId: ctx.requestId,
+        total: totalCount,
+        pagination: {
+          page,
+          pageSize,
+          totalCount,
+          totalPages,
+        },
+        stats,
+      });
     })
   );
 
