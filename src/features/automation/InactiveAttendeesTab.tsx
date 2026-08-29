@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router';
 import { apiClient } from '@/lib/apiClient';
 import {
@@ -11,11 +11,9 @@ import {
   Check,
   X,
   Download,
-  MessageSquare,
   RefreshCw,
   ChevronLeft,
   ChevronRight,
-  AlertTriangle,
   Loader2,
 } from 'lucide-react';
 import { formatPhoneDisplay } from '@/lib/phone';
