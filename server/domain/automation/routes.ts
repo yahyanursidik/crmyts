@@ -891,11 +891,11 @@ export function registerAutomationRoutes(router: Router) {
           title: body.title,
           subject: body.subject,
           bodyHtml: body.bodyHtml,
-          dailyQuota: body.dailyQuota,
-          totalDays: body.totalDays,
+          dailyQuota: body.dailyQuota ?? 50,
+          totalDays: body.totalDays ?? 14,
           currentDay: 1,
           status: 'running',
-          filterGender: body.filterGender,
+          filterGender: body.filterGender ?? 'all',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           lastDispatchedAt: null,
@@ -930,16 +930,18 @@ export function registerAutomationRoutes(router: Router) {
   router.post(
     '/api/automation/email-campaigns/:id/dispatch-today',
     requireAuth(async (ctx) => {
-      const campaignId = ctx.params.id;
+      const campaignId = ctx.params?.id || '';
       const campaign = emailCampaignsStore.get(campaignId);
       if (!campaign) return errorResponse('NOT_FOUND', 'Program email campaign tidak ditemukan', 404, ctx.requestId);
 
       if (campaign.status === 'completed') {
-        return errorResponse('BAD_REQUEST', 'Campaign ini telah tuntas terkirim ke seluruh jamaah', 400, ctx.requestId);
+        return errorResponse('VALIDATION_ERROR', 'Campaign ini telah tuntas terkirim ke seluruh jamaah', 400, ctx.requestId);
       }
 
       const db = getDb();
       const user = ctx.user;
+      if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+
       const pendingRecipients = campaign.recipients.filter((r) => r.status === 'pending').slice(0, campaign.dailyQuota);
 
       if (pendingRecipients.length === 0) {
@@ -981,8 +983,8 @@ export function registerAutomationRoutes(router: Router) {
               summary: `Drip Broadcast: ${campaign.title} (Hari ${campaign.currentDay})`,
               outcome: `Email sapaan terkirim ke ${r.email}`,
               sensitivityLevel: 'standard',
-              ownerUserId: user?.id,
-              createdBy: user?.id,
+              ownerUserId: user.id,
+              createdBy: user.id,
             });
           } catch (err) {
             console.warn('[CRM Drip Interaction Log Warn]:', err);
@@ -1021,22 +1023,20 @@ export function registerAutomationRoutes(router: Router) {
 
       emailCampaignsStore.set(campaignId, campaign);
 
-      if (user) {
-        await logAuditEvent({
-          actorUserId: user.id,
-          action: 'dispatch_drip_email_batch',
-          entityType: 'email_campaign',
-          entityId: campaign.id,
-          afterJson: {
-            dayNumber: campaign.currentDay - 1,
-            successCount,
-            failedCount,
-            remaining,
-          },
-          reason: `Pengiriman email harian kuota warm-up (${successCount} sukses, ${failedCount} gagal)`,
-          requestId: ctx.requestId,
-        });
-      }
+      await logAuditEvent({
+        actorUserId: user.id,
+        action: 'dispatch_drip_email_batch',
+        entityType: 'email_campaign',
+        entityId: campaign.id,
+        afterJson: {
+          dayNumber: campaign.currentDay - 1,
+          successCount,
+          failedCount,
+          remaining,
+        },
+        reason: `Pengiriman email harian kuota warm-up (${successCount} sukses, ${failedCount} gagal)`,
+        requestId: ctx.requestId,
+      });
 
       return successResponse(
         {
@@ -1059,7 +1059,7 @@ export function registerAutomationRoutes(router: Router) {
     '/api/automation/email-campaigns/:id/test-email',
     requireAuth(
       validateBody(testEmailCampaignSchema, async (ctx, body) => {
-        const campaignId = ctx.params.id;
+        const campaignId = ctx.params?.id || '';
         const campaign = emailCampaignsStore.get(campaignId);
         if (!campaign) return errorResponse('NOT_FOUND', 'Program email campaign tidak ditemukan', 404, ctx.requestId);
 
@@ -1096,7 +1096,7 @@ export function registerAutomationRoutes(router: Router) {
   router.post(
     '/api/automation/email-campaigns/:id/pause',
     requireAuth(async (ctx) => {
-      const campaignId = ctx.params.id;
+      const campaignId = ctx.params?.id || '';
       const campaign = emailCampaignsStore.get(campaignId);
       if (!campaign) return errorResponse('NOT_FOUND', 'Campaign tidak ditemukan', 404, ctx.requestId);
 
@@ -1112,7 +1112,7 @@ export function registerAutomationRoutes(router: Router) {
   router.post(
     '/api/automation/email-campaigns/:id/resume',
     requireAuth(async (ctx) => {
-      const campaignId = ctx.params.id;
+      const campaignId = ctx.params?.id || '';
       const campaign = emailCampaignsStore.get(campaignId);
       if (!campaign) return errorResponse('NOT_FOUND', 'Campaign tidak ditemukan', 404, ctx.requestId);
 
@@ -1128,7 +1128,7 @@ export function registerAutomationRoutes(router: Router) {
   router.delete(
     '/api/automation/email-campaigns/:id',
     requireAuth(async (ctx) => {
-      const campaignId = ctx.params.id;
+      const campaignId = ctx.params?.id || '';
       if (!emailCampaignsStore.has(campaignId)) {
         return errorResponse('NOT_FOUND', 'Campaign tidak ditemukan', 404, ctx.requestId);
       }

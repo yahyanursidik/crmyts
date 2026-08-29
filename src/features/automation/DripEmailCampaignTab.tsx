@@ -124,8 +124,9 @@ export function DripEmailCampaignTab() {
       const res = await apiClient<DripEmailCampaign[]>('/automation/email-campaigns');
       setCampaigns(res.data || []);
       if (res.data && res.data.length > 0) {
-        if (!selectedCampaignId || !res.data.find((c) => c.id === selectedCampaignId)) {
-          setSelectedCampaignId(res.data[0].id);
+        const first = res.data[0];
+        if (first && (!selectedCampaignId || !res.data.find((c) => c.id === selectedCampaignId))) {
+          setSelectedCampaignId(first.id);
         }
       }
     } catch (err: any) {
