@@ -18,8 +18,6 @@ import {
   ChevronRight,
   X,
   Loader2,
-  Calendar,
-  MessageSquare,
   Copy,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
