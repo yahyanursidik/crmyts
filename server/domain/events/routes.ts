@@ -4,7 +4,7 @@ import { requireAuth, validateBody } from '../../http/middleware';
 import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import { events, eventAttendance, persons } from '../../db/schema';
-import { desc, eq, and, inArray } from 'drizzle-orm';
+import { desc, eq, and, inArray, sql } from 'drizzle-orm';
 import { normalizeIndonesianPhone } from '../../lib/phone';
 
 const createEventSchema = z.object({
@@ -53,42 +53,99 @@ export function registerEventsRoutes(router: Router) {
     requireAuth(async (ctx) => {
       const db = getDb();
 
-      const list = await db.query.events.findMany({
-        orderBy: [desc(events.startAt)],
-        with: {
-          attendances: {
-            with: {
-              person: {
-                columns: {
-                  id: true,
-                  gender: true,
+      try {
+        const eventList = await db.select().from(events).orderBy(desc(events.startAt));
+
+        // Grouped aggregation query for event attendances (extremely fast & indexed)
+        const stats = await db
+          .select({
+            eventId: eventAttendance.eventId,
+            total: sql<number>`cast(count(${eventAttendance.id}) as integer)`,
+            attended: sql<number>`cast(count(case when ${eventAttendance.status} = 'attended' then 1 end) as integer)`,
+            registered: sql<number>`cast(count(case when ${eventAttendance.status} = 'registered' then 1 end) as integer)`,
+            cars: sql<number>`cast(count(case when ${eventAttendance.vehicleType} = 'car' then 1 end) as integer)`,
+            motorcycles: sql<number>`cast(count(case when ${eventAttendance.vehicleType} = 'motorcycle' then 1 end) as integer)`,
+          })
+          .from(eventAttendance)
+          .groupBy(eventAttendance.eventId);
+
+        const statsMap = new Map<string, any>();
+        for (const s of stats) {
+          if (s.eventId) statsMap.set(s.eventId, s);
+        }
+
+        // Grouped aggregation for gender counts
+        const genderStats = await db
+          .select({
+            eventId: eventAttendance.eventId,
+            ikhwan: sql<number>`cast(count(case when ${persons.gender} = 'ikhwan' then 1 end) as integer)`,
+            akhwat: sql<number>`cast(count(case when ${persons.gender} = 'akhwat' then 1 end) as integer)`,
+          })
+          .from(eventAttendance)
+          .leftJoin(persons, eq(eventAttendance.personId, persons.id))
+          .groupBy(eventAttendance.eventId);
+
+        const genderMap = new Map<string, any>();
+        for (const g of genderStats) {
+          if (g.eventId) genderMap.set(g.eventId, g);
+        }
+
+        const formatted = eventList.map((e) => {
+          const s = statsMap.get(e.id) || {};
+          const g = genderMap.get(e.id) || {};
+
+          return {
+            ...e,
+            attendanceCount: s.total || 0,
+            attendedCount: s.attended || 0,
+            registeredCount: s.registered || 0,
+            ikhwanCount: g.ikhwan || 0,
+            akhwatCount: g.akhwat || 0,
+            carsCount: s.cars || 0,
+            motorcyclesCount: s.motorcycles || 0,
+          };
+        });
+
+        return successResponse(formatted, { requestId: ctx.requestId, total: formatted.length });
+      } catch (err) {
+        // Fallback for minimal testing / legacy contexts
+        const list = await db.query.events.findMany({
+          orderBy: [desc(events.startAt)],
+          with: {
+            attendances: {
+              with: {
+                person: {
+                  columns: {
+                    id: true,
+                    gender: true,
+                  },
                 },
               },
             },
           },
-        },
-      });
+        });
 
-      const formatted = list.map((e) => {
-        const atts = e.attendances || [];
-        const ikhwanCount = atts.filter((a) => a.person?.gender === 'ikhwan').length;
-        const akhwatCount = atts.filter((a) => a.person?.gender === 'akhwat').length;
-        const carsCount = atts.filter((a) => a.vehicleType === 'car').length;
-        const motorcyclesCount = atts.filter((a) => a.vehicleType === 'motorcycle').length;
+        const formatted = list.map((e) => {
+          const atts = e.attendances || [];
+          const ikhwanCount = atts.filter((a) => a.person?.gender === 'ikhwan').length;
+          const akhwatCount = atts.filter((a) => a.person?.gender === 'akhwat').length;
+          const carsCount = atts.filter((a) => a.vehicleType === 'car').length;
+          const motorcyclesCount = atts.filter((a) => a.vehicleType === 'motorcycle').length;
 
-        return {
-          ...e,
-          attendanceCount: atts.length,
-          attendedCount: atts.filter((a) => a.status === 'attended').length,
-          registeredCount: atts.filter((a) => a.status === 'registered').length,
-          ikhwanCount,
-          akhwatCount,
-          carsCount,
-          motorcyclesCount,
-        };
-      });
+          return {
+            ...e,
+            attendanceCount: atts.length,
+            attendedCount: atts.filter((a) => a.status === 'attended').length,
+            registeredCount: atts.filter((a) => a.status === 'registered').length,
+            ikhwanCount,
+            akhwatCount,
+            carsCount,
+            motorcyclesCount,
+          };
+        });
 
-      return successResponse(formatted, { requestId: ctx.requestId, total: formatted.length });
+        return successResponse(formatted, { requestId: ctx.requestId, total: formatted.length });
+      }
     })
   );
 
