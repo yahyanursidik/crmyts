@@ -66,16 +66,6 @@ interface EventItem {
   motorcyclesCount?: number;
 }
 
-const VENUE_RULES_PRESETS = [
-  { id: 'no_toddlers', label: '🚫 Tanpa Balita (Kekhusyukan Majelis)' },
-  { id: 'modest_dress', label: "✨ Wajib Berpakaian Syar'i & Rapi" },
-  { id: 'bring_kitab', label: '📖 Wajib Membawa Kitab Cetak' },
-  { id: 'bring_prayer_mat', label: '🕌 Membawa Sajadah Sendiri' },
-  { id: 'silent_phone', label: '📴 Mode Senyap / Tanpa Rekaman' },
-  { id: 'stay_overnight', label: "🌙 Diizinkan Menginap / I'tikaf" },
-  { id: 'no_street_parking', label: '🚗 Dilarang Parkir di Bahu Jalan' },
-];
-
 export const EventsListPage: React.FC = () => {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1079,7 +1069,7 @@ export const EventsListPage: React.FC = () => {
             setSelectedManageEventId(null);
             loadEvents();
           }}
-          onUpdated={loadEvents}
+          onEventUpdated={loadEvents}
         />
       )}
 
@@ -1087,6 +1077,7 @@ export const EventsListPage: React.FC = () => {
       {selectedSubmissionsEventId && (
         <EventSubmissionsModal
           eventId={selectedSubmissionsEventId}
+          isOpen={true}
           onClose={() => {
             setSelectedSubmissionsEventId(null);
             loadEvents();
@@ -1125,7 +1116,7 @@ export const EventsListPage: React.FC = () => {
           confirmLabel={deleteLoading ? 'Menghapus...' : 'Hapus Kajian'}
           variant="danger"
           onConfirm={handleConfirmDelete}
-          onCancel={() => setEventToDelete(null)}
+          onClose={() => setEventToDelete(null)}
         />
       )}
 
@@ -1137,8 +1128,9 @@ export const EventsListPage: React.FC = () => {
           message={alertDialog.message}
           confirmLabel="Tutup"
           variant={alertDialog.variant}
+          singleButton={true}
           onConfirm={() => setAlertDialog(null)}
-          onCancel={() => setAlertDialog(null)}
+          onClose={() => setAlertDialog(null)}
         />
       )}
 
