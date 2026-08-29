@@ -7,7 +7,6 @@ import {
   ChevronLeft, 
   ChevronRight, 
   ShieldAlert,
-  Phone,
   Mail,
   MapPin,
   Clock,
