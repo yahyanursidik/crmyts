@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   FileBarChart2,
   Calendar,
-  DollarSign,
+  Coins,
   CheckSquare,
   Landmark,
   Download,
@@ -12,8 +12,16 @@ import {
   AlertTriangle,
   FileSpreadsheet,
   Check,
+  Search,
+  Share2,
+  Sparkles,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
 } from 'lucide-react';
-import { useTheme } from '@/lib/themeContext';
+import { apiClient } from '@/lib/apiClient';
+import { BrandEmblem } from '@/components/common/BrandLogo';
+import { LoadingState } from '@/components/common/LoadingState';
 
 interface ExecutiveSummary {
   period: string;
@@ -37,6 +45,7 @@ interface ExecutiveSummary {
 }
 
 interface ReconciliationData {
+  dateRange: { from: string; to: string };
   metrics: {
     totalTransactions: number;
     statusCounts: {
@@ -53,6 +62,7 @@ interface ReconciliationData {
     donorName: string;
     donorPhone: string;
     programName: string;
+    programCode: string;
     amountRupiah: number;
     paymentMethod: string;
     donationDate: string;
@@ -61,43 +71,135 @@ interface ReconciliationData {
     verifiedAt?: string | null;
     rejectionReason?: string | null;
   }>;
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
-interface EventAttendanceSummary {
+interface WaqfPortfolioData {
+  metrics: {
+    totalCases: number;
+    totalValuationRupiah: number;
+    completedCases: number;
+    stageBreakdown: Array<{
+      stage: string;
+      count: number;
+      totalRupiah: number;
+    }>;
+  };
+  items: Array<{
+    id: string;
+    waqifName: string;
+    waqifPhone: string;
+    waqifCity: string;
+    waqfType: string;
+    estimatedValueRupiah: number;
+    currentStage: string;
+    ownerName: string;
+    openedAt: string;
+    notesSummary?: string | null;
+  }>;
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+interface EventAttendanceItem {
   id: string;
   title: string;
   category: string;
   speaker: string;
   startAt: string;
+  endAt?: string | null;
   deliveryMode: string;
-  locationName?: string;
+  locationName?: string | null;
   status: string;
   totalAttendees: number;
 }
 
+interface AttendanceResponse {
+  total: number;
+  metrics: {
+    totalEvents: number;
+    totalAttendeesSum: number;
+    avgAttendees: number;
+  };
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+const WAQF_STAGE_LABELS: Record<string, { label: string; bg: string; color: string }> = {
+  interested: { label: '1. Penjajakan', bg: 'bg-[#F2EEE4]', color: 'text-[#6B7A72]' },
+  consulted: { label: '2. Konsultasi', bg: 'bg-[#EAE4D6]', color: 'text-[#1C2321]' },
+  pledged: { label: '3. Ikrar Wakaf', bg: 'bg-[#E0B970]/20', color: 'text-[#B58B3C]' },
+  document_preparation: { label: '4. Dokumen', bg: 'bg-[#C77A16]/15', color: 'text-[#C77A16]' },
+  in_progress: { label: '5. Penyusunan', bg: 'bg-[#0F4C4A]/15', color: 'text-[#0F4C4A]' },
+  completed: { label: '6. Serah Terima', bg: 'bg-[#2F7D4F]/15', color: 'text-[#2F7D4F]' },
+  stewardship: { label: '7. Pengelolaan', bg: 'bg-[#1B4332]/15', color: 'text-[#1B4332]' },
+};
+
+const WAQF_TYPE_LABELS: Record<string, string> = {
+  tanah_bangunan: 'Tanah & Bangunan',
+  uang_tunai: 'Wakaf Uang Tunai',
+  kendaraan: 'Kendaraan Operasional',
+  logistik_dakwah: 'Perangkat Dakwah',
+  emas_surat_berharga: 'Logam Mulia / Saham',
+};
+
 export function ReportsPage() {
-  const { currentTheme } = useTheme();
-  const [activeTab, setActiveTab] = useState<'executive' | 'donations' | 'attendance' | 'import_export'>('executive');
+  const [activeTab, setActiveTab] = useState<'executive' | 'donations' | 'waqf' | 'attendance' | 'import_export'>('executive');
   
-  // Executive State
+  // 1. Executive Tab State
   const [selectedMonth, setSelectedMonth] = useState<string>(new Date().toISOString().substring(0, 7));
   const [executiveData, setExecutiveData] = useState<ExecutiveSummary | null>(null);
   const [loadingExecutive, setLoadingExecutive] = useState(false);
 
-  // Donations Reconciliation State
+  // 2. Donations Reconciliation State
   const [reconciliationData, setReconciliationData] = useState<ReconciliationData | null>(null);
   const [loadingDonations, setLoadingDonations] = useState(false);
+  const [donationsPage, setDonationsPage] = useState(1);
+  const [donationsLimit] = useState(15);
+  const [donationsSearch, setDonationsSearch] = useState('');
+  const [donationsStatus, setDonationsStatus] = useState('all');
 
-  // Attendance State
-  const [eventsList, setEventsList] = useState<EventAttendanceSummary[]>([]);
+  // 3. Waqf Portfolio State
+  const [waqfData, setWaqfData] = useState<WaqfPortfolioData | null>(null);
+  const [loadingWaqf, setLoadingWaqf] = useState(false);
+  const [waqfPage, setWaqfPage] = useState(1);
+  const [waqfLimit] = useState(15);
+  const [waqfStageFilter, setWaqfStageFilter] = useState('all');
+  const [waqfTypeFilter, setWaqfTypeFilter] = useState('all');
+
+  // 4. Attendance State
+  const [eventsList, setEventsList] = useState<EventAttendanceItem[]>([]);
+  const [attendanceMetrics, setAttendanceMetrics] = useState<{ totalEvents: number; totalAttendeesSum: number; avgAttendees: number }>({
+    totalEvents: 0,
+    totalAttendeesSum: 0,
+    avgAttendees: 0,
+  });
+  const [attendancePagination, setAttendancePagination] = useState({ page: 1, limit: 15, total: 0, totalPages: 1 });
   const [loadingAttendance, setLoadingAttendance] = useState(false);
+  const [attendancePage, setAttendancePage] = useState(1);
+  const [attendanceSearch, setAttendanceSearch] = useState('');
+  const [attendanceMode, setAttendanceMode] = useState('all');
 
-  // Export Modal State
+  // 5. Export Modal State
   const [exportModal, setExportModal] = useState<string | null>(null);
   const [exportReason, setExportReason] = useState('');
   const [exportSuccess, setExportSuccess] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Import State
+  // 6. Import State
   const [csvText, setCsvText] = useState(
     'Nama,No_HP,Email,Kota,Gender\nUstadz Fulan,+6281298765432,fulan@example.com,Bandung,ikhwan\nFatimah Az-Zahra,081311223344,fatimah@example.com,Cimahi,akhwat'
   );
@@ -105,87 +207,140 @@ export function ReportsPage() {
   const [importing, setImporting] = useState(false);
   const [importSuccessMsg, setImportSuccessMsg] = useState<string | null>(null);
 
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 4000);
+  };
+
+  const formatRupiah = (val: number) => {
+    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
+  };
+
+  // Fetch Executive Report
   const fetchExecutiveReport = async () => {
     setLoadingExecutive(true);
     try {
-      const res = await fetch(`/api/reports/executive-monthly?month=${selectedMonth}`);
-      if (res.ok) {
-        const json = await res.json();
-        setExecutiveData(json.data);
-      }
-    } catch (e) {
-      console.error(e);
+      const res = await apiClient<ExecutiveSummary>(`/reports/executive-monthly?month=${selectedMonth}`);
+      setExecutiveData(res.data);
+    } catch (e: any) {
+      showToast(e.message || 'Gagal memuat laporan eksekutif bulanan.');
     } finally {
       setLoadingExecutive(false);
     }
   };
 
+  // Fetch Donations Reconciliation Report
   const fetchReconciliationReport = async () => {
     setLoadingDonations(true);
     try {
-      const res = await fetch('/api/reports/donations-reconciliation');
-      if (res.ok) {
-        const json = await res.json();
-        setReconciliationData(json.data);
-      }
-    } catch (e) {
-      console.error(e);
+      const params = new URLSearchParams({
+        page: String(donationsPage),
+        limit: String(donationsLimit),
+        status: donationsStatus,
+      });
+      if (donationsSearch) params.set('search', donationsSearch);
+
+      const res = await apiClient<ReconciliationData>(`/reports/donations-reconciliation?${params.toString()}`);
+      setReconciliationData(res.data);
+    } catch (e: any) {
+      showToast(e.message || 'Gagal memuat rekonsiliasi infaq.');
     } finally {
       setLoadingDonations(false);
     }
   };
 
+  // Fetch Waqf Portfolio Report
+  const fetchWaqfReport = async () => {
+    setLoadingWaqf(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(waqfPage),
+        limit: String(waqfLimit),
+        stage: waqfStageFilter,
+        type: waqfTypeFilter,
+      });
+
+      const res = await apiClient<WaqfPortfolioData>(`/reports/waqf-portfolio?${params.toString()}`);
+      setWaqfData(res.data);
+    } catch (e: any) {
+      showToast(e.message || 'Gagal memuat portofolio wakaf.');
+    } finally {
+      setLoadingWaqf(false);
+    }
+  };
+
+  // Fetch Attendance Report
   const fetchAttendanceReport = async () => {
     setLoadingAttendance(true);
     try {
-      const res = await fetch('/api/reports/attendance-summary');
-      if (res.ok) {
-        const json = await res.json();
-        setEventsList(json.data);
+      const params = new URLSearchParams({
+        page: String(attendancePage),
+        limit: '15',
+        mode: attendanceMode,
+      });
+      if (attendanceSearch) params.set('search', attendanceSearch);
+
+      const res = await apiClient<EventAttendanceItem[]>(`/reports/attendance-summary?${params.toString()}`);
+      setEventsList(res.data);
+      if (res.meta) {
+        const metaAny = res.meta as any;
+        if (metaAny.metrics) {
+          setAttendanceMetrics(metaAny.metrics);
+        }
+        if (metaAny.pagination) {
+          setAttendancePagination(metaAny.pagination);
+        }
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      showToast(e.message || 'Gagal memuat rekap presensi kajian.');
     } finally {
       setLoadingAttendance(false);
     }
   };
 
+  // Initial and reactive effects
   useEffect(() => {
-    fetchExecutiveReport();
-    fetchReconciliationReport();
-    fetchAttendanceReport();
-  }, [selectedMonth]);
+    if (activeTab === 'executive') {
+      fetchExecutiveReport();
+    } else if (activeTab === 'donations') {
+      fetchReconciliationReport();
+    } else if (activeTab === 'waqf') {
+      fetchWaqfReport();
+    } else if (activeTab === 'attendance') {
+      fetchAttendanceReport();
+    }
+  }, [activeTab, selectedMonth, donationsPage, donationsStatus, waqfPage, waqfStageFilter, waqfTypeFilter, attendancePage, attendanceMode]);
 
+  // Handle Export Submission
   const handleExportSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!exportModal) return;
     try {
-      const res = await fetch('/api/reports/export-csv', {
+      const res = await apiClient<{ downloadUrl: string; message: string }>('/reports/export-csv', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reportType: exportModal,
           reason: exportReason,
         }),
       });
-      if (res.ok) {
-        setExportSuccess(true);
-        setTimeout(() => {
-          setExportSuccess(false);
-          setExportModal(null);
-          setExportReason('');
-        }, 2000);
-      }
-    } catch (err) {
-      console.error(err);
+
+      setExportSuccess(true);
+      showToast(res.data.message || 'Ekspor berhasil dicatat ke log audit.');
+      setTimeout(() => {
+        setExportSuccess(false);
+        setExportModal(null);
+        setExportReason('');
+      }, 2000);
+    } catch (err: any) {
+      showToast(err.message || 'Gagal melakukan ekspor data.');
     }
   };
 
+  // Parse CSV Helper
   const parseCsvToRows = (text: string) => {
     const lines = text.trim().split('\n');
     if (lines.length <= 1) return [];
     
-    // Skip header line
     return lines.slice(1).map((line) => {
       const parts = line.split(',').map((p) => p.trim());
       return {
@@ -199,28 +354,30 @@ export function ReportsPage() {
     }).filter((r) => r.fullName.length > 0 && r.phone.length > 0);
   };
 
+  // Dry Run Import
   const handleDryRun = async () => {
     const rows = parseCsvToRows(csvText);
     if (rows.length === 0) {
-      alert('Tidak ada baris data CSV yang valid untuk diuji.');
+      showToast('Tidak ada baris data CSV yang valid untuk diuji.');
       return;
     }
 
     try {
-      const res = await fetch('/api/reports/import-csv/dry-run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows }),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        setDryRunResult(json.data);
-      }
-    } catch (err) {
-      console.error(err);
+      const res = await apiClient<{ totalRows: number; validCount: number; duplicateCount: number; errorCount: number; preview: any[] }>(
+        '/reports/import-csv/dry-run',
+        {
+          method: 'POST',
+          body: JSON.stringify({ rows }),
+        }
+      );
+      setDryRunResult(res.data);
+      showToast(`Uji validasi selesai: ${res.data.validCount} valid, ${res.data.duplicateCount} peringatan duplikat.`);
+    } catch (err: any) {
+      showToast(err.message || 'Gagal melakukan uji validasi dry run.');
     }
   };
 
+  // Commit Bulk Import
   const handleCommitImport = async () => {
     if (!dryRunResult || !dryRunResult.preview) return;
     setImporting(true);
@@ -238,208 +395,273 @@ export function ReportsPage() {
       }));
 
     try {
-      const res = await fetch('/api/reports/import-csv/commit', {
+      const res = await apiClient<{ importedCount: number; message: string }>('/reports/import-csv/commit', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           rows: validRows,
-          reason: 'Impor data massal jamaah melalui Hub Impor CRM',
+          reason: 'Impor data massal jamaah melalui Hub Impor CRM YTS',
         }),
       });
 
-      if (res.ok) {
-        const json = await res.json();
-        setImportSuccessMsg(json.data.message);
-        setDryRunResult(null);
-      }
-    } catch (err) {
-      console.error(err);
+      setImportSuccessMsg(res.data.message);
+      setDryRunResult(null);
+      showToast(res.data.message);
+    } catch (err: any) {
+      showToast(err.message || 'Gagal menyimpan data impor massal.');
     } finally {
       setImporting(false);
     }
   };
 
+  // WhatsApp Share Generator for Executive Report
+  const handleShareExecutiveWA = () => {
+    if (!executiveData) return;
+    const text = `*LAPORAN EKSEKUTIF BULANAN YTS*\nPeriode: ${executiveData.period}\n\n` +
+      `• *Total Infaq Terverifikasi*: ${formatRupiah(executiveData.summary.donasiBulanIniRupiah)} (${executiveData.summary.transaksiDonasiCount} transaksi)\n` +
+      `• *Presensi Jamaah Dakwah*: ${executiveData.summary.totalHadirKajian.toLocaleString('id-ID')} kehadiran (${executiveData.summary.jamaahUnikHadir} jamaah unik)\n` +
+      `• *Pipeline Portofolio Wakaf*: ${formatRupiah(executiveData.summary.estimasiValuasiWakafRupiah)} (${executiveData.summary.kasusWakafAktif} kasus aktif)\n` +
+      `• *Resolusi Follow-Up Amanah*: ${executiveData.summary.resolusiFollowUpRate}% (Overdue: ${executiveData.summary.tugasOverdue})\n\n` +
+      `_Laporan resmi di-generate melalui Sistem CRM Yayasan Tarbiyah Sunnah._`;
+
+    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header Banner */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-emerald-50 text-emerald-700 rounded-lg">
-              <FileBarChart2 className="w-6 h-6" />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-900">Laporan Eksekutif & Hub Data</h1>
+    <div className="space-y-6 max-w-7xl mx-auto pb-12 font-sans text-[#1C2321]">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-60 bg-[#14352A] text-[#E0B970] px-5 py-2.5 rounded-2xl shadow-xl text-xs font-bold border border-[#E0B970]/30 flex items-center gap-2 animate-in slide-in-from-top duration-200">
+          <Sparkles className="w-4 h-4 text-[#E0B970]" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* HEADER BANNER */}
+      <div className="bg-[#FBF9F4] border border-[#1B4332]/12 rounded-3xl p-6 sm:p-7 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="flex items-start gap-4">
+          <div className="p-2.5 bg-white rounded-2xl border border-[#1B4332]/15 shadow-2xs shrink-0">
+            <BrandEmblem useImage={true} className="w-10 h-10" />
           </div>
-          <p className="text-sm text-slate-600 mt-1">
-            Rekapitulasi berkala dakwah, rekonsiliasi keuangan infaq, valuasi wakaf, dan impor/ekspor data terkelola.
-          </p>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-[#1B4332]/10 text-[#1B4332] border border-[#1B4332]/20">
+                Pusat Pelaporan Terpadu
+              </span>
+              <h1 className="text-xl sm:text-2xl font-bold text-[#1C2321] font-display">
+                Laporan Finansial &amp; Hub Data Eksekutif
+              </h1>
+            </div>
+            <p className="text-xs text-[#6B7A72] mt-1 leading-relaxed">
+              Rekapitulasi berkala dakwah, rekonsiliasi keuangan infaq, valuasi wakaf, dan tata kelola impor/ekspor data terkelola.
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 self-start md:self-auto">
           <button
-            onClick={() => { fetchExecutiveReport(); fetchReconciliationReport(); fetchAttendanceReport(); }}
-            className="px-3.5 py-2 text-sm font-medium border border-slate-300 rounded-lg text-slate-700 bg-white hover:bg-slate-50 flex items-center gap-2 transition-colors"
+            onClick={() => {
+              if (activeTab === 'executive') fetchExecutiveReport();
+              else if (activeTab === 'donations') fetchReconciliationReport();
+              else if (activeTab === 'waqf') fetchWaqfReport();
+              else if (activeTab === 'attendance') fetchAttendanceReport();
+            }}
+            className="px-3.5 py-2 text-xs font-bold border border-[#1B4332]/18 rounded-xl text-[#14352A] bg-white hover:bg-[#F2EEE4] flex items-center gap-1.5 transition-all shadow-2xs active:scale-98"
           >
-            <RefreshCw className="w-4 h-4" />
-            Segarkan
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Segarkan Data</span>
           </button>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-slate-200 gap-6 overflow-x-auto">
+      {/* 5 CATEGORY TABS */}
+      <div className="flex border-b border-[#1B4332]/12 gap-2 overflow-x-auto pb-0.5">
         <button
           onClick={() => setActiveTab('executive')}
-          className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 whitespace-nowrap transition-colors ${
+          className={`pb-3 px-3 text-xs font-bold flex items-center gap-2 border-b-2 whitespace-nowrap transition-all ${
             activeTab === 'executive'
-              ? 'border-emerald-600 text-emerald-700'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
+              ? 'border-[#1B4332] text-[#14352A]'
+              : 'border-transparent text-[#6B7A72] hover:text-[#1C2321]'
           }`}
         >
           <FileBarChart2 className="w-4 h-4" />
-          Laporan Eksekutif Bulanan
+          <span>Laporan Eksekutif Bulanan</span>
         </button>
+
         <button
           onClick={() => setActiveTab('donations')}
-          className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 whitespace-nowrap transition-colors ${
+          className={`pb-3 px-3 text-xs font-bold flex items-center gap-2 border-b-2 whitespace-nowrap transition-all ${
             activeTab === 'donations'
-              ? 'border-emerald-600 text-emerald-700'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
+              ? 'border-[#1B4332] text-[#14352A]'
+              : 'border-transparent text-[#6B7A72] hover:text-[#1C2321]'
           }`}
         >
-          <DollarSign className="w-4 h-4" />
-          Rekonsiliasi Infaq & Finansial
+          <Coins className="w-4 h-4" />
+          <span>Rekonsiliasi Infaq &amp; Finansial</span>
         </button>
+
+        <button
+          onClick={() => setActiveTab('waqf')}
+          className={`pb-3 px-3 text-xs font-bold flex items-center gap-2 border-b-2 whitespace-nowrap transition-all ${
+            activeTab === 'waqf'
+              ? 'border-[#1B4332] text-[#14352A]'
+              : 'border-transparent text-[#6B7A72] hover:text-[#1C2321]'
+          }`}
+        >
+          <Landmark className="w-4 h-4" />
+          <span>Portofolio &amp; Pipeline Wakaf</span>
+        </button>
+
         <button
           onClick={() => setActiveTab('attendance')}
-          className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 whitespace-nowrap transition-colors ${
+          className={`pb-3 px-3 text-xs font-bold flex items-center gap-2 border-b-2 whitespace-nowrap transition-all ${
             activeTab === 'attendance'
-              ? 'border-emerald-600 text-emerald-700'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
+              ? 'border-[#1B4332] text-[#14352A]'
+              : 'border-transparent text-[#6B7A72] hover:text-[#1C2321]'
           }`}
         >
           <CheckSquare className="w-4 h-4" />
-          Kehadiran Kajian & Dakwah
+          <span>Kehadiran Kajian &amp; Dakwah</span>
         </button>
+
         <button
           onClick={() => setActiveTab('import_export')}
-          className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 whitespace-nowrap transition-colors ${
+          className={`pb-3 px-3 text-xs font-bold flex items-center gap-2 border-b-2 whitespace-nowrap transition-all ${
             activeTab === 'import_export'
-              ? 'border-emerald-600 text-emerald-700'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
+              ? 'border-[#1B4332] text-[#14352A]'
+              : 'border-transparent text-[#6B7A72] hover:text-[#1C2321]'
           }`}
         >
           <FileSpreadsheet className="w-4 h-4" />
-          Hub Impor & Ekspor Data
+          <span>Hub Impor &amp; Ekspor Data</span>
         </button>
       </div>
 
-      {/* 1. TAB: EXECUTIVE MONTHLY */}
+      {/* =========================================================================
+          TAB 1: EXECUTIVE MONTHLY REPORT
+      ========================================================================= */}
       {activeTab === 'executive' && (
-        <div className="space-y-6">
-          {/* Filter Periode & Action */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+        <div className="space-y-6 animate-in fade-in duration-200">
+          {/* Controls Bar */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-[#FBF9F4] p-4 rounded-2xl border border-[#1B4332]/12 shadow-2xs">
             <div className="flex items-center gap-3">
-              <Calendar className="w-5 h-5 text-emerald-600" />
-              <label className="text-sm font-bold text-slate-800">Pilih Periode Bulan:</label>
+              <Calendar className="w-4 h-4 text-[#1B4332]" />
+              <label className="text-xs font-bold text-[#1C2321]">Periode Bulan:</label>
               <input
                 type="month"
                 value={selectedMonth}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSelectedMonth(e.target.value)}
-                className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-semibold"
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="px-3 py-1.5 border border-[#1B4332]/14 rounded-xl text-xs font-semibold bg-white text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
               />
             </div>
 
-            <button
-              onClick={() => setExportModal('executive_monthly')}
-              className={`px-4 py-2 text-sm font-semibold rounded-xl ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} shadow-xs transition-all flex items-center gap-2 active:scale-95`}
-            >
-              <Download className="w-4 h-4 text-gold-300" />
-              Unduh / Ekspor CSV Laporan
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={handleShareExecutiveWA}
+                className="px-3.5 py-2 text-xs font-bold bg-[#2F7D4F] hover:bg-[#256540] text-white rounded-xl shadow-2xs transition-all flex items-center gap-1.5 active:scale-98"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                <span>Kirim WA Pimpinan</span>
+              </button>
+
+              <button
+                onClick={() => setExportModal('executive_monthly')}
+                className="px-3.5 py-2 text-xs font-bold bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl shadow-2xs transition-all flex items-center gap-1.5 active:scale-98"
+              >
+                <Download className="w-3.5 h-3.5 text-[#E0B970]" />
+                <span>Unduh CSV Laporan</span>
+              </button>
+            </div>
           </div>
 
           {loadingExecutive ? (
-            <div className="py-16 text-center text-slate-500">Memuat rekapitulasi data eksekutif...</div>
+            <div className="py-16">
+              <LoadingState message="Memuat rekapitulasi data eksekutif lembaga..." />
+            </div>
           ) : executiveData && (
             <>
-              {/* KPI Summary Cards */}
+              {/* 4 Primary Metric Summary Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-1">
-                  <div className="flex items-center justify-between text-slate-500">
-                    <span className="text-xs font-semibold uppercase">Infaq Terverifikasi</span>
-                    <DollarSign className="w-4 h-4 text-emerald-600" />
+                <div className="bg-[#FBF9F4] p-5 rounded-2xl border border-[#1B4332]/12 shadow-2xs space-y-1">
+                  <div className="flex items-center justify-between text-[#6B7A72]">
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#1B4332]">Infaq Terverifikasi</span>
+                    <Coins className="w-4 h-4 text-[#1B4332]" />
                   </div>
-                  <p className="text-2xl font-bold text-slate-900">
-                    Rp {executiveData.summary.donasiBulanIniRupiah.toLocaleString('id-ID')}
+                  <p className="text-xl sm:text-2xl font-bold font-mono text-[#1C2321]">
+                    {formatRupiah(executiveData.summary.donasiBulanIniRupiah)}
                   </p>
-                  <p className="text-[11px] text-slate-500">
-                    {executiveData.summary.transaksiDonasiCount} transaksi donasi
+                  <p className="text-[11px] text-[#6B7A72]">
+                    <strong className="font-semibold text-[#1C2321]">{executiveData.summary.transaksiDonasiCount}</strong> transaksi donasi sah
                   </p>
                 </div>
 
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-1">
-                  <div className="flex items-center justify-between text-slate-500">
-                    <span className="text-xs font-semibold uppercase">Presensi Jamaah</span>
-                    <CheckSquare className="w-4 h-4 text-emerald-600" />
+                <div className="bg-[#FBF9F4] p-5 rounded-2xl border border-[#1B4332]/12 shadow-2xs space-y-1">
+                  <div className="flex items-center justify-between text-[#6B7A72]">
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#0F4C4A]">Presensi Jamaah</span>
+                    <CheckSquare className="w-4 h-4 text-[#0F4C4A]" />
                   </div>
-                  <p className="text-2xl font-bold text-slate-900">
+                  <p className="text-xl sm:text-2xl font-bold font-mono text-[#1C2321]">
                     {executiveData.summary.totalHadirKajian.toLocaleString('id-ID')}
                   </p>
-                  <p className="text-[11px] text-slate-500">
-                    {executiveData.summary.jamaahUnikHadir} jamaah unik hadir
+                  <p className="text-[11px] text-[#6B7A72]">
+                    <strong className="font-semibold text-[#1C2321]">{executiveData.summary.jamaahUnikHadir}</strong> jamaah unik hadir kajian
                   </p>
                 </div>
 
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-1">
-                  <div className="flex items-center justify-between text-slate-500">
-                    <span className="text-xs font-semibold uppercase">Pipeline Wakaf Aset</span>
-                    <Landmark className="w-4 h-4 text-emerald-600" />
+                <div className="bg-[#FBF9F4] p-5 rounded-2xl border border-[#1B4332]/12 shadow-2xs space-y-1">
+                  <div className="flex items-center justify-between text-[#6B7A72]">
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#B58B3C]">Pipeline Wakaf Aset</span>
+                    <Landmark className="w-4 h-4 text-[#B58B3C]" />
                   </div>
-                  <p className="text-2xl font-bold text-slate-900">
-                    Rp {executiveData.summary.estimasiValuasiWakafRupiah.toLocaleString('id-ID')}
+                  <p className="text-xl sm:text-2xl font-bold font-mono text-[#1C2321]">
+                    {formatRupiah(executiveData.summary.estimasiValuasiWakafRupiah)}
                   </p>
-                  <p className="text-[11px] text-slate-500">
-                    {executiveData.summary.kasusWakafAktif} kasus aset dalam proses
+                  <p className="text-[11px] text-[#6B7A72]">
+                    <strong className="font-semibold text-[#1C2321]">{executiveData.summary.kasusWakafAktif}</strong> kasus aset dalam proses
                   </p>
                 </div>
 
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-1">
-                  <div className="flex items-center justify-between text-slate-500">
-                    <span className="text-xs font-semibold uppercase">Resolusi Follow-up</span>
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <div className="bg-[#FBF9F4] p-5 rounded-2xl border border-[#1B4332]/12 shadow-2xs space-y-1">
+                  <div className="flex items-center justify-between text-[#6B7A72]">
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#2F7D4F]">Resolusi Follow-Up</span>
+                    <CheckCircle2 className="w-4 h-4 text-[#2F7D4F]" />
                   </div>
-                  <p className="text-2xl font-bold text-slate-900">
+                  <p className="text-xl sm:text-2xl font-bold font-mono text-[#1C2321]">
                     {executiveData.summary.resolusiFollowUpRate}%
                   </p>
-                  <p className="text-[11px] text-slate-500">
-                    {executiveData.summary.tugasOverdue} tugas overdue
+                  <p className="text-[11px] text-[#6B7A72]">
+                    <strong className="font-semibold text-rose-600">{executiveData.summary.tugasOverdue}</strong> tugas overdue
                   </p>
                 </div>
               </div>
 
               {/* Program Breakdown Table */}
-              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
-                <h3 className="text-base font-bold text-slate-900">Distribusi Penerimaan Infaq per Program Dakwah</h3>
+              <div className="bg-[#FBF9F4] border border-[#1B4332]/12 rounded-3xl p-6 shadow-xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-base font-bold font-display text-[#1C2321]">Distribusi Penerimaan Infaq per Program Dakwah</h3>
+                    <p className="text-xs text-[#6B7A72]">Rincian donasi masuk dan donatur unik terverifikasi</p>
+                  </div>
+                </div>
+
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
+                  <table className="w-full text-left text-xs">
                     <thead>
-                      <tr className="border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wider bg-slate-50">
+                      <tr className="border-b border-[#1B4332]/10 bg-[#F2EEE4] font-mono font-bold uppercase text-[#6B7A72] text-[10.5px]">
                         <th className="py-3 px-4">Nama Program Infaq</th>
                         <th className="py-3 px-4 text-right">Total Penerimaan</th>
                         <th className="py-3 px-4 text-center">Donatur Unik</th>
                         <th className="py-3 px-4 text-center">Frekuensi Transaksi</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-[#1B4332]/8">
                       {executiveData.programBreakdown.map((p) => (
-                        <tr key={p.programId} className="hover:bg-slate-50">
-                          <td className="py-3 px-4 font-semibold text-slate-900">{p.programName}</td>
-                          <td className="py-3 px-4 text-right font-bold text-emerald-800">
-                            Rp {p.totalRupiah.toLocaleString('id-ID')}
+                        <tr key={p.programId} className="hover:bg-[#F2EEE4]/50 transition-colors">
+                          <td className="py-3 px-4 font-bold text-[#1C2321]">{p.programName}</td>
+                          <td className="py-3 px-4 text-right font-mono font-bold text-[#1B4332]">
+                            {formatRupiah(p.totalRupiah)}
                           </td>
-                          <td className="py-3 px-4 text-center font-medium text-slate-700">{p.donorsCount}</td>
-                          <td className="py-3 px-4 text-center text-slate-500">{p.transactionsCount}</td>
+                          <td className="py-3 px-4 text-center font-mono font-semibold text-[#1C2321]">{p.donorsCount}</td>
+                          <td className="py-3 px-4 text-center font-mono text-[#6B7A72]">{p.transactionsCount}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -451,52 +673,104 @@ export function ReportsPage() {
         </div>
       )}
 
-      {/* 2. TAB: DONATIONS RECONCILIATION */}
+      {/* =========================================================================
+          TAB 2: DONATIONS RECONCILIATION
+      ========================================================================= */}
       {activeTab === 'donations' && (
-        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-4">
+        <div className="bg-[#FBF9F4] border border-[#1B4332]/12 rounded-3xl p-6 shadow-xs space-y-5 animate-in fade-in duration-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#1B4332]/10 pb-4">
             <div>
-              <h2 className="text-lg font-bold text-slate-900">Rekonsiliasi Mutasi Infaq & Keuangan</h2>
-              <p className="text-xs text-slate-500">Laporan pencocokan bukti transfer donatur dengan verifikasi rekening bank.</p>
+              <h2 className="text-base sm:text-lg font-bold font-display text-[#1C2321]">
+                Rekonsiliasi Mutasi Infaq &amp; Keuangan
+              </h2>
+              <p className="text-xs text-[#6B7A72]">
+                Pencocokan bukti transfer donatur dengan verifikasi rekening bank yayasan.
+              </p>
             </div>
+
             <button
               onClick={() => setExportModal('donations_reconciliation')}
-              className={`px-4 py-2 text-sm font-semibold rounded-xl ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} shadow-xs transition-all flex items-center gap-2 active:scale-95`}
+              className="px-4 py-2 text-xs font-bold bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl shadow-2xs transition-all flex items-center gap-1.5 active:scale-98 self-start sm:self-auto"
             >
-              <Download className="w-4 h-4 text-gold-300" />
-              Ekspor Data Keuangan
+              <Download className="w-3.5 h-3.5 text-[#E0B970]" />
+              <span>Ekspor Data Finansial</span>
             </button>
           </div>
 
-          {loadingDonations ? (
-            <div className="py-12 text-center text-slate-500">Memuat data rekonsiliasi...</div>
-          ) : reconciliationData && (
-            <>
-              {/* Metrics Bar */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl">
-                <div>
-                  <span className="text-xs text-slate-500">Total Transaksi Masuk:</span>
-                  <p className="text-xl font-bold text-slate-900">{reconciliationData.metrics.totalTransactions}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-slate-500">Total Sah Terverifikasi:</span>
-                  <p className="text-xl font-bold text-emerald-700">
-                    Rp {reconciliationData.metrics.totalVerifiedRupiah.toLocaleString('id-ID')}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-xs text-slate-500">Menunggu Verifikasi (Pending):</span>
-                  <p className="text-xl font-bold text-amber-700">
-                    Rp {reconciliationData.metrics.totalUnverifiedRupiah.toLocaleString('id-ID')}
-                  </p>
-                </div>
+          {/* Metrics Strip */}
+          {reconciliationData && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-[#F2EEE4] p-4 rounded-2xl border border-[#1B4332]/10">
+              <div>
+                <span className="text-[10.5px] font-mono font-bold text-[#6B7A72] uppercase block">Total Transaksi</span>
+                <span className="text-lg font-bold font-mono text-[#1C2321]">{reconciliationData.metrics.totalTransactions}</span>
               </div>
+              <div>
+                <span className="text-[10.5px] font-mono font-bold text-[#2F7D4F] uppercase block">Sah Terverifikasi</span>
+                <span className="text-lg font-bold font-mono text-[#2F7D4F]">
+                  {formatRupiah(reconciliationData.metrics.totalVerifiedRupiah)}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10.5px] font-mono font-bold text-[#C77A16] uppercase block">Menunggu Verifikasi</span>
+                <span className="text-lg font-bold font-mono text-[#C77A16]">
+                  {formatRupiah(reconciliationData.metrics.totalUnverifiedRupiah)}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10.5px] font-mono font-bold text-[#6B7A72] uppercase block">Pending / Butuh Review</span>
+                <span className="text-lg font-bold font-mono text-[#1C2321]">
+                  {reconciliationData.metrics.statusCounts.unverified + reconciliationData.metrics.statusCounts.need_review}
+                </span>
+              </div>
+            </div>
+          )}
 
-              {/* Transactions Table */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
+          {/* Filters and Search */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
+            <div className="relative w-full sm:w-72">
+              <Search className="w-3.5 h-3.5 text-[#6B7A72] absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={donationsSearch}
+                onChange={(e) => {
+                  setDonationsSearch(e.target.value);
+                  setDonationsPage(1);
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && fetchReconciliationReport()}
+                placeholder="Cari donatur atau program..."
+                className="w-full pl-9 pr-3 py-2 bg-white border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <select
+                value={donationsStatus}
+                onChange={(e) => {
+                  setDonationsStatus(e.target.value);
+                  setDonationsPage(1);
+                }}
+                className="px-3 py-2 bg-white border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
+              >
+                <option value="all">Semua Status Verifikasi</option>
+                <option value="verified">Verified (Sah)</option>
+                <option value="unverified">Unverified (Belum)</option>
+                <option value="need_review">Need Review</option>
+                <option value="rejected">Ditolak</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Table */}
+          {loadingDonations ? (
+            <div className="py-12">
+              <LoadingState message="Memuat mutasi data keuangan..." />
+            </div>
+          ) : reconciliationData && (
+            <div className="space-y-3">
+              <div className="overflow-x-auto rounded-2xl border border-[#1B4332]/10 bg-white">
+                <table className="w-full text-left text-xs">
                   <thead>
-                    <tr className="border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wider bg-slate-50">
+                    <tr className="border-b border-[#1B4332]/10 bg-[#F2EEE4] font-mono font-bold uppercase text-[#6B7A72] text-[10.5px]">
                       <th className="py-3 px-4">Tanggal</th>
                       <th className="py-3 px-4">Nama Donatur</th>
                       <th className="py-3 px-4">Program Infaq</th>
@@ -505,127 +779,465 @@ export function ReportsPage() {
                       <th className="py-3 px-4">Petugas Verifier</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {reconciliationData.items.map((item) => (
-                      <tr key={item.id} className="hover:bg-slate-50">
-                        <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
-                          {new Date(item.donationDate).toLocaleDateString('id-ID')}
+                  <tbody className="divide-y divide-[#1B4332]/8">
+                    {reconciliationData.items.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-[#6B7A72] text-xs">
+                          Tidak ada transaksi donasi yang sesuai dengan filter.
                         </td>
-                        <td className="py-3 px-4">
-                          <div className="font-semibold text-slate-900">{item.donorName}</div>
-                          <div className="text-xs text-slate-500">{item.donorPhone}</div>
-                        </td>
-                        <td className="py-3 px-4 text-slate-700">{item.programName}</td>
-                        <td className="py-3 px-4 text-right font-bold text-slate-900">
-                          Rp {item.amountRupiah.toLocaleString('id-ID')}
-                        </td>
-                        <td className="py-3 px-4">
-                          <span
-                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                              item.verificationStatus === 'verified'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : item.verificationStatus === 'unverified'
-                                ? 'bg-amber-100 text-amber-800'
-                                : 'bg-rose-100 text-rose-800'
-                            }`}
-                          >
-                            {item.verificationStatus}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-xs text-slate-600">{item.verifiedByName || '-'}</td>
                       </tr>
-                    ))}
+                    ) : (
+                      reconciliationData.items.map((item) => (
+                        <tr key={item.id} className="hover:bg-[#F2EEE4]/40 transition-colors">
+                          <td className="py-3 px-4 text-[#6B7A72] font-mono whitespace-nowrap">
+                            {new Date(item.donationDate).toLocaleDateString('id-ID')}
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="font-bold text-[#1C2321]">{item.donorName}</div>
+                            <div className="text-[11px] font-mono text-[#6B7A72]">{item.donorPhone}</div>
+                          </td>
+                          <td className="py-3 px-4 text-[#1C2321] font-medium">{item.programName}</td>
+                          <td className="py-3 px-4 text-right font-mono font-bold text-[#1B4332]">
+                            {formatRupiah(item.amountRupiah)}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10.5px] font-mono font-bold uppercase tracking-wider ${
+                                item.verificationStatus === 'verified'
+                                  ? 'bg-[#2F7D4F]/15 text-[#2F7D4F]'
+                                  : item.verificationStatus === 'unverified'
+                                  ? 'bg-[#C77A16]/15 text-[#C77A16]'
+                                  : 'bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {item.verificationStatus}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-[11px] text-[#6B7A72]">{item.verifiedByName || '-'}</td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
-            </>
+
+              {/* Server Pagination Controls */}
+              {reconciliationData.pagination && reconciliationData.pagination.totalPages > 1 && (
+                <div className="flex items-center justify-between pt-2 px-1 text-xs text-[#6B7A72]">
+                  <span>
+                    Menampilkan hal <strong className="font-semibold text-[#1C2321]">{reconciliationData.pagination.page}</strong> dari{' '}
+                    <strong className="font-semibold text-[#1C2321]">{reconciliationData.pagination.totalPages}</strong> ({reconciliationData.pagination.total} transaksi)
+                  </span>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setDonationsPage((p) => Math.max(1, p - 1))}
+                      disabled={reconciliationData.pagination.page <= 1}
+                      className="p-1.5 rounded-lg border border-[#1B4332]/14 bg-white hover:bg-[#F2EEE4] disabled:opacity-40 transition-colors"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="font-mono font-bold px-2 text-[#1C2321]">
+                      {reconciliationData.pagination.page}
+                    </span>
+                    <button
+                      onClick={() => setDonationsPage((p) => Math.min(reconciliationData.pagination.totalPages, p + 1))}
+                      disabled={reconciliationData.pagination.page >= reconciliationData.pagination.totalPages}
+                      className="p-1.5 rounded-lg border border-[#1B4332]/14 bg-white hover:bg-[#F2EEE4] disabled:opacity-40 transition-colors"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}
 
-      {/* 3. TAB: ATTENDANCE SUMMARY */}
-      {activeTab === 'attendance' && (
-        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
-          <div className="flex justify-between items-center border-b pb-4">
+      {/* =========================================================================
+          TAB 3: WAQF PORTFOLIO & PIPELINE
+      ========================================================================= */}
+      {activeTab === 'waqf' && (
+        <div className="bg-[#FBF9F4] border border-[#1B4332]/12 rounded-3xl p-6 shadow-xs space-y-5 animate-in fade-in duration-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#1B4332]/10 pb-4">
             <div>
-              <h2 className="text-lg font-bold text-slate-900">Rekapitulasi Kehadiran Kajian & Acara Dakwah</h2>
-              <p className="text-xs text-slate-500">Statistik partisipasi jamaah tabligh akbar dan daurah intensif.</p>
+              <h2 className="text-base sm:text-lg font-bold font-display text-[#1C2321]">
+                Portofolio &amp; Pipeline Wakaf Aset (7 Tahap)
+              </h2>
+              <p className="text-xs text-[#6B7A72]">
+                Laporan penelusuran status ikrar, verifikasi berkas, dan pengelolaan aset wakaf produktif.
+              </p>
             </div>
+
             <button
-              onClick={() => setExportModal('attendance_summary')}
-              className={`px-4 py-2 text-sm font-semibold rounded-xl ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} shadow-xs transition-all flex items-center gap-2 active:scale-95`}
+              onClick={() => setExportModal('waqf_pipeline')}
+              className="px-4 py-2 text-xs font-bold bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl shadow-2xs transition-all flex items-center gap-1.5 active:scale-98 self-start sm:self-auto"
             >
-              <Download className="w-4 h-4 text-gold-300" />
-              Ekspor Presensi
+              <Download className="w-3.5 h-3.5 text-[#E0B970]" />
+              <span>Ekspor Data Wakaf</span>
             </button>
           </div>
 
-          {loadingAttendance ? (
-            <div className="py-12 text-center text-slate-500">Memuat data presensi kajian...</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wider bg-slate-50">
-                    <th className="py-3 px-4">Judul Kajian</th>
-                    <th className="py-3 px-4">Pemateri</th>
-                    <th className="py-3 px-4">Waktu Pelaksanaan</th>
-                    <th className="py-3 px-4">Mode / Tempat</th>
-                    <th className="py-3 px-4 text-center">Total Presensi</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {eventsList.map((e) => (
-                    <tr key={e.id} className="hover:bg-slate-50">
-                      <td className="py-3 px-4 font-bold text-slate-900">{e.title}</td>
-                      <td className="py-3 px-4 text-slate-700">{e.speaker}</td>
-                      <td className="py-3 px-4 text-slate-600 text-xs">
-                        {new Date(e.startAt).toLocaleString('id-ID')}
-                      </td>
-                      <td className="py-3 px-4 text-xs text-slate-600">
-                        {e.deliveryMode.toUpperCase()} {e.locationName ? `— ${e.locationName}` : ''}
-                      </td>
-                      <td className="py-3 px-4 text-center font-bold text-emerald-700">{e.totalAttendees} jamaah</td>
+          {/* Metrics Strip */}
+          {waqfData && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-[#F2EEE4] p-4 rounded-2xl border border-[#1B4332]/10">
+              <div>
+                <span className="text-[10.5px] font-mono font-bold text-[#6B7A72] uppercase block">Total Kasus Aset</span>
+                <span className="text-lg font-bold font-mono text-[#1C2321]">{waqfData.metrics.totalCases} kasus</span>
+              </div>
+              <div>
+                <span className="text-[10.5px] font-mono font-bold text-[#B58B3C] uppercase block">Total Estimasi Valuasi</span>
+                <span className="text-lg font-bold font-mono text-[#B58B3C]">
+                  {formatRupiah(waqfData.metrics.totalValuationRupiah)}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10.5px] font-mono font-bold text-[#2F7D4F] uppercase block">Aset Sah &amp; Berjalan</span>
+                <span className="text-lg font-bold font-mono text-[#2F7D4F]">
+                  {waqfData.metrics.completedCases} aset terkelola
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Filters */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
+            <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+              <select
+                value={waqfStageFilter}
+                onChange={(e) => {
+                  setWaqfStageFilter(e.target.value);
+                  setWaqfPage(1);
+                }}
+                className="px-3 py-2 bg-white border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
+              >
+                <option value="all">Semua Tahapan Pipeline</option>
+                <option value="interested">1. Penjajakan Awal</option>
+                <option value="consulted">2. Konsultasi &amp; Advis</option>
+                <option value="pledged">3. Ikrar / Komitmen</option>
+                <option value="document_preparation">4. Verifikasi Dokumen</option>
+                <option value="in_progress">5. Penyusunan Akad</option>
+                <option value="completed">6. Serah Terima &amp; Sah</option>
+                <option value="stewardship">7. Pengelolaan Aset</option>
+              </select>
+
+              <select
+                value={waqfTypeFilter}
+                onChange={(e) => {
+                  setWaqfTypeFilter(e.target.value);
+                  setWaqfPage(1);
+                }}
+                className="px-3 py-2 bg-white border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
+              >
+                <option value="all">Semua Jenis Aset</option>
+                <option value="tanah_bangunan">Tanah &amp; Bangunan</option>
+                <option value="uang_tunai">Wakaf Uang Tunai</option>
+                <option value="kendaraan">Kendaraan Operasional</option>
+                <option value="logistik_dakwah">Perangkat Dakwah</option>
+                <option value="emas_surat_berharga">Logam Mulia / Saham</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Table */}
+          {loadingWaqf ? (
+            <div className="py-12">
+              <LoadingState message="Memuat portofolio wakaf..." />
+            </div>
+          ) : waqfData && (
+            <div className="space-y-3">
+              <div className="overflow-x-auto rounded-2xl border border-[#1B4332]/10 bg-white">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-[#1B4332]/10 bg-[#F2EEE4] font-mono font-bold uppercase text-[#6B7A72] text-[10.5px]">
+                      <th className="py-3 px-4">Nama Waqif</th>
+                      <th className="py-3 px-4">Jenis Aset</th>
+                      <th className="py-3 px-4 text-right">Estimasi Nilai</th>
+                      <th className="py-3 px-4">Tahapan Pipeline</th>
+                      <th className="py-3 px-4">Amil Pendamping</th>
+                      <th className="py-3 px-4">Tanggal Buka</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-[#1B4332]/8">
+                    {waqfData.items.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-[#6B7A72] text-xs">
+                          Tidak ada portofolio wakaf yang sesuai dengan filter.
+                        </td>
+                      </tr>
+                    ) : (
+                      waqfData.items.map((c) => {
+                        const stageObj = WAQF_STAGE_LABELS[c.currentStage] || { label: c.currentStage, bg: 'bg-[#F2EEE4]', color: 'text-[#1C2321]' };
+
+                        return (
+                          <tr key={c.id} className="hover:bg-[#F2EEE4]/40 transition-colors">
+                            <td className="py-3 px-4">
+                              <div className="font-bold text-[#1C2321]">{c.waqifName}</div>
+                              <div className="text-[11px] font-mono text-[#6B7A72]">{c.waqifPhone} · {c.waqifCity}</div>
+                            </td>
+                            <td className="py-3 px-4 text-[#1C2321] font-medium">
+                              {WAQF_TYPE_LABELS[c.waqfType] || c.waqfType}
+                            </td>
+                            <td className="py-3 px-4 text-right font-mono font-bold text-[#B58B3C]">
+                              {formatRupiah(c.estimatedValueRupiah)}
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10.5px] font-mono font-bold ${stageObj.bg} ${stageObj.color}`}>
+                                {stageObj.label}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-[11px] text-[#6B7A72]">{c.ownerName}</td>
+                            <td className="py-3 px-4 text-[#6B7A72] font-mono whitespace-nowrap text-[11px]">
+                              {new Date(c.openedAt).toLocaleDateString('id-ID')}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Server Pagination */}
+              {waqfData.pagination && waqfData.pagination.totalPages > 1 && (
+                <div className="flex items-center justify-between pt-2 px-1 text-xs text-[#6B7A72]">
+                  <span>
+                    Menampilkan hal <strong className="font-semibold text-[#1C2321]">{waqfData.pagination.page}</strong> dari{' '}
+                    <strong className="font-semibold text-[#1C2321]">{waqfData.pagination.totalPages}</strong> ({waqfData.pagination.total} kasus)
+                  </span>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setWaqfPage((p) => Math.max(1, p - 1))}
+                      disabled={waqfData.pagination.page <= 1}
+                      className="p-1.5 rounded-lg border border-[#1B4332]/14 bg-white hover:bg-[#F2EEE4] disabled:opacity-40 transition-colors"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="font-mono font-bold px-2 text-[#1C2321]">
+                      {waqfData.pagination.page}
+                    </span>
+                    <button
+                      onClick={() => setWaqfPage((p) => Math.min(waqfData.pagination.totalPages, p + 1))}
+                      disabled={waqfData.pagination.page >= waqfData.pagination.totalPages}
+                      className="p-1.5 rounded-lg border border-[#1B4332]/14 bg-white hover:bg-[#F2EEE4] disabled:opacity-40 transition-colors"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
       )}
 
-      {/* 4. TAB: IMPORT & EXPORT HUB */}
-      {activeTab === 'import_export' && (
-        <div className="space-y-6">
-          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
-            <div className="flex items-center gap-2 font-bold text-lg text-slate-900">
-              <Upload className="w-5 h-5 text-emerald-600" />
-              Impor Massal Data Jamaah via CSV (dengan Uji Validasi Dry Run)
+      {/* =========================================================================
+          TAB 4: ATTENDANCE & DAKWAH REPORT
+      ========================================================================= */}
+      {activeTab === 'attendance' && (
+        <div className="bg-[#FBF9F4] border border-[#1B4332]/12 rounded-3xl p-6 shadow-xs space-y-5 animate-in fade-in duration-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#1B4332]/10 pb-4">
+            <div>
+              <h2 className="text-base sm:text-lg font-bold font-display text-[#1C2321]">
+                Rekapitulasi Kehadiran Kajian &amp; Acara Dakwah
+              </h2>
+              <p className="text-xs text-[#6B7A72]">
+                Statistik partisipasi jamaah kajian rutin, tabligh akbar, dan daurah intensif.
+              </p>
             </div>
-            <p className="text-xs text-slate-500">
-              Tempelkan data format CSV (Nama, No_HP, Email, Kota, Gender). Sistem akan melakukan uji normalisasi nomor E.164 dan deteksi duplikasi sebelum disimpan.
-            </p>
+
+            <button
+              onClick={() => setExportModal('attendance_summary')}
+              className="px-4 py-2 text-xs font-bold bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl shadow-2xs transition-all flex items-center gap-1.5 active:scale-98 self-start sm:self-auto"
+            >
+              <Download className="w-3.5 h-3.5 text-[#E0B970]" />
+              <span>Ekspor Presensi</span>
+            </button>
+          </div>
+
+          {/* Metrics Strip */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-[#F2EEE4] p-4 rounded-2xl border border-[#1B4332]/10">
+            <div>
+              <span className="text-[10.5px] font-mono font-bold text-[#6B7A72] uppercase block">Total Acara Kajian</span>
+              <span className="text-lg font-bold font-mono text-[#1C2321]">{attendanceMetrics.totalEvents} kajian</span>
+            </div>
+            <div>
+              <span className="text-[10.5px] font-mono font-bold text-[#0F4C4A] uppercase block">Total Presensi Kumulatif</span>
+              <span className="text-lg font-bold font-mono text-[#0F4C4A]">
+                {attendanceMetrics.totalAttendeesSum.toLocaleString('id-ID')} jamaah
+              </span>
+            </div>
+            <div>
+              <span className="text-[10.5px] font-mono font-bold text-[#1B4332] uppercase block">Rata-Rata per Majelis</span>
+              <span className="text-lg font-bold font-mono text-[#1B4332]">
+                {attendanceMetrics.avgAttendees} jamaah / event
+              </span>
+            </div>
+          </div>
+
+          {/* Filters & Search */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
+            <div className="relative w-full sm:w-72">
+              <Search className="w-3.5 h-3.5 text-[#6B7A72] absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={attendanceSearch}
+                onChange={(e) => {
+                  setAttendanceSearch(e.target.value);
+                  setAttendancePage(1);
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && fetchAttendanceReport()}
+                placeholder="Cari judul kajian atau pemateri..."
+                className="w-full pl-9 pr-3 py-2 bg-white border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <select
+                value={attendanceMode}
+                onChange={(e) => {
+                  setAttendanceMode(e.target.value);
+                  setAttendancePage(1);
+                }}
+                className="px-3 py-2 bg-white border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
+              >
+                <option value="all">Semua Mode Pelaksanaan</option>
+                <option value="offline">Offline di Masjid</option>
+                <option value="online">Online Streaming</option>
+                <option value="hybrid">Hybrid</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Table */}
+          {loadingAttendance ? (
+            <div className="py-12">
+              <LoadingState message="Memuat data presensi kajian..." />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="overflow-x-auto rounded-2xl border border-[#1B4332]/10 bg-white">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-[#1B4332]/10 bg-[#F2EEE4] font-mono font-bold uppercase text-[#6B7A72] text-[10.5px]">
+                      <th className="py-3 px-4">Judul Kajian</th>
+                      <th className="py-3 px-4">Pemateri</th>
+                      <th className="py-3 px-4">Waktu Pelaksanaan</th>
+                      <th className="py-3 px-4">Mode / Tempat</th>
+                      <th className="py-3 px-4 text-center">Total Presensi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#1B4332]/8">
+                    {eventsList.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-[#6B7A72] text-xs">
+                          Tidak ada data kajian yang sesuai dengan pencarian.
+                        </td>
+                      </tr>
+                    ) : (
+                      eventsList.map((e) => (
+                        <tr key={e.id} className="hover:bg-[#F2EEE4]/40 transition-colors">
+                          <td className="py-3 px-4 font-bold text-[#1C2321]">{e.title}</td>
+                          <td className="py-3 px-4 text-[#1C2321] font-medium">{e.speaker}</td>
+                          <td className="py-3 px-4 text-[#6B7A72] font-mono text-[11px] whitespace-nowrap">
+                            {new Date(e.startAt).toLocaleString('id-ID', {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </td>
+                          <td className="py-3 px-4 text-[11px] text-[#6B7A72]">
+                            <span className="font-mono font-bold uppercase text-[#14352A]">{e.deliveryMode}</span>
+                            {e.locationName ? ` — ${e.locationName}` : ''}
+                          </td>
+                          <td className="py-3 px-4 text-center font-mono font-bold text-[#1B4332]">
+                            {e.totalAttendees.toLocaleString('id-ID')} jamaah
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Server Pagination */}
+              {attendancePagination.totalPages > 1 && (
+                <div className="flex items-center justify-between pt-2 px-1 text-xs text-[#6B7A72]">
+                  <span>
+                    Menampilkan hal <strong className="font-semibold text-[#1C2321]">{attendancePagination.page}</strong> dari{' '}
+                    <strong className="font-semibold text-[#1C2321]">{attendancePagination.totalPages}</strong> ({attendancePagination.total} kajian)
+                  </span>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setAttendancePage((p) => Math.max(1, p - 1))}
+                      disabled={attendancePagination.page <= 1}
+                      className="p-1.5 rounded-lg border border-[#1B4332]/14 bg-white hover:bg-[#F2EEE4] disabled:opacity-40 transition-colors"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="font-mono font-bold px-2 text-[#1C2321]">
+                      {attendancePagination.page}
+                    </span>
+                    <button
+                      onClick={() => setAttendancePage((p) => Math.min(attendancePagination.totalPages, p + 1))}
+                      disabled={attendancePagination.page >= attendancePagination.totalPages}
+                      className="p-1.5 rounded-lg border border-[#1B4332]/14 bg-white hover:bg-[#F2EEE4] disabled:opacity-40 transition-colors"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* =========================================================================
+          TAB 5: IMPORT & EXPORT HUB
+      ========================================================================= */}
+      {activeTab === 'import_export' && (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          <div className="bg-[#FBF9F4] border border-[#1B4332]/12 rounded-3xl p-6 sm:p-8 shadow-xs space-y-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-[#1B4332]/10 flex items-center justify-center text-[#14352A]">
+                <Upload className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-bold font-display text-[#1C2321]">
+                  Impor Massal Data Jamaah via CSV (dengan Uji Validasi Dry Run)
+                </h3>
+                <p className="text-xs text-[#6B7A72]">
+                  Tempelkan data CSV. Sistem otomatis memvalidasi normalisasi E.164 dan mendeteksi duplikat kontak sebelum disimpan.
+                </p>
+              </div>
+            </div>
 
             {importSuccessMsg && (
-              <div className="p-4 bg-emerald-50 text-emerald-800 rounded-xl text-sm font-semibold flex items-center gap-2 border border-emerald-200">
-                <CheckCircle2 className="w-5 h-5" /> {importSuccessMsg}
+              <div className="p-4 bg-[#2F7D4F]/10 text-[#2F7D4F] rounded-2xl text-xs font-bold flex items-center gap-2 border border-[#2F7D4F]/20">
+                <CheckCircle2 className="w-4 h-4 text-[#2F7D4F]" />
+                <span>{importSuccessMsg}</span>
               </div>
             )}
 
             <div>
               <textarea
                 value={csvText}
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setCsvText(e.target.value)}
+                onChange={(e) => setCsvText(e.target.value)}
                 rows={5}
-                className="w-full p-3 font-mono text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full p-4 font-mono text-xs bg-white border border-[#1B4332]/14 rounded-2xl focus:ring-2 focus:ring-[#1B4332] outline-none text-[#1C2321]"
               />
             </div>
 
             <div className="flex justify-end gap-3">
               <button
                 onClick={handleDryRun}
-                className="px-4 py-2 text-sm font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors"
+                className="px-4 py-2.5 text-xs font-bold rounded-xl border border-[#1B4332]/18 text-[#14352A] bg-white hover:bg-[#F2EEE4] transition-all shadow-2xs active:scale-98"
               >
                 Uji Validasi (Dry Run)
               </button>
@@ -633,44 +1245,44 @@ export function ReportsPage() {
 
             {/* Dry Run Preview Table */}
             {dryRunResult && (
-              <div className="pt-4 border-t border-slate-100 space-y-4">
+              <div className="pt-4 border-t border-[#1B4332]/10 space-y-4">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-bold text-slate-900">Hasil Uji Validasi Baris Data</h4>
-                  <div className="flex gap-2 text-xs font-semibold">
-                    <span className="px-2 py-1 bg-emerald-100 text-emerald-800 rounded">
+                  <h4 className="text-xs font-bold text-[#1C2321] font-display">Hasil Uji Validasi Baris Data</h4>
+                  <div className="flex gap-2 text-[10.5px] font-mono font-bold">
+                    <span className="px-2.5 py-1 bg-[#2F7D4F]/15 text-[#2F7D4F] rounded-lg">
                       {dryRunResult.validCount} Valid
                     </span>
-                    <span className="px-2 py-1 bg-amber-100 text-amber-800 rounded">
+                    <span className="px-2.5 py-1 bg-[#C77A16]/15 text-[#C77A16] rounded-lg">
                       {dryRunResult.duplicateCount} Peringatan Duplikat
                     </span>
                   </div>
                 </div>
 
-                <div className="overflow-x-auto max-h-60">
+                <div className="overflow-x-auto max-h-60 rounded-2xl border border-[#1B4332]/10 bg-white">
                   <table className="w-full text-left text-xs">
                     <thead>
-                      <tr className="border-b border-slate-200 bg-slate-50 font-semibold text-slate-600">
-                        <th className="py-2 px-3">Baris</th>
-                        <th className="py-2 px-3">Nama</th>
-                        <th className="py-2 px-3">Nomor E.164 Normal</th>
-                        <th className="py-2 px-3">Kota</th>
-                        <th className="py-2 px-3">Status Uji</th>
+                      <tr className="border-b border-[#1B4332]/10 bg-[#F2EEE4] font-mono font-bold uppercase text-[#6B7A72] text-[10px]">
+                        <th className="py-2.5 px-3">Baris</th>
+                        <th className="py-2.5 px-3">Nama</th>
+                        <th className="py-2.5 px-3">Nomor E.164 Normal</th>
+                        <th className="py-2.5 px-3">Kota</th>
+                        <th className="py-2.5 px-3">Status Uji</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-[#1B4332]/8">
                       {dryRunResult.preview.map((p: any) => (
-                        <tr key={p.rowNumber} className={p.isValid ? 'hover:bg-slate-50' : 'bg-rose-50/50'}>
-                          <td className="py-2 px-3 font-mono">{p.rowNumber}</td>
-                          <td className="py-2 px-3 font-semibold text-slate-900">{p.fullName}</td>
-                          <td className="py-2 px-3 font-mono text-emerald-700">{p.normalizedPhone}</td>
-                          <td className="py-2 px-3 text-slate-600">{p.cityRegency || '-'}</td>
+                        <tr key={p.rowNumber} className={p.isValid ? 'hover:bg-[#F2EEE4]/40' : 'bg-rose-50/50'}>
+                          <td className="py-2 px-3 font-mono text-[#6B7A72]">{p.rowNumber}</td>
+                          <td className="py-2 px-3 font-bold text-[#1C2321]">{p.fullName}</td>
+                          <td className="py-2 px-3 font-mono text-[#2F7D4F]">{p.normalizedPhone}</td>
+                          <td className="py-2 px-3 text-[#6B7A72]">{p.cityRegency || '-'}</td>
                           <td className="py-2 px-3">
                             {p.isValid ? (
-                              <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                              <span className="text-[#2F7D4F] font-bold text-[11px] flex items-center gap-1">
                                 <Check className="w-3.5 h-3.5" /> Siap Impor
                               </span>
                             ) : (
-                              <span className="text-rose-700 font-semibold flex items-center gap-1">
+                              <span className="text-rose-700 font-bold text-[11px] flex items-center gap-1">
                                 <AlertTriangle className="w-3.5 h-3.5" /> {p.issues?.join(', ')}
                               </span>
                             )}
@@ -685,9 +1297,16 @@ export function ReportsPage() {
                   <button
                     onClick={handleCommitImport}
                     disabled={importing || dryRunResult.validCount === 0}
-                    className={`px-5 py-2.5 text-sm font-semibold rounded-xl ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} shadow-xs transition-all flex items-center gap-2 active:scale-95 disabled:opacity-50`}
+                    className="px-5 py-2.5 text-xs font-bold rounded-xl bg-[#1B4332] hover:bg-[#14352A] text-white shadow-xs transition-all flex items-center gap-2 active:scale-98 disabled:opacity-50"
                   >
-                    {importing ? 'Mengimpor Data...' : `Simpan ${dryRunResult.validCount} Data Jamaah ke Sistem`}
+                    {importing ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-[#E0B970]" />
+                        <span>Mengimpor Data...</span>
+                      </>
+                    ) : (
+                      <span>Simpan {dryRunResult.validCount} Data Jamaah ke Sistem</span>
+                    )}
                   </button>
                 </div>
               </div>
@@ -696,31 +1315,40 @@ export function ReportsPage() {
         </div>
       )}
 
-      {/* Export Reason Compliance Modal */}
+      {/* Compliance Export Modal */}
       {exportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
-            <h3 className="text-lg font-bold text-slate-900">Otorisasi Ekspor Data CSV</h3>
-            <p className="text-xs text-slate-500">
-              Sesuai kebijakan tata kelola dan perlindungan data yayasan, cantumkan alasan pengunduhan berkas laporan ini.
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0F3A2E]/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-[#FBF9F4] rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl border border-[#1B4332]/15 space-y-4 text-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-[#1B4332]/10 flex items-center justify-center text-[#14352A]">
+                <Download className="w-5 h-5 text-[#14352A]" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold font-display text-[#1C2321]">Otorisasi Ekspor Data CSV</h3>
+                <p className="text-[11px] text-[#6B7A72]">Tata Kelola &amp; Perlindungan Data Amanah</p>
+              </div>
+            </div>
+
+            <p className="text-[#6B7A72] leading-relaxed">
+              Sesuai kebijakan kepatuhan dan perlindungan data yayasan, cantumkan alasan operasional pengunduhan berkas laporan ini.
             </p>
 
             <form onSubmit={handleExportSubmit} className="space-y-4">
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Alasan Kepatuhan Ekspor</label>
+              <div className="space-y-1">
+                <label className="font-semibold text-[#1C2321]">Alasan Kepatuhan Ekspor:</label>
                 <textarea
                   value={exportReason}
-                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setExportReason(e.target.value)}
+                  onChange={(e) => setExportReason(e.target.value)}
                   placeholder="Contoh: Laporan berkala pertanggungjawaban infaq untuk dewan pembina yayasan"
                   rows={3}
-                  className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full p-3 bg-white border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
                   required
                 />
               </div>
 
               {exportSuccess && (
-                <div className="p-3 bg-emerald-50 text-emerald-800 rounded-lg text-xs font-semibold flex items-center gap-2">
-                  <Check className="w-4 h-4" /> Ekspor dicatat ke audit log & berkas siap diunduh!
+                <div className="p-3 bg-[#2F7D4F]/10 text-[#2F7D4F] rounded-xl text-xs font-bold flex items-center gap-2 border border-[#2F7D4F]/20">
+                  <Check className="w-4 h-4" /> Ekspor dicatat ke audit log &amp; berkas siap diunduh!
                 </div>
               )}
 
@@ -728,16 +1356,16 @@ export function ReportsPage() {
                 <button
                   type="button"
                   onClick={() => setExportModal(null)}
-                  className="px-4 py-2 text-sm font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors"
+                  className="px-4 py-2 text-xs font-bold rounded-xl border border-[#1B4332]/14 text-[#6B7A72] hover:bg-[#F2EEE4] transition-all"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={exportSuccess}
-                  className={`px-4 py-2 text-sm font-semibold rounded-xl ${currentTheme.colors.primaryBtnBg} ${currentTheme.colors.primaryBtnText} shadow-xs transition-all disabled:opacity-50`}
+                  className="px-4 py-2 text-xs font-bold rounded-xl bg-[#1B4332] hover:bg-[#14352A] text-white shadow-xs transition-all disabled:opacity-50"
                 >
-                  Konfirmasi & Unduh
+                  Konfirmasi &amp; Unduh
                 </button>
               </div>
             </form>

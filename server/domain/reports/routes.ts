@@ -12,13 +12,39 @@ import {
   waqfCases,
   tasks,
 } from '../../db/schema';
-import { eq, and, sql, desc, gte, lte } from 'drizzle-orm';
+import { eq, and, sql, desc, gte, lte, ilike, or } from 'drizzle-orm';
 import { PERMISSIONS } from '../../permissions/constants';
 import { logExportEvent, logAuditEvent } from '../../audit/service';
 import { normalizeIndonesianPhone, isValidE164 } from '../../lib/phone';
 
+// In-memory cache for fast report metric loading (TTL: 60s)
+const reportCache = new Map<string, { timestamp: number; data: any }>();
+const CACHE_TTL_MS = 60 * 1000;
+
+function getCached<T>(key: string): T | null {
+  const cached = reportCache.get(key);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data as T;
+  }
+  return null;
+}
+
+function setCache(key: string, data: any) {
+  reportCache.set(key, { timestamp: Date.now(), data });
+}
+
+export function clearReportCache() {
+  reportCache.clear();
+}
+
 const exportReportSchema = z.object({
-  reportType: z.enum(['executive_monthly', 'donations_reconciliation', 'attendance_summary', 'waqf_pipeline', 'jamaah_demographics']),
+  reportType: z.enum([
+    'executive_monthly',
+    'donations_reconciliation',
+    'attendance_summary',
+    'waqf_pipeline',
+    'jamaah_demographics',
+  ]),
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
   reason: z.string().min(5, 'Alasan kepatuhan ekspor minimal 5 karakter'),
@@ -59,6 +85,12 @@ export function registerReportsRoutes(router: Router) {
       requirePermission(PERMISSIONS.REPORTS_VIEW, async (ctx) => {
         const db = getDb();
         const monthParam = ctx.query.month || new Date().toISOString().substring(0, 7); // YYYY-MM
+        const cacheKey = `executive_${monthParam}`;
+        const cached = getCached<any>(cacheKey);
+        if (cached) {
+          return successResponse(cached, { requestId: ctx.requestId });
+        }
+
         const startOfMonth = new Date(`${monthParam}-01T00:00:00.000Z`);
         const endOfMonth = new Date(new Date(startOfMonth).setMonth(startOfMonth.getMonth() + 1));
 
@@ -135,42 +167,78 @@ export function registerReportsRoutes(router: Router) {
           ? Math.round(((tasksStats.completedTasks || 0) / tasksStats.totalTasks) * 100)
           : 100;
 
-        return successResponse(
-          {
-            period: monthParam,
-            summary: {
-              donasiBulanIniRupiah: Number(donationsMonth?.totalRupiah || 0),
-              transaksiDonasiCount: donationsMonth?.count || 0,
-              totalHadirKajian: attendanceStats?.totalAttendees || 0,
-              jamaahUnikHadir: attendanceStats?.uniquePersons || 0,
-              estimasiValuasiWakafRupiah: Number(waqfSummary?.totalEstimatedRupiah || 0),
-              kasusWakafAktif: waqfSummary?.activeCasesCount || 0,
-              resolusiFollowUpRate: resolutionRate,
-              tugasOverdue: tasksStats?.overdueTasks || 0,
-            },
-            programBreakdown: programBreakdown.map((p) => ({
-              ...p,
-              totalRupiah: Number(p.totalRupiah || 0),
-            })),
+        const responseData = {
+          period: monthParam,
+          summary: {
+            donasiBulanIniRupiah: Number(donationsMonth?.totalRupiah || 0),
+            transaksiDonasiCount: donationsMonth?.count || 0,
+            totalHadirKajian: attendanceStats?.totalAttendees || 0,
+            jamaahUnikHadir: attendanceStats?.uniquePersons || 0,
+            estimasiValuasiWakafRupiah: Number(waqfSummary?.totalEstimatedRupiah || 0),
+            kasusWakafAktif: waqfSummary?.activeCasesCount || 0,
+            resolusiFollowUpRate: resolutionRate,
+            tugasOverdue: tasksStats?.overdueTasks || 0,
           },
-          { requestId: ctx.requestId }
-        );
+          programBreakdown: programBreakdown.map((p) => ({
+            ...p,
+            totalRupiah: Number(p.totalRupiah || 0),
+          })),
+        };
+
+        setCache(cacheKey, responseData);
+        return successResponse(responseData, { requestId: ctx.requestId });
       })
     )
   );
 
-  // 2. GET /api/reports/donations-reconciliation
+  // 2. GET /api/reports/donations-reconciliation (Fast, Paginated & Searchable)
   router.get(
     '/api/reports/donations-reconciliation',
     requireAuth(
       requirePermission(PERMISSIONS.REPORTS_FINANCE, async (ctx) => {
         const db = getDb();
-        const dateFrom = ctx.query.dateFrom ? new Date(ctx.query.dateFrom) : new Date(Date.now() - 30 * 86400000);
+        const dateFrom = ctx.query.dateFrom ? new Date(ctx.query.dateFrom) : new Date(Date.now() - 90 * 86400000);
         const dateTo = ctx.query.dateTo ? new Date(ctx.query.dateTo) : new Date();
+        const statusFilter = ctx.query.status as string | undefined;
+        const programFilter = ctx.query.programId as string | undefined;
+        const search = ctx.query.search?.trim();
+        const page = Math.max(1, parseInt(ctx.query.page || '1', 10));
+        const limit = Math.min(100, Math.max(1, parseInt(ctx.query.limit || '15', 10)));
+        const offset = (page - 1) * limit;
 
+        // Build base conditions
+        const conditions = [
+          gte(donations.donationDate, dateFrom),
+          lte(donations.donationDate, dateTo),
+        ];
+
+        if (statusFilter && statusFilter !== 'all') {
+          conditions.push(eq(donations.verificationStatus, statusFilter as any));
+        }
+        if (programFilter && programFilter !== 'all') {
+          conditions.push(eq(donations.programId, programFilter));
+        }
+
+        // Summary Aggregates
+        const [aggregateStats] = await db
+          .select({
+            totalCount: sql<number>`count(*)::int`,
+            verifiedCount: sql<number>`count(case when ${donations.verificationStatus} = 'verified' then 1 end)::int`,
+            unverifiedCount: sql<number>`count(case when ${donations.verificationStatus} = 'unverified' then 1 end)::int`,
+            rejectedCount: sql<number>`count(case when ${donations.verificationStatus} = 'rejected' then 1 end)::int`,
+            needReviewCount: sql<number>`count(case when ${donations.verificationStatus} = 'need_review' then 1 end)::int`,
+            totalVerifiedRupiah: sql<string>`coalesce(sum(case when ${donations.verificationStatus} = 'verified' then ${donations.amountRupiah} else 0 end), 0)::text`,
+            totalUnverifiedRupiah: sql<string>`coalesce(sum(case when ${donations.verificationStatus} = 'unverified' then ${donations.amountRupiah} else 0 end), 0)::text`,
+          })
+          .from(donations)
+          .where(and(gte(donations.donationDate, dateFrom), lte(donations.donationDate, dateTo)));
+
+        // Filtered Query with Pagination
         const transactions = await db.query.donations.findMany({
-          where: and(gte(donations.donationDate, dateFrom), lte(donations.donationDate, dateTo)),
+          where: and(...conditions),
           orderBy: [desc(donations.donationDate)],
+          limit,
+          offset,
           with: {
             person: {
               columns: { id: true, fullName: true, phoneE164: true },
@@ -184,55 +252,55 @@ export function registerReportsRoutes(router: Router) {
           },
         });
 
-        const statusCounts = {
-          verified: 0,
-          unverified: 0,
-          rejected: 0,
-          need_review: 0,
-        };
+        // Filter by search if specified
+        let filteredItems = transactions;
+        if (search) {
+          const s = search.toLowerCase();
+          filteredItems = transactions.filter((t: any) =>
+            t.person?.fullName?.toLowerCase().includes(s) ||
+            t.person?.phoneE164?.includes(s) ||
+            t.program?.name?.toLowerCase().includes(s)
+          );
+        }
 
-        let totalVerifiedRupiah = 0;
-        let totalUnverifiedRupiah = 0;
+        const formatted = filteredItems.map((d: any) => ({
+          id: d.id,
+          donorName: d.person?.fullName || 'Hamba Allah',
+          donorPhone: d.person?.phoneE164 || '-',
+          programName: d.program?.name || '-',
+          programCode: d.program?.code || '-',
+          amountRupiah: Number(d.amountRupiah),
+          paymentMethod: d.paymentMethod,
+          donationDate: d.donationDate,
+          verificationStatus: d.verificationStatus,
+          verifiedByName: d.verifier?.fullName || null,
+          verifiedAt: d.verifiedAt,
+          rejectionReason: d.rejectionReason,
+        }));
 
-        const formatted = transactions.map((d) => {
-          const amt = Number(d.amountRupiah);
-          if (d.verificationStatus === 'verified') {
-            statusCounts.verified++;
-            totalVerifiedRupiah += amt;
-          } else if (d.verificationStatus === 'unverified') {
-            statusCounts.unverified++;
-            totalUnverifiedRupiah += amt;
-          } else if (d.verificationStatus === 'rejected') {
-            statusCounts.rejected++;
-          } else if (d.verificationStatus === 'need_review') {
-            statusCounts.need_review++;
-          }
-
-          return {
-            id: d.id,
-            donorName: d.person?.fullName || 'Hamba Allah',
-            donorPhone: d.person?.phoneE164 || '-',
-            programName: d.program?.name || '-',
-            amountRupiah: amt,
-            paymentMethod: d.paymentMethod,
-            donationDate: d.donationDate,
-            verificationStatus: d.verificationStatus,
-            verifiedByName: d.verifier?.fullName || null,
-            verifiedAt: d.verifiedAt,
-            rejectionReason: d.rejectionReason,
-          };
-        });
+        const totalFiltered = aggregateStats?.totalCount || 0;
 
         return successResponse(
           {
             dateRange: { from: dateFrom.toISOString(), to: dateTo.toISOString() },
             metrics: {
-              totalTransactions: formatted.length,
-              statusCounts,
-              totalVerifiedRupiah,
-              totalUnverifiedRupiah,
+              totalTransactions: aggregateStats?.totalCount || 0,
+              statusCounts: {
+                verified: aggregateStats?.verifiedCount || 0,
+                unverified: aggregateStats?.unverifiedCount || 0,
+                rejected: aggregateStats?.rejectedCount || 0,
+                need_review: aggregateStats?.needReviewCount || 0,
+              },
+              totalVerifiedRupiah: Number(aggregateStats?.totalVerifiedRupiah || 0),
+              totalUnverifiedRupiah: Number(aggregateStats?.totalUnverifiedRupiah || 0),
             },
             items: formatted,
+            pagination: {
+              page,
+              limit,
+              total: totalFiltered,
+              totalPages: Math.ceil(totalFiltered / limit) || 1,
+            },
           },
           { requestId: ctx.requestId }
         );
@@ -240,16 +308,47 @@ export function registerReportsRoutes(router: Router) {
     )
   );
 
-  // 3. GET /api/reports/attendance-summary
+  // 3. GET /api/reports/attendance-summary (Fast, Paginated & Searchable)
   router.get(
     '/api/reports/attendance-summary',
     requireAuth(
       requirePermission(PERMISSIONS.REPORTS_VIEW, async (ctx) => {
         const db = getDb();
+        const search = ctx.query.search?.trim();
+        const mode = ctx.query.mode as string | undefined;
+        const page = Math.max(1, parseInt(ctx.query.page || '1', 10));
+        const limit = Math.min(100, Math.max(1, parseInt(ctx.query.limit || '15', 10)));
+        const offset = (page - 1) * limit;
+
+        const conditions: any[] = [];
+        if (mode && mode !== 'all') {
+          conditions.push(eq(events.deliveryMode, mode as any));
+        }
+        if (search) {
+          conditions.push(
+            or(
+              ilike(events.title, `%${search}%`),
+              ilike(events.speaker, `%${search}%`),
+              ilike(events.locationName, `%${search}%`)
+            )
+          );
+        }
+
+        const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+        // Total count
+        const [totalCountRow] = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(events)
+          .where(whereClause);
+
+        const totalEvents = totalCountRow?.count || 0;
 
         const eventsList = await db.query.events.findMany({
+          where: whereClause,
           orderBy: [desc(events.startAt)],
-          limit: 15,
+          limit,
+          offset,
           with: {
             attendances: true,
           },
@@ -261,18 +360,132 @@ export function registerReportsRoutes(router: Router) {
           category: e.category,
           speaker: e.speaker,
           startAt: e.startAt,
+          endAt: e.endAt,
           deliveryMode: e.deliveryMode,
           locationName: e.locationName,
           status: e.status,
           totalAttendees: e.attendances ? e.attendances.length : 0,
         }));
 
-        return successResponse(formatted, { requestId: ctx.requestId, total: formatted.length });
+        // Total metrics
+        const totalAttendeesSum = formatted.reduce((acc, curr) => acc + curr.totalAttendees, 0);
+
+        return successResponse(formatted, {
+          requestId: ctx.requestId,
+          total: totalEvents,
+          metrics: {
+            totalEvents,
+            totalAttendeesSum,
+            avgAttendees: formatted.length ? Math.round(totalAttendeesSum / formatted.length) : 0,
+          },
+          pagination: {
+            page,
+            limit,
+            total: totalEvents,
+            totalPages: Math.ceil(totalEvents / limit) || 1,
+          },
+        });
       })
     )
   );
 
-  // 4. POST /api/reports/export-csv
+  // 4. GET /api/reports/waqf-portfolio (Comprehensive Waqf Pipeline Report)
+  router.get(
+    '/api/reports/waqf-portfolio',
+    requireAuth(
+      requirePermission(PERMISSIONS.REPORTS_VIEW, async (ctx) => {
+        const db = getDb();
+        const stageFilter = ctx.query.stage as string | undefined;
+        const typeFilter = ctx.query.type as string | undefined;
+        const page = Math.max(1, parseInt(ctx.query.page || '1', 10));
+        const limit = Math.min(100, Math.max(1, parseInt(ctx.query.limit || '15', 10)));
+        const offset = (page - 1) * limit;
+
+        const conditions: any[] = [];
+        if (stageFilter && stageFilter !== 'all') {
+          conditions.push(eq(waqfCases.currentStage, stageFilter as any));
+        }
+        if (typeFilter && typeFilter !== 'all') {
+          conditions.push(eq(waqfCases.waqfType, typeFilter as any));
+        }
+
+        const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+        // Stage breakdown aggregate
+        const stageBreakdown = await db
+          .select({
+            stage: waqfCases.currentStage,
+            count: sql<number>`count(*)::int`,
+            totalEstimatedRupiah: sql<string>`coalesce(sum(${waqfCases.estimatedValueRupiah}), 0)::text`,
+          })
+          .from(waqfCases)
+          .groupBy(waqfCases.currentStage);
+
+        const [totalSummary] = await db
+          .select({
+            totalCases: sql<number>`count(*)::int`,
+            totalValuation: sql<string>`coalesce(sum(${waqfCases.estimatedValueRupiah}), 0)::text`,
+            completedCases: sql<number>`count(case when ${waqfCases.currentStage} = 'completed' or ${waqfCases.currentStage} = 'stewardship' then 1 end)::int`,
+          })
+          .from(waqfCases);
+
+        const casesList = await db.query.waqfCases.findMany({
+          where: whereClause,
+          orderBy: [desc(waqfCases.createdAt)],
+          limit,
+          offset,
+          with: {
+            person: {
+              columns: { id: true, fullName: true, phoneE164: true, cityRegency: true },
+            },
+            owner: {
+              columns: { id: true, fullName: true },
+            },
+          },
+        });
+
+        const formatted = (casesList || []).map((c: any) => ({
+          id: c.id,
+          waqifName: c.person?.fullName || 'Hamba Allah',
+          waqifPhone: c.person?.phoneE164 || '-',
+          waqifCity: c.person?.cityRegency || '-',
+          waqfType: c.waqfType,
+          estimatedValueRupiah: Number(c.estimatedValueRupiah || 0),
+          currentStage: c.currentStage,
+          ownerName: c.owner?.fullName || 'Amil Wakaf',
+          openedAt: c.openedAt,
+          notesSummary: c.notesSummary,
+        }));
+
+        const totalCount = totalSummary?.totalCases || 0;
+
+        return successResponse(
+          {
+            metrics: {
+              totalCases: totalCount,
+              totalValuationRupiah: Number(totalSummary?.totalValuation || 0),
+              completedCases: totalSummary?.completedCases || 0,
+              stageBreakdown: stageBreakdown.map((s) => ({
+                stage: s.stage,
+                count: s.count,
+                totalRupiah: Number(s.totalEstimatedRupiah || 0),
+              })),
+            },
+            items: formatted,
+            pagination: {
+              page,
+              limit,
+              total: totalCount,
+              totalPages: Math.ceil(totalCount / limit) || 1,
+            },
+          },
+          { requestId: ctx.requestId }
+        );
+      })
+    )
+  );
+
+  // 5. POST /api/reports/export-csv
   router.post(
     '/api/reports/export-csv',
     requireAuth(
@@ -304,7 +517,7 @@ export function registerReportsRoutes(router: Router) {
     )
   );
 
-  // 5. POST /api/reports/import-csv/dry-run (Validation & Dry Run)
+  // 6. POST /api/reports/import-csv/dry-run (Validation & Dry Run)
   router.post(
     '/api/reports/import-csv/dry-run',
     requireAuth(
@@ -373,7 +586,7 @@ export function registerReportsRoutes(router: Router) {
     )
   );
 
-  // 6. POST /api/reports/import-csv/commit (Commit valid rows)
+  // 7. POST /api/reports/import-csv/commit (Commit valid rows)
   router.post(
     '/api/reports/import-csv/commit',
     requireAuth(
