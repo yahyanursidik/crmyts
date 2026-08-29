@@ -439,84 +439,82 @@ export function registerPersonsRoutes(router: Router) {
         return errorResponse('NOT_FOUND', 'Data Jamaah tidak ditemukan', 404, ctx.requestId);
       }
 
-      // Fetch Kajian / Attendance History
-      const attendances = await db
-        .select({
-          id: eventAttendance.id,
-          status: eventAttendance.status,
-          source: eventAttendance.source,
-          checkInAt: eventAttendance.checkInAt,
-          event: {
-            id: events.id,
-            title: events.title,
-            category: events.category,
-            speaker: events.speaker,
-            deliveryMode: events.deliveryMode,
-            startAt: events.startAt,
-            locationName: events.locationName,
-          },
-        })
-        .from(eventAttendance)
-        .innerJoin(events, eq(eventAttendance.eventId, events.id))
-        .where(eq(eventAttendance.personId, personId))
-        .orderBy(desc(events.startAt));
+      // Fetch Kajian, Interactions, Tasks, Donations, Waqf in parallel
+      const [attendances, personInteractions, personTasks, personDonations, personWaqf] = await Promise.all([
+        db
+          .select({
+            id: eventAttendance.id,
+            status: eventAttendance.status,
+            source: eventAttendance.source,
+            checkInAt: eventAttendance.checkInAt,
+            event: {
+              id: events.id,
+              title: events.title,
+              category: events.category,
+              speaker: events.speaker,
+              deliveryMode: events.deliveryMode,
+              startAt: events.startAt,
+              locationName: events.locationName,
+            },
+          })
+          .from(eventAttendance)
+          .innerJoin(events, eq(eventAttendance.eventId, events.id))
+          .where(eq(eventAttendance.personId, personId))
+          .orderBy(desc(events.startAt)),
 
-      // Fetch Interactions Log
-      const personInteractions = await db.query.interactions.findMany({
-        where: eq(interactions.personId, personId),
-        orderBy: [desc(interactions.occurredAt)],
-        with: {
-          creator: {
-            columns: {
-              id: true,
-              fullName: true,
+        db.query.interactions.findMany({
+          where: eq(interactions.personId, personId),
+          orderBy: [desc(interactions.occurredAt)],
+          with: {
+            creator: {
+              columns: {
+                id: true,
+                fullName: true,
+              },
             },
           },
-        },
-      });
+        }),
 
-      // Fetch Tasks
-      const personTasks = await db.query.tasks.findMany({
-        where: eq(tasks.personId, personId),
-        orderBy: [desc(tasks.dueAt)],
-        with: {
-          owner: {
-            columns: {
-              id: true,
-              fullName: true,
+        db.query.tasks.findMany({
+          where: eq(tasks.personId, personId),
+          orderBy: [desc(tasks.dueAt)],
+          with: {
+            owner: {
+              columns: {
+                id: true,
+                fullName: true,
+              },
             },
           },
-        },
-      });
+        }),
 
-      // Fetch Donations History
-      const personDonations = await db.query.donations.findMany({
-        where: eq(donations.personId, personId),
-        orderBy: [desc(donations.donationDate)],
-        with: {
-          program: true,
-          verifier: {
-            columns: {
-              id: true,
-              fullName: true,
+        db.query.donations.findMany({
+          where: eq(donations.personId, personId),
+          orderBy: [desc(donations.donationDate)],
+          with: {
+            program: true,
+            verifier: {
+              columns: {
+                id: true,
+                fullName: true,
+              },
             },
           },
-        },
-      });
+        }),
 
-      // Fetch Waqf Cases
-      const personWaqf = await db.query.waqfCases.findMany({
-        where: eq(waqfCases.personId, personId),
-        orderBy: [desc(waqfCases.openedAt)],
-        with: {
-          owner: {
-            columns: {
-              id: true,
-              fullName: true,
+        db.query.waqfCases.findMany({
+          where: eq(waqfCases.personId, personId),
+          orderBy: [desc(waqfCases.openedAt)],
+          with: {
+            owner: {
+              columns: {
+                id: true,
+                fullName: true,
+              },
             },
           },
-        },
-      });
+        }),
+      ]);
 
       // Calculate aggregated metrics
       const verifiedTotalDonationsRupiah = personDonations
