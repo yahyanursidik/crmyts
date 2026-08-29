@@ -174,7 +174,7 @@ export const RoleDashboardView: React.FC = () => {
           <div className="p-4 bg-gradient-to-r from-[#14352A] via-[#1B4332] to-[#0F4C4A] text-white rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-[#1B4332]">
             <div className="flex items-center gap-3">
               <div className="w-11 h-11 rounded-xl bg-white p-1 shadow-xs border border-white/20 flex items-center justify-center shrink-0 overflow-hidden">
-                <img src="/logo.png" alt="Logo YTS" className="w-full h-full object-contain" />
+                <img src="/logo.png" alt="Logo YTS" className="w-8 h-8 object-contain" />
               </div>
               <div>
                 <div className="flex items-center gap-2">

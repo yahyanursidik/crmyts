@@ -270,14 +270,14 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           <div className="pt-4 px-4 pb-3.5 flex items-center justify-between shrink-0 border-b border-white/10">
             {isCollapsed ? (
               <div className="w-full flex items-center justify-center" title="Yayasan Tarbiyah Sunnah">
-                <div className="w-8.5 h-8.5 rounded-xl bg-white p-1 shadow-xs border border-white/20 flex items-center justify-center overflow-hidden">
-                  <img src="/logo.png" alt="Logo YTS" className="w-full h-full object-contain" />
+                <div className="w-8 h-8 rounded-lg bg-white p-1 shadow-xs border border-white/20 flex items-center justify-center overflow-hidden shrink-0">
+                  <img src="/logo.png" alt="Logo YTS" className="w-6 h-6 object-contain" />
                 </div>
               </div>
             ) : (
               <div className="flex items-center gap-2.5">
-                <div className="w-8.5 h-8.5 rounded-xl bg-white p-1 shadow-xs border border-white/20 flex items-center justify-center shrink-0 overflow-hidden">
-                  <img src="/logo.png" alt="Logo Tarbiyah Sunnah" className="w-full h-full object-contain" />
+                <div className="w-8 h-8 rounded-lg bg-white p-1 shadow-xs border border-white/20 flex items-center justify-center shrink-0 overflow-hidden">
+                  <img src="/logo.png" alt="Logo Tarbiyah Sunnah" className="w-6 h-6 object-contain" />
                 </div>
                 <div>
                   <div className="font-display font-bold text-[13px] text-white leading-none tracking-tight">
@@ -410,7 +410,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                 <img
                   src="/logo.png"
                   alt="Profil Amil YTS"
-                  className="w-full h-full object-contain rounded-full"
+                  className="w-6 h-6 object-contain rounded-full"
                 />
               </div>
               {!isCollapsed && (
@@ -562,7 +562,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                 className="flex items-center gap-2 py-1 pl-1 pr-2.5 rounded-xl bg-[#F2EEE4] hover:bg-[#EAE4D6] border border-[#1B4332]/12 transition-all shadow-2xs ml-1"
               >
                 <div className="w-7 h-7 rounded-full bg-white p-0.5 border border-[#1B4332]/20 shadow-2xs overflow-hidden flex items-center justify-center shrink-0">
-                  <img src="/logo.png" alt="Profil Logo" className="w-full h-full object-contain rounded-full" />
+                  <img src="/logo.png" alt="Profil Logo" className="w-5 h-5 object-contain rounded-full" />
                 </div>
                 <span className="text-xs font-bold text-[#1C2321] hidden md:inline truncate max-w-[120px]">
                   {user?.name?.split(' ')[0] || 'Amil'}

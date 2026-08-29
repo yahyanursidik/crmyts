@@ -243,11 +243,11 @@ export const DashboardPage: React.FC = () => {
           {/* Greeting Header with Official Logo & Filter Bar */}
           <div className="p-5 bg-gradient-to-r from-[#14352A] via-[#1B4332] to-[#0F4C4A] text-white rounded-3xl border border-[#1B4332] shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-center gap-3.5">
-              <div className="w-13 h-13 rounded-2xl bg-white p-1 shadow-md border border-white/20 flex items-center justify-center shrink-0 overflow-hidden">
+              <div className="w-11 h-11 rounded-2xl bg-white p-1 shadow-md border border-white/20 flex items-center justify-center shrink-0 overflow-hidden">
                 <img
                   src="/logo.png"
                   alt="Logo Yayasan Tarbiyah Sunnah"
-                  className="w-full h-full object-contain"
+                  className="w-8 h-8 object-contain"
                 />
               </div>
               <div>
