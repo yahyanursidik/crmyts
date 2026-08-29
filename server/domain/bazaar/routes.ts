@@ -1342,34 +1342,53 @@ export function registerBazaarRoutes(router: Router) {
       return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
     }
 
-    const eventRecord = await db.query.events.findFirst({
+    let eventRecord = await db.query.events.findFirst({
       where: eq(events.id, eventId),
     });
 
-    if (!eventRecord) {
-      return errorResponse('NOT_FOUND', 'Jadwal kajian tidak ditemukan.', 404, ctx.requestId);
-    }
-
-    const bazaar = await db.query.bazaarEvents.findFirst({
-      where: eq(bazaarEvents.eventId, eventId),
-      with: {
-        booths: {
-          orderBy: [asc(bazaarBooths.zone), asc(bazaarBooths.code)],
-        },
-        applications: {
-          with: {
-            tenant: true,
-            assignedBooth: true,
+    let bazaar: any = null;
+    if (eventRecord) {
+      bazaar = await db.query.bazaarEvents.findFirst({
+        where: eq(bazaarEvents.eventId, eventRecord.id),
+        with: {
+          booths: {
+            orderBy: [asc(bazaarBooths.zone), asc(bazaarBooths.code)],
+          },
+          applications: {
+            with: {
+              tenant: true,
+              assignedBooth: true,
+            },
           },
         },
-      },
-    });
-
-    if (!bazaar) {
-      return errorResponse('NOT_FOUND', 'Bazar belum dibuka untuk kajian ini.', 404, ctx.requestId);
+      });
+    } else {
+      bazaar = await db.query.bazaarEvents.findFirst({
+        where: eq(bazaarEvents.id, eventId),
+        with: {
+          booths: {
+            orderBy: [asc(bazaarBooths.zone), asc(bazaarBooths.code)],
+          },
+          applications: {
+            with: {
+              tenant: true,
+              assignedBooth: true,
+            },
+          },
+        },
+      });
+      if (bazaar) {
+        eventRecord = await db.query.events.findFirst({
+          where: eq(events.id, bazaar.eventId),
+        });
+      }
     }
 
-    const sanitizedBooths = bazaar.booths.map((b) => ({
+    if (!bazaar || !eventRecord) {
+      return errorResponse('NOT_FOUND', 'Bazar atau jadwal kajian tidak ditemukan.', 404, ctx.requestId);
+    }
+
+    const sanitizedBooths = (bazaar.booths || []).map((b: any) => ({
       id: b.id,
       code: b.code,
       name: b.name,
@@ -1381,9 +1400,9 @@ export function registerBazaarRoutes(router: Router) {
       status: b.status,
     }));
 
-    const registeredTenants = bazaar.applications
-      .filter((a) => a.status !== 'rejected' && a.status !== 'cancelled')
-      .map((a) => ({
+    const registeredTenants = (bazaar.applications || [])
+      .filter((a: any) => a.status !== 'rejected' && a.status !== 'cancelled')
+      .map((a: any) => ({
         id: a.id,
         brandName: a.tenant?.brandName || 'Tenant',
         picName: a.tenant?.picName || '',
@@ -1438,7 +1457,7 @@ export function registerBazaarRoutes(router: Router) {
       }
 
       const bazaar = await db.query.bazaarEvents.findFirst({
-        where: eq(bazaarEvents.eventId, eventId),
+        where: or(eq(bazaarEvents.eventId, eventId), eq(bazaarEvents.id, eventId)),
       });
 
       if (!bazaar || !bazaar.isOpen) {
@@ -1577,7 +1596,7 @@ export function registerBazaarRoutes(router: Router) {
 
       if (!application && (body.phone || body.brandName)) {
         const bazaar = await db.query.bazaarEvents.findFirst({
-          where: eq(bazaarEvents.eventId, eventId),
+          where: or(eq(bazaarEvents.eventId, eventId), eq(bazaarEvents.id, eventId)),
         });
 
         if (bazaar) {
