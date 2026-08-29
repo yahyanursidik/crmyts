@@ -13,8 +13,59 @@ import {
   interactions,
   tasks,
 } from '../../db/schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, isNotNull, ne } from 'drizzle-orm';
 import { logAuditEvent } from '../../audit/service';
+import { sendEmail, renderEmailLayout } from '../../email/service';
+
+export interface DripRecipient {
+  personId: string;
+  fullName: string;
+  email: string;
+  gender: 'ikhwan' | 'akhwat' | null;
+  cityRegency: string;
+  status: 'pending' | 'sent' | 'failed';
+  sentAt?: string | null;
+  dayNumber?: number | null;
+  error?: string | null;
+}
+
+export interface DripEmailCampaign {
+  id: string;
+  title: string;
+  subject: string;
+  bodyHtml: string;
+  dailyQuota: number;
+  totalDays: number;
+  currentDay: number;
+  status: 'draft' | 'running' | 'paused' | 'completed';
+  filterGender: 'all' | 'ikhwan' | 'akhwat';
+  createdAt: string;
+  updatedAt: string;
+  lastDispatchedAt?: string | null;
+  stats: {
+    totalRecipients: number;
+    totalSent: number;
+    totalFailed: number;
+    remaining: number;
+    dailySentToday: number;
+  };
+  recipients: DripRecipient[];
+}
+
+const emailCampaignsStore = new Map<string, DripEmailCampaign>();
+
+const createEmailCampaignSchema = z.object({
+  title: z.string().min(3, 'Nama program kampanye wajib diisi'),
+  subject: z.string().min(5, 'Subjek email wajib diisi'),
+  bodyHtml: z.string().min(10, 'Isi draf email wajib diisi'),
+  dailyQuota: z.number().int().min(5).max(500).default(50),
+  totalDays: z.number().int().min(1).max(60).default(14),
+  filterGender: z.enum(['all', 'ikhwan', 'akhwat']).default('all'),
+});
+
+const testEmailCampaignSchema = z.object({
+  testEmail: z.string().email('Format email penerima tes tidak valid'),
+});
 
 const triggerBatchReminderSchema = z.object({
   eventId: z.string().uuid(),
@@ -725,5 +776,364 @@ export function registerAutomationRoutes(router: Router) {
         );
       })
     )
+  );
+
+  // 8. GET /api/automation/email-campaigns (List Drip Email Campaigns)
+  router.get(
+    '/api/automation/email-campaigns',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+
+      // Auto-seed default 14-day warm-up campaign if none exists
+      if (emailCampaignsStore.size === 0) {
+        const eligiblePersons = await db.query.persons.findMany({
+          where: and(isNotNull(persons.email), ne(persons.email, '')),
+          orderBy: [desc(persons.createdAt)],
+        });
+
+        const seedRecipients: DripRecipient[] = eligiblePersons.map((p) => ({
+          personId: p.id,
+          fullName: p.fullName,
+          email: p.email!,
+          gender: p.gender,
+          cityRegency: p.cityRegency || 'Kota Bandung',
+          status: 'pending',
+          sentAt: null,
+          dayNumber: null,
+          error: null,
+        }));
+
+        const defaultCampaignId = 'drip-campaign-sapaan-14hari';
+        const defaultCampaign: DripEmailCampaign = {
+          id: defaultCampaignId,
+          title: 'Program Sapaan Ukhuwah & Kabar Majelis Jamaah (Drip 14 Hari)',
+          subject: 'Bismillah, Salam Hangat & Doa Kebaikan dari Yayasan Tarbiyah Sunnah',
+          bodyHtml: `
+<p>Bismillah, Assalamu'alaikum Warahmatullahi Wabarakatuh.</p>
+<p>Semoga <strong>{{genderTitle}} {{fullName}}</strong> beserta seluruh keluarga senantiasa berada dalam lindungan, taufik, dan rahmat Allah Ta'ala di <em>{{city}}</em>.</p>
+<p>Alhamdulillah, kami dari Pengurus Yayasan Tarbiyah Sunnah (YTS) Bandung ingin menyampaikan salam ukhuwah serta ucapan <em>jazakumullahu khairan katsiran</em> atas kebersamaan dan dukungan Antum dalam berbagai majelis ilmu syar'i dan dakwah sunnah selama ini.</p>
+<div class="card">
+  <h3 style="margin-top: 0; color: #1c321d; font-size: 15px;">🌟 Kabar & Agenda Terdekat Yayasan Tarbiyah Sunnah:</h3>
+  <ul style="margin: 0; padding-left: 18px; color: #334155; line-height: 1.8;">
+    <li>Kajian Rutin Akhir Pekan Masjid Tarbiyah Sunnah bersama Asatidzah Pembina</li>
+    <li>Pengembangan Sarana Dakwah & Pengelolaan Aset Wakaf Umat</li>
+    <li>Program Ta'awun Sosial & Santunan Dhuafa Binaan Yayasan</li>
+  </ul>
+</div>
+<p>Mari kita saling mendoakan agar Allah Ta'ala meneguhkan langkah kita di atas jalan kebenaran dan memudahkan kita dalam mengamalkan ilmu syar'i yang bermanfaat.</p>
+<p>Bila ada masukan atau aspirasi untuk dakwah YTS, silakan balas email ini atau hubungi layanan jamaah kami.</p>
+<p style="margin-top: 24px;"><em>Wassalamu'alaikum Warahmatullahi Wabarakatuh.</em><br><strong>Tim Layanan Jamaah & Hubungan Umat<br>Yayasan Tarbiyah Sunnah Bandung</strong></p>
+          `.trim(),
+          dailyQuota: 50,
+          totalDays: 14,
+          currentDay: 1,
+          status: 'running',
+          filterGender: 'all',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          lastDispatchedAt: null,
+          stats: {
+            totalRecipients: seedRecipients.length,
+            totalSent: 0,
+            totalFailed: 0,
+            remaining: seedRecipients.length,
+            dailySentToday: 0,
+          },
+          recipients: seedRecipients,
+        };
+
+        emailCampaignsStore.set(defaultCampaignId, defaultCampaign);
+      }
+
+      const list = Array.from(emailCampaignsStore.values()).map((c) => ({
+        ...c,
+        progressPercentage: c.stats.totalRecipients > 0 ? Math.round((c.stats.totalSent / c.stats.totalRecipients) * 100) : 0,
+      }));
+
+      return successResponse(list, { requestId: ctx.requestId, total: list.length });
+    })
+  );
+
+  // 9. POST /api/automation/email-campaigns (Create New Drip Campaign)
+  router.post(
+    '/api/automation/email-campaigns',
+    requireAuth(
+      validateBody(createEmailCampaignSchema, async (ctx, body) => {
+        const db = getDb();
+        const user = ctx.user;
+        if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+
+        const conditions = [isNotNull(persons.email), ne(persons.email, '')];
+        if (body.filterGender && body.filterGender !== 'all') {
+          conditions.push(eq(persons.gender, body.filterGender as any));
+        }
+
+        const eligiblePersons = await db.query.persons.findMany({
+          where: and(...conditions),
+          orderBy: [desc(persons.createdAt)],
+        });
+
+        const recipients: DripRecipient[] = eligiblePersons.map((p) => ({
+          personId: p.id,
+          fullName: p.fullName,
+          email: p.email!,
+          gender: p.gender,
+          cityRegency: p.cityRegency || 'Kota Bandung',
+          status: 'pending',
+          sentAt: null,
+          dayNumber: null,
+          error: null,
+        }));
+
+        const newId = `drip-${Date.now()}`;
+        const newCampaign: DripEmailCampaign = {
+          id: newId,
+          title: body.title,
+          subject: body.subject,
+          bodyHtml: body.bodyHtml,
+          dailyQuota: body.dailyQuota,
+          totalDays: body.totalDays,
+          currentDay: 1,
+          status: 'running',
+          filterGender: body.filterGender,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          lastDispatchedAt: null,
+          stats: {
+            totalRecipients: recipients.length,
+            totalSent: 0,
+            totalFailed: 0,
+            remaining: recipients.length,
+            dailySentToday: 0,
+          },
+          recipients,
+        };
+
+        emailCampaignsStore.set(newId, newCampaign);
+
+        await logAuditEvent({
+          actorUserId: user.id,
+          action: 'create_drip_email_campaign',
+          entityType: 'email_campaign',
+          entityId: newId,
+          afterJson: { title: body.title, totalRecipients: recipients.length, dailyQuota: body.dailyQuota, totalDays: body.totalDays },
+          reason: `Pembuatan program drip email sapaan jamaah (${body.title})`,
+          requestId: ctx.requestId,
+        });
+
+        return successResponse(newCampaign, { requestId: ctx.requestId }, 201);
+      })
+    )
+  );
+
+  // 10. POST /api/automation/email-campaigns/:id/dispatch-today (Dispatch Today's Batch)
+  router.post(
+    '/api/automation/email-campaigns/:id/dispatch-today',
+    requireAuth(async (ctx) => {
+      const campaignId = ctx.params.id;
+      const campaign = emailCampaignsStore.get(campaignId);
+      if (!campaign) return errorResponse('NOT_FOUND', 'Program email campaign tidak ditemukan', 404, ctx.requestId);
+
+      if (campaign.status === 'completed') {
+        return errorResponse('BAD_REQUEST', 'Campaign ini telah tuntas terkirim ke seluruh jamaah', 400, ctx.requestId);
+      }
+
+      const db = getDb();
+      const user = ctx.user;
+      const pendingRecipients = campaign.recipients.filter((r) => r.status === 'pending').slice(0, campaign.dailyQuota);
+
+      if (pendingRecipients.length === 0) {
+        campaign.status = 'completed';
+        return successResponse({ message: 'Semua antrean email telah selesai terkirim', dispatchedCount: 0, campaign }, { requestId: ctx.requestId });
+      }
+
+      let successCount = 0;
+      let failedCount = 0;
+      const dispatchResults = [];
+
+      for (const r of pendingRecipients) {
+        const genderTitle = r.gender === 'akhwat' ? 'Ukhti' : r.gender === 'ikhwan' ? 'Akhi' : 'Bapak/Ibu';
+        const renderedHtml = campaign.bodyHtml
+          .replace(/\{\{fullName\}\}/g, r.fullName)
+          .replace(/\{\{city\}\}/g, r.cityRegency || 'Kota Bandung')
+          .replace(/\{\{genderTitle\}\}/g, genderTitle)
+          .replace(/\{\{email\}\}/g, r.email);
+
+        const fullLayoutHtml = renderEmailLayout(campaign.subject, renderedHtml);
+
+        const sendRes = await sendEmail({
+          to: r.email,
+          subject: campaign.subject,
+          html: fullLayoutHtml,
+        });
+
+        if (sendRes.success) {
+          r.status = 'sent';
+          r.sentAt = new Date().toISOString();
+          r.dayNumber = campaign.currentDay;
+          successCount++;
+
+          // Log CRM interaction
+          try {
+            await db.insert(interactions).values({
+              personId: r.personId,
+              channel: 'email',
+              summary: `Drip Broadcast: ${campaign.title} (Hari ${campaign.currentDay})`,
+              outcome: `Email sapaan terkirim ke ${r.email}`,
+              sensitivityLevel: 'standard',
+              ownerUserId: user?.id,
+              createdBy: user?.id,
+            });
+          } catch (err) {
+            console.warn('[CRM Drip Interaction Log Warn]:', err);
+          }
+        } else {
+          r.status = 'failed';
+          r.error = sendRes.error || 'SMTP Error';
+          failedCount++;
+        }
+
+        dispatchResults.push({
+          fullName: r.fullName,
+          email: r.email,
+          status: r.status,
+          error: r.error,
+        });
+      }
+
+      // Update campaign stats
+      const totalSent = campaign.recipients.filter((r) => r.status === 'sent').length;
+      const totalFailed = campaign.recipients.filter((r) => r.status === 'failed').length;
+      const remaining = campaign.recipients.filter((r) => r.status === 'pending').length;
+
+      campaign.stats.totalSent = totalSent;
+      campaign.stats.totalFailed = totalFailed;
+      campaign.stats.remaining = remaining;
+      campaign.stats.dailySentToday = successCount;
+      campaign.lastDispatchedAt = new Date().toISOString();
+      campaign.updatedAt = new Date().toISOString();
+
+      if (remaining === 0) {
+        campaign.status = 'completed';
+      } else if (campaign.currentDay < campaign.totalDays) {
+        campaign.currentDay += 1;
+      }
+
+      emailCampaignsStore.set(campaignId, campaign);
+
+      if (user) {
+        await logAuditEvent({
+          actorUserId: user.id,
+          action: 'dispatch_drip_email_batch',
+          entityType: 'email_campaign',
+          entityId: campaign.id,
+          afterJson: {
+            dayNumber: campaign.currentDay - 1,
+            successCount,
+            failedCount,
+            remaining,
+          },
+          reason: `Pengiriman email harian kuota warm-up (${successCount} sukses, ${failedCount} gagal)`,
+          requestId: ctx.requestId,
+        });
+      }
+
+      return successResponse(
+        {
+          campaignId: campaign.id,
+          title: campaign.title,
+          dayDispatched: campaign.currentDay - 1,
+          successCount,
+          failedCount,
+          remaining,
+          campaign,
+          results: dispatchResults,
+        },
+        { requestId: ctx.requestId }
+      );
+    })
+  );
+
+  // 11. POST /api/automation/email-campaigns/:id/test-email (Send Single Test Email)
+  router.post(
+    '/api/automation/email-campaigns/:id/test-email',
+    requireAuth(
+      validateBody(testEmailCampaignSchema, async (ctx, body) => {
+        const campaignId = ctx.params.id;
+        const campaign = emailCampaignsStore.get(campaignId);
+        if (!campaign) return errorResponse('NOT_FOUND', 'Program email campaign tidak ditemukan', 404, ctx.requestId);
+
+        const renderedHtml = campaign.bodyHtml
+          .replace(/\{\{fullName\}\}/g, 'Bapak/Ibu Jamaah (Preview Tes)')
+          .replace(/\{\{city\}\}/g, 'Kota Bandung')
+          .replace(/\{\{genderTitle\}\}/g, 'Akhi/Ukhti')
+          .replace(/\{\{email\}\}/g, body.testEmail);
+
+        const fullLayoutHtml = renderEmailLayout(`[PREVIEW TES] ${campaign.subject}`, renderedHtml);
+
+        const sendRes = await sendEmail({
+          to: body.testEmail,
+          subject: `[PREVIEW TES] ${campaign.subject}`,
+          html: fullLayoutHtml,
+        });
+
+        if (!sendRes.success) {
+          return errorResponse('INTERNAL_ERROR', `Gagal mengirim email tes: ${sendRes.error}`, 500, ctx.requestId);
+        }
+
+        return successResponse(
+          {
+            message: `Email pratinjau tes berhasil dikirim ke ${body.testEmail}`,
+            messageId: sendRes.messageId,
+          },
+          { requestId: ctx.requestId }
+        );
+      })
+    )
+  );
+
+  // 12. POST /api/automation/email-campaigns/:id/pause
+  router.post(
+    '/api/automation/email-campaigns/:id/pause',
+    requireAuth(async (ctx) => {
+      const campaignId = ctx.params.id;
+      const campaign = emailCampaignsStore.get(campaignId);
+      if (!campaign) return errorResponse('NOT_FOUND', 'Campaign tidak ditemukan', 404, ctx.requestId);
+
+      campaign.status = 'paused';
+      campaign.updatedAt = new Date().toISOString();
+      emailCampaignsStore.set(campaignId, campaign);
+
+      return successResponse(campaign, { requestId: ctx.requestId });
+    })
+  );
+
+  // 13. POST /api/automation/email-campaigns/:id/resume
+  router.post(
+    '/api/automation/email-campaigns/:id/resume',
+    requireAuth(async (ctx) => {
+      const campaignId = ctx.params.id;
+      const campaign = emailCampaignsStore.get(campaignId);
+      if (!campaign) return errorResponse('NOT_FOUND', 'Campaign tidak ditemukan', 404, ctx.requestId);
+
+      campaign.status = 'running';
+      campaign.updatedAt = new Date().toISOString();
+      emailCampaignsStore.set(campaignId, campaign);
+
+      return successResponse(campaign, { requestId: ctx.requestId });
+    })
+  );
+
+  // 14. DELETE /api/automation/email-campaigns/:id
+  router.delete(
+    '/api/automation/email-campaigns/:id',
+    requireAuth(async (ctx) => {
+      const campaignId = ctx.params.id;
+      if (!emailCampaignsStore.has(campaignId)) {
+        return errorResponse('NOT_FOUND', 'Campaign tidak ditemukan', 404, ctx.requestId);
+      }
+      emailCampaignsStore.delete(campaignId);
+      return successResponse({ deleted: true, campaignId }, { requestId: ctx.requestId });
+    })
   );
 }

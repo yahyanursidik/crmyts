@@ -13,12 +13,14 @@ import {
   MessageSquare,
   FileText,
   Loader2,
+  Mail,
 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { InactiveAttendeesTab } from './InactiveAttendeesTab';
+import { DripEmailCampaignTab } from './DripEmailCampaignTab';
 
 export function AutomationPage() {
-  const [activeTab, setActiveTab] = useState<'inactive' | 'reminder' | 'donation' | 'waqf' | 'impact'>('inactive');
+  const [activeTab, setActiveTab] = useState<'inactive' | 'drip_email' | 'reminder' | 'donation' | 'waqf' | 'impact'>('inactive');
   const [kajianMode, setKajianMode] = useState<'reminder' | 'post_attendance'>('reminder');
   const [loading, setLoading] = useState(true);
 
@@ -253,6 +255,18 @@ export function AutomationPage() {
         </button>
 
         <button
+          onClick={() => setActiveTab('drip_email')}
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+            activeTab === 'drip_email'
+              ? 'bg-[#1B4332] text-white shadow-2xs'
+              : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-[#EAE4D6]/60'
+          }`}
+        >
+          <Mail className="w-4 h-4 text-[#E0B970]" />
+          <span>Drip Email Jamaah (14 Hari Warm-up)</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('reminder')}
           className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
             activeTab === 'reminder'
@@ -305,6 +319,9 @@ export function AutomationPage() {
 
       {/* TAB 1: JAMAAH RINDU MAJELIS */}
       {activeTab === 'inactive' && <InactiveAttendeesTab />}
+
+      {/* TAB 2: DRIP EMAIL JAMAAH (14 HARI WARM-UP) */}
+      {activeTab === 'drip_email' && <DripEmailCampaignTab />}
 
       {/* TAB 2: PENGINGAT & PASCA-KAJIAN */}
       {activeTab === 'reminder' && (
