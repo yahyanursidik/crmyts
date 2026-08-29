@@ -5,7 +5,12 @@ import {
   AlertTriangle, 
   X, 
   Check, 
-  IdCard 
+  IdCard,
+  Phone,
+  Mail,
+  MapPin,
+  HelpCircle,
+  Loader2,
 } from 'lucide-react';
 
 interface PersonBasic {
@@ -39,7 +44,7 @@ export const MergeCompareModal: React.FC<MergeCompareModalProps> = ({
 }) => {
   // primaryPersonId will be the surviving master record
   const [primaryId, setPrimaryId] = useState<string>(personA.id);
-  const [reason, setReason] = useState<string>('Penggabungan data duplikat identik hasil review manual');
+  const [reason, setReason] = useState<string>('Penggabungan data duplikat identik hasil review manual Data Steward');
   const [phonePref, setPhonePref] = useState<'primary' | 'secondary'>('primary');
   const [emailPref, setEmailPref] = useState<'primary' | 'secondary'>('primary');
   const [cityPref, setCityPref] = useState<'primary' | 'secondary'>('primary');
@@ -56,27 +61,19 @@ export const MergeCompareModal: React.FC<MergeCompareModalProps> = ({
     setSubmitting(true);
 
     try {
+      const fieldPreferences = {
+        phoneE164: phonePref,
+        email: emailPref,
+        cityRegency: cityPref,
+      };
 
-      const fieldOverrides: Record<string, any> = {};
-      
-      // Calculate field preferences
-      if (phonePref === 'secondary' && secondaryPerson.phoneE164) {
-        fieldOverrides.phoneE164 = secondaryPerson.phoneE164;
-      }
-      if (emailPref === 'secondary' && secondaryPerson.email) {
-        fieldOverrides.email = secondaryPerson.email;
-      }
-      if (cityPref === 'secondary' && secondaryPerson.cityRegency) {
-        fieldOverrides.cityRegency = secondaryPerson.cityRegency;
-      }
-
-      await apiClient('/data-quality/merge-persons', {
+      await apiClient('/data-quality/merge', {
         method: 'POST',
         body: JSON.stringify({
           primaryPersonId: primaryPerson.id,
           secondaryPersonId: secondaryPerson.id,
-          reason,
-          fieldOverrides,
+          reason: reason.trim(),
+          fieldPreferences,
         }),
       });
 
@@ -89,27 +86,27 @@ export const MergeCompareModal: React.FC<MergeCompareModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-surface-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-surface-200 space-y-5 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 bg-[#0F3A2E]/60 backdrop-blur-xs flex items-center justify-center p-4">
+      <div className="bg-[#FBF9F4] rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-[#1B4332]/20 space-y-5 max-h-[92vh] overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-surface-100">
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-lg bg-brand-50 text-brand-900">
+        <div className="flex items-center justify-between pb-3 border-b border-[#1B4332]/12">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-[#1B4332]/10 text-[#14352A] border border-[#1B4332]/20">
               <GitMerge className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-surface-900 font-display text-base">
-                Review & Merge Profil Duplikat
+              <h3 className="font-bold text-[#1C2321] font-display text-base">
+                Review &amp; Merge Master Data Jamaah
               </h3>
-              <p className="text-xs text-surface-500">
-                Pilih profil yang akan dijadikan Master Record utama dan pertahankan riwayat interaksinya.
+              <p className="text-xs text-[#6B7A72]">
+                Pilih profil yang akan dipertahankan sebagai Master Record utama. Seluruh riwayat infaq, kehadiran, dan tugas akan ditransfer secara atomik.
               </p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-surface-400 hover:text-surface-900 hover:bg-surface-100"
+            className="p-1 rounded-lg text-[#8A9690] hover:text-[#1C2321] hover:bg-[#F2EEE4] transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -126,17 +123,17 @@ export const MergeCompareModal: React.FC<MergeCompareModalProps> = ({
         {similarityScore !== undefined && (
           <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 flex items-center justify-between">
             <span className="font-semibold">{matchReason || 'Kemiripan nama & data terdeteksi'}</span>
-            <span className="px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 font-bold text-[10px]">
+            <span className="px-2 py-0.5 rounded-full bg-[#B58B3C] text-white font-bold text-[10px]">
               Skor: {similarityScore}% Mirip
             </span>
           </div>
         )}
 
         <form onSubmit={handleMergeSubmit} className="space-y-5">
-          {/* Side-by-side comparison */}
+          {/* 1. Side-by-side comparison */}
           <div>
-            <label className="text-xs font-bold text-surface-900 block mb-2 font-display">
-              1. Pilih Master Profil Utama (Data yang akan dipertahankan):
+            <label className="text-xs font-bold text-[#1C2321] block mb-2 font-display">
+              1. Pilih Master Profil Utama (Data yang Tetap Aktif):
             </label>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
@@ -145,39 +142,39 @@ export const MergeCompareModal: React.FC<MergeCompareModalProps> = ({
                 onClick={() => setPrimaryId(personA.id)}
                 className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
                   isAPrimary
-                    ? 'border-brand-800 bg-brand-50/20 shadow-xs'
-                    : 'border-surface-200 bg-white hover:border-surface-300'
+                    ? 'border-[#1B4332] bg-white shadow-xs ring-1 ring-[#1B4332]/20'
+                    : 'border-[#1B4332]/12 bg-[#F2EEE4]/50 hover:border-[#1B4332]/30'
                 }`}
               >
-                <div className="flex items-center justify-between pb-2 border-b border-surface-200">
-                  <span className="font-bold text-surface-900 flex items-center gap-1.5">
-                    <IdCard className="w-3.5 h-3.5 text-brand-800" /> Profil A
+                <div className="flex items-center justify-between pb-2 border-b border-[#1B4332]/10">
+                  <span className="font-bold text-[#1C2321] flex items-center gap-1.5 font-display">
+                    <IdCard className="w-3.5 h-3.5 text-[#1B4332]" /> Kandidat A
                   </span>
                   {isAPrimary ? (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-brand-900 text-white flex items-center gap-1">
-                      <Check className="w-3 h-3" /> Master Utama
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#1B4332] text-white flex items-center gap-1">
+                      <Check className="w-3 h-3 text-[#E0B970]" /> Master Utama
                     </span>
                   ) : (
-                    <span className="text-[10px] text-surface-400">Akan Di-merge</span>
+                    <span className="text-[10px] text-[#6B7A72] font-medium">Akan Dinonaktifkan</span>
                   )}
                 </div>
 
-                <div className="space-y-2 pt-3">
+                <div className="space-y-2 pt-3 text-xs">
                   <div>
-                    <span className="text-[10px] text-surface-400 block">Nama Lengkap</span>
-                    <strong className="text-surface-900 font-medium text-sm">{personA.fullName}</strong>
+                    <span className="text-[10px] text-[#6B7A72] block">Nama Lengkap</span>
+                    <strong className="text-[#1C2321] font-display text-sm block">{personA.fullName}</strong>
                   </div>
                   <div>
-                    <span className="text-[10px] text-surface-400 block">Nomor Telepon</span>
-                    <span className="font-mono text-surface-700">{personA.phoneE164 || '-'}</span>
+                    <span className="text-[10px] text-[#6B7A72] block">Nomor Telepon</span>
+                    <span className="font-mono text-[#14352A] font-semibold">{personA.phoneE164 || '-'}</span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-surface-400 block">Email</span>
-                    <span className="text-surface-700">{personA.email || '-'}</span>
+                    <span className="text-[10px] text-[#6B7A72] block">Email</span>
+                    <span className="text-[#3D4A44]">{personA.email || '-'}</span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-surface-400 block">Domisili</span>
-                    <span className="text-surface-700">{personA.cityRegency || '-'}</span>
+                    <span className="text-[10px] text-[#6B7A72] block">Domisili</span>
+                    <span className="text-[#3D4A44]">{personA.cityRegency || '-'}</span>
                   </div>
                 </div>
               </div>
@@ -187,126 +184,198 @@ export const MergeCompareModal: React.FC<MergeCompareModalProps> = ({
                 onClick={() => setPrimaryId(personB.id)}
                 className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
                   !isAPrimary
-                    ? 'border-brand-800 bg-brand-50/20 shadow-xs'
-                    : 'border-surface-200 bg-white hover:border-surface-300'
+                    ? 'border-[#1B4332] bg-white shadow-xs ring-1 ring-[#1B4332]/20'
+                    : 'border-[#1B4332]/12 bg-[#F2EEE4]/50 hover:border-[#1B4332]/30'
                 }`}
               >
-                <div className="flex items-center justify-between pb-2 border-b border-surface-200">
-                  <span className="font-bold text-surface-900 flex items-center gap-1.5">
-                    <IdCard className="w-3.5 h-3.5 text-brand-800" /> Profil B
+                <div className="flex items-center justify-between pb-2 border-b border-[#1B4332]/10">
+                  <span className="font-bold text-[#1C2321] flex items-center gap-1.5 font-display">
+                    <IdCard className="w-3.5 h-3.5 text-[#1B4332]" /> Kandidat B
                   </span>
                   {!isAPrimary ? (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-brand-900 text-white flex items-center gap-1">
-                      <Check className="w-3 h-3" /> Master Utama
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#1B4332] text-white flex items-center gap-1">
+                      <Check className="w-3 h-3 text-[#E0B970]" /> Master Utama
                     </span>
                   ) : (
-                    <span className="text-[10px] text-surface-400">Akan Di-merge</span>
+                    <span className="text-[10px] text-[#6B7A72] font-medium">Akan Dinonaktifkan</span>
                   )}
                 </div>
 
-                <div className="space-y-2 pt-3">
+                <div className="space-y-2 pt-3 text-xs">
                   <div>
-                    <span className="text-[10px] text-surface-400 block">Nama Lengkap</span>
-                    <strong className="text-surface-900 font-medium text-sm">{personB.fullName}</strong>
+                    <span className="text-[10px] text-[#6B7A72] block">Nama Lengkap</span>
+                    <strong className="text-[#1C2321] font-display text-sm block">{personB.fullName}</strong>
                   </div>
                   <div>
-                    <span className="text-[10px] text-surface-400 block">Nomor Telepon</span>
-                    <span className="font-mono text-surface-700">{personB.phoneE164 || '-'}</span>
+                    <span className="text-[10px] text-[#6B7A72] block">Nomor Telepon</span>
+                    <span className="font-mono text-[#14352A] font-semibold">{personB.phoneE164 || '-'}</span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-surface-400 block">Email</span>
-                    <span className="text-surface-700">{personB.email || '-'}</span>
+                    <span className="text-[10px] text-[#6B7A72] block">Email</span>
+                    <span className="text-[#3D4A44]">{personB.email || '-'}</span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-surface-400 block">Domisili</span>
-                    <span className="text-surface-700">{personB.cityRegency || '-'}</span>
+                    <span className="text-[10px] text-[#6B7A72] block">Domisili</span>
+                    <span className="text-[#3D4A44]">{personB.cityRegency || '-'}</span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Field Preference Overrides */}
-          <div className="p-4 bg-surface-50 rounded-xl border border-surface-200 space-y-3">
-            <label className="font-bold text-surface-900 uppercase tracking-wider text-[10px] block">
-              2. Preferensi Nilai Kolom Yang Dipertahankan
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <span className="text-[10px] text-surface-500 block mb-1">Pilihan Nomor HP:</span>
-                <select
-                  value={phonePref}
-                  onChange={(e) => setPhonePref(e.target.value as any)}
-                  className="input-field py-1 text-xs"
-                >
-                  <option value="primary">Gunakan Profil Utama ({primaryPerson.phoneE164 || 'Kosong'})</option>
-                  <option value="secondary">Gunakan Profil Duplikat ({secondaryPerson.phoneE164 || 'Kosong'})</option>
-                </select>
-              </div>
+          {/* 2. Resolusi Konflik Field Khusus */}
+          <div className="p-4 bg-white rounded-xl border border-[#1B4332]/12 shadow-2xs space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-[#1C2321] block font-display">
+                2. Resolusi Konflik Data Spesifik:
+              </label>
+              <span className="text-[10px] text-[#6B7A72] flex items-center gap-1">
+                <HelpCircle className="w-3 h-3" /> Pilih data yang paling akurat
+              </span>
+            </div>
 
-              <div>
-                <span className="text-[10px] text-surface-500 block mb-1">Pilihan Email:</span>
-                <select
-                  value={emailPref}
-                  onChange={(e) => setEmailPref(e.target.value as any)}
-                  className="input-field py-1 text-xs"
-                >
-                  <option value="primary">Gunakan Profil Utama ({primaryPerson.email || 'Kosong'})</option>
-                  <option value="secondary">Gunakan Profil Duplikat ({secondaryPerson.email || 'Kosong'})</option>
-                </select>
-              </div>
+            <div className="space-y-2 text-xs">
+              {/* Phone Conflict */}
+              {personA.phoneE164 !== personB.phoneE164 && (
+                <div className="flex items-center justify-between py-1.5 border-b border-[#1B4332]/8">
+                  <span className="text-[#6B7A72] flex items-center gap-1 font-medium">
+                    <Phone className="w-3 h-3 text-[#1B4332]" /> Nomor Telepon:
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="phonePref"
+                        checked={phonePref === 'primary'}
+                        onChange={() => setPhonePref('primary')}
+                        className="text-[#1B4332] focus:ring-[#1B4332]"
+                      />
+                      <span className="font-mono text-[11px] text-[#1C2321]">{primaryPerson.phoneE164 || '(Kosong)'}</span>
+                    </label>
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="phonePref"
+                        checked={phonePref === 'secondary'}
+                        onChange={() => setPhonePref('secondary')}
+                        className="text-[#1B4332] focus:ring-[#1B4332]"
+                      />
+                      <span className="font-mono text-[11px] text-[#1C2321]">{secondaryPerson.phoneE164 || '(Kosong)'}</span>
+                    </label>
+                  </div>
+                </div>
+              )}
 
-              <div>
-                <span className="text-[10px] text-surface-500 block mb-1">Pilihan Domisili:</span>
-                <select
-                  value={cityPref}
-                  onChange={(e) => setCityPref(e.target.value as any)}
-                  className="input-field py-1 text-xs"
-                >
-                  <option value="primary">Gunakan Profil Utama ({primaryPerson.cityRegency || 'Kosong'})</option>
-                  <option value="secondary">Gunakan Profil Duplikat ({secondaryPerson.cityRegency || 'Kosong'})</option>
-                </select>
-              </div>
+              {/* Email Conflict */}
+              {personA.email !== personB.email && (
+                <div className="flex items-center justify-between py-1.5 border-b border-[#1B4332]/8">
+                  <span className="text-[#6B7A72] flex items-center gap-1 font-medium">
+                    <Mail className="w-3 h-3 text-[#1B4332]" /> Alamat Email:
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="emailPref"
+                        checked={emailPref === 'primary'}
+                        onChange={() => setEmailPref('primary')}
+                        className="text-[#1B4332] focus:ring-[#1B4332]"
+                      />
+                      <span className="text-[11px] text-[#1C2321]">{primaryPerson.email || '(Kosong)'}</span>
+                    </label>
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="emailPref"
+                        checked={emailPref === 'secondary'}
+                        onChange={() => setEmailPref('secondary')}
+                        className="text-[#1B4332] focus:ring-[#1B4332]"
+                      />
+                      <span className="text-[11px] text-[#1C2321]">{secondaryPerson.email || '(Kosong)'}</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* City Conflict */}
+              {personA.cityRegency !== personB.cityRegency && (
+                <div className="flex items-center justify-between py-1.5">
+                  <span className="text-[#6B7A72] flex items-center gap-1 font-medium">
+                    <MapPin className="w-3 h-3 text-[#1B4332]" /> Domisili:
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="cityPref"
+                        checked={cityPref === 'primary'}
+                        onChange={() => setCityPref('primary')}
+                        className="text-[#1B4332] focus:ring-[#1B4332]"
+                      />
+                      <span className="text-[11px] text-[#1C2321]">{primaryPerson.cityRegency || '(Kosong)'}</span>
+                    </label>
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="cityPref"
+                        checked={cityPref === 'secondary'}
+                        onChange={() => setCityPref('secondary')}
+                        className="text-[#1B4332] focus:ring-[#1B4332]"
+                      />
+                      <span className="text-[11px] text-[#1C2321]">{secondaryPerson.cityRegency || '(Kosong)'}</span>
+                    </label>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Mandatory Reason */}
-          <div className="space-y-1.5">
-            <label className="font-bold text-surface-900 flex items-center justify-between text-xs">
-              <span>3. Alasan Penggabungan (Audit Trail Reason) *</span>
-              <span className="text-[10px] text-surface-400">Min 5 karakter</span>
+          {/* 3. Alasan Penggabungan (Audit Trail) */}
+          <div>
+            <label className="text-xs font-bold text-[#1C2321] block mb-1 font-display">
+              3. Alasan Penggabungan Master Data (Wajib Audit): *
             </label>
             <input
               type="text"
+              required
+              minLength={5}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Contoh: Duplikasi kontak sama hasil pendaftaran kajian offline dan online..."
-              className="input-field py-2 text-xs"
+              placeholder="Contoh: Duplikasi kontak jamaah terdaftar di dua kajian berbeda"
+              className="w-full px-3 py-2 text-xs font-medium border border-[#1B4332]/14 rounded-xl bg-white focus:ring-2 focus:ring-[#1B4332] outline-none text-[#1C2321]"
             />
+            <p className="text-[10px] text-[#6B7A72] mt-1">
+              Catatan ini akan tersimpan permanen di Log Audit Sistem beserta penanggung jawab PIC.
+            </p>
           </div>
 
-          {/* Invariant Warning */}
-          <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-[11px] leading-relaxed">
-            <strong>Catatan Tata Kelola Data:</strong> Operasi merge bersifat permanen dan dicatat dalam tabel audit log yayasan. Data sekunder ({secondaryPerson.fullName}) akan dinonaktifkan dan ditandai sebagai <em>MERGED</em>.
-          </div>
-
-          {/* Footer */}
-          <div className="pt-4 border-t border-surface-200 flex items-center justify-end gap-2">
+          {/* Actions */}
+          <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-[#1B4332]/12">
             <button
               type="button"
               onClick={onClose}
-              className="btn-secondary py-2 px-4 text-xs"
               disabled={submitting}
+              className="px-4 py-2 text-xs font-bold text-[#3D4A44] hover:bg-[#F2EEE4] rounded-xl transition-colors"
             >
               Batal
             </button>
+
             <button
               type="submit"
               disabled={submitting}
-              className="btn-primary py-2 px-5 text-xs inline-flex items-center gap-1.5"
+              className="px-5 py-2.5 bg-[#1B4332] hover:bg-[#14352A] text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-2 active:scale-98 disabled:opacity-50"
             >
-              <GitMerge className="w-4 h-4" />
-              {submitting ? 'Menggabungkan Data...' : `Gabungkan ke ${primaryPerson.fullName}`}
+              {submitting ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Menggabungkan...</span>
+                </>
+              ) : (
+                <>
+                  <GitMerge className="w-3.5 h-3.5 text-[#E0B970]" />
+                  <span>Gabungkan Master Data</span>
+                </>
+              )}
             </button>
           </div>
         </form>

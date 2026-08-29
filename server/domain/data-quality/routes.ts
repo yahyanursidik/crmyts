@@ -19,6 +19,18 @@ import { eq, and, isNull, desc, lte } from 'drizzle-orm';
 import { PERMISSIONS } from '../../permissions/constants';
 import { normalizeIndonesianPhone, isValidE164 } from '../../lib/phone';
 
+// In-memory TTL Cache (60 seconds) for Data Quality anomalies
+interface CacheEntry {
+  data: any;
+  timestamp: number;
+}
+let dataQualityCache: CacheEntry | null = null;
+const CACHE_TTL_MS = 60 * 1000;
+
+export function invalidateDataQualityCache() {
+  dataQualityCache = null;
+}
+
 const mergePersonsSchema = z.object({
   primaryPersonId: z.string().uuid('ID Jamaah Utama (Target Merge) wajib valid'),
   secondaryPersonId: z.string().uuid('ID Jamaah Duplikat (Source Merge) wajib valid'),
@@ -30,6 +42,7 @@ const mergePersonsSchema = z.object({
     gender: z.enum(['primary', 'secondary']).optional(),
     sourceCode: z.enum(['primary', 'secondary']).optional(),
   }).optional(),
+  fieldOverrides: z.record(z.any()).optional(),
 });
 
 const ignoreCandidateSchema = z.object({
@@ -69,11 +82,16 @@ function computeStringSimilarity(a: string, b: string): number {
 }
 
 export function registerDataQualityRoutes(router: Router) {
-  // GET /api/data-quality/anomalies (7 Anomaly Detection Rules Engine)
+  // GET /api/data-quality/anomalies (7 Anomaly Detection Rules Engine with Caching)
   router.get(
     '/api/data-quality/anomalies',
     requireAuth(
       requirePermission(PERMISSIONS.DATA_QUALITY_MANAGE, async (ctx) => {
+        const forceRefresh = ctx.query?.refresh === 'true' || ctx.query?.refresh === '1';
+        if (!forceRefresh && dataQualityCache && Date.now() - dataQualityCache.timestamp < CACHE_TTL_MS) {
+          return successResponse(dataQualityCache.data, { requestId: ctx.requestId });
+        }
+
         const db = getDb();
         const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
 
@@ -211,8 +229,7 @@ export function registerDataQualityRoutes(router: Router) {
           },
         });
 
-        return successResponse(
-          {
+        const responsePayload = {
             summary: {
               totalActivePersons: activePersons.length,
               invalidPhoneCount: invalidPhonePersons.length,
@@ -317,12 +334,196 @@ export function registerDataQualityRoutes(router: Router) {
                 ageDays: Math.floor((Date.now() - new Date(n.createdAt).getTime()) / (1000 * 60 * 60 * 24)),
               })),
             },
-          },
-          { requestId: ctx.requestId }
-        );
+          };
+
+          dataQualityCache = {
+            data: responsePayload,
+            timestamp: Date.now(),
+          };
+
+          return successResponse(responsePayload, { requestId: ctx.requestId });
       })
     )
   );
+
+  // Helper Merge Handler
+  const handleMergeRequest = async (ctx: any, body: any) => {
+    const db = getDb();
+    const user = ctx.user;
+    if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+
+    const { primaryPersonId, secondaryPersonId, reason, fieldPreferences, fieldOverrides } = body;
+
+    if (primaryPersonId === secondaryPersonId) {
+      return errorResponse('VALIDATION_ERROR', 'Jamaah utama dan duplikat tidak boleh identik', 400, ctx.requestId);
+    }
+
+    // Atomic Transaction for Complete Relational Merge
+    const mergeResult = await db.transaction(async (tx) => {
+      const primary = await tx.query.persons.findFirst({
+        where: eq(persons.id, primaryPersonId),
+      });
+      const secondary = await tx.query.persons.findFirst({
+        where: eq(persons.id, secondaryPersonId),
+      });
+
+      if (!primary || !secondary) {
+        throw new Error('NOT_FOUND: Salah satu data jamaah tidak ditemukan');
+      }
+
+      if (!primary.isActive || !secondary.isActive) {
+        throw new Error('VALIDATION_ERROR: Kedua data jamaah harus dalam status aktif sebelum penggabungan');
+      }
+
+      const beforeJson = {
+        primaryPerson: { id: primary.id, fullName: primary.fullName, phoneE164: primary.phoneE164, email: primary.email },
+        secondaryPerson: { id: secondary.id, fullName: secondary.fullName, phoneE164: secondary.phoneE164, email: secondary.email },
+      };
+
+      // 1. Reassign all interactions
+      await tx
+        .update(interactions)
+        .set({ personId: primaryPersonId })
+        .where(eq(interactions.personId, secondaryPersonId));
+
+      // 2. Reassign all tasks
+      await tx
+        .update(tasks)
+        .set({ personId: primaryPersonId })
+        .where(eq(tasks.personId, secondaryPersonId));
+
+      // 3. Reassign all donations
+      await tx
+        .update(donations)
+        .set({ personId: primaryPersonId })
+        .where(eq(donations.personId, secondaryPersonId));
+
+      // 4. Reassign all waqf cases
+      await tx
+        .update(waqfCases)
+        .set({ personId: primaryPersonId })
+        .where(eq(waqfCases.personId, secondaryPersonId));
+
+      // 5. Reassign event attendances (avoid unique index violation by deleting duplicates)
+      const secondaryAttendances = await tx.query.eventAttendance.findMany({
+        where: eq(eventAttendance.personId, secondaryPersonId),
+      });
+
+      for (const att of secondaryAttendances) {
+        const existingAtt = await tx.query.eventAttendance.findFirst({
+          where: and(eq(eventAttendance.eventId, att.eventId), eq(eventAttendance.personId, primaryPersonId)),
+        });
+        if (!existingAtt) {
+          await tx
+            .update(eventAttendance)
+            .set({ personId: primaryPersonId })
+            .where(eq(eventAttendance.id, att.id));
+        } else {
+          await tx
+            .delete(eventAttendance)
+            .where(eq(eventAttendance.id, att.id));
+        }
+      }
+
+      // 6. Reassign sensitive notes
+      await tx
+        .update(sensitiveNotes)
+        .set({ personId: primaryPersonId })
+        .where(eq(sensitiveNotes.personId, secondaryPersonId));
+
+      // 7. Merge Roles
+      const secondaryRoles = await tx.query.personRoles.findMany({
+        where: eq(personRoles.personId, secondaryPersonId),
+      });
+      for (const r of secondaryRoles) {
+        const existingRole = await tx.query.personRoles.findFirst({
+          where: and(eq(personRoles.personId, primaryPersonId), eq(personRoles.roleCode, r.roleCode)),
+        });
+        if (!existingRole) {
+          await tx.insert(personRoles).values({
+            personId: primaryPersonId,
+            roleCode: r.roleCode,
+          });
+        }
+      }
+
+      // 8. Merge Tags
+      const secondaryTags = await tx.query.personTags.findMany({
+        where: eq(personTags.personId, secondaryPersonId),
+      });
+      for (const t of secondaryTags) {
+        const existingTag = await tx.query.personTags.findFirst({
+          where: and(eq(personTags.personId, primaryPersonId), eq(personTags.tagId, t.tagId)),
+        });
+        if (!existingTag) {
+          await tx.insert(personTags).values({
+            personId: primaryPersonId,
+            tagId: t.tagId,
+          });
+        }
+      }
+
+      // 9. Update Primary Person Fields based on Preferences & Backfill
+      const updatedPrimaryData: any = {
+        phoneE164: fieldOverrides?.phoneE164 || (fieldPreferences?.phoneE164 === 'secondary' ? secondary.phoneE164 : (primary.phoneE164 || secondary.phoneE164)),
+        email: fieldOverrides?.email || (fieldPreferences?.email === 'secondary' ? secondary.email : (primary.email || secondary.email)),
+        cityRegency: fieldOverrides?.cityRegency || (fieldPreferences?.cityRegency === 'secondary' ? secondary.cityRegency : (primary.cityRegency || secondary.cityRegency)),
+        gender: fieldOverrides?.gender || (fieldPreferences?.gender === 'secondary' ? secondary.gender : (primary.gender || secondary.gender)),
+        sourceCode: fieldOverrides?.sourceCode || (fieldPreferences?.sourceCode === 'secondary' ? secondary.sourceCode : (primary.sourceCode || secondary.sourceCode)),
+        occupation: primary.occupation || secondary.occupation,
+        educationLevel: primary.educationLevel || secondary.educationLevel,
+        updatedAt: new Date(),
+      };
+
+      const [mergedPrimary] = await tx
+        .update(persons)
+        .set(updatedPrimaryData)
+        .where(eq(persons.id, primaryPersonId))
+        .returning();
+
+      if (!mergedPrimary) {
+        throw new Error('INTERNAL_ERROR: Gagal memperbarui profil utama');
+      }
+
+      // 10. Deactivate Secondary Person
+      await tx
+        .update(persons)
+        .set({
+          isActive: false,
+          fullName: `${secondary.fullName} [MERGED -> ${primary.fullName}]`,
+          updatedAt: new Date(),
+        })
+        .where(eq(persons.id, secondaryPersonId));
+
+      const afterJson = {
+        mergedPrimaryId: primaryPersonId,
+        deactivatedSecondaryId: secondaryPersonId,
+        finalPrimaryState: {
+          fullName: mergedPrimary.fullName,
+          phoneE164: mergedPrimary.phoneE164,
+          email: mergedPrimary.email,
+          cityRegency: mergedPrimary.cityRegency,
+        },
+      };
+
+      // 11. Audit Log for Merge Operation
+      await tx.insert(auditLogs).values({
+        actorUserId: user.id,
+        action: 'merge_persons',
+        entityType: 'person',
+        entityId: primaryPersonId,
+        beforeJson,
+        afterJson,
+        reason,
+        requestId: ctx.requestId,
+      });
+
+      return mergedPrimary;
+    });
+
+    invalidateDataQualityCache();
+    return successResponse(mergeResult, { requestId: ctx.requestId });
+  };
 
   // POST /api/data-quality/merge (Transactional Human-Reviewed Merge with Audit Log)
   router.post(
@@ -330,183 +531,78 @@ export function registerDataQualityRoutes(router: Router) {
     requireAuth(
       requirePermission(
         PERMISSIONS.PERSONS_MERGE,
-        validateBody(mergePersonsSchema, async (ctx, body) => {
-          const db = getDb();
-          const user = ctx.user;
-          if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+        validateBody(mergePersonsSchema, handleMergeRequest)
+      )
+    )
+  );
 
-          const { primaryPersonId, secondaryPersonId, reason, fieldPreferences } = body;
+  // POST /api/data-quality/merge-persons (Alias)
+  router.post(
+    '/api/data-quality/merge-persons',
+    requireAuth(
+      requirePermission(
+        PERMISSIONS.PERSONS_MERGE,
+        validateBody(mergePersonsSchema, handleMergeRequest)
+      )
+    )
+  );
 
-          if (primaryPersonId === secondaryPersonId) {
-            return errorResponse('VALIDATION_ERROR', 'Jamaah utama dan duplikat tidak boleh identik', 400, ctx.requestId);
+  // POST /api/data-quality/batch-normalize-phones (Batch normalize all fixable phone numbers)
+  router.post(
+    '/api/data-quality/batch-normalize-phones',
+    requireAuth(
+      requirePermission(PERMISSIONS.DATA_QUALITY_MANAGE, async (ctx) => {
+        const db = getDb();
+        const user = ctx.user;
+        if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+
+        const activePersons = await db.query.persons.findMany({
+          where: eq(persons.isActive, true),
+        });
+
+        const fixable: Array<{ id: string; oldPhone: string; newPhone: string }> = [];
+        for (const p of activePersons) {
+          if (p.phoneE164 && !isValidE164(p.phoneE164)) {
+            const normalized = normalizeIndonesianPhone(p.phoneE164);
+            if (isValidE164(normalized)) {
+              fixable.push({ id: p.id, oldPhone: p.phoneE164, newPhone: normalized });
+            }
+          }
+        }
+
+        if (fixable.length === 0) {
+          return successResponse(
+            { count: 0, message: 'Semua nomor telepon sudah berformat valid atau tidak dapat dinormalisasi otomatis.' },
+            { requestId: ctx.requestId }
+          );
+        }
+
+        await db.transaction(async (tx) => {
+          for (const item of fixable) {
+            await tx
+              .update(persons)
+              .set({ phoneE164: item.newPhone, updatedAt: new Date() })
+              .where(eq(persons.id, item.id));
           }
 
-          // Atomic Transaction for Complete Relational Merge
-          const mergeResult = await db.transaction(async (tx) => {
-            const primary = await tx.query.persons.findFirst({
-              where: eq(persons.id, primaryPersonId),
-            });
-            const secondary = await tx.query.persons.findFirst({
-              where: eq(persons.id, secondaryPersonId),
-            });
-
-            if (!primary || !secondary) {
-              throw new Error('NOT_FOUND: Salah satu data jamaah tidak ditemukan');
-            }
-
-            if (!primary.isActive || !secondary.isActive) {
-              throw new Error('VALIDATION_ERROR: Kedua data jamaah harus dalam status aktif sebelum penggabungan');
-            }
-
-            const beforeJson = {
-              primaryPerson: { id: primary.id, fullName: primary.fullName, phoneE164: primary.phoneE164, email: primary.email },
-              secondaryPerson: { id: secondary.id, fullName: secondary.fullName, phoneE164: secondary.phoneE164, email: secondary.email },
-            };
-
-            // 1. Reassign all interactions
-            await tx
-              .update(interactions)
-              .set({ personId: primaryPersonId })
-              .where(eq(interactions.personId, secondaryPersonId));
-
-            // 2. Reassign all tasks
-            await tx
-              .update(tasks)
-              .set({ personId: primaryPersonId })
-              .where(eq(tasks.personId, secondaryPersonId));
-
-            // 3. Reassign all donations
-            await tx
-              .update(donations)
-              .set({ personId: primaryPersonId })
-              .where(eq(donations.personId, secondaryPersonId));
-
-            // 4. Reassign all waqf cases
-            await tx
-              .update(waqfCases)
-              .set({ personId: primaryPersonId })
-              .where(eq(waqfCases.personId, secondaryPersonId));
-
-            // 5. Reassign event attendances (avoid unique index violation by deleting duplicates)
-            const secondaryAttendances = await tx.query.eventAttendance.findMany({
-              where: eq(eventAttendance.personId, secondaryPersonId),
-            });
-
-            for (const att of secondaryAttendances) {
-              const existingAtt = await tx.query.eventAttendance.findFirst({
-                where: and(eq(eventAttendance.eventId, att.eventId), eq(eventAttendance.personId, primaryPersonId)),
-              });
-              if (!existingAtt) {
-                await tx
-                  .update(eventAttendance)
-                  .set({ personId: primaryPersonId })
-                  .where(eq(eventAttendance.id, att.id));
-              } else {
-                await tx
-                  .delete(eventAttendance)
-                  .where(eq(eventAttendance.id, att.id));
-              }
-            }
-
-            // 6. Reassign sensitive notes
-            await tx
-              .update(sensitiveNotes)
-              .set({ personId: primaryPersonId })
-              .where(eq(sensitiveNotes.personId, secondaryPersonId));
-
-            // 7. Merge Roles
-            const secondaryRoles = await tx.query.personRoles.findMany({
-              where: eq(personRoles.personId, secondaryPersonId),
-            });
-            for (const r of secondaryRoles) {
-              const existingRole = await tx.query.personRoles.findFirst({
-                where: and(eq(personRoles.personId, primaryPersonId), eq(personRoles.roleCode, r.roleCode)),
-              });
-              if (!existingRole) {
-                await tx.insert(personRoles).values({
-                  personId: primaryPersonId,
-                  roleCode: r.roleCode,
-                });
-              }
-            }
-
-            // 8. Merge Tags
-            const secondaryTags = await tx.query.personTags.findMany({
-              where: eq(personTags.personId, secondaryPersonId),
-            });
-            for (const t of secondaryTags) {
-              const existingTag = await tx.query.personTags.findFirst({
-                where: and(eq(personTags.personId, primaryPersonId), eq(personTags.tagId, t.tagId)),
-              });
-              if (!existingTag) {
-                await tx.insert(personTags).values({
-                  personId: primaryPersonId,
-                  tagId: t.tagId,
-                });
-              }
-            }
-
-            // 9. Update Primary Person Fields based on Preferences & Backfill
-            const updatedPrimaryData: any = {
-              phoneE164: fieldPreferences?.phoneE164 === 'secondary' ? secondary.phoneE164 : (primary.phoneE164 || secondary.phoneE164),
-              email: fieldPreferences?.email === 'secondary' ? secondary.email : (primary.email || secondary.email),
-              cityRegency: fieldPreferences?.cityRegency === 'secondary' ? secondary.cityRegency : (primary.cityRegency || secondary.cityRegency),
-              gender: fieldPreferences?.gender === 'secondary' ? secondary.gender : (primary.gender || secondary.gender),
-              sourceCode: fieldPreferences?.sourceCode === 'secondary' ? secondary.sourceCode : (primary.sourceCode || secondary.sourceCode),
-              occupation: primary.occupation || secondary.occupation,
-              educationLevel: primary.educationLevel || secondary.educationLevel,
-              updatedAt: new Date(),
-            };
-
-            const [mergedPrimary] = await tx
-              .update(persons)
-              .set(updatedPrimaryData)
-              .where(eq(persons.id, primaryPersonId))
-              .returning();
-
-            if (!mergedPrimary) {
-              throw new Error('INTERNAL_ERROR: Gagal memperbarui profil utama');
-            }
-
-            // 10. Deactivate Secondary Person
-            await tx
-              .update(persons)
-              .set({
-                isActive: false,
-                fullName: `${secondary.fullName} [MERGED -> ${primary.fullName}]`,
-                updatedAt: new Date(),
-              })
-              .where(eq(persons.id, secondaryPersonId));
-
-            const afterJson = {
-              mergedPrimaryId: primaryPersonId,
-              deactivatedSecondaryId: secondaryPersonId,
-              finalPrimaryState: {
-                fullName: mergedPrimary.fullName,
-                phoneE164: mergedPrimary.phoneE164,
-                email: mergedPrimary.email,
-                cityRegency: mergedPrimary.cityRegency,
-              },
-            };
-
-            // 11. Audit Log for Merge Operation
-            await tx.insert(auditLogs).values({
-              actorUserId: user.id,
-              action: 'merge_persons',
-              entityType: 'person',
-              entityId: primaryPersonId,
-              beforeJson,
-              afterJson,
-              reason,
-              requestId: ctx.requestId,
-            });
-
-            return mergedPrimary;
+          await tx.insert(auditLogs).values({
+            actorUserId: user.id,
+            action: 'batch_normalize_phones',
+            entityType: 'person',
+            entityId: fixable[0]!.id,
+            beforeJson: { count: fixable.length, sample: fixable.slice(0, 5) },
+            afterJson: { count: fixable.length, status: 'normalized' },
+            reason: `Batch normalisasi E.164 untuk ${fixable.length} nomor kontak via Data Quality Steward`,
+            requestId: ctx.requestId,
           });
+        });
 
-          return successResponse(mergeResult, { requestId: ctx.requestId });
-        })
-      )
+        invalidateDataQualityCache();
+        return successResponse(
+          { count: fixable.length, message: `Berhasil menormalisasi ${fixable.length} nomor telepon ke format E.164 (+62).` },
+          { requestId: ctx.requestId }
+        );
+      })
     )
   );
 
@@ -559,6 +655,7 @@ export function registerDataQualityRoutes(router: Router) {
             requestId: ctx.requestId,
           });
 
+          invalidateDataQualityCache();
           return successResponse(updated, { requestId: ctx.requestId });
         })
       )
@@ -587,6 +684,7 @@ export function registerDataQualityRoutes(router: Router) {
             requestId: ctx.requestId,
           });
 
+          invalidateDataQualityCache();
           return successResponse({ status: 'ignored', candidateA: body.personAId, candidateB: body.personBId }, { requestId: ctx.requestId });
         })
       )
