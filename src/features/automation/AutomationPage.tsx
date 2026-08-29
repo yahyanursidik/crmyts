@@ -240,79 +240,105 @@ export function AutomationPage() {
         </button>
       </div>
 
-      {/* 2. Top Navigation Tabs */}
-      <div className="bg-[#F2EEE4] p-1 rounded-2xl flex items-center gap-1 border border-[#1B4332]/12 overflow-x-auto">
-        <button
-          onClick={() => setActiveTab('inactive')}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-            activeTab === 'inactive'
-              ? 'bg-[#1B4332] text-white shadow-2xs'
-              : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-[#EAE4D6]/60'
-          }`}
-        >
-          <Heart className="w-4 h-4 text-[#E0B970]" />
-          <span>Jamaah Rindu Majelis (Retensi)</span>
-        </button>
+      {/* 2. Top Navigation Tabs (Responsive 6-Card Cluster Grid) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+        {[
+          {
+            id: 'inactive',
+            title: 'Retensi Jamaah',
+            subtitle: 'Sapaan Ukhuwah',
+            icon: Heart,
+            badge: 'CRM WA',
+          },
+          {
+            id: 'drip_email',
+            title: 'Drip Email Jamaah',
+            subtitle: 'Warm-up 14 Hari',
+            icon: Mail,
+            badge: '3.288 Jamaah',
+          },
+          {
+            id: 'reminder',
+            title: 'Pengingat Kajian',
+            subtitle: 'Pra & Pasca Event',
+            icon: Calendar,
+            badge: 'Majelis Ilmu',
+          },
+          {
+            id: 'donation',
+            title: 'E-Receipt Donasi',
+            subtitle: 'Tanda Terima Sah',
+            icon: HeartHandshake,
+            badge: 'Infaq / Sedekah',
+          },
+          {
+            id: 'waqf',
+            title: 'Progres Wakaf',
+            subtitle: 'Follow-Up Wakif',
+            icon: Landmark,
+            badge: 'Pipeline Aset',
+          },
+          {
+            id: 'impact',
+            title: 'Laporan Program',
+            subtitle: 'Stewardship Umat',
+            icon: FileText,
+            badge: 'Dokumentasi',
+          },
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`p-3 rounded-2xl border text-left transition-all relative flex flex-col justify-between gap-2.5 active:scale-98 shadow-2xs ${
+                isActive
+                  ? 'bg-[#1B4332] border-[#1B4332] text-white ring-2 ring-[#1B4332]/30 shadow-xs'
+                  : 'bg-[#FBF9F4] border-[#1B4332]/12 text-[#1C2321] hover:bg-[#F2EEE4] hover:border-[#1B4332]/25'
+              }`}
+            >
+              <div className="flex items-center justify-between w-full">
+                <div
+                  className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border ${
+                    isActive
+                      ? 'bg-white/12 border-white/20 text-[#E0B970]'
+                      : 'bg-[#1B4332]/8 border-[#1B4332]/15 text-[#14352A]'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                </div>
+                <span
+                  className={`text-[9.5px] font-mono font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
+                    isActive
+                      ? 'bg-[#E0B970] text-[#14352A]'
+                      : 'bg-[#1B4332]/8 text-[#14352A]'
+                  }`}
+                >
+                  {tab.badge}
+                </span>
+              </div>
 
-        <button
-          onClick={() => setActiveTab('drip_email')}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-            activeTab === 'drip_email'
-              ? 'bg-[#1B4332] text-white shadow-2xs'
-              : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-[#EAE4D6]/60'
-          }`}
-        >
-          <Mail className="w-4 h-4 text-[#E0B970]" />
-          <span>Drip Email Jamaah (14 Hari Warm-up)</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('reminder')}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-            activeTab === 'reminder'
-              ? 'bg-[#1B4332] text-white shadow-2xs'
-              : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-[#EAE4D6]/60'
-          }`}
-        >
-          <Calendar className="w-4 h-4 text-[#E0B970]" />
-          <span>Pengingat &amp; Pasca-Kajian</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('donation')}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-            activeTab === 'donation'
-              ? 'bg-[#1B4332] text-white shadow-2xs'
-              : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-[#EAE4D6]/60'
-          }`}
-        >
-          <HeartHandshake className="w-4 h-4 text-[#E0B970]" />
-          <span>Tanda Terima Donasi (E-Receipt)</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('waqf')}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-            activeTab === 'waqf'
-              ? 'bg-[#1B4332] text-white shadow-2xs'
-              : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-[#EAE4D6]/60'
-          }`}
-        >
-          <Landmark className="w-4 h-4 text-[#E0B970]" />
-          <span>Follow-Up Progres Wakaf</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('impact')}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-            activeTab === 'impact'
-              ? 'bg-[#1B4332] text-white shadow-2xs'
-              : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-[#EAE4D6]/60'
-          }`}
-        >
-          <FileText className="w-4 h-4 text-[#E0B970]" />
-          <span>Laporan Penyaluran Program</span>
-        </button>
+              <div>
+                <h3
+                  className={`text-xs font-bold font-display leading-tight truncate ${
+                    isActive ? 'text-white' : 'text-[#1C2321]'
+                  }`}
+                  title={tab.title}
+                >
+                  {tab.title}
+                </h3>
+                <p
+                  className={`text-[10.5px] mt-0.5 truncate ${
+                    isActive ? 'text-white/75' : 'text-[#6B7A72]'
+                  }`}
+                >
+                  {tab.subtitle}
+                </p>
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       {/* 3. Tab Contents */}
