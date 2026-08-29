@@ -171,19 +171,24 @@ export const RoleDashboardView: React.FC = () => {
       ) : !data ? null : (
         <div className="space-y-6 animate-in fade-in duration-200">
           {/* Header Banner */}
-          <div className="p-4 bg-gradient-to-r from-brand-900 to-brand-800 text-white rounded-xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-brand-700/80 text-brand-100 border border-brand-600">
-                  Dashboard Operasional
-                </span>
-                <h2 className="text-lg font-bold font-display">{data.roleName}</h2>
+          <div className="p-4 bg-gradient-to-r from-[#14352A] via-[#1B4332] to-[#0F4C4A] text-white rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-[#1B4332]">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-white p-1 shadow-xs border border-white/20 flex items-center justify-center shrink-0 overflow-hidden">
+                <img src="/logo.png" alt="Logo YTS" className="w-full h-full object-contain" />
               </div>
-              <p className="text-xs text-brand-200 mt-1">
-                Fokus harian, tugas overdue, peringatan anomali, dan aksi cepat tim {data.roleName}.
-              </p>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider bg-white/15 text-[#E0B970] border border-white/20">
+                    Dashboard Operasional
+                  </span>
+                  <h2 className="text-base sm:text-lg font-bold font-display text-white">{data.roleName}</h2>
+                </div>
+                <p className="text-xs text-white/80 mt-0.5">
+                  Fokus harian, tugas overdue, peringatan anomali, dan aksi cepat tim {data.roleName}.
+                </p>
+              </div>
             </div>
-            <span className="text-xs font-mono font-semibold bg-brand-950/40 px-3 py-1.5 rounded-lg border border-brand-700 self-start sm:self-auto">
+            <span className="text-xs font-mono font-semibold bg-black/25 text-white/90 px-3 py-1.5 rounded-xl border border-white/10 self-start sm:self-auto">
               {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
             </span>
           </div>

@@ -47,6 +47,34 @@ export function BrandEmblem({ className = 'w-10 h-10', size, useImage = true }: 
   );
 }
 
+/**
+ * User Profile Picture using Official Logo Emblem
+ */
+export function UserLogoAvatar({
+  className = 'w-8 h-8',
+  size,
+  imageSrc = '/logo.png',
+  alt = 'Profil Amil YTS',
+}: {
+  className?: string;
+  size?: number | string;
+  imageSrc?: string;
+  alt?: string;
+}) {
+  return (
+    <div
+      className={`relative shrink-0 rounded-full bg-white p-0.5 border border-[#1B4332]/20 shadow-2xs overflow-hidden flex items-center justify-center ${className}`}
+      style={size ? { width: size, height: size } : undefined}
+    >
+      <img
+        src={imageSrc}
+        alt={alt}
+        className="w-full h-full object-contain rounded-full"
+      />
+    </div>
+  );
+}
+
 export interface BrandLogoProps {
   variant?: 'vertical' | 'horizontal' | 'icon-only' | 'image-card';
   theme?: 'light' | 'dark' | 'auto';

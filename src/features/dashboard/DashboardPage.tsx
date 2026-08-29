@@ -240,25 +240,39 @@ export const DashboardPage: React.FC = () => {
            TAB 1: BERANDA KERJA & ANTREAN PRIORITAS (MOCKUP 1a)
         ========================================================================= */
         <div className="space-y-6 animate-in fade-in duration-200">
-          {/* Greeting Header & Filter Bar */}
-          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-2">
-            <div>
-              <h1 className="text-xl sm:text-2xl font-bold font-display text-[#1C2321] tracking-tight">
-                {getGreeting()}, {identity?.fullName?.split(' ')[0] || 'Rahmat'}
-              </h1>
-              <p className="text-xs sm:text-[13px] text-[#6B7A72] mt-1 font-normal">
-                {getIndonesianFullDate()} · <strong className="font-semibold text-[#1C2321]">{totalPendingActions} tindakan</strong> menunggu Anda hari ini
-              </p>
+          {/* Greeting Header with Official Logo & Filter Bar */}
+          <div className="p-5 bg-gradient-to-r from-[#14352A] via-[#1B4332] to-[#0F4C4A] text-white rounded-3xl border border-[#1B4332] shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <div className="w-13 h-13 rounded-2xl bg-white p-1 shadow-md border border-white/20 flex items-center justify-center shrink-0 overflow-hidden">
+                <img
+                  src="/logo.png"
+                  alt="Logo Yayasan Tarbiyah Sunnah"
+                  className="w-full h-full object-contain"
+                />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h1 className="text-lg sm:text-xl font-bold font-display text-white tracking-tight">
+                    {getGreeting()}, {identity?.fullName || 'Amil Tarbiyah Sunnah'}
+                  </h1>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase bg-[#E0B970] text-[#14352A]">
+                    {identity?.roles?.[0]?.replace('_', ' ') || 'STAFF AMIL'}
+                  </span>
+                </div>
+                <p className="text-xs text-white/80 mt-1 font-normal">
+                  {getIndonesianFullDate()} · <strong className="font-bold text-[#E0B970] font-mono">{totalPendingActions} agenda tindakan</strong> menanti ikhtiar Anda hari ini.
+                </p>
+              </div>
             </div>
 
             {/* Filter Pills */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap self-start md:self-auto bg-black/20 p-1.5 rounded-2xl border border-white/10">
               <button
                 onClick={() => setQueueFilter('all')}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
                   queueFilter === 'all'
-                    ? 'bg-[#1B4332] text-white shadow-2xs'
-                    : 'border border-[#1B4332]/16 text-[#3D4A44] bg-[#FBF9F4] hover:bg-[#F2EEE4]'
+                    ? 'bg-[#E0B970] text-[#14352A] font-bold shadow-xs'
+                    : 'text-white/80 hover:text-white hover:bg-white/10'
                 }`}
               >
                 Semua ({totalPendingActions})
@@ -266,21 +280,21 @@ export const DashboardPage: React.FC = () => {
 
               <button
                 onClick={() => setQueueFilter('mine')}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
                   queueFilter === 'mine'
-                    ? 'bg-[#1B4332] text-white shadow-2xs'
-                    : 'border border-[#1B4332]/16 text-[#3D4A44] bg-[#FBF9F4] hover:bg-[#F2EEE4]'
+                    ? 'bg-[#E0B970] text-[#14352A] font-bold shadow-xs'
+                    : 'text-white/80 hover:text-white hover:bg-white/10'
                 }`}
               >
-                Milik saya ({data.queues.urgentTasks.length})
+                Tugas Saya ({data.queues.urgentTasks.length})
               </button>
 
               <button
                 onClick={() => setQueueFilter('overdue')}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
                   queueFilter === 'overdue'
-                    ? 'bg-[#A8412F] text-white shadow-2xs'
-                    : 'border border-[#1B4332]/16 text-[#A8412F] bg-[#FBF9F4] hover:bg-rose-50'
+                    ? 'bg-rose-500 text-white font-bold shadow-xs'
+                    : 'text-rose-300 hover:text-white hover:bg-white/10'
                 }`}
               >
                 Overdue ({data.kpis.overdueTasks})
