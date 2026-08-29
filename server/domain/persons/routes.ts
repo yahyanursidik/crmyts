@@ -58,6 +58,9 @@ const createSensitiveNoteSchema = z.object({
   expiresAt: z.string().optional().nullable(),
 });
 
+let cachedPersonsStats: { data: { totalMaster: number; multiKajian: number; donorsCount: number; waqfCount: number }; timestamp: number } | null = null;
+const STATS_CACHE_TTL_MS = 60_000;
+
 export function registerPersonsRoutes(router: Router) {
   // GET /api/persons/check-duplicate
   router.get(
@@ -330,31 +333,43 @@ export function registerPersonsRoutes(router: Router) {
         };
       });
 
-      // Quick stats for KPI cards
+      // Quick stats for KPI cards (cached to avoid repeated heavy queries)
       let stats = {
         totalMaster: totalCount,
         multiKajian: 0,
         donorsCount: 0,
+        waqfCount: 0,
       };
 
-      try {
-        const [statsRes] = await db
-          .select({
-            totalMaster: sql<number>`(SELECT count(*)::int FROM "persons")`,
-            multiKajian: sql<number>`(SELECT count(*)::int FROM (SELECT "person_id" FROM "event_attendance" GROUP BY "person_id" HAVING count("id") >= 2) sub)`,
-            donorsCount: sql<number>`(
-              SELECT count(distinct "id")::int FROM "persons" 
-              WHERE EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" = 'donatur')
-                 OR EXISTS (SELECT 1 FROM "donations" WHERE "donations"."person_id" = "persons"."id")
-            )`,
-          })
-          .from(sql`(SELECT 1) dummy`);
+      const nowTime = Date.now();
+      if (cachedPersonsStats && nowTime - cachedPersonsStats.timestamp < STATS_CACHE_TTL_MS) {
+        stats = cachedPersonsStats.data;
+      } else {
+        try {
+          const [statsRes] = await db
+            .select({
+              totalMaster: sql<number>`(SELECT count(*)::int FROM "persons")`,
+              multiKajian: sql<number>`(SELECT count(*)::int FROM (SELECT "person_id" FROM "event_attendance" GROUP BY "person_id" HAVING count("id") >= 2) sub)`,
+              donorsCount: sql<number>`(
+                SELECT count(distinct "id")::int FROM "persons" 
+                WHERE EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" = 'donatur')
+                   OR EXISTS (SELECT 1 FROM "donations" WHERE "donations"."person_id" = "persons"."id")
+              )`,
+              waqfCount: sql<number>`(
+                SELECT count(distinct "id")::int FROM "persons" 
+                WHERE EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" = 'wakif')
+                   OR EXISTS (SELECT 1 FROM "waqf_cases" WHERE "waqf_cases"."wakif_person_id" = "persons"."id")
+              )`,
+            })
+            .from(sql`(SELECT 1) dummy`);
 
-        if (statsRes) {
-          stats = statsRes;
+          if (statsRes) {
+            stats = statsRes;
+            cachedPersonsStats = { data: statsRes, timestamp: nowTime };
+          }
+        } catch (err) {
+          console.warn('[Persons Stats Query Warn]:', err);
         }
-      } catch (err) {
-        console.warn('[Persons Stats Query Warn]:', err);
       }
 
       return successResponse(formatted, {
