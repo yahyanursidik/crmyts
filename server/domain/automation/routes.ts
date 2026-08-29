@@ -785,29 +785,26 @@ export function registerAutomationRoutes(router: Router) {
     requireAuth(async (ctx) => {
       const db = getDb();
 
-      // Auto-seed default 14-day warm-up campaign targeting all 3,288 jamaah if none exists
+      // Auto-seed default 14-day warm-up campaign for all jamaah with verified real emails (397 email asli)
       if (emailCampaignsStore.size === 0) {
-        const allPersons = await db.query.persons.findMany({
+        const eligiblePersons = await db.query.persons.findMany({
+          where: and(isNotNull(persons.email), ne(persons.email, '')),
           orderBy: [desc(persons.createdAt)],
         });
 
-        const seedRecipients: DripRecipient[] = allPersons.map((p) => {
-          const email = (p.email && p.email.trim() !== '')
-            ? p.email.trim()
-            : `${(p.fullName || 'jamaah').toLowerCase().replace(/[^a-z0-9]/g, '')}.${(p.phoneE164 || 'yts').slice(-4)}@tarbiyahsunnah.id`;
-
-          return {
+        const seedRecipients: DripRecipient[] = eligiblePersons
+          .filter((p) => Boolean(p.email && p.email.trim().includes('@')))
+          .map((p) => ({
             personId: p.id,
             fullName: p.fullName,
-            email,
+            email: p.email!.trim(),
             gender: p.gender,
             cityRegency: p.cityRegency || 'Kota Bandung',
             status: 'pending',
             sentAt: null,
             dayNumber: null,
             error: null,
-          };
-        });
+          }));
 
         const defaultCampaignId = 'drip-campaign-sapaan-14hari';
         const defaultCampaign: DripEmailCampaign = {
@@ -830,7 +827,7 @@ export function registerAutomationRoutes(router: Router) {
 <p>Bila ada masukan atau aspirasi untuk dakwah YTS, silakan balas email ini atau hubungi layanan jamaah kami.</p>
 <p style="margin-top: 24px;"><em>Wassalamu'alaikum Warahmatullahi Wabarakatuh.</em><br><strong>Tim Layanan Jamaah & Hubungan Umat<br>Yayasan Tarbiyah Sunnah Bandung</strong></p>
           `.trim(),
-          dailyQuota: 235,
+          dailyQuota: 50,
           totalDays: 14,
           currentDay: 1,
           status: 'running',
@@ -860,7 +857,7 @@ export function registerAutomationRoutes(router: Router) {
     })
   );
 
-  // 9. POST /api/automation/email-campaigns (Create New Drip Campaign)
+  // 9. POST /api/automation/email-campaigns (Create New Drip Campaign with Real Emails)
   router.post(
     '/api/automation/email-campaigns',
     requireAuth(
@@ -869,36 +866,29 @@ export function registerAutomationRoutes(router: Router) {
         const user = ctx.user;
         if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
 
-        const conditions = [];
-        if (body.targetScope === 'email_only') {
-          conditions.push(isNotNull(persons.email), ne(persons.email, ''));
-        }
+        const conditions = [isNotNull(persons.email), ne(persons.email, '')];
         if (body.filterGender && body.filterGender !== 'all') {
           conditions.push(eq(persons.gender, body.filterGender as any));
         }
 
         const eligiblePersons = await db.query.persons.findMany({
-          where: conditions.length > 0 ? and(...conditions) : undefined,
+          where: and(...conditions),
           orderBy: [desc(persons.createdAt)],
         });
 
-        const recipients: DripRecipient[] = eligiblePersons.map((p) => {
-          const email = (p.email && p.email.trim() !== '')
-            ? p.email.trim()
-            : `${(p.fullName || 'jamaah').toLowerCase().replace(/[^a-z0-9]/g, '')}.${(p.phoneE164 || 'yts').slice(-4)}@tarbiyahsunnah.id`;
-
-          return {
+        const recipients: DripRecipient[] = eligiblePersons
+          .filter((p) => Boolean(p.email && p.email.trim().includes('@')))
+          .map((p) => ({
             personId: p.id,
             fullName: p.fullName,
-            email,
+            email: p.email!.trim(),
             gender: p.gender,
             cityRegency: p.cityRegency || 'Kota Bandung',
             status: 'pending',
             sentAt: null,
             dayNumber: null,
             error: null,
-          };
-        });
+          }));
 
         const newId = `drip-${Date.now()}`;
         const newCampaign: DripEmailCampaign = {
@@ -906,7 +896,7 @@ export function registerAutomationRoutes(router: Router) {
           title: body.title,
           subject: body.subject,
           bodyHtml: body.bodyHtml,
-          dailyQuota: body.dailyQuota ?? 100,
+          dailyQuota: body.dailyQuota ?? 50,
           totalDays: body.totalDays ?? 14,
           currentDay: 1,
           status: 'running',

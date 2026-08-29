@@ -255,7 +255,7 @@ export function AutomationPage() {
             title: 'Drip Email Jamaah',
             subtitle: 'Warm-up 14 Hari',
             icon: Mail,
-            badge: '3.288 Jamaah',
+            badge: '397 Email Asli',
           },
           {
             id: 'reminder',

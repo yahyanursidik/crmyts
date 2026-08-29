@@ -92,10 +92,9 @@ export function DripEmailCampaignTab() {
   // Create Campaign Form State
   const [newTitle, setNewTitle] = useState('Program Sapaan Ukhuwah Jamaah (Pekan 2)');
   const [newSubject, setNewSubject] = useState('Bismillah, Salam Hangat & Doa Kebaikan dari Yayasan Tarbiyah Sunnah');
-  const [newDailyQuota, setNewDailyQuota] = useState<number>(235);
+  const [newDailyQuota, setNewDailyQuota] = useState<number>(50);
   const [newTotalDays, setNewTotalDays] = useState<number>(14);
   const [newGenderFilter, setNewGenderFilter] = useState<'all' | 'ikhwan' | 'akhwat'>('all');
-  const [newTargetScope, setNewTargetScope] = useState<'all_jamaah' | 'email_only'>('all_jamaah');
   const [newBodyHtml, setNewBodyHtml] = useState(`
 <p>Bismillah, Assalamu'alaikum Warahmatullahi Wabarakatuh.</p>
 <p>Semoga <strong>{{genderTitle}} {{fullName}}</strong> beserta seluruh keluarga senantiasa berada dalam lindungan, taufik, dan rahmat Allah Ta'ala di <em>{{city}}</em>.</p>
@@ -212,7 +211,6 @@ export function DripEmailCampaignTab() {
           dailyQuota: newDailyQuota,
           totalDays: newTotalDays,
           filterGender: newGenderFilter,
-          targetScope: newTargetScope,
         }),
       });
       showToast('Program drip email campaign baru berhasil dibuat!');
@@ -252,14 +250,14 @@ export function DripEmailCampaignTab() {
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-base sm:text-lg font-bold tracking-tight font-display">
-                Drip Email Campaign &amp; Warm-up Reputasi Domain
+                Drip Email Campaign &amp; Warm-up Reputasi Domain (Email Asli)
               </h2>
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase bg-[#E0B970] text-[#14352A]">
                 DELIVERABILITY HEALTH
               </span>
             </div>
             <p className="text-xs text-white/80 mt-0.5 max-w-2xl">
-              Email sapaan dikirimkan secara bertahap (drip) 20–100 penerima per hari selama 2 pekan (14 hari) agar IP &amp; domain SMTP tetap sehat, terhindar dari spam blacklist, dan memiliki *open-rate* maksimal.
+              Email sapaan dikirimkan secara bertahap (drip) 20–50 penerima per hari ke seluruh 397 jamaah dengan email asli terverifikasi di CRM (otomatis bertambah saat ada pendaftar baru) untuk menjaga performa SMTP &amp; reputasi domain.
             </p>
           </div>
         </div>
@@ -332,12 +330,12 @@ export function DripEmailCampaignTab() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <div className="p-4 bg-[#FBF9F4] rounded-xl border border-[#1B4332]/12 shadow-2xs border-l-[3px] border-l-[#1B4332] space-y-1">
             <span className="text-[10.5px] font-mono font-semibold text-[#1B4332] uppercase tracking-wider block">
-              TOTAL JAMAAH TERDAFTAR
+              TOTAL JAMAAH (EMAIL ASLI)
             </span>
             <div className="text-2xl sm:text-[28px] font-bold font-display text-[#1C2321]">
               {currentCampaign.stats.totalRecipients.toLocaleString('id-ID')}
             </div>
-            <div className="text-[11.5px] text-[#6B7A72]">Database jamaah aktif di CRM</div>
+            <div className="text-[11.5px] text-[#6B7A72]">Memiliki email asli di CRM</div>
           </div>
 
           <div className="p-4 bg-[#FBF9F4] rounded-xl border border-[#1B4332]/12 shadow-2xs border-l-[3px] border-l-[#2F7D4F] space-y-1">
@@ -710,19 +708,7 @@ export function DripEmailCampaignTab() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="font-semibold text-[#1C2321]">Target Jangkauan Audiens:</label>
-                  <select
-                    value={newTargetScope}
-                    onChange={(e) => setNewTargetScope(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] bg-[#F2EEE4] focus:ring-2 focus:ring-[#1B4332] outline-none"
-                  >
-                    <option value="all_jamaah">Seluruh Database Jamaah CRM (3.288 Jamaah)</option>
-                    <option value="email_only">Hanya Jamaah yang Memiliki Email (397 Jamaah)</option>
-                  </select>
-                </div>
-
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1">
                   <label className="font-semibold text-[#1C2321]">Target Gender Jamaah:</label>
                   <select
@@ -730,14 +716,12 @@ export function DripEmailCampaignTab() {
                     onChange={(e) => setNewGenderFilter(e.target.value as any)}
                     className="w-full px-3 py-2 border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] bg-[#F2EEE4] focus:ring-2 focus:ring-[#1B4332] outline-none"
                   >
-                    <option value="all">Semua Jamaah (Ikhwan &amp; Akhwat)</option>
+                    <option value="all">Semua Email Asli (Ikhwan &amp; Akhwat)</option>
                     <option value="ikhwan">Ikhwan Saja</option>
                     <option value="akhwat">Akhwat Saja</option>
                   </select>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="font-semibold text-[#1C2321]">Kuota Email per Hari (Warm-up):</label>
                   <select
@@ -745,10 +729,10 @@ export function DripEmailCampaignTab() {
                     onChange={(e) => setNewDailyQuota(parseInt(e.target.value, 10))}
                     className="w-full px-3 py-2 border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] bg-[#F2EEE4] focus:ring-2 focus:ring-[#1B4332] outline-none"
                   >
-                    <option value={50}>50 Email / Hari (Sangat Aman)</option>
+                    <option value={20}>20 Email / Hari (Sangat Aman)</option>
+                    <option value={30}>30 Email / Hari (Optimal 14 Hari untuk 397 Email)</option>
+                    <option value={50}>50 Email / Hari (Direkomendasikan)</option>
                     <option value={100}>100 Email / Hari (Standar)</option>
-                    <option value={235}>235 Email / Hari (14 Hari Tuntas 3.288 Jamaah)</option>
-                    <option value={500}>500 Email / Hari (Cepat)</option>
                   </select>
                 </div>
 
