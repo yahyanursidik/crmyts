@@ -195,19 +195,6 @@ const PAGE_TITLES: Record<string, string> = {
   'settings': 'Pengaturan Sistem & Rekening Yayasan',
 };
 
-function getInitials(name?: string): string {
-  if (!name || !name.trim()) return 'RH';
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 0) return 'RH';
-  if (parts.length === 1) {
-    const first = parts[0];
-    return first ? first.slice(0, 2).toUpperCase() : 'RH';
-  }
-  const p0 = parts[0] || '';
-  const p1 = parts[1] || '';
-  return ((p0[0] || '') + (p1[0] || '')).toUpperCase() || 'RH';
-}
-
 function getRoleLabel(roles?: string[]): string {
   if (!roles || roles.length === 0) return 'STAFF AMIL';
   if (roles.includes(ROLES.CRM_ADMIN) || roles.includes('crm_admin' as any)) return 'CRM ADMIN';
@@ -258,7 +245,6 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const initials = getInitials(user?.name);
   const roleLabel = getRoleLabel(user?.roles);
   const currentPathSegment = location.pathname.split('/')[1] || '';
   const currentPageTitle = PAGE_TITLES[currentPathSegment] || currentPathSegment.replace('-', ' ');
