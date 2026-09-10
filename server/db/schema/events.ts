@@ -26,6 +26,9 @@ export interface EventFormConfig {
   maxMultiParticipants?: number;
   customFields?: EventFormField[];
   whatsappMessageTemplate?: string;
+  /** Tautan grup hanya ditampilkan kepada peserta dengan gender yang sesuai. */
+  whatsappGroupIkhwanUrl?: string;
+  whatsappGroupAkhwatUrl?: string;
   termsAndConditions?: string;
 }
 
@@ -106,6 +109,10 @@ export const eventAttendance = pgTable(
     source: attendanceSourceEnum('source').default('manual_input').notNull(),
     status: text('status').default('attended').notNull(),
     ticketCode: text('ticket_code'),
+    /** Kode undangan pribadi yang dapat dibagikan peserta setelah mendaftar. */
+    referralCode: text('referral_code'),
+    /** Pendaftar yang mengundang peserta ini; null bila datang langsung. */
+    referredByAttendanceId: uuid('referred_by_attendance_id'),
     
     // Multi-Participant / Family Group Registration
     registrationGroupId: text('registration_group_id'),
@@ -129,8 +136,11 @@ export const eventAttendance = pgTable(
   },
   (t) => ({
     uniqueAttendance: uniqueIndex('idx_event_person_unique').on(t.eventId, t.personId),
+    ticketCodeUnique: uniqueIndex('idx_event_ticket_code_unique').on(t.eventId, t.ticketCode),
+    referralCodeUnique: uniqueIndex('idx_event_referral_code_unique').on(t.eventId, t.referralCode),
     checkInIdx: index('idx_attendance_check_in').on(t.checkInAt),
     groupRegistrationIdx: index('idx_attendance_reg_group').on(t.registrationGroupId),
+    referredByAttendanceIdx: index('idx_attendance_referred_by').on(t.referredByAttendanceId),
   })
 );
 
@@ -545,5 +555,4 @@ export const bazaarEvaluationsRelations = relations(bazaarEvaluations, ({ one })
     references: [appUsers.id],
   }),
 }));
-
 

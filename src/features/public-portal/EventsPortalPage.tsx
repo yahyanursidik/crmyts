@@ -33,6 +33,8 @@ import { LoadingState } from '@/components/common/LoadingState';
 import { PortalBackground } from '@/components/common/PortalBackground';
 import { CitySuggestInput } from '@/components/common/CitySuggestInput';
 import { EventFormConfig } from '../events/EventManageModal';
+import { ParticipantQrCode } from './ParticipantQrCode';
+import { buildParticipantPortalPath } from '@/lib/participantTicket';
 
 interface EventItem {
   id: string;
@@ -125,6 +127,7 @@ export function EventsPortalPage() {
   const { id: routeEventId } = useParams<{ id?: string }>();
   const [searchParams] = useSearchParams();
   const queryEventId = searchParams.get('id') || searchParams.get('eventId') || searchParams.get('event');
+  const referralCode = searchParams.get('ref')?.trim().toUpperCase() || null;
   const targetId = routeEventId || queryEventId;
   const isSingleEvent = Boolean(routeEventId || queryEventId);
 
@@ -413,6 +416,7 @@ export function EventsPortalPage() {
           agreedToRules: true,
           paymentProofUrl: paymentProofUrl || null,
           paymentAmountRupiah: calculatedTotalAmount,
+          referralCode,
           additionalParticipants:
             familyMembers.length > 0
               ? familyMembers.map((m) => ({
@@ -2021,11 +2025,54 @@ export function EventsPortalPage() {
               </div>
             )}
 
+            {eventSuccess.ticketCode && (
+              <ParticipantQrCode
+                value={`${window.location.origin}${buildParticipantPortalPath(eventSuccess.event.id, eventSuccess.ticketCode)}`}
+                ticketCode={eventSuccess.ticketCode}
+                className="mx-auto max-w-[15rem]"
+              />
+            )}
+
             <p className="text-[11px] text-slate-500 leading-relaxed">
               Silakan simpan tangkapan layar tiket ini untuk ditunjukkan kepada panitia/petugas saat hadir di majelis ilmu. Barakallahu fiikum.
             </p>
 
             <div className="pt-2 flex flex-col gap-2">
+              <Link
+                to={buildParticipantPortalPath(eventSuccess.event.id, eventSuccess.ticketCode)}
+                className="w-full py-2.5 bg-brand-800 hover:bg-brand-900 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-95"
+              >
+                <Ticket className="w-3.5 h-3.5" />
+                <span>Buka Portal Peserta &amp; QR</span>
+              </Link>
+
+              {eventSuccess.event.whatsappGroupInviteUrl && (
+                <a
+                  href={eventSuccess.event.whatsappGroupInviteUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-95"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span>Gabung Grup WhatsApp {eventSuccess.participant.gender === 'akhwat' ? 'Akhwat' : 'Ikhwan'}</span>
+                </a>
+              )}
+
+              {eventSuccess.referralLink && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(`${window.location.origin}${eventSuccess.referralLink}`);
+                    setCopiedShareLink(true);
+                    setTimeout(() => setCopiedShareLink(false), 2500);
+                  }}
+                  className="w-full py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-950 font-bold text-xs rounded-xl border border-amber-300 transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95"
+                >
+                  {copiedShareLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Share2 className="w-3.5 h-3.5 text-amber-700" />}
+                  <span>{copiedShareLink ? 'Tautan Undangan Tersalin!' : 'Salin Tautan Undangan Pribadi'}</span>
+                </button>
+              )}
+
               <Link
                 to={`/kajian/${eventSuccess.event.id}/bazar`}
                 className="w-full py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-950 font-bold text-xs rounded-xl border border-amber-300 transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95"

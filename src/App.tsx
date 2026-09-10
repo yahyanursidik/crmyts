@@ -25,6 +25,7 @@ import { EventsPortalPage } from './features/public-portal/EventsPortalPage';
 import { BazaarPortalPage } from './features/public-portal/BazaarPortalPage';
 import { BazaarSurveyPortalPage } from './features/public-portal/BazaarSurveyPortalPage';
 import { BazaarHubPage } from './features/bazaar/BazaarHubPage';
+import { ParticipantPortalPage } from './features/public-portal/ParticipantPortalPage';
 
 export function App() {
   return (
@@ -142,6 +143,7 @@ export function App() {
             <Route path="/daurah/:id/bazar" element={<BazaarPortalPage />} />
             <Route path="/daurah/:id/bazar/survey" element={<BazaarSurveyPortalPage />} />
             <Route path="/public/events/:id" element={<EventsPortalPage />} />
+            <Route path="/peserta/:eventId" element={<ParticipantPortalPage />} />
 
             <Route
               path="/login"

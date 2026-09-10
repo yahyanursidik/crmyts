@@ -77,3 +77,9 @@
 
 **Reason:** Memaksimalkan performa build Vite 8 (build 1.6s) dan kapabilitas modern React 19 serta router v8 dengan adapter native tanpa ketergantungan paket legacy.
 
+---
+
+## ADR-012 — Participant Ticket, Referral, and Segmented Group Access
+**Decision:** Gunakan kode peserta `YTS-<KATA>-<KATA>-<4 DIGIT>` dan kode undangan `AJAK-<KATA>-<KATA>-<4 DIGIT>` yang unik per event melalui indeks database. QR hanya berisi tautan portal peserta; portal meminta nomor WhatsApp pendaftar sebelum menampilkan data tiket atau tautan grup.
+
+**Reason:** Kode mudah disebut saat check-in, QR tidak mengekspos biodata, dan tautan grup Ikhwan/Akhwat tidak bocor dari katalog acara publik.
