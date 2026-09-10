@@ -336,6 +336,15 @@ Status:
   - Seluruh 4 dimensi pengujian CRM YTS (Unit, Integrasi, Database, dan Keamanan) telah terverifikasi 100% lulus.
 
 ## Template Log
+### 2026-09-10 — Participant Registration, Referral, QR & Portal
+- Prompt/goal: Kembangkan pendaftaran dengan kode mudah dihafal, referral/link undangan, QR scan/generate, grup WhatsApp ikhwan/akhwat, dan portal peserta.
+- Files changed: Schema/migration event attendance, API pendaftaran dan portal peserta, scanner QR, pengaturan form event, portal peserta React, serta tes terkait.
+- Decision: QR memakai URL portal tanpa biodata; nomor WhatsApp dipakai sebagai verifikasi kepemilikan tiket. URL grup tidak diberikan endpoint katalog publik.
+- Tests: typecheck, 17 tes unit/integrasi terkait, dan Vite production build lulus.
+- Result: Pendaftaran, QR, referral, check-in idempoten, dan segmentasi grup terhubung end-to-end.
+- Risks: Migration perlu diterapkan ke database target sebelum fitur diaktifkan.
+- Next: Konfigurasi tautan grup resmi pada Form Builder tiap event dan jalankan migration pada staging/production.
+
 ### YYYY-MM-DD — [Task]
 - Prompt/goal:
 - Files changed:

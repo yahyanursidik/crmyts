@@ -47,6 +47,8 @@ export interface EventFormConfig {
   maxMultiParticipants?: number;
   customFields?: EventFormField[];
   whatsappMessageTemplate?: string;
+  whatsappGroupIkhwanUrl?: string;
+  whatsappGroupAkhwatUrl?: string;
   termsAndConditions?: string;
 }
 
@@ -62,6 +64,8 @@ interface ParticipantItem {
   source: string;
   checkInAt: string;
   ticketCode?: string;
+  referralCode?: string | null;
+  referredByAttendanceId?: string | null;
   vehicleType?: string;
   vehiclePlateNumber?: string | null;
   agreedToRules?: boolean;
@@ -108,6 +112,7 @@ interface EventDetail {
   akhwatCount?: number;
   carsCount?: number;
   motorcyclesCount?: number;
+  referralSignups?: number;
 }
 
 interface EventManageModalProps {
@@ -245,6 +250,8 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           whatsappMessageTemplate:
             res.data.formConfig.whatsappMessageTemplate ||
             'Bismillah. Pendaftaran kajian Anda telah terkonfirmasi. Tiket: {{ticket_code}}. Barakallahu fiikum.',
+          whatsappGroupIkhwanUrl: res.data.formConfig.whatsappGroupIkhwanUrl || '',
+          whatsappGroupAkhwatUrl: res.data.formConfig.whatsappGroupAkhwatUrl || '',
         });
       }
     } catch (err: any) {
@@ -699,6 +706,14 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                     </span>
                   </div>
                 </div>
+
+                <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs col-span-2 sm:col-span-1">
+                  <span className="text-[10px] font-bold uppercase text-amber-800 block">🤝 Dari Undangan</span>
+                  <div className="flex items-baseline gap-1 mt-1">
+                    <span className="text-xl font-black text-amber-950">{eventData.referralSignups || 0}</span>
+                    <span className="text-xs text-slate-400 font-semibold">pendaftar</span>
+                  </div>
+                </div>
               </div>
 
               {/* Fast Scanner / Ticket Check-In Form */}
@@ -708,14 +723,14 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                     <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Scanner & Presensi Cepat di Lokasi
                   </h4>
                   <p className="text-xs text-teal-200">
-                    Ketik atau scan barcode tiket jamaah (`TIKET-KJN-YYMMDD-XXXX`) untuk langsung mencatat kehadiran.
+                    Ketik atau scan QR tiket jamaah (contoh: `YTS-ILMU-NUR-4827`) untuk langsung mencatat kehadiran.
                   </p>
                 </div>
 
                 <form onSubmit={handleCheckInByTicket} className="flex items-center gap-2 w-full sm:w-auto">
                   <input
                     type="text"
-                    placeholder="Contoh: TIKET-KJN-..."
+                    placeholder="Contoh: YTS-ILMU-NUR-4827"
                     value={ticketInput}
                     onChange={(e) => setTicketInput(e.target.value)}
                     className="px-3.5 py-2 rounded-xl bg-teal-950/80 border border-teal-700 text-xs text-white placeholder:text-teal-400/80 focus:ring-2 focus:ring-emerald-400 focus:outline-none uppercase font-mono w-full sm:w-56"
@@ -835,7 +850,8 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                               </span>
                             </td>
                             <td className="p-3.5 font-mono text-[11px] font-semibold text-slate-700">
-                              {p.ticketCode || '-'}
+                              <span className="block">{p.ticketCode || '-'}</span>
+                              {p.referredByAttendanceId && <span className="mt-1 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-sans font-bold text-amber-800">Dari undangan</span>}
                             </td>
                             <td className="p-3.5">
                               {p.vehicleType === 'car' && (
@@ -1604,6 +1620,36 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                   onChange={(e) => setFormConfig({ ...formConfig, whatsappMessageTemplate: e.target.value })}
                   className="w-full p-3 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none font-mono"
                 />
+              </div>
+
+              {/* Tautan Grup WhatsApp Tersegmentasi */}
+              <div className="p-5 bg-emerald-50/70 border border-emerald-200 rounded-2xl space-y-4">
+                <div>
+                  <h4 className="text-sm font-bold text-emerald-950">Tautan Grup WhatsApp Peserta</h4>
+                  <p className="mt-1 text-xs leading-relaxed text-emerald-800">
+                    Tautan hanya ditampilkan sesudah pendaftaran dan dibedakan otomatis berdasarkan gender peserta. Gunakan tautan undangan resmi WhatsApp.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-emerald-950 mb-1.5">Grup Ikhwan</label>
+                  <input
+                    type="url"
+                    placeholder="https://chat.whatsapp.com/..."
+                    value={formConfig.whatsappGroupIkhwanUrl || ''}
+                    onChange={(e) => setFormConfig({ ...formConfig, whatsappGroupIkhwanUrl: e.target.value })}
+                    className="w-full p-3 border border-emerald-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-emerald-950 mb-1.5">Grup Akhwat</label>
+                  <input
+                    type="url"
+                    placeholder="https://chat.whatsapp.com/..."
+                    value={formConfig.whatsappGroupAkhwatUrl || ''}
+                    onChange={(e) => setFormConfig({ ...formConfig, whatsappGroupAkhwatUrl: e.target.value })}
+                    className="w-full p-3 border border-emerald-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                  />
+                </div>
               </div>
 
               <div className="flex justify-end gap-3 pt-2">

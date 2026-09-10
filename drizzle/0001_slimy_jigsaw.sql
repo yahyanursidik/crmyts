@@ -1,5 +1,5 @@
-CREATE TYPE "public"."donor_pipeline_stage_enum" AS ENUM('new_lead', 'contacted', 'interested', 'donated_once', 'regular_donor', 'loyal', 'dormant');--> statement-breakpoint
-CREATE TABLE "donor_stage_history" (
+DO $$ BEGIN CREATE TYPE "public"."donor_pipeline_stage_enum" AS ENUM('new_lead', 'contacted', 'interested', 'donated_once', 'regular_donor', 'loyal', 'dormant'); EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "donor_stage_history" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"person_id" uuid NOT NULL,
 	"from_stage" "donor_pipeline_stage_enum",
@@ -9,7 +9,7 @@ CREATE TABLE "donor_stage_history" (
 	"changed_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "bazaar_booths" (
+CREATE TABLE IF NOT EXISTS "bazaar_booths" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"bazaar_id" uuid NOT NULL,
 	"code" text NOT NULL,
@@ -26,7 +26,7 @@ CREATE TABLE "bazaar_booths" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "bazaar_events" (
+CREATE TABLE IF NOT EXISTS "bazaar_events" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"event_id" uuid NOT NULL,
 	"title" text NOT NULL,
@@ -43,7 +43,7 @@ CREATE TABLE "bazaar_events" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "bazaar_tenants" (
+CREATE TABLE IF NOT EXISTS "bazaar_tenants" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"bazaar_id" uuid NOT NULL,
 	"booth_id" uuid,
@@ -70,54 +70,53 @@ CREATE TABLE "bazaar_tenants" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "persons" ADD COLUMN "donor_stage" "donor_pipeline_stage_enum" DEFAULT 'new_lead' NOT NULL;--> statement-breakpoint
-ALTER TABLE "event_attendance" ADD COLUMN "ticket_code" text;--> statement-breakpoint
-ALTER TABLE "event_attendance" ADD COLUMN "registration_group_id" text;--> statement-breakpoint
-ALTER TABLE "event_attendance" ADD COLUMN "family_relationship" text;--> statement-breakpoint
-ALTER TABLE "event_attendance" ADD COLUMN "age" integer;--> statement-breakpoint
-ALTER TABLE "event_attendance" ADD COLUMN "payment_status" text DEFAULT 'free' NOT NULL;--> statement-breakpoint
-ALTER TABLE "event_attendance" ADD COLUMN "payment_proof_url" text;--> statement-breakpoint
-ALTER TABLE "event_attendance" ADD COLUMN "payment_amount_rupiah" integer;--> statement-breakpoint
-ALTER TABLE "event_attendance" ADD COLUMN "payment_verified_by" uuid;--> statement-breakpoint
-ALTER TABLE "event_attendance" ADD COLUMN "payment_verified_at" timestamp with time zone;--> statement-breakpoint
-ALTER TABLE "event_attendance" ADD COLUMN "payment_rejection_reason" text;--> statement-breakpoint
-ALTER TABLE "event_attendance" ADD COLUMN "vehicle_type" text DEFAULT 'none' NOT NULL;--> statement-breakpoint
-ALTER TABLE "event_attendance" ADD COLUMN "vehicle_plate_number" text;--> statement-breakpoint
-ALTER TABLE "event_attendance" ADD COLUMN "agreed_to_rules" boolean DEFAULT true NOT NULL;--> statement-breakpoint
-ALTER TABLE "event_attendance" ADD COLUMN "registration_data" jsonb;--> statement-breakpoint
-ALTER TABLE "events" ADD COLUMN "description" text;--> statement-breakpoint
-ALTER TABLE "events" ADD COLUMN "target_audience" text DEFAULT 'umum' NOT NULL;--> statement-breakpoint
-ALTER TABLE "events" ADD COLUMN "quota" integer;--> statement-breakpoint
-ALTER TABLE "events" ADD COLUMN "quota_ikhwan" integer;--> statement-breakpoint
-ALTER TABLE "events" ADD COLUMN "quota_akhwat" integer;--> statement-breakpoint
-ALTER TABLE "events" ADD COLUMN "is_registration_open" boolean DEFAULT true NOT NULL;--> statement-breakpoint
-ALTER TABLE "events" ADD COLUMN "car_parking_quota" integer;--> statement-breakpoint
-ALTER TABLE "events" ADD COLUMN "motorcycle_parking_quota" integer;--> statement-breakpoint
-ALTER TABLE "events" ADD COLUMN "venue_rules" jsonb;--> statement-breakpoint
-ALTER TABLE "events" ADD COLUMN "custom_venue_rules" text;--> statement-breakpoint
-ALTER TABLE "events" ADD COLUMN "is_paid" boolean DEFAULT false NOT NULL;--> statement-breakpoint
-ALTER TABLE "events" ADD COLUMN "price_rupiah" integer DEFAULT 0;--> statement-breakpoint
-ALTER TABLE "events" ADD COLUMN "bank_name" text;--> statement-breakpoint
-ALTER TABLE "events" ADD COLUMN "bank_account_number" text;--> statement-breakpoint
-ALTER TABLE "events" ADD COLUMN "bank_account_name" text;--> statement-breakpoint
-ALTER TABLE "events" ADD COLUMN "payment_instructions" text;--> statement-breakpoint
-ALTER TABLE "events" ADD COLUMN "form_config" jsonb;--> statement-breakpoint
-ALTER TABLE "donor_stage_history" ADD CONSTRAINT "donor_stage_history_person_id_persons_id_fk" FOREIGN KEY ("person_id") REFERENCES "public"."persons"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "donor_stage_history" ADD CONSTRAINT "donor_stage_history_changed_by_app_users_id_fk" FOREIGN KEY ("changed_by") REFERENCES "public"."app_users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "bazaar_booths" ADD CONSTRAINT "bazaar_booths_bazaar_id_bazaar_events_id_fk" FOREIGN KEY ("bazaar_id") REFERENCES "public"."bazaar_events"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "bazaar_events" ADD CONSTRAINT "bazaar_events_event_id_events_id_fk" FOREIGN KEY ("event_id") REFERENCES "public"."events"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "bazaar_tenants" ADD CONSTRAINT "bazaar_tenants_bazaar_id_bazaar_events_id_fk" FOREIGN KEY ("bazaar_id") REFERENCES "public"."bazaar_events"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "bazaar_tenants" ADD CONSTRAINT "bazaar_tenants_booth_id_bazaar_booths_id_fk" FOREIGN KEY ("booth_id") REFERENCES "public"."bazaar_booths"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "bazaar_tenants" ADD CONSTRAINT "bazaar_tenants_person_id_persons_id_fk" FOREIGN KEY ("person_id") REFERENCES "public"."persons"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "bazaar_tenants" ADD CONSTRAINT "bazaar_tenants_payment_verified_by_app_users_id_fk" FOREIGN KEY ("payment_verified_by") REFERENCES "public"."app_users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "idx_donor_stage_hist_person" ON "donor_stage_history" USING btree ("person_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "idx_bazaar_booths_bazaar_code" ON "bazaar_booths" USING btree ("bazaar_id","code");--> statement-breakpoint
-CREATE INDEX "idx_bazaar_booths_bazaar_id" ON "bazaar_booths" USING btree ("bazaar_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "idx_bazaar_events_event_id" ON "bazaar_events" USING btree ("event_id");--> statement-breakpoint
-CREATE INDEX "idx_bazaar_tenants_bazaar_id" ON "bazaar_tenants" USING btree ("bazaar_id");--> statement-breakpoint
-CREATE INDEX "idx_bazaar_tenants_status" ON "bazaar_tenants" USING btree ("status");--> statement-breakpoint
-CREATE INDEX "idx_bazaar_tenants_category" ON "bazaar_tenants" USING btree ("business_category");--> statement-breakpoint
-ALTER TABLE "event_attendance" ADD CONSTRAINT "event_attendance_payment_verified_by_app_users_id_fk" FOREIGN KEY ("payment_verified_by") REFERENCES "public"."app_users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "idx_persons_donor_stage" ON "persons" USING btree ("donor_stage");--> statement-breakpoint
-CREATE INDEX "idx_attendance_reg_group" ON "event_attendance" USING btree ("registration_group_id");--> statement-breakpoint
-CREATE INDEX "idx_events_target_audience" ON "events" USING btree ("target_audience");
+ALTER TABLE "persons" ADD COLUMN IF NOT EXISTS "donor_stage" "donor_pipeline_stage_enum" DEFAULT 'new_lead' NOT NULL;--> statement-breakpoint
+ALTER TABLE "event_attendance" ADD COLUMN IF NOT EXISTS "ticket_code" text;--> statement-breakpoint
+ALTER TABLE "event_attendance" ADD COLUMN IF NOT EXISTS "registration_group_id" text;--> statement-breakpoint
+ALTER TABLE "event_attendance" ADD COLUMN IF NOT EXISTS "family_relationship" text;--> statement-breakpoint
+ALTER TABLE "event_attendance" ADD COLUMN IF NOT EXISTS "age" integer;--> statement-breakpoint
+ALTER TABLE "event_attendance" ADD COLUMN IF NOT EXISTS "payment_status" text DEFAULT 'free' NOT NULL;--> statement-breakpoint
+ALTER TABLE "event_attendance" ADD COLUMN IF NOT EXISTS "payment_proof_url" text;--> statement-breakpoint
+ALTER TABLE "event_attendance" ADD COLUMN IF NOT EXISTS "payment_amount_rupiah" integer;--> statement-breakpoint
+ALTER TABLE "event_attendance" ADD COLUMN IF NOT EXISTS "payment_verified_by" uuid;--> statement-breakpoint
+ALTER TABLE "event_attendance" ADD COLUMN IF NOT EXISTS "payment_verified_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "event_attendance" ADD COLUMN IF NOT EXISTS "payment_rejection_reason" text;--> statement-breakpoint
+ALTER TABLE "event_attendance" ADD COLUMN IF NOT EXISTS "vehicle_type" text DEFAULT 'none' NOT NULL;--> statement-breakpoint
+ALTER TABLE "event_attendance" ADD COLUMN IF NOT EXISTS "vehicle_plate_number" text;--> statement-breakpoint
+ALTER TABLE "event_attendance" ADD COLUMN IF NOT EXISTS "agreed_to_rules" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE "event_attendance" ADD COLUMN IF NOT EXISTS "registration_data" jsonb;--> statement-breakpoint
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "description" text;--> statement-breakpoint
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "target_audience" text DEFAULT 'umum' NOT NULL;--> statement-breakpoint
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "quota" integer;--> statement-breakpoint
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "quota_ikhwan" integer;--> statement-breakpoint
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "is_registration_open" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "car_parking_quota" integer;--> statement-breakpoint
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "motorcycle_parking_quota" integer;--> statement-breakpoint
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "venue_rules" jsonb;--> statement-breakpoint
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "custom_venue_rules" text;--> statement-breakpoint
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "is_paid" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "price_rupiah" integer DEFAULT 0;--> statement-breakpoint
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "bank_name" text;--> statement-breakpoint
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "bank_account_number" text;--> statement-breakpoint
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "bank_account_name" text;--> statement-breakpoint
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "payment_instructions" text;--> statement-breakpoint
+ALTER TABLE "events" ADD COLUMN IF NOT EXISTS "form_config" jsonb;--> statement-breakpoint
+DO $$ BEGIN ALTER TABLE "donor_stage_history" ADD CONSTRAINT "donor_stage_history_person_id_persons_id_fk" FOREIGN KEY ("person_id") REFERENCES "public"."persons"("id") ON DELETE cascade ON UPDATE no action; EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
+DO $$ BEGIN ALTER TABLE "donor_stage_history" ADD CONSTRAINT "donor_stage_history_changed_by_app_users_id_fk" FOREIGN KEY ("changed_by") REFERENCES "public"."app_users"("id") ON DELETE no action ON UPDATE no action; EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
+DO $$ BEGIN ALTER TABLE "bazaar_booths" ADD CONSTRAINT "bazaar_booths_bazaar_id_bazaar_events_id_fk" FOREIGN KEY ("bazaar_id") REFERENCES "public"."bazaar_events"("id") ON DELETE cascade ON UPDATE no action; EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
+DO $$ BEGIN ALTER TABLE "bazaar_events" ADD CONSTRAINT "bazaar_events_event_id_events_id_fk" FOREIGN KEY ("event_id") REFERENCES "public"."events"("id") ON DELETE cascade ON UPDATE no action; EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
+DO $$ BEGIN ALTER TABLE "bazaar_tenants" ADD CONSTRAINT "bazaar_tenants_bazaar_id_bazaar_events_id_fk" FOREIGN KEY ("bazaar_id") REFERENCES "public"."bazaar_events"("id") ON DELETE cascade ON UPDATE no action; EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
+DO $$ BEGIN ALTER TABLE "bazaar_tenants" ADD CONSTRAINT "bazaar_tenants_booth_id_bazaar_booths_id_fk" FOREIGN KEY ("booth_id") REFERENCES "public"."bazaar_booths"("id") ON DELETE set null ON UPDATE no action; EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
+DO $$ BEGIN ALTER TABLE "bazaar_tenants" ADD CONSTRAINT "bazaar_tenants_person_id_persons_id_fk" FOREIGN KEY ("person_id") REFERENCES "public"."persons"("id") ON DELETE set null ON UPDATE no action; EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
+DO $$ BEGIN ALTER TABLE "bazaar_tenants" ADD CONSTRAINT "bazaar_tenants_payment_verified_by_app_users_id_fk" FOREIGN KEY ("payment_verified_by") REFERENCES "public"."app_users"("id") ON DELETE no action ON UPDATE no action; EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_donor_stage_hist_person" ON "donor_stage_history" USING btree ("person_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "idx_bazaar_booths_bazaar_code" ON "bazaar_booths" USING btree ("bazaar_id","code");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_bazaar_booths_bazaar_id" ON "bazaar_booths" USING btree ("bazaar_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "idx_bazaar_events_event_id" ON "bazaar_events" USING btree ("event_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_bazaar_tenants_bazaar_id" ON "bazaar_tenants" USING btree ("bazaar_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_bazaar_tenants_status" ON "bazaar_tenants" USING btree ("status");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_bazaar_tenants_category" ON "bazaar_tenants" USING btree ("business_category");--> statement-breakpoint
+DO $$ BEGIN ALTER TABLE "event_attendance" ADD CONSTRAINT "event_attendance_payment_verified_by_app_users_id_fk" FOREIGN KEY ("payment_verified_by") REFERENCES "public"."app_users"("id") ON DELETE no action ON UPDATE no action; EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_persons_donor_stage" ON "persons" USING btree ("donor_stage");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_attendance_reg_group" ON "event_attendance" USING btree ("registration_group_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_events_target_audience" ON "events" USING btree ("target_audience");

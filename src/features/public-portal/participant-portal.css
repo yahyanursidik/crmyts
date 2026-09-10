@@ -1,0 +1,58 @@
+/* Hallmark · pre-emit critique: P4 H4 E5 S5 R4 V4
+ * genre: modern-minimal · macrostructure: Workbench · tone: utilitarian-hangat
+ * theme: tarbiyah-official-logo · design-system: DESIGN.md · designed-as-app
+ * nav: N5 · footer: Ft5 · enrichment: none · anchor hue: forest-green
+ * contrast: pass (40–41) · slop: pass (42–45) · responsive: pass (34, 49–57)
+ */
+.participant-portal-shell {
+  min-height: 100dvh;
+  overflow-x: clip;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+}
+
+.participant-portal-shell h1,
+.participant-portal-shell h2 {
+  font-family: var(--font-display);
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+
+.participant-nav-pill {
+  position: relative;
+  z-index: 10;
+  margin: var(--space-sm) auto 0;
+  display: flex;
+  width: fit-content;
+  max-width: calc(100% - var(--space-lg));
+  align-items: center;
+  gap: var(--space-xs);
+  border: 1px solid var(--color-rule);
+  border-radius: 999px;
+  background: var(--color-paper-3);
+  box-shadow: 0 8px 24px -12px var(--color-ink-muted);
+  padding: var(--space-2xs) var(--space-sm);
+}
+
+.participant-statement-footer {
+  background: var(--color-brand-ink);
+  color: var(--color-paper);
+}
+
+.participant-statement-footer a:focus-visible,
+.participant-portal-shell button:focus-visible,
+.participant-portal-shell input:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+@media (min-width: 40rem) {
+  .participant-nav-pill { margin-top: var(--space-md); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .participant-portal-shell *,
+  .participant-portal-shell *::before,
+  .participant-portal-shell *::after { transition-duration: 150ms !important; }
+}

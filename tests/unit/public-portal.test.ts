@@ -30,6 +30,11 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
         deliveryMode: 'offline',
         locationName: 'Masjid Tarbiyah Sunnah',
         status: 'scheduled',
+        formConfig: {
+          collectCity: true,
+          whatsappGroupIkhwanUrl: 'https://chat.whatsapp.com/IkhwanOnly',
+          whatsappGroupAkhwatUrl: 'https://chat.whatsapp.com/AkhwatOnly',
+        },
       },
     ];
 
@@ -70,6 +75,8 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
     expect(body.data.programs.length).toBe(1);
     expect(body.data.events.length).toBe(1);
     expect(body.data.events[0].title).toBe('Kajian Kitab Tauhid: Pemurnian Ibadah');
+    expect(body.data.events[0].formConfig.whatsappGroupIkhwanUrl).toBeUndefined();
+    expect(body.data.events[0].formConfig.whatsappGroupAkhwatUrl).toBeUndefined();
     expect(body.data.bankAccounts.length).toBe(2);
     expect(body.data.bankAccounts[0].accountNumber).toBe('7123456789');
   });
@@ -293,7 +300,7 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
 
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
-    expect(body.data.ticketCode).toContain('TIKET-KJN-');
+    expect(body.data.ticketCode).toMatch(/^YTS-[A-Z]+-[A-Z]+-\d{4}$/);
     expect(body.data.event.title).toBe('Daurah Fiqh Muamalah Kontemporer');
     expect(body.data.participant.name).toBe('Abdullah Santri');
     expect(body.data.participant.gender).toBe('ikhwan');
@@ -540,4 +547,3 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
     expect(updatedSetVal.paymentAmountRupiah).toBe(75000);
   });
 });
-

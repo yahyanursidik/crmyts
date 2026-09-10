@@ -6,6 +6,7 @@ import { getDb } from '../../db/client';
 import { events, eventAttendance, persons } from '../../db/schema';
 import { desc, eq, and, inArray, sql } from 'drizzle-orm';
 import { normalizeIndonesianPhone } from '../../lib/phone';
+import { extractTicketCode } from '../../../src/lib/participantTicket';
 
 const createEventSchema = z.object({
   title: z.string().min(3, 'Judul kajian minimal 3 karakter'),
@@ -194,6 +195,8 @@ export function registerEventsRoutes(router: Router) {
         source: att.source,
         checkInAt: att.checkInAt,
         ticketCode: att.ticketCode,
+        referralCode: att.referralCode,
+        referredByAttendanceId: att.referredByAttendanceId,
         
         // Payment Information
         paymentStatus: att.paymentStatus || (eventItem.isPaid ? 'pending_payment' : 'free'),
@@ -220,6 +223,7 @@ export function registerEventsRoutes(router: Router) {
       const waitingVerificationCount = participants.filter((p) => p.paymentStatus === 'waiting_verification').length;
       const verifiedPaymentCount = participants.filter((p) => p.paymentStatus === 'verified').length;
       const pendingPaymentCount = participants.filter((p) => p.paymentStatus === 'pending_payment').length;
+      const referralSignups = participants.filter((p) => Boolean(p.referredByAttendanceId)).length;
 
       return successResponse(
         {
@@ -234,6 +238,7 @@ export function registerEventsRoutes(router: Router) {
           waitingVerificationCount,
           verifiedPaymentCount,
           pendingPaymentCount,
+          referralSignups,
         },
         { requestId: ctx.requestId }
       );
@@ -402,8 +407,9 @@ export function registerEventsRoutes(router: Router) {
 
       try {
         if (ticketCode) {
+          const normalizedTicketCode = extractTicketCode(String(ticketCode));
           const attendance = await db.query.eventAttendance.findFirst({
-            where: and(eq(eventAttendance.eventId, eventId), eq(eventAttendance.ticketCode, ticketCode)),
+            where: and(eq(eventAttendance.eventId, eventId), eq(eventAttendance.ticketCode, normalizedTicketCode)),
           });
 
           if (attendance) {
@@ -710,7 +716,7 @@ export function registerEventsRoutes(router: Router) {
           with: { person: true },
         });
       } else if (ticketCode) {
-        const cleanCode = String(ticketCode).trim().toUpperCase();
+        const cleanCode = extractTicketCode(String(ticketCode));
         targetAttendance = await db.query.eventAttendance.findFirst({
           where: and(
             eq(eventAttendance.eventId, eventId),

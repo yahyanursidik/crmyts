@@ -14,8 +14,10 @@ import {
   events,
   eventAttendance,
 } from '../../db/schema';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { normalizeIndonesianPhone } from '../../lib/phone';
+import { buildParticipantPortalPath, extractTicketCode } from '../../../src/lib/participantTicket';
+import { createMemorableTicketCode, createReferralCode } from '../events/participantCodes';
 import {
   sendEventRegistrationTicketEmail,
   sendDonationReceivedEmail,
@@ -68,8 +70,21 @@ const publicEventRegistrationSchema = z.object({
   agreedToRules: z.boolean().default(true),
   paymentProofUrl: z.string().optional().nullable(),
   paymentAmountRupiah: z.number().optional().nullable(),
+  referralCode: z.string().trim().min(4).max(80).optional().nullable(),
   additionalParticipants: z.array(additionalParticipantSchema).optional().nullable(),
 });
+
+function safeWhatsAppGroupUrl(value?: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && (url.hostname === 'chat.whatsapp.com' || url.hostname === 'www.chat.whatsapp.com')
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 export function registerPublicPortalRoutes(router: Router) {
   // 1. GET /api/public/portal-info (Public Aggregates, Active Programs, Bank Accounts, Upcoming Kajian)
@@ -194,6 +209,8 @@ export function registerPublicPortalRoutes(router: Router) {
         ],
         events: upcomingEvents.map((ev) => {
           const atts = ev.attendances || [];
+          // URL grup tidak boleh muncul pada katalog publik; hanya endpoint tiket terverifikasi yang mengirimkannya.
+          const { whatsappGroupIkhwanUrl, whatsappGroupAkhwatUrl, ...publicFormConfig } = ev.formConfig || {};
           const ikhwanCount = atts.filter((a) => a.person?.gender === 'ikhwan').length;
           const akhwatCount = atts.filter((a) => a.person?.gender === 'akhwat').length;
           const carsCount = atts.filter((a) => a.vehicleType === 'car').length;
@@ -219,7 +236,7 @@ export function registerPublicPortalRoutes(router: Router) {
             venueRules: ev.venueRules || [],
             customVenueRules: ev.customVenueRules,
             isRegistrationOpen: ev.isRegistrationOpen,
-            formConfig: ev.formConfig,
+            formConfig: publicFormConfig,
             attendanceCount: atts.length,
             ikhwanCount,
             akhwatCount,
@@ -565,16 +582,36 @@ export function registerPublicPortalRoutes(router: Router) {
         where: sql`${eventAttendance.eventId} = ${body.eventId} AND ${eventAttendance.personId} = ${person.id}`,
       });
 
+      const normalizedReferralCode = body.referralCode?.trim().toUpperCase() || null;
+      let referrerAttendance: { id: string; personId: string } | null = null;
+      if (normalizedReferralCode) {
+        referrerAttendance = (await db.query.eventAttendance.findFirst({
+          where: and(
+            eq(eventAttendance.eventId, targetEvent.id),
+            eq(eventAttendance.referralCode, normalizedReferralCode)
+          ),
+          columns: { id: true, personId: true },
+        })) || null;
+
+        if (!referrerAttendance) {
+          return errorResponse('VALIDATION_ERROR', 'Kode undangan tidak ditemukan untuk kajian ini.', 400, ctx.requestId);
+        }
+        if (referrerAttendance.personId === person.id) {
+          return errorResponse('VALIDATION_ERROR', 'Kode undangan sendiri tidak dapat digunakan.', 400, ctx.requestId);
+        }
+      }
+
       // Generate Group ID if registering multiple family members / companions
       const additionalList = body.additionalParticipants || [];
       const isGroup = additionalList.length > 0;
       const totalParticipantsCount = 1 + additionalList.length;
 
-      // Generate Ticket Code: TIKET-KJN-YYMMDD-RAND
+      // Kode dibaca cepat oleh petugas (contoh: YTS-ILMU-NUR-482), tetapi tetap acak.
       const datePart = new Date(targetEvent.startAt).toISOString().slice(2, 10).replace(/-/g, '');
-      const randPart = Math.random().toString(36).substring(2, 6).toUpperCase();
-      const registrationGroupId = isGroup ? `GRP-${datePart}-${randPart}` : null;
-      const ticketCode = existingAttendance?.ticketCode || `TIKET-KJN-${datePart}-${randPart}`;
+      const groupPart = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const registrationGroupId = isGroup ? `GRP-${datePart}-${groupPart}` : null;
+      const ticketCode = existingAttendance?.ticketCode || createMemorableTicketCode();
+      const referralCode = existingAttendance?.referralCode || createReferralCode();
 
       // Determine payment status
       const isPaidEvent = targetEvent.isPaid && (targetEvent.priceRupiah || 0) > 0;
@@ -592,6 +629,8 @@ export function registerPublicPortalRoutes(router: Router) {
           source: 'form_registration',
           status: 'registered',
           ticketCode,
+          referralCode,
+          referredByAttendanceId: referrerAttendance?.id || null,
           
           registrationGroupId,
           familyRelationship: isGroup ? 'Kepala Keluarga / Pendaftar Utama' : null,
@@ -612,7 +651,16 @@ export function registerPublicPortalRoutes(router: Router) {
                 }
               : null,
         });
-      } else if (isPaidEvent && body.paymentProofUrl && existingAttendance.paymentStatus !== 'verified') {
+      } else {
+        // Data lama tetap memperoleh kode undangan yang tersimpan, bukan tautan sementara.
+        if (!existingAttendance.referralCode) {
+          await db
+            .update(eventAttendance)
+            .set({ referralCode })
+            .where(eq(eventAttendance.id, existingAttendance.id));
+        }
+
+        if (isPaidEvent && body.paymentProofUrl && existingAttendance.paymentStatus !== 'verified') {
         // Allow re-uploading payment proof if pending or rejected
         await db
           .update(eventAttendance)
@@ -623,6 +671,7 @@ export function registerPublicPortalRoutes(router: Router) {
             paymentRejectionReason: null,
           })
           .where(eq(eventAttendance.id, existingAttendance.id));
+        }
       }
 
       // Group tickets collection
@@ -647,7 +696,7 @@ export function registerPublicPortalRoutes(router: Router) {
       for (const member of additionalList) {
         memberIdx++;
         const memberPhoneVirtual = `${phoneNorm}-fam-${memberIdx}`;
-        const memberTicketCode = `TIKET-KJN-${datePart}-${randPart}-${memberIdx}`;
+        const memberTicketCode = createMemorableTicketCode();
 
         let memberPerson = await db.query.persons.findFirst({
           where: sql`${persons.fullName} = ${member.fullName} AND (${persons.phoneE164} = ${memberPhoneVirtual} OR ${persons.phoneE164} = ${phoneNorm})`,
@@ -681,6 +730,8 @@ export function registerPublicPortalRoutes(router: Router) {
               source: 'form_registration',
               status: 'registered',
               ticketCode: memberTicketCode,
+              referralCode: createReferralCode(),
+              referredByAttendanceId: referrerAttendance?.id || null,
               registrationGroupId,
               familyRelationship: member.relationship || 'Keluarga',
               age: member.age || null,
@@ -706,6 +757,9 @@ export function registerPublicPortalRoutes(router: Router) {
       const res = successResponse(
         {
           ticketCode,
+          referralCode,
+          referralLink: `/kajian/${targetEvent.id}?ref=${encodeURIComponent(referralCode)}`,
+          participantPortalPath: buildParticipantPortalPath(targetEvent.id, ticketCode),
           registrationGroupId,
           isGroupRegistration: isGroup,
           totalParticipantsCount,
@@ -728,6 +782,11 @@ export function registerPublicPortalRoutes(router: Router) {
             bankAccountNumber: targetEvent.bankAccountNumber,
             bankAccountName: targetEvent.bankAccountName,
             paymentInstructions: targetEvent.paymentInstructions,
+            whatsappGroupInviteUrl: safeWhatsAppGroupUrl(
+              body.gender === 'akhwat'
+                ? targetEvent.formConfig?.whatsappGroupAkhwatUrl
+                : targetEvent.formConfig?.whatsappGroupIkhwanUrl
+            ),
           },
           participant: {
             name: body.fullName,
@@ -773,7 +832,73 @@ export function registerPublicPortalRoutes(router: Router) {
     })
   );
 
-  // 5. POST /api/public/lookup-participant (Auto-fill biodata for returning jamaah)
+  // 5. POST /api/public/participant-ticket (Portal peserta; nomor WA menjadi verifikasi kepemilikan tiket)
+  const participantTicketSchema = z.object({
+    eventId: z.string().uuid('Event tidak valid'),
+    ticketCode: z.string().min(4, 'Kode peserta wajib diisi'),
+    phone: z.string().min(8, 'Nomor WhatsApp wajib diisi'),
+  });
+
+  router.post(
+    '/api/public/participant-ticket',
+    validateBody(participantTicketSchema, async (ctx, body) => {
+      const db = getDb();
+      const ticketCode = extractTicketCode(body.ticketCode);
+      const phoneE164 = normalizeIndonesianPhone(body.phone);
+
+      const attendance = await db.query.eventAttendance.findFirst({
+        where: and(eq(eventAttendance.eventId, body.eventId), eq(eventAttendance.ticketCode, ticketCode)),
+        with: { person: true },
+      });
+
+      // Pesan dibuat generik supaya kode tiket tidak dapat dipakai untuk menebak data jamaah.
+      if (!attendance || attendance.person?.phoneE164 !== phoneE164) {
+        return errorResponse('NOT_FOUND', 'Tiket atau nomor WhatsApp tidak sesuai.', 404, ctx.requestId);
+      }
+
+      const event = await db.query.events.findFirst({ where: eq(events.id, body.eventId) });
+      if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan.', 404, ctx.requestId);
+
+      const groupUrl = safeWhatsAppGroupUrl(
+        attendance.person.gender === 'akhwat'
+          ? event.formConfig?.whatsappGroupAkhwatUrl
+          : event.formConfig?.whatsappGroupIkhwanUrl
+      );
+
+      return successResponse(
+        {
+          participant: {
+            name: attendance.person.fullName,
+            gender: attendance.person.gender,
+            ticketCode: attendance.ticketCode,
+            status: attendance.status,
+            checkInAt: attendance.checkInAt,
+            paymentStatus: attendance.paymentStatus,
+            referralCode: attendance.referralCode,
+            referralLink: attendance.referralCode
+              ? `/kajian/${event.id}?ref=${encodeURIComponent(attendance.referralCode)}`
+              : null,
+          },
+          event: {
+            id: event.id,
+            title: event.title,
+            speaker: event.speaker,
+            startAt: event.startAt,
+            endAt: event.endAt,
+            deliveryMode: event.deliveryMode,
+            locationName: event.locationName,
+            meetingUrl: event.meetingUrl,
+            venueRules: event.venueRules || [],
+            whatsappGroupInviteUrl: groupUrl,
+          },
+          participantPortalPath: buildParticipantPortalPath(event.id, attendance.ticketCode || ticketCode),
+        },
+        { requestId: ctx.requestId }
+      );
+    })
+  );
+
+  // 6. POST /api/public/lookup-participant (Auto-fill biodata for returning jamaah)
   const participantLookupSchema = z.object({
     identifier: z.string().min(3, 'Nomor WhatsApp atau Email minimal 3 karakter'),
   });

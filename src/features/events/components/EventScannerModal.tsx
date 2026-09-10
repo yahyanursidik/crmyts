@@ -16,6 +16,7 @@ import {
   Minimize2,
 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
+import { extractTicketCode } from '@/lib/participantTicket';
 
 interface ScanResultItem {
   id: string;
@@ -62,6 +63,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [cameraHint, setCameraHint] = useState<string | null>(null);
 
   // Status feedback
   const [scanStatus, setScanStatus] = useState<{
@@ -83,6 +85,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
   const streamRef = useRef<MediaStream | null>(null);
   const inputFocusRef = useRef<HTMLInputElement>(null);
   const scanIntervalRef = useRef<any>(null);
+  const scanInFlightRef = useRef(false);
 
   // Web Audio Tone Synthesis
   const playFeedbackTone = useCallback(
@@ -150,8 +153,12 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
   // Start camera stream
   const startCamera = async () => {
     stopCamera();
+    setCameraHint(null);
     try {
-      if (!navigator.mediaDevices?.getUserMedia) return;
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraHint('Kamera tidak didukung pada perangkat ini. Gunakan barcode gun atau masukkan kode peserta secara manual.');
+        return;
+      }
 
       const constraints: MediaStreamConstraints = {
         video: {
@@ -183,7 +190,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
               if (barcodes.length > 0) {
                 const rawValue = barcodes[0].rawValue;
                 if (rawValue && rawValue.trim()) {
-                  handleExecuteScan({ ticketCode: rawValue.trim() });
+                  handleExecuteScan({ ticketCode: extractTicketCode(rawValue) });
                 }
               }
             } catch (e) {
@@ -191,9 +198,12 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
             }
           }
         }, 500);
+      } else {
+        setCameraHint('Tampilan kamera aktif, tetapi browser ini belum mendukung pembacaan QR otomatis. Gunakan barcode gun atau masukkan kode peserta.');
       }
     } catch (err) {
       console.warn('Camera access not granted or unavailable:', err);
+      setCameraHint('Izin kamera belum tersedia. Periksa izin browser, atau gunakan barcode gun / input kode peserta.');
     }
   };
 
@@ -211,7 +221,8 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
 
   // Execute scan verify backend call
   const handleExecuteScan = async (params: { ticketCode?: string; phoneQuery?: string; attendanceId?: string }) => {
-    if (loading) return;
+    if (scanInFlightRef.current) return;
+    scanInFlightRef.current = true;
     try {
       setLoading(true);
       const res = await apiClient<ScanResponse>(`/events/${eventId}/attendances/scan`, {
@@ -269,6 +280,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
       });
       playFeedbackTone('error');
     } finally {
+      scanInFlightRef.current = false;
       setLoading(false);
       setTicketInput('');
       setPhoneQuery('');
@@ -282,7 +294,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!ticketInput.trim()) return;
-    handleExecuteScan({ ticketCode: ticketInput.trim() });
+    handleExecuteScan({ ticketCode: extractTicketCode(ticketInput) });
   };
 
   const handlePhoneSearchSubmit = (e: React.FormEvent) => {
@@ -471,6 +483,12 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
                     ref={videoRef}
                     className="w-full h-full max-h-[300px] object-cover rounded-xl border border-slate-800"
                   />
+
+                  {cameraHint && (
+                    <p className="absolute top-3 inset-x-3 rounded-xl border border-amber-500/40 bg-amber-950/90 px-3 py-2 text-center text-[11px] font-medium leading-relaxed text-amber-100">
+                      {cameraHint}
+                    </p>
+                  )}
 
                   {/* Scanning Target Overlay Box */}
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
