@@ -16,6 +16,7 @@ import {
 import { eq, and, desc, isNotNull, ne } from 'drizzle-orm';
 import { logAuditEvent } from '../../audit/service';
 import { sendEmail, renderEmailLayout } from '../../email/service';
+import { getBroadcastDailyQuota, reserveBroadcastEmailSlot } from '../../email/broadcastQuota';
 
 export interface DripRecipient {
   personId: string;
@@ -58,7 +59,7 @@ const createEmailCampaignSchema = z.object({
   title: z.string().min(3, 'Nama program kampanye wajib diisi'),
   subject: z.string().min(5, 'Subjek email wajib diisi'),
   bodyHtml: z.string().min(10, 'Isi draf email wajib diisi'),
-  dailyQuota: z.number().int().min(5).max(1000).default(100),
+  dailyQuota: z.number().int().min(5).max(400).default(100),
   totalDays: z.number().int().min(1).max(60).default(14),
   filterGender: z.enum(['all', 'ikhwan', 'akhwat']).default('all'),
   targetScope: z.enum(['all_jamaah', 'email_only']).default('all_jamaah'),
@@ -779,7 +780,16 @@ export function registerAutomationRoutes(router: Router) {
     )
   );
 
-  // 8. GET /api/automation/email-campaigns (List Drip Email Campaigns)
+  // 8. GET /api/automation/email-broadcast-quota (Global WIB dispatch safeguard)
+  router.get(
+    '/api/automation/email-broadcast-quota',
+    requireAuth(async (ctx) => {
+      const quota = await getBroadcastDailyQuota(getDb());
+      return successResponse(quota, { requestId: ctx.requestId });
+    })
+  );
+
+  // 9. GET /api/automation/email-campaigns (List Drip Email Campaigns)
   router.get(
     '/api/automation/email-campaigns',
     requireAuth(async (ctx) => {
@@ -857,7 +867,7 @@ export function registerAutomationRoutes(router: Router) {
     })
   );
 
-  // 9. POST /api/automation/email-campaigns (Create New Drip Campaign with Real Emails)
+  // 10. POST /api/automation/email-campaigns (Create New Drip Campaign with Real Emails)
   router.post(
     '/api/automation/email-campaigns',
     requireAuth(
@@ -931,7 +941,7 @@ export function registerAutomationRoutes(router: Router) {
     )
   );
 
-  // 10. POST /api/automation/email-campaigns/:id/dispatch-today (Dispatch Today's Batch)
+  // 11. POST /api/automation/email-campaigns/:id/dispatch-today (Dispatch Today's Batch)
   router.post(
     '/api/automation/email-campaigns/:id/dispatch-today',
     requireAuth(async (ctx) => {
@@ -947,7 +957,19 @@ export function registerAutomationRoutes(router: Router) {
       const user = ctx.user;
       if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
 
-      const pendingRecipients = campaign.recipients.filter((r) => r.status === 'pending').slice(0, campaign.dailyQuota);
+      let dailyBroadcastQuota = await getBroadcastDailyQuota(db);
+      if (dailyBroadcastQuota.remainingToday === 0) {
+        return errorResponse(
+          'RATE_LIMITED',
+          `Batas broadcast email hari ini (${dailyBroadcastQuota.dailyLimit} email, WIB) telah tercapai. Pengiriman dapat dilanjutkan besok.`,
+          429,
+          ctx.requestId,
+          dailyBroadcastQuota
+        );
+      }
+
+      const dispatchAllowance = Math.min(campaign.dailyQuota, dailyBroadcastQuota.remainingToday);
+      const pendingRecipients = campaign.recipients.filter((r) => r.status === 'pending').slice(0, dispatchAllowance);
 
       if (pendingRecipients.length === 0) {
         campaign.status = 'completed';
@@ -959,6 +981,10 @@ export function registerAutomationRoutes(router: Router) {
       const dispatchResults = [];
 
       for (const r of pendingRecipients) {
+        const reservedQuota = await reserveBroadcastEmailSlot(db);
+        if (!reservedQuota) break;
+        dailyBroadcastQuota = reservedQuota;
+
         const genderTitle = r.gender === 'akhwat' ? 'Ukhti' : r.gender === 'ikhwan' ? 'Akhi' : 'Bapak/Ibu';
         const renderedHtml = campaign.bodyHtml
           .replace(/\{\{fullName\}\}/g, r.fullName)
@@ -996,7 +1022,7 @@ export function registerAutomationRoutes(router: Router) {
           }
         } else {
           r.status = 'failed';
-          r.error = sendRes.error || 'SMTP Error';
+          r.error = sendRes.error || 'Mailketing API Error';
           failedCount++;
         }
 
@@ -1038,6 +1064,7 @@ export function registerAutomationRoutes(router: Router) {
           successCount,
           failedCount,
           remaining,
+          dailyBroadcastQuota,
         },
         reason: `Pengiriman email harian kuota warm-up (${successCount} sukses, ${failedCount} gagal)`,
         requestId: ctx.requestId,
@@ -1051,6 +1078,7 @@ export function registerAutomationRoutes(router: Router) {
           successCount,
           failedCount,
           remaining,
+          dailyBroadcastQuota,
           campaign,
           results: dispatchResults,
         },
@@ -1059,7 +1087,7 @@ export function registerAutomationRoutes(router: Router) {
     })
   );
 
-  // 11. POST /api/automation/email-campaigns/:id/test-email (Send Single Test Email)
+  // 12. POST /api/automation/email-campaigns/:id/test-email (Send Single Test Email)
   router.post(
     '/api/automation/email-campaigns/:id/test-email',
     requireAuth(
@@ -1097,7 +1125,7 @@ export function registerAutomationRoutes(router: Router) {
     )
   );
 
-  // 12. POST /api/automation/email-campaigns/:id/pause
+  // 13. POST /api/automation/email-campaigns/:id/pause
   router.post(
     '/api/automation/email-campaigns/:id/pause',
     requireAuth(async (ctx) => {
@@ -1113,7 +1141,7 @@ export function registerAutomationRoutes(router: Router) {
     })
   );
 
-  // 13. POST /api/automation/email-campaigns/:id/resume
+  // 14. POST /api/automation/email-campaigns/:id/resume
   router.post(
     '/api/automation/email-campaigns/:id/resume',
     requireAuth(async (ctx) => {
@@ -1129,7 +1157,7 @@ export function registerAutomationRoutes(router: Router) {
     })
   );
 
-  // 14. DELETE /api/automation/email-campaigns/:id
+  // 15. DELETE /api/automation/email-campaigns/:id
   router.delete(
     '/api/automation/email-campaigns/:id',
     requireAuth(async (ctx) => {

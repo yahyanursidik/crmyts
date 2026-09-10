@@ -398,6 +398,143 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
     expect(body.error.message).toContain('slot fasilitas parkir mobil telah penuh');
   });
 
+  it('POST /api/public/register-event ignores vehicle input when parking is hidden in Form Builder', async () => {
+    let insertedAttendance: any = null;
+    const mockDb = {
+      query: {
+        events: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: '018f0000-0000-0000-0000-000000000024',
+            title: 'Kajian Tanpa Fasilitas Parkir',
+            startAt: new Date('2026-08-20T09:00:00Z'),
+            targetAudience: 'umum',
+            isRegistrationOpen: true,
+            formConfig: { collectVehicle: false },
+            attendances: [],
+          }),
+        },
+        persons: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: '018f0000-0000-0000-0000-000000000078',
+            fullName: 'Jamaah Tanpa Parkir',
+            phoneE164: '+6281211112223',
+          }),
+        },
+        eventAttendance: { findFirst: vi.fn().mockResolvedValue(null) },
+      },
+      insert: vi.fn().mockImplementation((table) => {
+        if (table === eventAttendance) {
+          return {
+            values: vi.fn().mockImplementation((value) => {
+              insertedAttendance = value;
+              return { returning: vi.fn().mockResolvedValue([{ ...value, id: 'att_no_parking_1' }]) };
+            }),
+          };
+        }
+        return { values: vi.fn().mockResolvedValue([]) };
+      }),
+    };
+
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      path: '/api/public/register-event',
+      method: 'POST',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        eventId: '018f0000-0000-0000-0000-000000000024',
+        fullName: 'Jamaah Tanpa Parkir',
+        phone: '081211112223',
+        gender: 'ikhwan',
+        vehicleType: 'car',
+        vehiclePlateNumber: 'D 1234 HIDE',
+      },
+      requestId: 'req_pub_reg_no_parking',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(insertedAttendance.vehicleType).toBe('none');
+    expect(insertedAttendance.vehiclePlateNumber).toBeNull();
+    const body = JSON.parse(res.body);
+    expect(body.data.participant.vehicleType).toBe('none');
+    expect(body.data.participant.vehiclePlateNumber).toBeNull();
+  });
+
+  it('POST /api/public/register-event ignores hidden biodata and family payloads', async () => {
+    let insertedAttendance: any = null;
+    const mockDb = {
+      query: {
+        events: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: '018f0000-0000-0000-0000-000000000025',
+            title: 'Kajian Ringkas',
+            startAt: new Date('2026-08-20T09:00:00Z'),
+            targetAudience: 'umum',
+            isRegistrationOpen: true,
+            formConfig: {
+              collectEmail: false,
+              collectCity: false,
+              requireGender: false,
+              allowMultiParticipant: false,
+            },
+            attendances: [],
+          }),
+        },
+        persons: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: '018f0000-0000-0000-0000-000000000079',
+            fullName: 'Jamaah Ringkas',
+            phoneE164: '+6281211112224',
+          }),
+        },
+        eventAttendance: { findFirst: vi.fn().mockResolvedValue(null) },
+      },
+      insert: vi.fn().mockImplementation((table) => {
+        if (table === eventAttendance) {
+          return {
+            values: vi.fn().mockImplementation((value) => {
+              insertedAttendance = value;
+              return { returning: vi.fn().mockResolvedValue([{ ...value, id: 'att_hidden_fields_1' }]) };
+            }),
+          };
+        }
+        return { values: vi.fn().mockResolvedValue([]) };
+      }),
+    };
+
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      path: '/api/public/register-event',
+      method: 'POST',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        eventId: '018f0000-0000-0000-0000-000000000025',
+        fullName: 'Jamaah Ringkas',
+        phone: '081211112224',
+        gender: 'akhwat',
+        email: 'jamaah@example.com',
+        cityRegency: 'Bandung',
+        additionalParticipants: [
+          { fullName: 'Anggota Yang Tidak Diproses', gender: 'ikhwan', relationship: 'Keluarga' },
+        ],
+      },
+      requestId: 'req_pub_reg_hidden_fields',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(insertedAttendance.registrationGroupId).toBeNull();
+    const body = JSON.parse(res.body);
+    expect(body.data.participant.gender).toBeNull();
+    expect(body.data.isGroupRegistration).toBe(false);
+    expect(body.data.totalParticipantsCount).toBe(1);
+    expect(body.data.groupTickets).toHaveLength(1);
+  });
+
   it('POST /api/public/register-event preserves custom dynamic responses and speaker notes in registrationData', async () => {
     let insertedAttendance: any = null;
     const mockDb = {

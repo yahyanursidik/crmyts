@@ -28,7 +28,6 @@
     "dotenv": "^16.4.5",
     "drizzle-orm": "^0.38.3",
     "lucide-react": "^0.453.0",
-    "nodemailer": "^9.0.5",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -40,7 +39,6 @@
   },
   "devDependencies": {
     "@types/node": "^20.17.0",
-    "@types/nodemailer": "^8.0.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.0.5",

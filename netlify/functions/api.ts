@@ -18,6 +18,7 @@ import { registerAutomationRoutes } from '../../server/domain/automation/routes'
 import { registerDonorsPipelineRoutes } from '../../server/domain/donors/routes';
 import { registerPublicPortalRoutes } from '../../server/domain/public/routes';
 import { registerBazaarRoutes } from '../../server/domain/bazaar/routes';
+import { registerWebhookRoutes } from '../../server/domain/webhooks/routes';
 import { resolveUserBySubject } from '../../server/auth/service';
 
 interface NetlifyEvent {
@@ -60,6 +61,7 @@ registerReportsRoutes(router);
 registerAutomationRoutes(router);
 registerDonorsPipelineRoutes(router);
 registerPublicPortalRoutes(router);
+registerWebhookRoutes(router);
 
 export const handler = async (event: NetlifyEvent) => {
   const requestId = extractRequestId(event.headers);

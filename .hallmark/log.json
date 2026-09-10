@@ -1,5 +1,15 @@
 [
   {
+    "date": "2026-09-10",
+    "macrostructure": "Narrative Workflow",
+    "theme": "tarbiyah-official-logo",
+    "enrichment": "none",
+    "nav": "N9",
+    "footer": "Ft5",
+    "scope": "event registration portal",
+    "brief": "Relayout halaman detail dan pendaftaran kajian agar lintas usia, nyaman di desktop dan mobile"
+  },
+  {
     "date": "2026-08-26",
     "macrostructure": "Split Studio",
     "theme": "tarbiyah-official-logo",

@@ -35,6 +35,7 @@ import { CitySuggestInput } from '@/components/common/CitySuggestInput';
 import { EventFormConfig } from '../events/EventManageModal';
 import { ParticipantQrCode } from './ParticipantQrCode';
 import { buildParticipantPortalPath } from '@/lib/participantTicket';
+import './events-portal.css';
 
 interface EventItem {
   id: string;
@@ -221,6 +222,15 @@ export function EventsPortalPage() {
   }, [targetId]);
 
   const selectedEvent = data?.events?.find((ev) => ev.id === selectedEventId);
+  const shouldCollectVehicle = selectedEvent?.formConfig?.collectVehicle !== false;
+  const shouldCollectEmail = selectedEvent?.formConfig?.collectEmail === true;
+  const shouldCollectCity = selectedEvent?.formConfig?.collectCity !== false;
+  const shouldCollectGender =
+    selectedEvent?.targetAudience !== 'akhwat_only' &&
+    selectedEvent?.targetAudience !== 'ikhwan_only' &&
+    selectedEvent?.formConfig?.requireGender !== false;
+  // Form config kosong menandakan event lama, yang sebelumnya mendukung pendaftaran rombongan.
+  const canRegisterFamily = selectedEvent?.formConfig?.allowMultiParticipant !== false;
 
   const handleCopyShareLink = (evId?: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -235,6 +245,13 @@ export function EventsPortalPage() {
       setCopiedShareLink(true);
       setTimeout(() => setCopiedShareLink(false), 2500);
     }
+  };
+
+  const scrollToRegistration = () => {
+    document.getElementById('daftar')?.scrollIntoView({
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+      block: 'start',
+    });
   };
 
   const handleCopyBankAccount = (accNum?: string | null) => {
@@ -260,7 +277,7 @@ export function EventsPortalPage() {
   };
 
   const handleAddFamilyMember = () => {
-    const max = selectedEvent?.formConfig?.maxMultiParticipants || 10;
+    const max = selectedEvent?.formConfig?.maxMultiParticipants ?? 10;
     if (familyMembers.length >= max) {
       alert(`Batas maksimal anggota keluarga tambahan adalah ${max} orang.`);
       return;
@@ -355,6 +372,8 @@ export function EventsPortalPage() {
     setFamilyMembers([]);
     setLookupInput('');
     setLookupSuccess(null);
+    setRegVehicleType('none');
+    setRegVehiclePlate('');
     if (ev.targetAudience === 'akhwat_only') {
       setRegGender('akhwat');
     } else if (ev.targetAudience === 'ikhwan_only') {
@@ -397,7 +416,8 @@ export function EventsPortalPage() {
 
     try {
       setSubmittingEvent(true);
-      const totalParticipants = 1 + familyMembers.length;
+      const registeredFamilyMembers = canRegisterFamily ? familyMembers : [];
+      const totalParticipants = 1 + registeredFamilyMembers.length;
       const calculatedTotalAmount = (selectedEvent?.priceRupiah || 0) * totalParticipants;
 
       const res = await fetch('/api/public/register-event', {
@@ -407,19 +427,19 @@ export function EventsPortalPage() {
           eventId: selectedEventId,
           fullName: regFullName,
           phone: regPhone,
-          gender: regGender,
-          email: regEmail || null,
-          cityRegency: regCity || null,
+          gender: shouldCollectGender ? regGender : null,
+          email: shouldCollectEmail ? regEmail || null : null,
+          cityRegency: shouldCollectCity ? regCity || null : null,
           notes: regNotes || null,
-          vehicleType: regVehicleType,
-          vehiclePlateNumber: regVehiclePlate.trim() || null,
+          vehicleType: shouldCollectVehicle ? regVehicleType : 'none',
+          vehiclePlateNumber: shouldCollectVehicle && regVehicleType !== 'none' ? regVehiclePlate.trim() || null : null,
           agreedToRules: true,
           paymentProofUrl: paymentProofUrl || null,
           paymentAmountRupiah: calculatedTotalAmount,
           referralCode,
           additionalParticipants:
-            familyMembers.length > 0
-              ? familyMembers.map((m) => ({
+            registeredFamilyMembers.length > 0
+              ? registeredFamilyMembers.map((m) => ({
                   fullName: m.fullName.trim(),
                   gender: m.gender,
                   relationship: m.relationship,
@@ -496,8 +516,9 @@ export function EventsPortalPage() {
 
   return (
     <PortalBackground>
+      <div className="events-portal-page">
       {/* 1. CLEAN TOP HEADER */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-cream-300 shadow-2xs">
+      <header className="portal-event-nav sticky top-0 z-40 backdrop-blur-md border-b shadow-2xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 sm:gap-3">
             <BrandEmblem useImage={true} className="w-9 h-9 sm:w-11 sm:h-11 shadow-xs rounded-xl" />
@@ -569,7 +590,7 @@ export function EventsPortalPage() {
 
       {/* Single Event Breadcrumb & Quick Action Strip */}
       {isSingleEvent && selectedEvent && (
-        <div className="bg-white border-b border-cream-300 py-3 px-4 sm:px-6 lg:px-8">
+        <div className="event-quickstrip border-b py-3 px-4 sm:px-6 lg:px-8">
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-3">
             <Link
               to="/kajian"
@@ -643,9 +664,9 @@ export function EventsPortalPage() {
 
       {/* 2A. SINGLE EVENT DEDICATED HERO SECTION */}
       {isSingleEvent && selectedEvent && (
-        <section className="relative overflow-hidden pt-10 pb-12 lg:pt-14 lg:pb-16 border-b border-teal-900/10 bg-gradient-to-b from-[#F0F5F2] to-[#F8FAF9]">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-            <div className="max-w-4xl mx-auto space-y-5">
+        <section className="event-detail-hero border-b py-10 sm:py-12 lg:py-16">
+          <div className="event-detail-hero__grid max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="space-y-5">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-teal-800 text-white shadow-2xs">
                   {selectedEvent.category || 'Majelis Ilmu'}
@@ -681,7 +702,7 @@ export function EventsPortalPage() {
                 </span>
               </div>
 
-              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-slate-950 tracking-tight leading-tight font-display">
+              <h1 className="event-detail-hero__title text-3xl sm:text-4xl lg:text-5xl font-black text-slate-950 tracking-tight leading-tight font-display">
                 {selectedEvent.title}
               </h1>
 
@@ -691,8 +712,8 @@ export function EventsPortalPage() {
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-2">
-                <div className="p-3.5 bg-white rounded-2xl border border-slate-200/90 shadow-2xs space-y-1">
+              <div className="event-detail-hero__facts pt-2">
+                <div className="event-detail-hero__fact p-3.5 rounded-2xl border shadow-2xs space-y-1">
                   <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
                     <Calendar className="w-3.5 h-3.5 text-teal-700" /> Jadwal Waktu
                   </span>
@@ -701,7 +722,7 @@ export function EventsPortalPage() {
                   </span>
                 </div>
 
-                <div className="p-3.5 bg-white rounded-2xl border border-slate-200/90 shadow-2xs space-y-1">
+                <div className="event-detail-hero__fact p-3.5 rounded-2xl border shadow-2xs space-y-1">
                   <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
                     <MapPin className="w-3.5 h-3.5 text-rose-600" /> Lokasi Majelis
                   </span>
@@ -710,7 +731,7 @@ export function EventsPortalPage() {
                   </span>
                 </div>
 
-                <div className="p-3.5 bg-white rounded-2xl border border-slate-200/90 shadow-2xs space-y-1">
+                <div className="event-detail-hero__fact p-3.5 rounded-2xl border shadow-2xs space-y-1">
                   <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
                     <Ticket className="w-3.5 h-3.5 text-emerald-600" /> Kuota Jamaah
                   </span>
@@ -722,6 +743,23 @@ export function EventsPortalPage() {
                 </div>
               </div>
             </div>
+
+            <aside className="event-path" aria-label="Alur pendaftaran kajian">
+              <div>
+                <p className="event-path__eyebrow">ALUR PENDAFTARAN</p>
+                <h2 className="event-path__title">Siapkan tiga hal sederhana.</h2>
+              </div>
+              <ol className="event-path__steps">
+                <li className="event-path__step"><span className="event-path__step-no">1</span><span>Baca waktu, lokasi, dan tata tertib majelis.</span></li>
+                <li className="event-path__step"><span className="event-path__step-no">2</span><span>Isi data yang diperlukan pada formulir.</span></li>
+                <li className="event-path__step"><span className="event-path__step-no">3</span><span>Simpan e-tiket untuk check-in saat hadir.</span></li>
+              </ol>
+              {selectedEvent.isRegistrationOpen && (
+                <button type="button" onClick={scrollToRegistration} className="event-path__action">
+                  Isi formulir pendaftaran
+                </button>
+              )}
+            </aside>
           </div>
         </section>
       )}
@@ -860,14 +898,14 @@ export function EventsPortalPage() {
           )}
 
           {/* Two-Column Layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          <div className={isSingleEvent ? 'event-detail-layout' : 'grid grid-cols-1 lg:grid-cols-12 gap-8 items-start'}>
             {/* Left Column: Either Single Event Info or Schedule List */}
-            <div className="lg:col-span-7 space-y-6">
+            <div className={isSingleEvent ? 'event-content-stage' : 'lg:col-span-7 space-y-6'}>
               {isSingleEvent && selectedEvent ? (
                 /* SINGLE EVENT DETAIL CARDS */
                 <div className="space-y-6">
                   {/* Deskripsi Materi */}
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-3">
+                  <div className="event-info-panel bg-white p-6 border shadow-sm space-y-3">
                     <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
                       <BookOpen className="w-5 h-5 text-teal-800" />
                       <h3 className="text-base font-bold text-slate-900 font-display">
@@ -880,7 +918,7 @@ export function EventsPortalPage() {
                   </div>
 
                   {/* Lokasi & Fasilitas Parkir */}
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                  <div className="event-info-panel bg-white p-6 border shadow-sm space-y-4">
                     <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
                       <MapPin className="w-5 h-5 text-rose-600" />
                       <h3 className="text-base font-bold text-slate-900 font-display">
@@ -914,7 +952,7 @@ export function EventsPortalPage() {
 
                   {/* Tata Tertib & Batasan Majelis */}
                   {selectedEvent.venueRules && selectedEvent.venueRules.length > 0 && (
-                    <div className="bg-amber-50/80 p-6 rounded-3xl border border-amber-200/90 shadow-sm space-y-3">
+                    <div className="event-info-panel event-info-panel--rules p-6 border shadow-sm space-y-3">
                       <div className="flex items-center gap-2 pb-2 border-b border-amber-200/60">
                         <ShieldAlert className="w-5 h-5 text-amber-700" />
                         <h3 className="text-base font-bold text-amber-950 font-display">
@@ -941,7 +979,7 @@ export function EventsPortalPage() {
                   )}
 
                   {/* Other Upcoming Events Recommendations */}
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                  <div className="event-info-panel bg-white p-6 border shadow-sm space-y-4">
                     <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                       <h3 className="text-sm font-bold text-slate-900 font-display">
                         Jadwal Majelis Ilmu Lainnya
@@ -1130,8 +1168,8 @@ export function EventsPortalPage() {
             </div>
 
             {/* Right Column: Dedicated Registration Form Box */}
-            <div id="daftar" className="lg:col-span-5 bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-5 sticky top-28">
-              <div className="border-b pb-3 space-y-2">
+            <div id="daftar" className={isSingleEvent ? 'registration-panel bg-white border p-6 space-y-5' : 'lg:col-span-5 bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-5 sticky top-28'}>
+              <div className="registration-panel__heading border-b pb-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-base font-black text-slate-900 font-display">Formulir Pendaftaran Majelis Ilmu</h3>
                   {selectedEvent && (
@@ -1169,6 +1207,14 @@ export function EventsPortalPage() {
                   )}
                 </p>
               </div>
+
+              {selectedEvent && selectedEvent.isRegistrationOpen && (
+                <ol className="registration-steps" aria-label="Tahapan formulir">
+                  <li className="registration-step"><span className="registration-step__no">1</span><span>Data diri</span></li>
+                  <li className="registration-step"><span className="registration-step__no">2</span><span>Ketentuan</span></li>
+                  <li className="registration-step"><span className="registration-step__no">3</span><span>E-tiket</span></li>
+                </ol>
+              )}
 
               {selectedEvent && selectedEvent.isRegistrationOpen === false ? (
                 <div className="p-6 bg-red-50 border border-red-200 rounded-2xl text-center space-y-2">
@@ -1285,7 +1331,7 @@ export function EventsPortalPage() {
                       <span className="font-bold block">🕌 Kategori: Khusus Jamaah Ikhwan (Laki-laki)</span>
                       <p className="text-[11px] text-sky-700">Kajian ini hanya diperuntukkan bagi jamaah ikhwan.</p>
                     </div>
-                  ) : (
+                  ) : shouldCollectGender ? (
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">Kategori Jamaah *</label>
                       <div className="grid grid-cols-2 gap-2">
@@ -1315,7 +1361,7 @@ export function EventsPortalPage() {
                         </button>
                       </div>
                     </div>
-                  )}
+                  ) : null}
 
                   {/* 3. WhatsApp Phone Number */}
                   <div>
@@ -1341,7 +1387,8 @@ export function EventsPortalPage() {
                   </div>
 
                   {/* 4. City / Regency with Auto-Suggest */}
-                  <div>
+                  {shouldCollectCity && (
+                    <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
                       Kota / Domisili * <span className="font-normal text-slate-400 text-[10px]">(Ketik untuk saran otomatis)</span>
                     </label>
@@ -1351,10 +1398,11 @@ export function EventsPortalPage() {
                       value={regCity}
                       onChange={(val) => setRegCity(val)}
                     />
-                  </div>
+                    </div>
+                  )}
 
                   {/* 4b. Multi-Participant / Family Members Registration */}
-                  {(selectedEvent?.formConfig?.allowMultiParticipant !== false || selectedEvent?.targetAudience === 'itikaf_ramadan') && (
+                  {canRegisterFamily && (
                     <div className="p-4 bg-teal-50/70 border border-teal-200/90 rounded-2xl space-y-3.5 animate-in fade-in duration-200">
                       <div className="flex items-center justify-between">
                         <div>
@@ -1432,8 +1480,9 @@ export function EventsPortalPage() {
                                 </div>
                               </div>
 
-                              <div className="grid grid-cols-2 gap-2 pt-0.5">
-                                <div>
+                              <div className={`grid gap-2 pt-0.5 ${shouldCollectGender ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                                {shouldCollectGender && (
+                                  <div>
                                   <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
                                     Kategori Jamaah
                                   </label>
@@ -1461,7 +1510,8 @@ export function EventsPortalPage() {
                                       Akhwat
                                     </button>
                                   </div>
-                                </div>
+                                  </div>
+                                )}
 
                                 <div>
                                   <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
@@ -1495,7 +1545,8 @@ export function EventsPortalPage() {
                   )}
 
                   {/* 5. Email (Optional) */}
-                  <div>
+                  {shouldCollectEmail && (
+                    <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">Alamat Email (Opsional)</label>
                     <input
                       type="email"
@@ -1509,10 +1560,12 @@ export function EventsPortalPage() {
                       }}
                       className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
                     />
-                  </div>
+                    </div>
+                  )}
 
                   {/* 6. Vehicle Type & Parking Pass */}
-                  <div>
+                  {shouldCollectVehicle && (
+                    <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
                       Kendaraan yang Digunakan & Slot Parkir
                     </label>
@@ -1565,10 +1618,11 @@ export function EventsPortalPage() {
                         </span>
                       </button>
                     </div>
-                  </div>
+                    </div>
+                  )}
 
                   {/* Vehicle Plate Number */}
-                  {regVehicleType !== 'none' && (
+                  {shouldCollectVehicle && regVehicleType !== 'none' && (
                     <div className="animate-in fade-in duration-200">
                       <label className="block text-xs font-bold text-slate-700 mb-1">
                         Nomor Polisi / Plat Kendaraan *
@@ -1913,7 +1967,8 @@ export function EventsPortalPage() {
 
             <h3 className="text-xl font-bold text-slate-900">E-Tiket Majelis Ilmu Terbit!</h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Bismillah, pendaftaran atas nama <b>{eventSuccess.participant.name}</b> ({eventSuccess.participant.gender}) berhasil dicatat:
+              Bismillah, pendaftaran atas nama <b>{eventSuccess.participant.name}</b>
+              {eventSuccess.participant.gender ? ` (${eventSuccess.participant.gender})` : ''} berhasil dicatat:
             </p>
 
             <div className="p-4 bg-teal-50/80 border border-teal-200 rounded-2xl text-left space-y-1.5 text-xs">
@@ -2127,8 +2182,9 @@ export function EventsPortalPage() {
       )}
 
       {/* 5. FOOTER */}
-      <footer className="bg-[#0b1f17] text-white pt-12 pb-8 border-t border-teal-950">
+      <footer className="event-portal-footer text-white pt-12 pb-8 border-t">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
+          <p className="event-portal-footer__statement">Sampai bertemu di majelis ilmu.</p>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-teal-900/60 pb-8">
             <div className="flex items-center gap-3">
               <BrandEmblem useImage={true} className="w-10 h-10" />
@@ -2174,6 +2230,18 @@ export function EventsPortalPage() {
           </a>
         </div>
       )}
+      {isSingleEvent && selectedEvent?.isRegistrationOpen && (
+        <aside className="mobile-register-bar" aria-label="Aksi pendaftaran">
+          <div className="mobile-register-bar__copy">
+            <span className="mobile-register-bar__label">{selectedEvent.title}</span>
+            <span className="mobile-register-bar__hint">Formulir siap diisi</span>
+          </div>
+          <button type="button" onClick={scrollToRegistration} className="mobile-register-bar__action">
+            Daftar
+          </button>
+        </aside>
+      )}
+      </div>
     </PortalBackground>
   );
 }

@@ -50,7 +50,7 @@ const publicWaqfInquirySchema = z.object({
 
 const additionalParticipantSchema = z.object({
   fullName: z.string().min(2, 'Nama lengkap peserta rombongan minimal 2 karakter'),
-  gender: z.enum(['ikhwan', 'akhwat']).default('ikhwan'),
+  gender: z.enum(['ikhwan', 'akhwat']).nullable().optional(),
   relationship: z.string().default('Keluarga'),
   age: z.number().int().positive().optional().nullable(),
   notes: z.string().optional().nullable(),
@@ -60,7 +60,7 @@ const publicEventRegistrationSchema = z.object({
   eventId: z.string().uuid('Kajian / Daurah wajib dipilih'),
   fullName: z.string().min(2, 'Nama lengkap minimal 2 karakter'),
   phone: z.string().min(8, 'Nomor WhatsApp wajib diisi'),
-  gender: z.enum(['ikhwan', 'akhwat']).default('ikhwan'),
+  gender: z.enum(['ikhwan', 'akhwat']).nullable().optional(),
   email: z.string().email('Format email tidak valid').optional().nullable(),
   cityRegency: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
@@ -518,11 +518,22 @@ export function registerPublicPortalRoutes(router: Router) {
         return errorResponse('VALIDATION_ERROR', 'Pendaftaran untuk kajian ini telah ditutup oleh pengurus', 400, ctx.requestId);
       }
 
+      const fixedGender =
+        targetEvent.targetAudience === 'akhwat_only'
+          ? 'akhwat'
+          : targetEvent.targetAudience === 'ikhwan_only'
+            ? 'ikhwan'
+            : null;
+      // Untuk kajian umum, gender hanya dikumpulkan bila Form Builder mengaktifkannya.
+      const gender = fixedGender || (targetEvent.formConfig?.requireGender === false ? null : body.gender || null);
+      const email = targetEvent.formConfig?.collectEmail === true ? body.email || null : null;
+      const cityRegency = targetEvent.formConfig?.collectCity !== false ? body.cityRegency || null : null;
+
       // 1. Audience Target Validation
-      if (targetEvent.targetAudience === 'akhwat_only' && body.gender !== 'akhwat') {
+      if (targetEvent.targetAudience === 'akhwat_only' && body.gender && body.gender !== 'akhwat') {
         return errorResponse('VALIDATION_ERROR', 'Mohon maaf, kajian ini dikhususkan hanya untuk Jamaah Akhwat (Wanita)', 400, ctx.requestId);
       }
-      if (targetEvent.targetAudience === 'ikhwan_only' && body.gender !== 'ikhwan') {
+      if (targetEvent.targetAudience === 'ikhwan_only' && body.gender && body.gender !== 'ikhwan') {
         return errorResponse('VALIDATION_ERROR', 'Mohon maaf, kajian ini dikhususkan hanya untuk Jamaah Ikhwan (Laki-laki)', 400, ctx.requestId);
       }
 
@@ -532,11 +543,14 @@ export function registerPublicPortalRoutes(router: Router) {
       const currentAkhwat = atts.filter((a) => a.person?.gender === 'akhwat').length;
       const currentCars = atts.filter((a) => a.vehicleType === 'car').length;
       const currentMotorcycles = atts.filter((a) => a.vehicleType === 'motorcycle').length;
+      // Jika panitia menyembunyikan fasilitas parkir, jangan simpan atau hitung input kendaraan yang dikirim klien.
+      const vehicleType = targetEvent.formConfig?.collectVehicle === false ? 'none' : body.vehicleType;
+      const vehiclePlateNumber = vehicleType === 'none' ? null : body.vehiclePlateNumber || null;
 
-      if (body.gender === 'ikhwan' && targetEvent.quotaIkhwan && currentIkhwan >= targetEvent.quotaIkhwan) {
+      if (gender === 'ikhwan' && targetEvent.quotaIkhwan && currentIkhwan >= targetEvent.quotaIkhwan) {
         return errorResponse('VALIDATION_ERROR', 'Mohon maaf, kuota pendaftaran khusus Jamaah Ikhwan telah penuh.', 400, ctx.requestId);
       }
-      if (body.gender === 'akhwat' && targetEvent.quotaAkhwat && currentAkhwat >= targetEvent.quotaAkhwat) {
+      if (gender === 'akhwat' && targetEvent.quotaAkhwat && currentAkhwat >= targetEvent.quotaAkhwat) {
         return errorResponse('VALIDATION_ERROR', 'Mohon maaf, kuota pendaftaran khusus Jamaah Akhwat telah penuh.', 400, ctx.requestId);
       }
       if (targetEvent.quota && atts.length >= targetEvent.quota) {
@@ -544,10 +558,10 @@ export function registerPublicPortalRoutes(router: Router) {
       }
 
       // 3. Parking Facility Quota Validations
-      if (body.vehicleType === 'car' && targetEvent.carParkingQuota && currentCars >= targetEvent.carParkingQuota) {
+      if (vehicleType === 'car' && targetEvent.carParkingQuota && currentCars >= targetEvent.carParkingQuota) {
         return errorResponse('VALIDATION_ERROR', 'Mohon maaf, slot fasilitas parkir mobil telah penuh. Silakan gunakan sepeda motor atau transportasi umum.', 400, ctx.requestId);
       }
-      if (body.vehicleType === 'motorcycle' && targetEvent.motorcycleParkingQuota && currentMotorcycles >= targetEvent.motorcycleParkingQuota) {
+      if (vehicleType === 'motorcycle' && targetEvent.motorcycleParkingQuota && currentMotorcycles >= targetEvent.motorcycleParkingQuota) {
         return errorResponse('VALIDATION_ERROR', 'Mohon maaf, slot fasilitas parkir sepeda motor telah penuh.', 400, ctx.requestId);
       }
 
@@ -562,9 +576,9 @@ export function registerPublicPortalRoutes(router: Router) {
           .values({
             fullName: body.fullName,
             phoneE164: phoneNorm,
-            email: body.email || null,
-            gender: body.gender,
-            cityRegency: body.cityRegency || null,
+            email,
+            gender,
+            cityRegency,
             sourceCode: 'public_portal_kajian',
             engagementStatus: 'baru',
             preferredChannel: 'whatsapp',
@@ -601,8 +615,13 @@ export function registerPublicPortalRoutes(router: Router) {
         }
       }
 
-      // Generate Group ID if registering multiple family members / companions
-      const additionalList = body.additionalParticipants || [];
+      // Rombongan hanya diproses jika diaktifkan panitia; batas berlaku pula untuk payload yang dimanipulasi.
+      const maxMultiParticipants = Math.min(20, Math.max(1, targetEvent.formConfig?.maxMultiParticipants ?? 10));
+      // Event yang dibuat sebelum Form Builder memiliki formConfig kosong. Pertahankan
+      // kemampuan rombongan untuk event lama, sementara nilai false tetap memblokir payload.
+      const additionalList = targetEvent.formConfig?.allowMultiParticipant !== false
+        ? (body.additionalParticipants || []).slice(0, maxMultiParticipants)
+        : [];
       const isGroup = additionalList.length > 0;
       const totalParticipantsCount = 1 + additionalList.length;
 
@@ -640,8 +659,8 @@ export function registerPublicPortalRoutes(router: Router) {
           paymentProofUrl: body.paymentProofUrl || null,
           paymentAmountRupiah: isPaidEvent ? (body.paymentAmountRupiah || totalGroupPrice) : 0,
 
-          vehicleType: body.vehicleType || 'none',
-          vehiclePlateNumber: body.vehiclePlateNumber || null,
+          vehicleType,
+          vehiclePlateNumber,
           agreedToRules: body.agreedToRules !== false,
           registrationData:
             body.customResponses || body.notes
@@ -684,7 +703,7 @@ export function registerPublicPortalRoutes(router: Router) {
       }> = [
         {
           name: body.fullName,
-          gender: body.gender || 'ikhwan',
+          gender: gender || 'tidak_ditentukan',
           relationship: isGroup ? 'Kepala Keluarga / Pendaftar Utama' : 'Pendaftar Utama',
           age: null,
           ticketCode,
@@ -708,8 +727,8 @@ export function registerPublicPortalRoutes(router: Router) {
             .values({
               fullName: member.fullName,
               phoneE164: memberPhoneVirtual,
-              gender: member.gender || 'ikhwan',
-              cityRegency: body.cityRegency || null,
+              gender: fixedGender || (targetEvent.formConfig?.requireGender === false ? null : member.gender || null),
+              cityRegency,
               sourceCode: 'public_portal_kajian_family',
               engagementStatus: 'baru',
               preferredChannel: 'whatsapp',
@@ -746,7 +765,7 @@ export function registerPublicPortalRoutes(router: Router) {
 
           groupTickets.push({
             name: member.fullName,
-            gender: member.gender || 'ikhwan',
+            gender: fixedGender || (targetEvent.formConfig?.requireGender === false ? 'tidak_ditentukan' : member.gender || 'tidak_ditentukan'),
             relationship: member.relationship || 'Keluarga',
             age: member.age || null,
             ticketCode: existingMemAtt?.ticketCode || memberTicketCode,
@@ -782,18 +801,20 @@ export function registerPublicPortalRoutes(router: Router) {
             bankAccountNumber: targetEvent.bankAccountNumber,
             bankAccountName: targetEvent.bankAccountName,
             paymentInstructions: targetEvent.paymentInstructions,
-            whatsappGroupInviteUrl: safeWhatsAppGroupUrl(
-              body.gender === 'akhwat'
-                ? targetEvent.formConfig?.whatsappGroupAkhwatUrl
-                : targetEvent.formConfig?.whatsappGroupIkhwanUrl
-            ),
+            whatsappGroupInviteUrl: gender
+              ? safeWhatsAppGroupUrl(
+                  gender === 'akhwat'
+                    ? targetEvent.formConfig?.whatsappGroupAkhwatUrl
+                    : targetEvent.formConfig?.whatsappGroupIkhwanUrl
+                )
+              : null,
           },
           participant: {
             name: body.fullName,
-            gender: body.gender,
+            gender,
             phone: phoneNorm,
-            vehicleType: body.vehicleType,
-            vehiclePlateNumber: body.vehiclePlateNumber,
+            vehicleType,
+            vehiclePlateNumber,
             paymentStatus: initialPaymentStatus,
             priceRupiah: isPaidEvent ? targetEvent.priceRupiah : 0,
             totalPriceRupiah: totalGroupPrice,
@@ -808,9 +829,9 @@ export function registerPublicPortalRoutes(router: Router) {
       );
 
       // Send E-Ticket Email if email provided
-      if (body.email) {
+      if (email) {
         sendEventRegistrationTicketEmail({
-          recipientEmail: body.email,
+          recipientEmail: email,
           recipientName: body.fullName,
           eventTitle: targetEvent.title,
           speaker: targetEvent.speaker,
@@ -820,7 +841,7 @@ export function registerPublicPortalRoutes(router: Router) {
           }),
           locationName: targetEvent.locationName || 'Masjid Tarbiyah Sunnah',
           ticketCode,
-          gender: body.gender || 'ikhwan',
+          gender,
           familyCount: additionalList.length > 0 ? additionalList.length : undefined,
           isPaid: isPaidEvent,
           priceRupiah: totalGroupPrice,
@@ -859,11 +880,13 @@ export function registerPublicPortalRoutes(router: Router) {
       const event = await db.query.events.findFirst({ where: eq(events.id, body.eventId) });
       if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan.', 404, ctx.requestId);
 
-      const groupUrl = safeWhatsAppGroupUrl(
-        attendance.person.gender === 'akhwat'
-          ? event.formConfig?.whatsappGroupAkhwatUrl
-          : event.formConfig?.whatsappGroupIkhwanUrl
-      );
+      const groupUrl = attendance.person.gender
+        ? safeWhatsAppGroupUrl(
+            attendance.person.gender === 'akhwat'
+              ? event.formConfig?.whatsappGroupAkhwatUrl
+              : event.formConfig?.whatsappGroupIkhwanUrl
+          )
+        : null;
 
       return successResponse(
         {

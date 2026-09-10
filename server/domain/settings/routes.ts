@@ -15,13 +15,14 @@ import { eq, desc, sql } from 'drizzle-orm';
 import { PERMISSIONS } from '../../permissions/constants';
 import { logAuditEvent } from '../../audit/service';
 import {
-  verifySmtpConnection,
+  verifyMailketingConnection,
   sendTestEmail,
   sendStaffWelcomeEmail,
   sendEventRegistrationTicketEmail,
   sendDonationVerifiedReceiptEmail,
   sendWaqfInquiryConfirmationEmail,
 } from '../../email/service';
+import { getBroadcastDailyQuota } from '../../email/broadcastQuota';
 
 // Mock storage config info (can be overridden by env in production)
 const FOUNDATION_DEFAULT = {
@@ -818,19 +819,27 @@ export function registerSettingsRoutes(router: Router) {
     })
   );
 
-  // 17. GET /api/settings/email-health (Test Kerjamail SMTP Handshake & Connection)
+  // 17. GET /api/settings/email-health (Test Mailketing API connection)
   router.get(
     '/api/settings/email-health',
     requireAuth(async (ctx) => {
-      const health = await verifySmtpConnection();
+      const [health, quotaResult] = await Promise.all([
+        verifyMailketingConnection(),
+        getBroadcastDailyQuota(getDb()).then(
+          (quota) => ({ quota, error: null }),
+          () => ({ quota: null, error: 'Penghitung kuota broadcast belum tersedia. Jalankan migration terbaru.' })
+        ),
+      ]);
       return successResponse(
         {
           status: health.success ? 'connected' : 'error',
-          smtpHost: 'mx.kerjamail.co',
-          smtpPort: 465,
-          encryption: 'SSL / TLS',
+          provider: 'Mailketing API',
+          apiEndpoint: 'https://api.mailketing.co.id/api/v2/send',
           senderEmail: 'no-reply@yts.web.id',
           latencyMs: health.latencyMs,
+          credits: health.credits ?? null,
+          broadcastQuota: quotaResult.quota,
+          broadcastQuotaError: quotaResult.error,
           errorMessage: health.error || null,
           verifiedAt: new Date().toISOString(),
         },
@@ -839,7 +848,7 @@ export function registerSettingsRoutes(router: Router) {
     })
   );
 
-  // 18. POST /api/settings/send-test-email (Send Live Test Email via SMTP)
+  // 18. POST /api/settings/send-test-email (Send live test email via Mailketing)
   const sendTestEmailSchema = z.object({
     recipientEmail: z.string().email('Format email penerima tidak valid'),
     templateType: z
@@ -899,7 +908,7 @@ export function registerSettingsRoutes(router: Router) {
         if (!sendResult.success) {
           return errorResponse(
             'INTERNAL_ERROR',
-            sendResult.error || 'Gagal mengirim email uji coba. Periksa koneksi SMTP Kerjamail.',
+            sendResult.error || 'Gagal mengirim email uji coba. Periksa konfigurasi Mailketing.',
             500,
             ctx.requestId
           );

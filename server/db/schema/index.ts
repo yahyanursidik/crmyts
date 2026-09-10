@@ -22,5 +22,8 @@ export * from './waqf';
 // Attachments
 export * from './attachments';
 
+// Transactional email safeguards
+export * from './email';
+
 // Audit & Governance
 export * from './audit';
