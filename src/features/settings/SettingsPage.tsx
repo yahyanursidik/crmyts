@@ -201,7 +201,7 @@ export function SettingsPage() {
   const [pingTesting, setPingTesting] = useState(false);
   const [pingResult, setPingResult] = useState<{ latencyMs: number; status: string; timestamp: string } | null>(null);
 
-  // SMTP Email Health & Testing State
+  // Mailketing API health & testing state
   const [emailHealth, setEmailHealth] = useState<any>(null);
   const [emailTesting, setEmailTesting] = useState(false);
   const [testEmailRecipient, setTestEmailRecipient] = useState('');
@@ -280,13 +280,13 @@ export function SettingsPage() {
       setEmailHealth(res.data);
       if (showNotification) {
         if (res.data?.status === 'connected') {
-          showToast(`✓ Koneksi SMTP Kerjamail Terhubung! Latensi: ${res.data.latencyMs} ms`);
+          showToast(`✓ Mailketing terhubung! Latensi: ${res.data.latencyMs} ms`);
         } else {
-          showToast(res.data?.errorMessage || 'Koneksi SMTP bermasalah', 'error');
+          showToast(res.data?.errorMessage || 'Koneksi Mailketing bermasalah', 'error');
         }
       }
     } catch (e: any) {
-      if (showNotification) showToast(e?.message || 'Gagal menguji koneksi SMTP server', 'error');
+      if (showNotification) showToast(e?.message || 'Gagal menguji koneksi Mailketing', 'error');
     } finally {
       setEmailTesting(false);
     }
@@ -779,7 +779,7 @@ export function SettingsPage() {
               Pengaturan &amp; Konfigurasi Sistem CRM Yayasan
             </h1>
             <p className="text-xs text-white/80 mt-0.5 max-w-2xl leading-relaxed">
-              Pusat kendali profil amil, hak akses peran staf, identitas legal yayasan &amp; rekening bank, program infaq dakwah, integrasi SMTP Kerjamail, dan audit sistem.
+              Pusat kendali profil amil, hak akses peran staf, identitas legal yayasan &amp; rekening bank, program infaq dakwah, integrasi Mailketing, dan audit sistem.
             </p>
           </div>
         </div>
@@ -868,7 +868,7 @@ export function SettingsPage() {
             }`}
           >
             <Mail className={`w-4 h-4 ${activeTab === 'email' ? 'text-[#E0B970]' : 'text-[#6B7A72]'}`} />
-            <span>Kerjamail SMTP Engine</span>
+            <span>Mailketing Email</span>
           </button>
 
           <button
@@ -1663,16 +1663,16 @@ export function SettingsPage() {
         </div>
       )}
 
-      {/* 7. TAB 5: KERJAMAIL SMTP ENGINE */}
+      {/* 7. TAB 5: MAILKETING EMAIL */}
       {activeTab === 'email' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* SMTP Configuration Card */}
+          {/* Mailketing configuration card */}
           <div className="p-6 bg-white rounded-2xl border border-[#1B4332]/12 shadow-2xs space-y-4">
             <div className="flex items-center gap-2 pb-3 border-b border-[#1B4332]/10">
               <Mail className="w-5 h-5 text-[#1B4332]" />
               <div>
-                <h3 className="text-sm font-bold font-display text-[#1C2321]">Kerjamail SMTP Engine</h3>
-                <p className="text-[11px] text-[#6B7A72]">Server pengiriman email resmi Tarbiyah Sunnah.</p>
+                <h3 className="text-sm font-bold font-display text-[#1C2321]">Mailketing Transactional Email</h3>
+                <p className="text-[11px] text-[#6B7A72]">API pengiriman email resmi Yayasan Tarbiyah Sunnah.</p>
               </div>
             </div>
 
@@ -1693,13 +1693,13 @@ export function SettingsPage() {
               </div>
 
               <div className="flex items-center justify-between">
-                <span className="text-[#6B7A72]">SMTP Host:</span>
-                <span className="font-mono font-bold text-[#14352A]">mx.kerjamail.co</span>
+                <span className="text-[#6B7A72]">Penyedia:</span>
+                <span className="font-mono font-bold text-[#14352A]">Mailketing API</span>
               </div>
 
               <div className="flex items-center justify-between">
-                <span className="text-[#6B7A72]">Port &amp; Enkripsi:</span>
-                <span className="font-mono text-[#14352A]">465 (SSL / TLS)</span>
+                <span className="text-[#6B7A72]">Endpoint:</span>
+                <span className="font-mono text-[#14352A]">/api/v2/send</span>
               </div>
 
               <div className="flex items-center justify-between">
@@ -1713,6 +1713,22 @@ export function SettingsPage() {
                   <span className="font-mono font-bold text-emerald-800">{emailHealth.latencyMs} ms</span>
                 </div>
               )}
+
+              {typeof emailHealth?.credits === 'number' && (
+                <div className="flex items-center justify-between">
+                  <span className="text-[#6B7A72]">Kredit Mailketing:</span>
+                  <span className="font-mono font-bold text-[#14352A]">{emailHealth.credits.toLocaleString('id-ID')}</span>
+                </div>
+              )}
+
+              {emailHealth?.broadcastQuota && (
+                <div className="flex items-center justify-between gap-3 border-t border-[#1B4332]/10 pt-2">
+                  <span className="text-[#6B7A72]">BC hari ini (WIB):</span>
+                  <span className="font-mono font-bold text-[#14352A] whitespace-nowrap">
+                    {emailHealth.broadcastQuota.dispatchedToday}/{emailHealth.broadcastQuota.dailyLimit} terkirim
+                  </span>
+                </div>
+              )}
             </div>
 
             <button
@@ -1721,7 +1737,7 @@ export function SettingsPage() {
               className="w-full py-2.5 bg-[#1B4332] hover:bg-[#14352A] text-white text-xs font-bold rounded-xl shadow-xs inline-flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
             >
               {emailTesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4 text-[#E0B970]" />}
-              <span>{emailTesting ? 'Menguji Koneksi SMTP...' : 'Uji Koneksi SMTP Sekarang'}</span>
+              <span>{emailTesting ? 'Menguji API Mailketing...' : 'Uji Koneksi Mailketing'}</span>
             </button>
           </div>
 

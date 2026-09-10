@@ -1,45 +1,74 @@
-import nodemailer from 'nodemailer';
-import type { Transporter } from 'nodemailer';
+import { randomUUID } from 'node:crypto';
 import { getServerEnv } from '../config/env';
 
-let _transporter: Transporter | null = null;
+const MAILKETING_TIMEOUT_MS = 10_000;
 
-/**
- * Returns a configured Nodemailer Transporter instance for Kerjamail SMTP
- */
-export function getTransporter(): Transporter {
-  if (!_transporter) {
-    const env = getServerEnv();
-    _transporter = nodemailer.createTransport({
-      host: env.SMTP_HOST,
-      port: env.SMTP_PORT,
-      secure: env.SMTP_SECURE, // true for port 465 SSL, false for 587 STARTTLS
-      auth: {
-        user: env.SMTP_USER,
-        pass: env.SMTP_PASS,
-      },
-      tls: {
-        rejectUnauthorized: false, // Prevents self-signed / sub-domain SSL rejection
-      },
-    });
-  }
-  return _transporter;
+type MailketingApiResponse = {
+  success?: boolean;
+  message?: string;
+  errors?: Record<string, string[] | string>;
+  data?: { message_id?: string; credits?: number };
+};
+
+function readMailketingError(payload: MailketingApiResponse | null, fallback: string): string {
+  if (payload?.message) return payload.message;
+  const firstError = payload?.errors && Object.values(payload.errors).flat()[0];
+  return typeof firstError === 'string' ? firstError : fallback;
 }
 
-/**
- * Verifies live connectivity with the Kerjamail SMTP server
- */
-export async function verifySmtpConnection(): Promise<{ success: boolean; latencyMs: number; error?: string }> {
-  const start = Date.now();
+async function mailketingRequest(url: string, init: RequestInit): Promise<{ response: Response; payload: MailketingApiResponse | null }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MAILKETING_TIMEOUT_MS);
   try {
-    const transporter = getTransporter();
-    await transporter.verify();
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    const raw = await response.text();
+    let payload: MailketingApiResponse | null = null;
+    try {
+      payload = raw ? JSON.parse(raw) as MailketingApiResponse : null;
+    } catch {
+      // The status code still gives a safe failure result if the upstream response is not JSON.
+    }
+    return { response, payload };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function mailketingHeaders(apiToken: string): HeadersInit {
+  return {
+    'Content-Type': 'application/json',
+    'X-Api-Token': apiToken,
+  };
+}
+
+/** Verifies the Mailketing API token without sending an email. */
+export async function verifyMailketingConnection(): Promise<{ success: boolean; latencyMs: number; error?: string; credits?: number }> {
+  const start = Date.now();
+  const env = getServerEnv();
+  if (!env.MAILKETING_API_TOKEN) {
+    return {
+      success: false,
+      latencyMs: Date.now() - start,
+      error: 'MAILKETING_API_TOKEN belum dikonfigurasi pada environment server.',
+    };
+  }
+
+  try {
+    const creditsUrl = new URL('credits', env.MAILKETING_API_ENDPOINT).toString();
+    const { response, payload } = await mailketingRequest(creditsUrl, {
+      method: 'GET',
+      headers: mailketingHeaders(env.MAILKETING_API_TOKEN),
+    });
     const latencyMs = Date.now() - start;
-    return { success: true, latencyMs };
+    if (!response.ok || payload?.success === false) {
+      return { success: false, latencyMs, error: readMailketingError(payload, `Mailketing merespons HTTP ${response.status}.`) };
+    }
+    return { success: true, latencyMs, credits: payload?.data?.credits };
   } catch (err: any) {
     const latencyMs = Date.now() - start;
-    console.error('[SMTP Verify Error]:', err);
-    return { success: false, latencyMs, error: err?.message || 'Gagal terhubung ke server SMTP' };
+    const isTimeout = err?.name === 'AbortError';
+    console.error('[Mailketing Verify Error]:', err?.message || err);
+    return { success: false, latencyMs, error: isTimeout ? 'Koneksi Mailketing melebihi batas waktu.' : 'Gagal terhubung ke API Mailketing.' };
   }
 }
 
@@ -110,23 +139,43 @@ export interface SendMailOptions {
  * Low-level send mail function
  */
 export async function sendEmail(options: SendMailOptions): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const env = getServerEnv();
+  if (!env.MAILKETING_API_TOKEN) {
+    return { success: false, error: 'MAILKETING_API_TOKEN belum dikonfigurasi pada environment server.' };
+  }
+
+  const recipients = Array.isArray(options.to) ? options.to : [options.to];
+  if (recipients.length === 0) {
+    return { success: false, error: 'Alamat email penerima wajib diisi.' };
+  }
+
   try {
-    const env = getServerEnv();
-    const transporter = getTransporter();
+    const results = await Promise.all(recipients.map(async (recipient) => {
+      const messageId = `yts-${randomUUID()}`;
+      const { response, payload } = await mailketingRequest(env.MAILKETING_API_ENDPOINT, {
+        method: 'POST',
+        headers: mailketingHeaders(env.MAILKETING_API_TOKEN),
+        body: JSON.stringify({
+          from_name: env.MAILKETING_FROM_NAME,
+          from_email: env.MAILKETING_FROM_EMAIL,
+          subject: options.subject,
+          recipient,
+          content: options.html,
+          message_id: messageId,
+        }),
+      });
 
-    const info = await transporter.sendMail({
-      from: env.SMTP_FROM,
-      to: options.to,
-      subject: options.subject,
-      html: options.html,
-      text: options.text || options.html.replace(/<[^>]*>?/gm, ''),
-      replyTo: options.replyTo || 'info@tarbiyahsunnah.id',
-    });
+      if (!response.ok || payload?.success === false) {
+        throw new Error(readMailketingError(payload, `Mailketing merespons HTTP ${response.status}.`));
+      }
+      return payload?.data?.message_id || messageId;
+    }));
 
-    return { success: true, messageId: info.messageId };
+    return { success: true, messageId: results[0] };
   } catch (err: any) {
-    console.error('[SendEmail Error]:', err);
-    return { success: false, error: err?.message || 'Gagal mengirim email' };
+    const isTimeout = err?.name === 'AbortError';
+    console.error('[Mailketing Send Error]:', err?.message || err);
+    return { success: false, error: isTimeout ? 'Pengiriman email ke Mailketing melebihi batas waktu.' : err?.message || 'Gagal mengirim email melalui Mailketing.' };
   }
 }
 
@@ -141,7 +190,7 @@ export async function sendEventRegistrationTicketEmail(params: {
   startAtFormatted: string;
   locationName: string;
   ticketCode: string;
-  gender: 'ikhwan' | 'akhwat';
+  gender: 'ikhwan' | 'akhwat' | null;
   familyCount?: number;
   isPaid?: boolean;
   priceRupiah?: number;
@@ -185,7 +234,7 @@ export async function sendEventRegistrationTicketEmail(params: {
         </div>
         <div class="data-row">
           <span class="data-label">Kategori Peserta</span>
-          <span class="data-value" style="text-transform: capitalize;">${params.gender} ${params.familyCount ? `(+${params.familyCount} Anggota Keluarga)` : ''}</span>
+          <span class="data-value" style="text-transform: capitalize;">${params.gender === 'akhwat' ? 'Akhwat' : params.gender === 'ikhwan' ? 'Ikhwan' : 'Jamaah'} ${params.familyCount ? `(+${params.familyCount} Anggota Keluarga)` : ''}</span>
         </div>
         ${
           params.isPaid
@@ -466,23 +515,23 @@ export async function sendTestEmail(recipientEmail: string) {
   const now = new Date().toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'long' });
   const content = `
     <div style="text-align: center; margin-bottom: 20px;">
-      <span class="badge" style="background-color: #ecfdf5; color: #065f46;">UJI KONEKSI SMTP BERHASIL</span>
+      <span class="badge" style="background-color: #ecf5ef; color: #065f46;">UJI API MAILKETING BERHASIL</span>
       <h2 style="font-size: 20px; font-weight: 800; color: #1c321d; margin: 12px 0 4px;">
-        Server Email Kerjamail Siap Digunakan
+        Mailketing Siap Digunakan
       </h2>
       <p style="font-size: 13px; color: #64748b; margin: 0;">
-        Pesan ini membuktikan bahwa konfigurasi SMTP <code>no-reply@yts.web.id</code> berjalan 100% normal.
+        Pesan ini membuktikan bahwa pengiriman melalui Mailketing dari <code>no-reply@yts.web.id</code> berjalan normal.
       </p>
     </div>
 
     <div class="card">
       <div class="data-row">
-        <span class="data-label">Host SMTP</span>
-        <span class="data-value" style="font-family: monospace;">mx.kerjamail.co</span>
+        <span class="data-label">Penyedia</span>
+        <span class="data-value" style="font-family: monospace;">Mailketing API</span>
       </div>
       <div class="data-row">
-        <span class="data-label">Port & Enkripsi</span>
-        <span class="data-value">465 (SSL Encrypted) / 587 (STARTTLS)</span>
+        <span class="data-label">Endpoint</span>
+        <span class="data-value" style="font-family: monospace;">/api/v2/send</span>
       </div>
       <div class="data-row">
         <span class="data-label">Sender Email</span>
@@ -497,7 +546,7 @@ export async function sendTestEmail(recipientEmail: string) {
 
   return sendEmail({
     to: recipientEmail,
-    subject: `[Uji Sistem] Notifikasi Pengujian Email SMTP Yayasan Tarbiyah Sunnah`,
-    html: renderEmailLayout('Uji Coba Email SMTP YTS', content),
+    subject: `[Uji Sistem] Notifikasi Pengujian Email Mailketing Yayasan Tarbiyah Sunnah`,
+    html: renderEmailLayout('Uji Coba Email Mailketing YTS', content),
   });
 }

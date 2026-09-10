@@ -131,6 +131,19 @@ const VENUE_RULES_PRESETS = [
   { id: 'no_street_parking', label: '🚗 Dilarang Parkir di Bahu Jalan Warga', desc: 'Wajib parkir di kantong parkir resmi yang disediakan panitia' },
 ];
 
+const DEFAULT_FORM_CONFIG: EventFormConfig = {
+  collectEmail: false,
+  collectCity: true,
+  collectNotes: true,
+  requireGender: true,
+  collectVehicle: true,
+  allowMultiParticipant: false,
+  maxMultiParticipants: 10,
+  customFields: [],
+  whatsappMessageTemplate:
+    'Bismillah. Pendaftaran kajian Anda telah terkonfirmasi. Tiket: {{ticket_code}}. Mohon hadir 15 menit sebelum acara dimulai dan menaati tata tertib majelis. Barakallahu fiikum.',
+};
+
 export const EventManageModal: React.FC<EventManageModalProps> = ({
   eventId,
   onClose,
@@ -162,16 +175,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   const [paymentInstructions, setPaymentInstructions] = useState<string>('Silakan transfer sesuai nominal. Unggah struk transfer saat pendaftaran atau konfirmasikan ke admin panitia.');
 
   // Form Builder State
-  const [formConfig, setFormConfig] = useState<EventFormConfig>({
-    collectEmail: false,
-    collectCity: true,
-    collectNotes: true,
-    requireGender: true,
-    collectVehicle: true,
-    customFields: [],
-    whatsappMessageTemplate:
-      'Bismillah. Pendaftaran kajian Anda telah terkonfirmasi. Tiket: {{ticket_code}}. Mohon hadir 15 menit sebelum acara dimulai dan menaati tata tertib majelis. Barakallahu fiikum.',
-  });
+  const [formConfig, setFormConfig] = useState<EventFormConfig>(DEFAULT_FORM_CONFIG);
 
   // New Custom Field Builder Form
   const [newFieldLabel, setNewFieldLabel] = useState('');
@@ -239,21 +243,14 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           'Silakan transfer sesuai nominal. Unggah struk transfer saat pendaftaran atau konfirmasikan ke admin panitia.'
       );
 
-      if (res.data.formConfig) {
-        setFormConfig({
-          collectEmail: res.data.formConfig.collectEmail ?? false,
-          collectCity: res.data.formConfig.collectCity ?? true,
-          collectNotes: res.data.formConfig.collectNotes ?? true,
-          requireGender: res.data.formConfig.requireGender ?? true,
-          collectVehicle: res.data.formConfig.collectVehicle ?? true,
-          customFields: res.data.formConfig.customFields || [],
-          whatsappMessageTemplate:
-            res.data.formConfig.whatsappMessageTemplate ||
-            'Bismillah. Pendaftaran kajian Anda telah terkonfirmasi. Tiket: {{ticket_code}}. Barakallahu fiikum.',
-          whatsappGroupIkhwanUrl: res.data.formConfig.whatsappGroupIkhwanUrl || '',
-          whatsappGroupAkhwatUrl: res.data.formConfig.whatsappGroupAkhwatUrl || '',
-        });
-      }
+      const savedFormConfig = res.data.formConfig || {};
+      setFormConfig({
+        ...DEFAULT_FORM_CONFIG,
+        ...savedFormConfig,
+        customFields: savedFormConfig.customFields || [],
+        whatsappGroupIkhwanUrl: savedFormConfig.whatsappGroupIkhwanUrl || '',
+        whatsappGroupAkhwatUrl: savedFormConfig.whatsappGroupAkhwatUrl || '',
+      });
     } catch (err: any) {
       setAlertDialog({
         title: 'Gagal Memuat Detail',

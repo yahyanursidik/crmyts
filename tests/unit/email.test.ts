@@ -1,23 +1,43 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   renderEmailLayout,
-  getTransporter,
+  sendEmail,
   sendEventRegistrationTicketEmail,
   sendDonationReceivedEmail,
   sendDonationVerifiedReceiptEmail,
   sendWaqfInquiryConfirmationEmail,
   sendStaffWelcomeEmail,
   sendTestEmail,
+  verifyMailketingConnection,
 } from '../../server/email/service';
-import { getServerEnv } from '../../server/config/env';
+import { getServerEnv, resetServerEnvCache } from '../../server/config/env';
 
-describe('Official Email Service (Kerjamail SMTP)', () => {
-  it('loads correct SMTP environment defaults', () => {
+describe('Official Email Service (Mailketing)', () => {
+  beforeEach(() => {
+    vi.stubEnv('MAILKETING_API_TOKEN', 'test-mailketing-token');
+    vi.stubEnv('MAILKETING_WEBHOOK_SECRET', 'test-webhook-secret-1234');
+    resetServerEnvCache();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    resetServerEnvCache();
+  });
+
+  function mockMailketingSuccess(messageId = 'mailketing-message-id') {
+    return vi.fn().mockImplementation(async () => new Response(JSON.stringify({
+      success: true,
+      data: { message_id: messageId, credits: 123 },
+    }), { status: 200 }));
+  }
+
+  it('loads Mailketing defaults and the approved sender address', () => {
     const env = getServerEnv();
-    expect(env.SMTP_HOST).toBe('mx.kerjamail.co');
-    expect(env.SMTP_PORT).toBe(465);
-    expect(env.SMTP_USER).toBe('no-reply@yts.web.id');
-    expect(env.SMTP_PASS).toBe('ahlan1447H');
+    expect(env.MAILKETING_API_ENDPOINT).toBe('https://api.mailketing.co.id/api/v2/send');
+    expect(env.MAILKETING_FROM_NAME).toBe('Yayasan Tarbiyah Sunnah');
+    expect(env.MAILKETING_FROM_EMAIL).toBe('no-reply@yts.web.id');
   });
 
   it('renders official Islamic email layout with brand headers and footers', () => {
@@ -26,118 +46,70 @@ describe('Official Email Service (Kerjamail SMTP)', () => {
     expect(html).toContain('no-reply@yts.web.id');
     expect(html).toContain('Isi Pesan Uji');
     expect(html).toContain('Jl. Jurang No.64, Pasteur');
-    expect(html).toContain('ahlan@yahyanursidik.my.id');
-    expect(html).toContain('0811-2401-476');
   });
 
-  it('renders event registration ticket email template correctly', async () => {
-    const spy = vi.spyOn(getTransporter(), 'sendMail').mockResolvedValueOnce({
-      messageId: 'test-event-msg-id',
-    } as any);
+  it('sends the documented Mailketing payload and preserves the message id', async () => {
+    const fetchMock = mockMailketingSuccess('provider-message-id');
+    vi.stubGlobal('fetch', fetchMock);
 
-    const res = await sendEventRegistrationTicketEmail({
-      recipientEmail: 'jamaah@example.com',
-      recipientName: 'Fulan bin Fulan',
-      eventTitle: 'Kajian Kitab Tauhid',
-      speaker: 'Ustadz Abu Fulan Hafizhahullah',
-      startAtFormatted: 'Ahad, 25 Agustus 2026 09:00 WIB',
-      locationName: 'Masjid Tarbiyah Sunnah',
-      ticketCode: 'TIKET-KJN-260825-ABCD',
-      gender: 'ikhwan',
-      eventUrl: 'https://yts.web.id/kajian/123',
+    const result = await sendEmail({
+      to: 'jamaah@example.com',
+      subject: 'Konfirmasi Kajian',
+      html: '<p>Assalamu’alaikum</p>',
     });
 
-    expect(res.success).toBe(true);
-    expect(spy).toHaveBeenCalledTimes(1);
-    const callArg = (spy.mock.calls[0] as any)[0] as any;
-    expect(callArg.to).toBe('jamaah@example.com');
-    expect(callArg.subject).toContain('Konfirmasi Pendaftaran: Kajian Kitab Tauhid');
-    expect(callArg.html).toContain('TIKET-KJN-260825-ABCD');
-    expect(callArg.html).toContain('Ustadz Abu Fulan');
-
-    spy.mockRestore();
+    expect(result).toEqual({ success: true, messageId: 'provider-message-id' });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.mailketing.co.id/api/v2/send');
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.method).toBe('POST');
+    expect(new Headers(init.headers).get('X-Api-Token')).toBe('test-mailketing-token');
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      from_name: 'Yayasan Tarbiyah Sunnah',
+      from_email: 'no-reply@yts.web.id',
+      recipient: 'jamaah@example.com',
+      subject: 'Konfirmasi Kajian',
+      content: '<p>Assalamu’alaikum</p>',
+    });
   });
 
-  it('renders donation received email template with bank details', async () => {
-    const spy = vi.spyOn(getTransporter(), 'sendMail').mockResolvedValueOnce({
-      messageId: 'test-don-msg-id',
-    } as any);
+  it('checks Mailketing credits without sending an email', async () => {
+    const fetchMock = mockMailketingSuccess();
+    vi.stubGlobal('fetch', fetchMock);
 
-    const res = await sendDonationReceivedEmail({
-      recipientEmail: 'donatur@example.com',
-      donorName: 'Abdullah',
-      programName: 'Infaq Dakwah Sunnah',
-      amountRupiah: 250000,
-      donationCode: 'YTS-260825-XYZ1',
-      paymentMethod: 'bank_transfer',
-      bankName: 'Bank Syariah Indonesia (BSI)',
-      accountNumber: '7123456789',
-      accountHolder: 'Yayasan Tarbiyah Sunnah',
-    });
+    const health = await verifyMailketingConnection();
 
-    expect(res.success).toBe(true);
-    expect(spy).toHaveBeenCalledTimes(1);
-    const callArg = (spy.mock.calls[0] as any)[0] as any;
-    expect(callArg.to).toBe('donatur@example.com');
-    expect(callArg.subject).toContain('250.000');
-    expect(callArg.html).toContain('7123456789');
-    expect(callArg.html).toContain('YTS-260825-XYZ1');
-
-    spy.mockRestore();
+    expect(health.success).toBe(true);
+    expect(health.credits).toBe(123);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.mailketing.co.id/api/v2/credits');
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).method).toBe('GET');
   });
 
-  it('renders verified donation receipt email template', async () => {
-    const spy = vi.spyOn(getTransporter(), 'sendMail').mockResolvedValueOnce({
-      messageId: 'test-receipt-msg-id',
-    } as any);
+  it('uses Mailketing for every official email template', async () => {
+    const fetchMock = mockMailketingSuccess();
+    vi.stubGlobal('fetch', fetchMock);
 
-    const res = await sendDonationVerifiedReceiptEmail({
-      recipientEmail: 'donatur@example.com',
-      donorName: 'Abdullah',
-      programName: 'Infaq Dakwah Sunnah',
-      amountRupiah: 500000,
-      receiptNumber: 'KWT-YTS-2026-ABCDEF12',
-      verifiedAtFormatted: '25 Agustus 2026 10:00 WIB',
-    });
+    await expect(sendEventRegistrationTicketEmail({
+      recipientEmail: 'jamaah@example.com', recipientName: 'Fulan bin Fulan', eventTitle: 'Kajian Kitab Tauhid',
+      speaker: 'Ustadz Abu Fulan Hafizhahullah', startAtFormatted: 'Ahad, 25 Agustus 2026 09:00 WIB',
+      locationName: 'Masjid Tarbiyah Sunnah', ticketCode: 'TIKET-KJN-260825-ABCD', gender: 'ikhwan', eventUrl: 'https://yts.web.id/kajian/123',
+    })).resolves.toMatchObject({ success: true });
+    await expect(sendDonationReceivedEmail({
+      recipientEmail: 'donatur@example.com', donorName: 'Abdullah', programName: 'Infaq Dakwah Sunnah',
+      amountRupiah: 250000, donationCode: 'YTS-260825-XYZ1', paymentMethod: 'bank_transfer',
+    })).resolves.toMatchObject({ success: true });
+    await expect(sendDonationVerifiedReceiptEmail({
+      recipientEmail: 'donatur@example.com', donorName: 'Abdullah', programName: 'Infaq Dakwah Sunnah',
+      amountRupiah: 500000, receiptNumber: 'KWT-YTS-2026-ABCDEF12', verifiedAtFormatted: '25 Agustus 2026 10:00 WIB',
+    })).resolves.toMatchObject({ success: true });
+    await expect(sendWaqfInquiryConfirmationEmail({
+      recipientEmail: 'wakif@example.com', wakifName: 'Ahmad Subarkah', waqfType: 'tanah', inquiryCode: 'WQF-260825-WXYZ',
+    })).resolves.toMatchObject({ success: true });
+    await expect(sendStaffWelcomeEmail({
+      recipientEmail: 'staf@tarbiyahsunnah.id', fullName: 'Ahmad Fauzi', assignedRoles: ['Admin Kajian'], loginUrl: 'https://yts.web.id/login',
+    })).resolves.toMatchObject({ success: true });
+    await expect(sendTestEmail('admin@tarbiyahsunnah.id')).resolves.toMatchObject({ success: true });
 
-    expect(res.success).toBe(true);
-    const callArg = (spy.mock.calls[0] as any)[0] as any;
-    expect(callArg.subject).toContain('Tanda Terima Infaq');
-    expect(callArg.html).toContain('KWT-YTS-2026-ABCDEF12');
-    expect(callArg.html).toContain('TERVERIFIKASI SAH');
-
-    spy.mockRestore();
-  });
-
-  it('renders waqf inquiry and staff welcome email templates', async () => {
-    const spy = vi.spyOn(getTransporter(), 'sendMail').mockResolvedValue({
-      messageId: 'test-multi-id',
-    } as any);
-
-    // Waqf
-    const waqfRes = await sendWaqfInquiryConfirmationEmail({
-      recipientEmail: 'wakif@example.com',
-      wakifName: 'Ahmad Subarkah',
-      waqfType: 'tanah',
-      estimatedValue: 1000000000,
-      cityRegency: 'Kab. Bandung',
-      inquiryCode: 'WQF-260825-WXYZ',
-    });
-    expect(waqfRes.success).toBe(true);
-
-    // Staff Welcome
-    const staffRes = await sendStaffWelcomeEmail({
-      recipientEmail: 'staf@tarbiyahsunnah.id',
-      fullName: 'Ahmad Fauzi',
-      assignedRoles: ['Admin Kajian & Acara', 'CS Jamaah Care'],
-      loginUrl: 'https://yts.web.id/login',
-    });
-    expect(staffRes.success).toBe(true);
-
-    // Test Email
-    const testRes = await sendTestEmail('admin@tarbiyahsunnah.id');
-    expect(testRes.success).toBe(true);
-
-    spy.mockRestore();
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 });

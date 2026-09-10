@@ -345,6 +345,22 @@ Status:
 - Risks: Migration perlu diterapkan ke database target sebelum fitur diaktifkan.
 - Next: Konfigurasi tautan grup resmi pada Form Builder tiap event dan jalankan migration pada staging/production.
 
+### 2026-09-11 — Mailketing Transactional Email & Webhook
+- Prompt/goal: Hubungkan notifikasi CRM ke Mailketing dan siapkan penerimaan event delivery dari provider.
+- Files changed: Konfigurasi environment, layanan email, endpoint settings, webhook Mailketing, dokumentasi deployment, dan unit test.
+- Decision: Token Mailketing tetap server-only. API memakai v2 (`X-Api-Token`), sementara webhook diamankan dengan secret aplikasi di URL atau header karena provider tidak mendokumentasikan signature.
+- Tests: 23 tes pada alur email, webhook, portal, e-tiket, dan rombongan lulus; typecheck dan production build lulus.
+- Result: Konfirmasi e-tiket, donasi, wakaf, staf, dan email uji memakai Mailketing; event open/click/bounce dapat dicatat ke audit trail.
+- Next: Isi environment Netlify, verifikasi sender domain, lalu daftarkan URL webhook per event di dashboard Mailketing.
+
+### 2026-09-11 — Mailketing Broadcast Daily Limit
+- Prompt/goal: Batasi pengiriman broadcast email harian dan tampilkan status koneksi server email.
+- Files changed: Counter harian database, migration, pengaman dispatch automation, endpoint status, Settings email, dan dashboard campaign.
+- Decision: Semua campaign berbagi satu batas di hari WIB. Slot dicadangkan atomik sebelum request ke provider dan tetap dihitung pada kegagalan atau timeout agar tidak berisiko mengirim duplikat.
+- Tests: Typecheck serta 20 tes Mailketing, automation, settings, dan limit kuota lulus.
+- Result: Nilai environment `MAILKETING_BROADCAST_DAILY_LIMIT` dapat diatur dari 1 hingga maksimum 400; pemakaian dan sisa kuota terlihat di Otomasi serta Pengaturan Email.
+- Next: Terapkan migration `0003_email_broadcast_daily_usage.sql` dan set environment production sebelum mengirim campaign.
+
 ### YYYY-MM-DD — [Task]
 - Prompt/goal:
 - Files changed:

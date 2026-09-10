@@ -57,6 +57,13 @@ export interface DripEmailCampaign {
   recipients: DripRecipient[];
 }
 
+interface BroadcastDailyQuota {
+  usageDate: string;
+  dailyLimit: number;
+  dispatchedToday: number;
+  remainingToday: number;
+}
+
 function getInitials(name: string): string {
   if (!name || typeof name !== 'string') return 'JM';
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -72,6 +79,7 @@ export function DripEmailCampaignTab() {
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [broadcastQuota, setBroadcastQuota] = useState<BroadcastDailyQuota | null>(null);
 
   // Table Filter & Pagination
   const [statusFilter, setStatusFilter] = useState<'all' | 'sent' | 'pending' | 'failed'>('all');
@@ -121,8 +129,14 @@ export function DripEmailCampaignTab() {
     try {
       setLoading(true);
       setError(null);
-      const res = await apiClient<DripEmailCampaign[]>('/automation/email-campaigns');
+      const [campaignResult, quotaResult] = await Promise.allSettled([
+        apiClient<DripEmailCampaign[]>('/automation/email-campaigns'),
+        apiClient<BroadcastDailyQuota>('/automation/email-broadcast-quota'),
+      ]);
+      if (campaignResult.status === 'rejected') throw campaignResult.reason;
+      const res = campaignResult.value;
       setCampaigns(res.data || []);
+      if (quotaResult.status === 'fulfilled') setBroadcastQuota(quotaResult.value.data || null);
       if (res.data && res.data.length > 0) {
         const first = res.data[0];
         if (first && (!selectedCampaignId || !res.data.find((c) => c.id === selectedCampaignId))) {
@@ -141,12 +155,15 @@ export function DripEmailCampaignTab() {
   }, []);
 
   const currentCampaign = campaigns.find((c) => c.id === selectedCampaignId) || campaigns[0] || null;
+  const dispatchableToday = currentCampaign
+    ? Math.min(currentCampaign.dailyQuota, currentCampaign.stats.remaining, broadcastQuota?.remainingToday ?? currentCampaign.dailyQuota)
+    : 0;
 
   const handleDispatchToday = async () => {
     if (!currentCampaign) return;
     if (
       !confirm(
-        `Jalankan pengiriman kuota hari ini untuk ${currentCampaign.dailyQuota} jamaah pada program "${currentCampaign.title}"?`
+        `Jalankan pengiriman hingga ${dispatchableToday} email hari ini untuk program "${currentCampaign.title}"?`
       )
     ) {
       return;
@@ -157,6 +174,7 @@ export function DripEmailCampaignTab() {
       const res = await apiClient<any>(`/automation/email-campaigns/${currentCampaign.id}/dispatch-today`, {
         method: 'POST',
       });
+      if (res.data?.dailyBroadcastQuota) setBroadcastQuota(res.data.dailyBroadcastQuota);
       showToast(`✓ Berhasil mengirimkan ${res.data?.successCount || 0} email sapaan hari ini!`);
       await fetchCampaigns();
     } catch (err: any) {
@@ -273,6 +291,22 @@ export function DripEmailCampaignTab() {
         </div>
       </div>
 
+      {broadcastQuota && (
+        <div className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
+          broadcastQuota.remainingToday > 0
+            ? 'bg-[#F2EEE4] border-[#1B4332]/15 text-[#14352A]'
+            : 'bg-amber-50 border-amber-200 text-amber-950'
+        }`}>
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 shrink-0" />
+            <span className="font-bold">Pagar Broadcast Harian (WIB)</span>
+          </div>
+          <div className="font-mono font-bold whitespace-nowrap">
+            {broadcastQuota.dispatchedToday.toLocaleString('id-ID')} / {broadcastQuota.dailyLimit.toLocaleString('id-ID')} terpakai · Sisa {broadcastQuota.remainingToday.toLocaleString('id-ID')}
+          </div>
+        </div>
+      )}
+
       {/* 2. Program Selector Bar */}
       {campaigns.length > 0 && (
         <div className="bg-[#FBF9F4] p-4 rounded-2xl border border-[#1B4332]/12 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
@@ -360,7 +394,9 @@ export function DripEmailCampaignTab() {
             <div className="text-2xl sm:text-[28px] font-bold font-display text-[#0F4C4A]">
               {currentCampaign.dailyQuota} / Hari
             </div>
-            <div className="text-[11.5px] text-[#6B7A72]">Batas warm-up aman SMTP</div>
+            <div className="text-[11.5px] text-[#6B7A72]">
+              {broadcastQuota ? `Sisa pagar global: ${broadcastQuota.remainingToday}` : 'Batas warm-up aman SMTP'}
+            </div>
           </div>
 
           <div className="p-4 bg-[#FBF9F4] rounded-xl border border-[#1B4332]/12 shadow-2xs border-l-[3px] border-l-[#C77A16] space-y-1">
@@ -386,17 +422,17 @@ export function DripEmailCampaignTab() {
             </div>
             <div>
               <h4 className="text-xs sm:text-sm font-bold text-[#1C2321] font-display">
-                Jalankan Kuota Email Hari ke-{currentCampaign.currentDay} ({currentCampaign.dailyQuota} Jamaah)
+                Jalankan Kuota Email Hari ke-{currentCampaign.currentDay} ({dispatchableToday} Jamaah)
               </h4>
               <p className="text-xs text-[#6B7A72]">
-                Sistem akan memproses {Math.min(currentCampaign.dailyQuota, currentCampaign.stats.remaining)} antrean jamaah berikutnya dan mencatat interaksi CRM secara otomatis.
+                Sistem akan memproses paling banyak {dispatchableToday} antrean berikutnya dan mencatat interaksi CRM secara otomatis.
               </p>
             </div>
           </div>
 
           <button
             onClick={handleDispatchToday}
-            disabled={dispatching || currentCampaign.stats.remaining === 0 || currentCampaign.status === 'paused'}
+            disabled={dispatching || dispatchableToday === 0 || currentCampaign.status === 'paused'}
             className="px-5 py-2.5 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-2 shrink-0 active:scale-98 disabled:opacity-50"
           >
             {dispatching ? (
@@ -733,6 +769,7 @@ export function DripEmailCampaignTab() {
                     <option value={30}>30 Email / Hari (Optimal 14 Hari untuk 397 Email)</option>
                     <option value={50}>50 Email / Hari (Direkomendasikan)</option>
                     <option value={100}>100 Email / Hari (Standar)</option>
+                    <option value={400}>400 Email / Hari (Batas Maksimal Sistem)</option>
                   </select>
                 </div>
 

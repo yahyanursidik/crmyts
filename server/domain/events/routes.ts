@@ -259,6 +259,8 @@ export function registerEventsRoutes(router: Router) {
           collectNotes: true,
           requireGender: true,
           collectVehicle: true,
+          allowMultiParticipant: false,
+          maxMultiParticipants: 10,
           customFields: [],
           whatsappMessageTemplate:
             "Bismillah. Pendaftaran kajian Anda telah terkonfirmasi. Tiket: {{ticket_code}}. Mohon hadir 15 menit sebelum acara dimulai dan menaati tata tertib majelis. Barakallahu fiikum.",

@@ -12,13 +12,18 @@ const serverEnvSchema = z.object({
   APP_URL: z.string().url().default('http://localhost:5173'),
   NODE_ENV: z.enum(['development', 'staging', 'production', 'test']).default('development'),
   
-  // SMTP Email Server (Kerjamail - no-reply@yts.web.id)
-  SMTP_HOST: z.string().default('mx.kerjamail.co'),
-  SMTP_PORT: z.coerce.number().default(465),
-  SMTP_SECURE: z.coerce.boolean().default(true),
-  SMTP_USER: z.string().default('no-reply@yts.web.id'),
-  SMTP_PASS: z.string().default('ahlan1447H'),
-  SMTP_FROM: z.string().default('"Yayasan Tarbiyah Sunnah" <no-reply@yts.web.id>'),
+  // Mailketing transactional email API. Keep secrets only in the runtime environment.
+  MAILKETING_API_ENDPOINT: z.string().url().default('https://api.mailketing.co.id/api/v2/send'),
+  MAILKETING_API_TOKEN: z.string().default(''),
+  MAILKETING_FROM_NAME: z.string().min(1).default('Yayasan Tarbiyah Sunnah'),
+  MAILKETING_FROM_EMAIL: z.string().email().default('no-reply@yts.web.id'),
+  // A single server-side ceiling for all broadcast campaigns in one WIB calendar day.
+  MAILKETING_BROADCAST_DAILY_LIMIT: z.coerce.number().int().min(1).max(400).default(400),
+  // This secret protects the inbound Mailketing webhook because its current webhook
+  // protocol does not include a provider signature.
+  MAILKETING_WEBHOOK_SECRET: z.string().refine((value) => value === '' || value.length >= 16, {
+    message: 'MAILKETING_WEBHOOK_SECRET minimal 16 karakter.',
+  }).default(''),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
@@ -35,4 +40,9 @@ export function getServerEnv(): ServerEnv {
     _serverEnv = result.data;
   }
   return _serverEnv;
+}
+
+/** Test-only cache reset for environment-dependent integrations. */
+export function resetServerEnvCache(): void {
+  _serverEnv = null;
 }
