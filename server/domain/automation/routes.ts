@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { z } from 'zod';
 import { Router } from '../../http/router';
 import { requireAuth, validateBody } from '../../http/middleware';
@@ -59,8 +60,8 @@ const createEmailCampaignSchema = z.object({
   title: z.string().min(3, 'Nama program kampanye wajib diisi'),
   subject: z.string().min(5, 'Subjek email wajib diisi'),
   bodyHtml: z.string().min(10, 'Isi draf email wajib diisi'),
-  dailyQuota: z.number().int().min(5).max(400).default(100),
-  totalDays: z.number().int().min(1).max(60).default(14),
+  dailyQuota: z.coerce.number().int().min(5).max(400).default(50),
+  totalDays: z.coerce.number().int().min(1).max(60).default(14),
   filterGender: z.enum(['all', 'ikhwan', 'akhwat']).default('all'),
   targetScope: z.enum(['all_jamaah', 'email_only']).default('all_jamaah'),
 });
@@ -816,7 +817,7 @@ export function registerAutomationRoutes(router: Router) {
             error: null,
           }));
 
-        const defaultCampaignId = 'drip-campaign-sapaan-14hari';
+        const defaultCampaignId = '00000000-0000-7000-8000-000000000001';
         const defaultCampaign: DripEmailCampaign = {
           id: defaultCampaignId,
           title: 'Program Sapaan Ukhuwah & Kabar Majelis Jamaah (Drip 14 Hari)',
@@ -876,7 +877,11 @@ export function registerAutomationRoutes(router: Router) {
         const user = ctx.user;
         if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
 
-        const conditions = [isNotNull(persons.email), ne(persons.email, '')];
+        const conditions = [
+          isNotNull(persons.email),
+          ne(persons.email, ''),
+          eq(persons.isActive, true),
+        ];
         if (body.filterGender && body.filterGender !== 'all') {
           conditions.push(eq(persons.gender, body.filterGender as any));
         }
@@ -892,7 +897,7 @@ export function registerAutomationRoutes(router: Router) {
             personId: p.id,
             fullName: p.fullName,
             email: p.email!.trim(),
-            gender: p.gender,
+            gender: p.gender ?? null,
             cityRegency: p.cityRegency || 'Kota Bandung',
             status: 'pending',
             sentAt: null,
@@ -900,7 +905,16 @@ export function registerAutomationRoutes(router: Router) {
             error: null,
           }));
 
-        const newId = `drip-${Date.now()}`;
+        if (recipients.length === 0) {
+          return errorResponse(
+            'VALIDATION_ERROR',
+            'Tidak ditemukan jamaah dengan email terverifikasi untuk kriteria target yang dipilih.',
+            400,
+            ctx.requestId
+          );
+        }
+
+        const newId = crypto.randomUUID();
         const newCampaign: DripEmailCampaign = {
           id: newId,
           title: body.title,
@@ -1165,8 +1179,89 @@ export function registerAutomationRoutes(router: Router) {
       if (!emailCampaignsStore.has(campaignId)) {
         return errorResponse('NOT_FOUND', 'Campaign tidak ditemukan', 404, ctx.requestId);
       }
+      const campaign = emailCampaignsStore.get(campaignId);
       emailCampaignsStore.delete(campaignId);
+
+      await logAuditEvent({
+        actorUserId: ctx.user?.id,
+        action: 'delete_drip_email_campaign',
+        entityType: 'email_campaign',
+        entityId: campaignId,
+        afterJson: { title: campaign?.title },
+        reason: `Penghapusan program drip email sapaan (${campaign?.title})`,
+        requestId: ctx.requestId,
+      });
+
       return successResponse({ deleted: true, campaignId }, { requestId: ctx.requestId });
+    })
+  );
+
+  // 16. POST /api/automation/email-campaigns/:id/reset (Reset campaign to Day 1)
+  router.post(
+    '/api/automation/email-campaigns/:id/reset',
+    requireAuth(async (ctx) => {
+      const campaignId = ctx.params?.id || '';
+      const campaign = emailCampaignsStore.get(campaignId);
+      if (!campaign) return errorResponse('NOT_FOUND', 'Campaign tidak ditemukan', 404, ctx.requestId);
+
+      campaign.currentDay = 1;
+      campaign.status = 'running';
+      campaign.stats.totalSent = 0;
+      campaign.stats.totalFailed = 0;
+      campaign.stats.remaining = campaign.recipients.length;
+      campaign.stats.dailySentToday = 0;
+      campaign.lastDispatchedAt = null;
+      campaign.recipients = campaign.recipients.map((r) => ({
+        ...r,
+        status: 'pending',
+        sentAt: null,
+        dayNumber: null,
+        error: null,
+      }));
+      campaign.updatedAt = new Date().toISOString();
+      emailCampaignsStore.set(campaignId, campaign);
+
+      await logAuditEvent({
+        actorUserId: ctx.user?.id,
+        action: 'reset_drip_email_campaign',
+        entityType: 'email_campaign',
+        entityId: campaignId,
+        afterJson: { title: campaign.title, totalRecipients: campaign.recipients.length },
+        reason: `Mereset kembali antrean dan progres program email (${campaign.title}) ke Hari ke-1`,
+        requestId: ctx.requestId,
+      });
+
+      return successResponse(campaign, { requestId: ctx.requestId });
+    })
+  );
+
+  // 17. GET /api/automation/email-campaigns-audience-preview
+  router.get(
+    '/api/automation/email-campaigns-audience-preview',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const gender = ctx.query?.gender;
+
+      const conditions = [
+        isNotNull(persons.email),
+        ne(persons.email, ''),
+        eq(persons.isActive, true),
+      ];
+      if (gender && (gender === 'ikhwan' || gender === 'akhwat')) {
+        conditions.push(eq(persons.gender, gender as any));
+      }
+
+      const eligiblePersons = await db.query.persons.findMany({
+        where: and(...conditions),
+        columns: {
+          id: true,
+          email: true,
+        },
+      });
+
+      const count = eligiblePersons.filter((p) => Boolean(p.email && p.email.trim().includes('@'))).length;
+
+      return successResponse({ count, gender: gender || 'all' }, { requestId: ctx.requestId });
     })
   );
 }
