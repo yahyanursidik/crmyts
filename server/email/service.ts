@@ -209,10 +209,11 @@ export async function sendEventRegistrationTicketEmail(params: {
 
     <div class="card" style="border: 2px solid #1c321d; background: #ffffff;">
       <div style="text-align: center; padding-bottom: 12px; border-bottom: 2px dashed #e2dec9;">
-        <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Kode E-Tiket Masuk:</span>
-        <div style="font-size: 24px; font-weight: 900; font-family: monospace; color: #1c321d; letter-spacing: 2px; margin-top: 4px;">
+        <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Nomor E-Tiket Presensi:</span>
+        <div style="font-size: 26px; font-weight: 900; font-family: monospace; color: #1c321d; letter-spacing: 2px; margin-top: 4px;">
           ${params.ticketCode}
         </div>
+        <p style="font-size: 11px; color: #475569; margin: 4px 0 0;">(Cukup sebutkan nomor tiket ini atau tunjukkan QR kepada panitia di gerbang masuk)</p>
       </div>
 
       <div style="padding-top: 14px;">

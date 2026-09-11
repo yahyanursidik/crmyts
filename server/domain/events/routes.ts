@@ -7,6 +7,7 @@ import { events, eventAttendance, persons } from '../../db/schema';
 import { desc, eq, and, inArray, sql, or, ilike } from 'drizzle-orm';
 import { normalizeIndonesianPhone } from '../../lib/phone';
 import { extractTicketCode } from '../../../src/lib/participantTicket';
+import { createMemorableTicketCode } from './participantCodes';
 
 const createEventSchema = z.object({
   title: z.string().min(3, 'Judul kajian minimal 3 karakter'),
@@ -421,9 +422,16 @@ export function registerEventsRoutes(router: Router) {
 
       try {
         if (ticketCode) {
-          const normalizedTicketCode = extractTicketCode(String(ticketCode));
+          const rawCode = String(ticketCode).trim();
+          const normalizedTicketCode = extractTicketCode(rawCode);
           const attendance = await db.query.eventAttendance.findFirst({
-            where: and(eq(eventAttendance.eventId, eventId), eq(eventAttendance.ticketCode, normalizedTicketCode)),
+            where: and(
+              eq(eventAttendance.eventId, eventId),
+              or(
+                eq(eventAttendance.ticketCode, normalizedTicketCode),
+                eq(eventAttendance.ticketCode, rawCode.toUpperCase())
+              )
+            ),
           });
 
           if (attendance) {
@@ -730,11 +738,16 @@ export function registerEventsRoutes(router: Router) {
           with: { person: true },
         });
       } else if (ticketCode) {
-        const cleanCode = extractTicketCode(String(ticketCode));
+        const rawCode = String(ticketCode).trim();
+        const cleanCode = extractTicketCode(rawCode);
         targetAttendance = await db.query.eventAttendance.findFirst({
           where: and(
             eq(eventAttendance.eventId, eventId),
-            eq(eventAttendance.ticketCode, cleanCode)
+            or(
+              eq(eventAttendance.ticketCode, cleanCode),
+              eq(eventAttendance.ticketCode, rawCode.toUpperCase()),
+              ilike(eventAttendance.ticketCode, `%${rawCode}%`)
+            )
           ),
           with: { person: true },
         });
@@ -743,11 +756,15 @@ export function registerEventsRoutes(router: Router) {
         const cleanTicket = extractTicketCode(rawQuery);
         const norm = normalizeIndonesianPhone(rawQuery);
 
-        // 1. Try direct ticket code
+        // 1. Try direct ticket code or code substring
         targetAttendance = await db.query.eventAttendance.findFirst({
           where: and(
             eq(eventAttendance.eventId, eventId),
-            eq(eventAttendance.ticketCode, cleanTicket)
+            or(
+              eq(eventAttendance.ticketCode, cleanTicket),
+              eq(eventAttendance.ticketCode, rawQuery.toUpperCase()),
+              ilike(eventAttendance.ticketCode, `%${rawQuery}%`)
+            )
           ),
           with: { person: true },
         });
@@ -863,9 +880,7 @@ export function registerEventsRoutes(router: Router) {
         return errorResponse('INTERNAL_ERROR', 'Gagal memproses data jamaah', 500, ctx.requestId);
       }
 
-      const datePart = new Date().toISOString().slice(2, 10).replace(/-/g, '');
-      const randPart = Math.random().toString(36).substring(2, 6).toUpperCase();
-      const ticketCode = `TIKET-KJN-${datePart}-${randPart}`;
+      const ticketCode = createMemorableTicketCode();
 
       const insertQuery = db
         .insert(eventAttendance)
@@ -1059,9 +1074,7 @@ export function registerEventsRoutes(router: Router) {
           }
 
           // Generate ticket code if not provided
-          const datePart = new Date().toISOString().slice(2, 10).replace(/-/g, '');
-          const randPart = Math.random().toString(36).substring(2, 6).toUpperCase();
-          const ticketCode = item.ticketCode || `TIKET-KJN-${datePart}-${randPart}`;
+          const ticketCode = item.ticketCode ? extractTicketCode(item.ticketCode) : createMemorableTicketCode();
 
           await db.insert(eventAttendance).values({
             eventId,

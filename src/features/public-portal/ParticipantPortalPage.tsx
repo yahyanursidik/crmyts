@@ -146,11 +146,11 @@ export function ParticipantPortalPage() {
               required
               value={ticketCode}
               onChange={(event) => setTicketCode(event.target.value.toUpperCase())}
-              placeholder="YTS-ILMU-NUR-4827"
+              placeholder="Contoh: 1048 atau YTS-1048"
               className="mb-3 h-11 w-full rounded-xl border border-cream-400 bg-cream-50 px-3 font-mono text-sm font-bold tracking-wide text-brand-950 outline-2 outline-transparent placeholder:font-sans placeholder:font-normal placeholder:tracking-normal placeholder:text-surface-400"
               aria-describedby="ticket-help"
             />
-            <p id="ticket-help" className="mb-3 min-h-[1lh] text-[11px] leading-relaxed text-surface-500">Boleh dipindai dari QR atau diketikkan.</p>
+            <p id="ticket-help" className="mb-3 min-h-[1lh] text-[11px] leading-relaxed text-surface-500">Cukup ketik 4 digit nomor tiket (misal 1048) atau kode lengkap YTS-XXXX.</p>
             <label className="mb-1.5 block text-xs font-bold text-surface-700" htmlFor="participant-phone">Nomor WhatsApp</label>
             <input
               id="participant-phone"

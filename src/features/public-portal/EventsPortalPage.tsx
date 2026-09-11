@@ -2124,9 +2124,10 @@ export function EventsPortalPage() {
                 </div>
               </div>
             ) : (
-              <div className="p-3 bg-slate-100 border border-slate-200 rounded-xl text-xs font-mono text-left">
-                <span className="text-[10px] text-slate-400 block font-sans">Kode Presensi / Tiket:</span>
-                <span className="font-bold text-slate-900 text-sm tracking-wider">{eventSuccess.ticketCode}</span>
+              <div className="p-3.5 bg-brand-50/70 border border-brand-200 rounded-2xl text-center">
+                <span className="text-[11px] text-brand-700 block font-sans font-medium">Nomor E-Tiket Presensi Anda:</span>
+                <span className="font-extrabold text-brand-950 text-xl font-mono tracking-wider block mt-0.5">{eventSuccess.ticketCode}</span>
+                <span className="text-[10px] text-brand-600 font-sans block mt-1">Cukup sebutkan nomor ini atau tunjukkan QR di gerbang.</span>
               </div>
             )}
 

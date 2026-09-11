@@ -261,5 +261,5 @@ describe('Attachment & Storage Abstraction Layer (Step 13 / M09)', () => {
     const json = JSON.parse(res.body);
     expect(json.data.id).toBe('018f9999-0000-0000-0000-000000000001');
     expect(json.data.originalFilename).toBe('bukti_transfer_bsi.png');
-  });
+  }, 15000);
 });

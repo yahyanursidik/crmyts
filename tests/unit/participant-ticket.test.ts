@@ -3,20 +3,31 @@ import { Router } from '../../server/http/router';
 import { registerPublicPortalRoutes } from '../../server/domain/public/routes';
 import * as client from '../../server/db/client';
 import { createMemorableTicketCode, createReferralCode } from '../../server/domain/events/participantCodes';
-import { extractTicketCode } from '../../src/lib/participantTicket';
+import { getTicketNumber, extractTicketCode } from '../../src/lib/participantTicket';
 import { toDataURL } from 'qrcode';
 
 describe('Participant ticket portal and memorable participant codes', () => {
-  it('creates short, pronounceable ticket and invitation codes', () => {
-    expect(createMemorableTicketCode()).toMatch(/^YTS-[A-Z]+-[A-Z]+-\d{4}$/);
-    expect(createReferralCode()).toMatch(/^AJAK-[A-Z]+-[A-Z]+-\d{4}$/);
+  it('creates short, compact numeric ticket and invitation codes', () => {
+    expect(createMemorableTicketCode()).toMatch(/^YTS-\d{4,5}$/);
+    expect(createReferralCode()).toMatch(/^AJAK-\d{4,5}$/);
+    expect(createMemorableTicketCode(1)).toBe('YTS-1001');
+    expect(createMemorableTicketCode(48)).toBe('YTS-1048');
+  });
+
+  it('normalizes 4-6 digit numeric inputs to YTS prefix and extracts ticket numbers', () => {
+    expect(extractTicketCode('1048')).toBe('YTS-1048');
+    expect(extractTicketCode('  1001  ')).toBe('YTS-1001');
+    expect(extractTicketCode('YTS-1048')).toBe('YTS-1048');
+    expect(extractTicketCode('https://example.test/peserta/123?ticket=1048')).toBe('YTS-1048');
+    expect(getTicketNumber('YTS-1048')).toBe('1048');
+    expect(getTicketNumber('TIKET-KJN-260911-ABCD')).toBe('TIKET-KJN-260911-ABCD');
   });
 
   it('creates a scannable QR payload and extracts the ticket from a participant portal URL', async () => {
-    const portalUrl = 'https://example.test/peserta/018f0000-0000-0000-0000-000000000015?ticket=YTS-ILMU-NUR-482';
+    const portalUrl = 'https://example.test/peserta/018f0000-0000-0000-0000-000000000015?ticket=YTS-1048';
     const dataUrl = await toDataURL(portalUrl, { errorCorrectionLevel: 'M' });
     expect(dataUrl.startsWith('data:image/png;base64,')).toBe(true);
-    expect(extractTicketCode(portalUrl)).toBe('YTS-ILMU-NUR-482');
+    expect(extractTicketCode(portalUrl)).toBe('YTS-1048');
     expect(extractTicketCode(' yts-ilmu-nur-482 ')).toBe('YTS-ILMU-NUR-482');
   });
 

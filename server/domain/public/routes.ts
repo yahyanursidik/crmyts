@@ -15,7 +15,7 @@ import {
   eventAttendance,
   attachments,
 } from '../../db/schema';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, sql, or } from 'drizzle-orm';
 import { normalizeIndonesianPhone } from '../../lib/phone';
 import { buildParticipantPortalPath, extractTicketCode } from '../../../src/lib/participantTicket';
 import { createMemorableTicketCode, createReferralCode } from '../events/participantCodes';
@@ -947,8 +947,15 @@ export function registerPublicPortalRoutes(router: Router) {
       const ticketCode = extractTicketCode(body.ticketCode);
       const phoneE164 = normalizeIndonesianPhone(body.phone);
 
+      const rawCode = body.ticketCode.trim().toUpperCase();
       const attendance = await db.query.eventAttendance.findFirst({
-        where: and(eq(eventAttendance.eventId, body.eventId), eq(eventAttendance.ticketCode, ticketCode)),
+        where: and(
+          eq(eventAttendance.eventId, body.eventId),
+          or(
+            eq(eventAttendance.ticketCode, ticketCode),
+            eq(eventAttendance.ticketCode, rawCode)
+          )
+        ),
         with: { person: true },
       });
 

@@ -300,7 +300,7 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
 
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
-    expect(body.data.ticketCode).toMatch(/^YTS-[A-Z]+-[A-Z]+-\d{4}$/);
+    expect(body.data.ticketCode).toMatch(/^YTS-\d{4,5}$/);
     expect(body.data.event.title).toBe('Daurah Fiqh Muamalah Kontemporer');
     expect(body.data.participant.name).toBe('Abdullah Santri');
     expect(body.data.participant.gender).toBe('ikhwan');

@@ -632,7 +632,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <input
                       type="text"
-                      placeholder="Cari nama jamaah, nomor WA, atau kode tiket..."
+                      placeholder="Cari nama jamaah, nomor WA, atau 4-digit tiket (1048)..."
                       value={manualSearchQuery}
                       onChange={(e) => setManualSearchQuery(e.target.value)}
                       className="w-full pl-9 pr-8 py-2.5 bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 transition-all"
@@ -776,15 +776,18 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
 
               {/* Barcode Gun / Ticket Fast Input */}
               <form onSubmit={handleManualSubmit} className="space-y-2">
-                <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                  <Ticket className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Scan Kode Tiket / Barcode Gun</span>
+                <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Ticket className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Scan QR / Ketik Tiket</span>
+                  </span>
+                  <span className="text-[10px] text-emerald-400 font-mono font-normal">Ketik 4 angka (misal: 1048)</span>
                 </label>
                 <div className="relative">
                   <input
                     ref={inputFocusRef}
                     type="text"
-                    placeholder="TIKET-KJN-... (Enter)"
+                    placeholder="Contoh: 1048 atau YTS-1048 (Enter)"
                     value={ticketInput}
                     onChange={(e) => setTicketInput(e.target.value)}
                     disabled={loading}
