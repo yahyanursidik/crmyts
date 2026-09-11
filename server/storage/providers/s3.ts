@@ -25,23 +25,29 @@ export class S3StorageProvider implements StorageProvider {
 
   constructor(config?: Partial<S3Config>) {
     this.config = {
-      endpoint: config?.endpoint || process.env.S3_ENDPOINT || 'https://sin1.contabostorage.com',
+      endpoint: config?.endpoint || process.env.S3_ENDPOINT || '',
       region: config?.region || process.env.S3_REGION || 'SIN',
-      bucket: config?.bucket || process.env.S3_BUCKET || 'crmyts',
-      accessKeyId: config?.accessKeyId || process.env.S3_ACCESS_KEY_ID || '5337be8f00d38bf47d1abd9d699bf52d',
-      secretAccessKey: config?.secretAccessKey || process.env.S3_SECRET_ACCESS_KEY || '28e1708db5477c1ca0c82f8c4f649975',
-      publicUrlPrefix: config?.publicUrlPrefix || process.env.S3_PUBLIC_URL_PREFIX || 'https://sin1.contabostorage.com/68671c4afe7c45fba062c1c65a776541:crmyts',
+      bucket: config?.bucket || process.env.S3_BUCKET || '',
+      accessKeyId: config?.accessKeyId || process.env.S3_ACCESS_KEY_ID || '',
+      secretAccessKey: config?.secretAccessKey || process.env.S3_SECRET_ACCESS_KEY || '',
+      publicUrlPrefix: config?.publicUrlPrefix || process.env.S3_PUBLIC_URL_PREFIX || '',
     };
 
-    this.client = new S3Client({
-      endpoint: this.config.endpoint,
+    const s3ClientConfig: any = {
       region: this.config.region,
-      credentials: {
+      forcePathStyle: true,
+    };
+    if (this.config.endpoint) {
+      s3ClientConfig.endpoint = this.config.endpoint;
+    }
+    if (this.config.accessKeyId && this.config.secretAccessKey) {
+      s3ClientConfig.credentials = {
         accessKeyId: this.config.accessKeyId,
         secretAccessKey: this.config.secretAccessKey,
-      },
-      forcePathStyle: true,
-    });
+      };
+    }
+
+    this.client = new S3Client(s3ClientConfig);
   }
 
   async putObject(params: {
@@ -148,8 +154,8 @@ export class S3StorageProvider implements StorageProvider {
 
   public getPublicUrl(key: string): string {
     const cleanKey = key.replace(/^\//, '');
-    const prefix = this.config.publicUrlPrefix.replace(/\/$/, '');
-    return `${prefix}/${cleanKey}`;
+    const prefix = this.config.publicUrlPrefix ? this.config.publicUrlPrefix.replace(/\/$/, '') : '';
+    return prefix ? `${prefix}/${cleanKey}` : `/${cleanKey}`;
   }
 }
 
@@ -193,7 +199,7 @@ export async function uploadPublicProofFile(params: {
   const key = `${params.folder}/${year}/${month}/${uuid}_${finalFilename}`;
 
   const { checksum } = await provider.putObject({
-    bucket: process.env.S3_BUCKET || 'crmyts',
+    bucket: process.env.S3_BUCKET || '',
     key,
     body: params.body,
     mimeType: params.mimeType,

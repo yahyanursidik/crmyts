@@ -28,7 +28,7 @@ export class AttachmentService {
         this.provider = new MemoryStorageProvider();
       }
     }
-    this.defaultBucket = defaultBucket || process.env.S3_BUCKET || 'crmyts';
+    this.defaultBucket = defaultBucket || process.env.S3_BUCKET || '';
   }
 
   /**

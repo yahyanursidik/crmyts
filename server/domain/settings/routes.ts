@@ -775,8 +775,8 @@ export function registerSettingsRoutes(router: Router) {
         },
         storage: {
           provider: process.env.STORAGE_PROVIDER || 'Contabo S3 Storage Vault (Abstraction Layer)',
-          bucket: process.env.S3_BUCKET || 'crm-yts-vault',
-          endpoint: process.env.S3_ENDPOINT || 'https://sin1.contabostorage.com',
+          bucket: process.env.S3_BUCKET || 'cloud-storage-vault',
+          endpoint: process.env.S3_ENDPOINT ? 'configured' : 'standard',
           maxFileSize: '10 MB',
           mimeAllowlist: ['PDF', 'JPEG', 'PNG', 'WEBP'],
           accessControl: 'Private Bucket (15-Min Signed URLs Only)',

@@ -3,6 +3,9 @@
   publish = "dist"
   functions = "netlify/functions"
 
+[build.environment]
+  SECRETS_SCAN_OMIT_KEYS = "S3_BUCKET,S3_ENDPOINT,S3_PUBLIC_URL_PREFIX"
+
 [functions]
   node_bundler = "esbuild"
   included_files = ["server/**"]

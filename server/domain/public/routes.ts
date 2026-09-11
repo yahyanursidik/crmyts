@@ -348,7 +348,7 @@ export function registerPublicPortalRoutes(router: Router) {
               .insert(attachments)
               .values({
                 storageProvider: 's3_contabo',
-                bucket: process.env.S3_BUCKET || 'crmyts',
+                bucket: process.env.S3_BUCKET || '',
                 objectKey: storedProofUrl.replace(/^https?:\/\/[^/]+\/[^/]+\//, ''),
                 originalFilename: `bukti_transfer_${invoiceRef}.jpg`,
                 mimeType: 'image/jpeg',

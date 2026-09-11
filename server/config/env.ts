@@ -26,12 +26,12 @@ const serverEnvSchema = z.object({
   }).default(''),
 
   // Contabo S3 Cloud Storage Vault & Public CDN URL
-  S3_ENDPOINT: z.string().url().default('https://sin1.contabostorage.com'),
+  S3_ENDPOINT: z.string().default(''),
   S3_REGION: z.string().default('SIN'),
-  S3_BUCKET: z.string().default('crmyts'),
+  S3_BUCKET: z.string().default(''),
   S3_ACCESS_KEY_ID: z.string().default(''),
   S3_SECRET_ACCESS_KEY: z.string().default(''),
-  S3_PUBLIC_URL_PREFIX: z.string().url().default('https://sin1.contabostorage.com/68671c4afe7c45fba062c1c65a776541:crmyts'),
+  S3_PUBLIC_URL_PREFIX: z.string().default(''),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

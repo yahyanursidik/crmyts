@@ -827,7 +827,7 @@ export function registerDonationsRoutes(router: Router) {
             storageProvider: attachmentMeta?.storageProvider || 's3_contabo',
             mimeType: attachmentMeta?.mimeType || 'image/jpeg',
             temporaryUrl,
-            proofUrl: temporaryUrl || (attachmentMeta?.objectKey ? `${process.env.S3_PUBLIC_URL_PREFIX || 'https://sin1.contabostorage.com/68671c4afe7c45fba062c1c65a776541:crmyts'}/${attachmentMeta.objectKey}` : null),
+            proofUrl: temporaryUrl || (attachmentMeta?.objectKey && process.env.S3_PUBLIC_URL_PREFIX ? `${process.env.S3_PUBLIC_URL_PREFIX.replace(/\/$/, '')}/${attachmentMeta.objectKey}` : null),
             message: 'Akses bukti transfer terproteksi oleh otentikasi internal YTS',
           },
           { requestId: ctx.requestId }
