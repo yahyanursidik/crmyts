@@ -86,6 +86,9 @@ export const BazaarHubPage: React.FC = () => {
   const [tenantFlagFilter, setTenantFlagFilter] = useState<string>('all');
 
   const [selectedBazaarEventId, setSelectedBazaarEventId] = useState<string | null>(null);
+  const [manageBazaarInitialTab, setManageBazaarInitialTab] = useState<
+    'overview' | 'layout' | 'applications' | 'operations' | 'surveys' | 'settings'
+  >('overview');
   const [selectedTenantDetail, setSelectedTenantDetail] = useState<MasterTenantItem | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedSurveyId, setCopiedSurveyId] = useState<string | null>(null);
@@ -493,13 +496,33 @@ export const BazaarHubPage: React.FC = () => {
 
                     {/* Action Buttons */}
                     <div className="pt-3 border-t border-[#1B4332]/10 space-y-2">
-                      <button
-                        onClick={() => setSelectedBazaarEventId(ev.id)}
-                        className="w-full py-2 bg-[#1B4332] hover:bg-[#14352A] text-white text-xs font-semibold rounded-lg shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-98"
-                      >
-                        <Store className="w-3.5 h-3.5 text-[#E0B970]" />
-                        <span>Plotting Stand &amp; Denah</span>
-                      </button>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedBazaarEventId(ev.id);
+                            setManageBazaarInitialTab('layout');
+                          }}
+                          className="py-2 bg-[#1B4332] hover:bg-[#14352A] text-white text-xs font-semibold rounded-lg shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-98"
+                          title="Buka Denah & Plotting Stand"
+                        >
+                          <Store className="w-3.5 h-3.5 text-[#E0B970]" />
+                          <span>Plotting Stand</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedBazaarEventId(ev.id);
+                            setManageBazaarInitialTab('settings');
+                          }}
+                          className="py-2 bg-amber-800 hover:bg-amber-900 text-white text-xs font-semibold rounded-lg shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-98"
+                          title="Atur Rekening Resmi Infaq & Tarif Pokok Stand"
+                        >
+                          <Coins className="w-3.5 h-3.5 text-amber-200" />
+                          <span>Atur Rekening</span>
+                        </button>
+                      </div>
 
                       <div className="grid grid-cols-2 gap-2">
                         <button
@@ -762,6 +785,7 @@ export const BazaarHubPage: React.FC = () => {
         <EventBazaarManageModal
           eventId={selectedBazaarEventId}
           isOpen={true}
+          initialTab={manageBazaarInitialTab}
           onClose={() => {
             setSelectedBazaarEventId(null);
             loadData();

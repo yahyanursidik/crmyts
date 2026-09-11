@@ -29,6 +29,7 @@ import {
   Edit,
   Trash2,
   AlertTriangle,
+  AlertCircle,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
 
@@ -135,6 +136,7 @@ interface EventBazaarManageModalProps {
   isOpen: boolean;
   onClose: () => void;
   onRefreshParent?: () => void;
+  initialTab?: 'overview' | 'layout' | 'applications' | 'operations' | 'surveys' | 'settings';
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -170,10 +172,17 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
   isOpen,
   onClose,
   onRefreshParent,
+  initialTab,
 }) => {
   const [activeTab, setActiveTab] = useState<
     'overview' | 'layout' | 'applications' | 'operations' | 'surveys' | 'settings'
-  >('overview');
+  >(initialTab || 'overview');
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -2034,120 +2043,302 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
               )}
 
               {/* TAB 6: PENGATURAN */}
+              {/* TAB 6: PENGATURAN ADMINISTRASI, TARIF & REKENING RESMI */}
               {activeTab === 'settings' && (
-                <form onSubmit={handleSaveSettings} className="space-y-5 max-w-2xl bg-white p-5 rounded-3xl border border-cream-300 shadow-2xs">
-                  <div className="space-y-1">
-                    <h4 className="text-xs font-bold text-brand-950">Pengaturan Administrasi & Rekening Infaq Stand</h4>
-                    <p className="text-[11px] text-surface-500">Sesuaikan batas waktu, kuota kategori, tarif dasar, nomor rekening, dan tata tertib syariah.</p>
-                  </div>
+                <form onSubmit={handleSaveSettings} className="space-y-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                    {/* LEFT COLUMN: PENGATURAN FORM (COL-SPAN-7) */}
+                    <div className="lg:col-span-7 bg-white p-5 sm:p-6 rounded-3xl border border-cream-300 shadow-2xs space-y-5">
+                      <div className="space-y-1 pb-3 border-b border-cream-200">
+                        <div className="flex items-center gap-2">
+                          <Coins className="w-4 h-4 text-brand-800" />
+                          <h4 className="text-sm font-black text-brand-950">
+                            Pengaturan Tarif Dasar, Rekening Infaq &amp; Adab
+                          </h4>
+                        </div>
+                        <p className="text-[11px] text-surface-500">
+                          Nilai yang Anda atur di sini akan langsung ditampilkan pada Formulir Pendaftaran Publik (Bagian 4) dan slip tanda terima resmi.
+                        </p>
+                      </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
-                    <div className="sm:col-span-2">
-                      <label className="font-bold text-surface-700 block mb-1">Tarif Infaq Dasar Stand / Booth (Rp)</label>
-                      <input
-                        type="number"
-                        value={settingsForm.defaultFeeRupiah}
-                        onChange={(e) => setSettingsForm({ ...settingsForm, defaultFeeRupiah: Number(e.target.value) })}
-                        className="w-full p-2 border border-cream-300 rounded-xl bg-cream-50/30 font-mono font-bold"
-                        required
-                      />
-                      <span className="text-[10px] text-surface-500 mt-0.5 block">
-                        Tarif default yang dikenakan saat pendaftar mendaftar umum (sebelum penetapan booth khusus).
-                      </span>
+                      {/* SECTION A: TARIF DASAR INFAQ STAND */}
+                      <div className="space-y-2 p-4 bg-cream-50/60 rounded-2xl border border-cream-200">
+                        <label className="font-bold text-brand-950 text-xs flex items-center justify-between">
+                          <span>Tarif Infaq Dasar Stand / Booth (Rp) *</span>
+                          <span className="text-[10px] font-normal text-surface-500">Standar baseline umum</span>
+                        </label>
+                        <input
+                          type="number"
+                          value={settingsForm.defaultFeeRupiah}
+                          onChange={(e) => setSettingsForm({ ...settingsForm, defaultFeeRupiah: Number(e.target.value) })}
+                          className="w-full p-2.5 border border-cream-300 rounded-xl bg-white font-mono font-bold text-brand-950 text-sm focus:ring-2 focus:ring-brand-700"
+                          required
+                          min={0}
+                          step={5000}
+                        />
+                        <p className="text-[10.5px] text-surface-600 leading-relaxed">
+                          Tarif default yang digunakan oleh kalkulator estimasi infaq jika pendaftar belum memilih nomor stand spesifik di denah.
+                        </p>
+                      </div>
+
+                      {/* SECTION B: REKENING RESMI YAYASAN */}
+                      <div className="space-y-3 p-4 bg-cream-50/60 rounded-2xl border border-cream-200">
+                        <div className="flex items-center justify-between">
+                          <label className="font-bold text-brand-950 text-xs flex items-center gap-1.5">
+                            <Receipt className="w-3.5 h-3.5 text-brand-800" /> Rekening Tujuan Infaq Resmi *
+                          </label>
+                          <span className="text-[10px] font-mono text-surface-500">Bisa pilih preset yayasan</span>
+                        </div>
+
+                        {/* Quick Presets */}
+                        <div className="space-y-1.5">
+                          <span className="text-[10px] font-bold text-surface-600 block">Pilih Cepat Rekening Resmi Yayasan:</span>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSettingsForm({
+                                  ...settingsForm,
+                                  bankName: 'BSI (Bank Syariah Indonesia)',
+                                  bankAccountNumber: '7770147608',
+                                  bankAccountName: 'Tarbiyah Sunnah/ Bisnis',
+                                })
+                              }
+                              className={`p-2 rounded-xl border text-left text-[11px] transition-all flex flex-col ${
+                                settingsForm.bankAccountNumber === '7770147608'
+                                  ? 'bg-brand-900 text-white border-brand-900 shadow-xs'
+                                  : 'bg-white hover:bg-cream-100 text-brand-950 border-cream-300'
+                              }`}
+                            >
+                              <span className="font-bold">🏛️ BSI Bisnis (Standar)</span>
+                              <span className="font-mono text-[10px] opacity-90">7770147608 - a.n. Tarbiyah Sunnah/ Bisnis</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSettingsForm({
+                                  ...settingsForm,
+                                  bankName: 'BSI (Bank Syariah Indonesia)',
+                                  bankAccountNumber: '7144778899',
+                                  bankAccountName: 'Yayasan Tarbiyah Sunnah (Bazar)',
+                                })
+                              }
+                              className={`p-2 rounded-xl border text-left text-[11px] transition-all flex flex-col ${
+                                settingsForm.bankAccountNumber === '7144778899'
+                                  ? 'bg-brand-900 text-white border-brand-900 shadow-xs'
+                                  : 'bg-white hover:bg-cream-100 text-brand-950 border-cream-300'
+                              }`}
+                            >
+                              <span className="font-bold">🕌 BSI Operasional Bazar</span>
+                              <span className="font-mono text-[10px] opacity-90">7144778899 - a.n. Tarbiyah Sunnah (Bazar)</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs pt-1">
+                          <div>
+                            <label className="font-bold text-surface-700 block mb-1">Nama Bank *</label>
+                            <input
+                              type="text"
+                              value={settingsForm.bankName}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, bankName: e.target.value })}
+                              className="w-full p-2 border border-cream-300 rounded-xl bg-white font-medium text-xs"
+                              placeholder="misal: BSI (Bank Syariah Indonesia)"
+                              required
+                            />
+                          </div>
+                          <div>
+                            <label className="font-bold text-surface-700 block mb-1">Nomor Rekening *</label>
+                            <input
+                              type="text"
+                              value={settingsForm.bankAccountNumber}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, bankAccountNumber: e.target.value })}
+                              className="w-full p-2 border border-cream-300 rounded-xl bg-white font-mono font-bold text-xs"
+                              placeholder="misal: 7770147608"
+                              required
+                            />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <label className="font-bold text-surface-700 block mb-1">Atas Nama Rekening *</label>
+                            <input
+                              type="text"
+                              value={settingsForm.bankAccountName}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, bankAccountName: e.target.value })}
+                              className="w-full p-2 border border-cream-300 rounded-xl bg-white font-medium text-xs"
+                              placeholder="misal: Tarbiyah Sunnah/ Bisnis"
+                              required
+                            />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <label className="font-bold text-surface-700 block mb-1">
+                              Petunjuk / Catatan Pembayaran Infaq (Tampil di Form Publik)
+                            </label>
+                            <textarea
+                              rows={2}
+                              value={settingsForm.paymentInstructions}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, paymentInstructions: e.target.value })}
+                              className="w-full p-2 border border-cream-300 rounded-xl bg-white text-xs leading-relaxed"
+                              placeholder="Contoh: Cantumkan kode pendaftaran pada berita transfer. Bukti transfer wajib diunggah maksimal 2x24 jam setelah diterima."
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* SECTION C: TATA TERTIB & ADAB MAJELIS */}
+                      <div className="space-y-2 p-4 bg-cream-50/60 rounded-2xl border border-cream-200 text-xs">
+                        <label className="font-bold text-surface-700 block mb-1">
+                          Tata Tertib &amp; Adab Majelis Syar'i (Wajib Disetujui Pendaftar)
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={settingsForm.rulesAndTerms}
+                          onChange={(e) => setSettingsForm({ ...settingsForm, rulesAndTerms: e.target.value })}
+                          className="w-full p-2.5 border border-cream-300 rounded-xl bg-white leading-relaxed text-xs"
+                          placeholder="Tuliskan adab dan ketentuan syar'i majelis..."
+                        />
+                      </div>
+
+                      {/* SECTION D: ALOKASI KUOTA KATEGORI */}
+                      <div className="space-y-3 pt-2">
+                        <div>
+                          <h5 className="font-bold text-brand-950 text-xs flex items-center gap-1.5">
+                            <Layers className="w-3.5 h-3.5 text-brand-700" /> Alokasi Kuota per Kategori Usaha
+                          </h5>
+                          <p className="text-[11px] text-surface-500">
+                            Tentukan kuota maksimal tenant per kategori (isi 0 jika tanpa kuota batasan). Pendaftar baru yang melampaui kuota otomatis masuk status Daftar Tunggu (Waitlist).
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {Object.entries(CATEGORY_LABELS).map(([catKey, catLabel]) => {
+                            const currentQuotaObj = (settingsForm.categoryQuotas || []).find((q) => q.category === catKey);
+                            const currentVal = currentQuotaObj ? currentQuotaObj.maxQuota : 0;
+                            return (
+                              <div
+                                key={catKey}
+                                className="p-2.5 bg-cream-50/50 rounded-xl border border-cream-300 flex items-center justify-between gap-2"
+                              >
+                                <span className="text-[11px] font-bold text-surface-800 truncate">{catLabel}</span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span className="text-[10px] text-surface-500">Maks:</span>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={currentVal}
+                                    onChange={(e) => {
+                                      const val = Math.max(0, Number(e.target.value));
+                                      const updated = [...(settingsForm.categoryQuotas || [])];
+                                      const idx = updated.findIndex((q) => q.category === catKey);
+                                      if (idx >= 0) {
+                                        updated[idx] = { category: catKey, maxQuota: val };
+                                      } else {
+                                        updated.push({ category: catKey, maxQuota: val });
+                                      }
+                                      setSettingsForm({ ...settingsForm, categoryQuotas: updated });
+                                    }}
+                                    className="w-16 p-1 text-center font-bold border border-cream-300 rounded-lg bg-white text-xs"
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="pt-3 border-t border-cream-200">
+                        <button
+                          type="submit"
+                          disabled={actionLoading}
+                          className="px-6 py-2.5 bg-brand-900 hover:bg-brand-950 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 disabled:opacity-50 flex items-center gap-2"
+                        >
+                          <CheckCircle2 className="w-4 h-4 text-gold-300" />
+                          <span>{actionLoading ? 'Menyimpan...' : 'Simpan Perubahan Pengaturan'}</span>
+                        </button>
+                      </div>
                     </div>
 
-                    <div>
-                      <label className="font-bold text-surface-700 block mb-1">Nama Bank</label>
-                      <input
-                        type="text"
-                        value={settingsForm.bankName}
-                        onChange={(e) => setSettingsForm({ ...settingsForm, bankName: e.target.value })}
-                        className="w-full p-2 border border-cream-300 rounded-xl bg-cream-50/30"
-                      />
-                    </div>
-                    <div>
-                      <label className="font-bold text-surface-700 block mb-1">Nomor Rekening</label>
-                      <input
-                        type="text"
-                        value={settingsForm.bankAccountNumber}
-                        onChange={(e) => setSettingsForm({ ...settingsForm, bankAccountNumber: e.target.value })}
-                        className="w-full p-2 border border-cream-300 rounded-xl bg-cream-50/30 font-mono"
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="font-bold text-surface-700 block mb-1">Atas Nama Rekening</label>
-                      <input
-                        type="text"
-                        value={settingsForm.bankAccountName}
-                        onChange={(e) => setSettingsForm({ ...settingsForm, bankAccountName: e.target.value })}
-                        className="w-full p-2 border border-cream-300 rounded-xl bg-cream-50/30"
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="font-bold text-surface-700 block mb-1">Tata Tertib & Adab Majelis Syar'i</label>
-                      <textarea
-                        rows={4}
-                        value={settingsForm.rulesAndTerms}
-                        onChange={(e) => setSettingsForm({ ...settingsForm, rulesAndTerms: e.target.value })}
-                        className="w-full p-2 border border-cream-300 rounded-xl bg-cream-50/30 leading-relaxed"
-                      />
-                    </div>
-                  </div>
+                    {/* RIGHT COLUMN: LIVE CARD PREVIEW (COL-SPAN-5) */}
+                    <div className="lg:col-span-5 space-y-3 sticky top-4">
+                      <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-xs">
+                        <div className="flex items-center gap-2 font-bold text-amber-950 mb-1">
+                          <Sparkles className="w-4 h-4 text-amber-700" />
+                          <span>Pratinjau Langsung Formulir Publik</span>
+                        </div>
+                        <p className="text-[11px] text-amber-900/80 leading-relaxed">
+                          Ini adalah tampilan <strong>Bagian 4 (Estimasi Infaq &amp; Rekening Resmi)</strong> yang persis akan dilihat oleh calon pendaftar di portal web bazar:
+                        </p>
+                      </div>
 
-                  {/* Category Quotas Setting */}
-                  <div className="space-y-3 pt-3 border-t border-cream-200">
-                    <div>
-                      <h5 className="font-bold text-brand-950 text-xs flex items-center gap-1.5">
-                        <Layers className="w-3.5 h-3.5 text-brand-700" /> Alokasi Kuota per Kategori Usaha
-                      </h5>
-                      <p className="text-[11px] text-surface-500">
-                        Tentukan kuota maksimal tenant per kategori (isi 0 jika tanpa kuota batasan). Pendaftar baru yang melampaui kuota otomatis masuk status Daftar Tunggu (Waitlist).
-                      </p>
-                    </div>
+                      {/* MOCKUP OF PUBLIC SECTION 4 CARD */}
+                      <div className="bg-[#FBF9F4] rounded-3xl p-5 border border-[#1B4332]/12 shadow-sm space-y-3.5 text-xs text-[#1C2321]">
+                        <div className="flex items-center gap-2 pb-2.5 border-b border-[#1B4332]/10">
+                          <div className="w-7 h-7 rounded-lg bg-[#1B4332]/10 flex items-center justify-center font-bold text-xs text-[#14352A]">
+                            4
+                          </div>
+                          <div>
+                            <h4 className="text-xs font-bold text-[#1C2321]">Estimasi Infaq &amp; Rekening Resmi Panitia</h4>
+                            <p className="text-[10px] text-[#6B7A72]">Penyaluran infaq operasional dakwah, fasilitas listrik, dan kebersihan majelis</p>
+                          </div>
+                        </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      {Object.entries(CATEGORY_LABELS).map(([catKey, catLabel]) => {
-                        const currentQuotaObj = (settingsForm.categoryQuotas || []).find((q) => q.category === catKey);
-                        const currentVal = currentQuotaObj ? currentQuotaObj.maxQuota : 0;
-                        return (
-                          <div
-                            key={catKey}
-                            className="p-2.5 bg-cream-50/50 rounded-xl border border-cream-300 flex items-center justify-between gap-2"
-                          >
-                            <span className="text-[11px] font-bold text-surface-800 truncate">{catLabel}</span>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <span className="text-[10px] text-surface-500">Maks:</span>
-                              <input
-                                type="number"
-                                min={0}
-                                value={currentVal}
-                                onChange={(e) => {
-                                  const val = Math.max(0, Number(e.target.value));
-                                  const updated = [...(settingsForm.categoryQuotas || [])];
-                                  const idx = updated.findIndex((q) => q.category === catKey);
-                                  if (idx >= 0) {
-                                    updated[idx] = { category: catKey, maxQuota: val };
-                                  } else {
-                                    updated.push({ category: catKey, maxQuota: val });
-                                  }
-                                  setSettingsForm({ ...settingsForm, categoryQuotas: updated });
-                                }}
-                                className="w-16 p-1 text-center font-bold border border-cream-300 rounded-lg bg-white text-xs"
-                              />
+                        {/* Breakdown Preview */}
+                        <div className="p-3.5 bg-[#F2EEE4] rounded-2xl border border-[#1B4332]/14 space-y-2">
+                          <div className="flex items-center justify-between font-bold text-xs text-[#14352A]">
+                            <span>Rincian Estimasi Infaq Partisipasi:</span>
+                            <span className="font-mono text-sm text-[#1B4332]">
+                              Rp {settingsForm.defaultFeeRupiah.toLocaleString('id-ID')}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-[#6B7A72] flex justify-between pt-1 border-t border-[#1B4332]/10">
+                            <span>Biaya Stand (Tarif Pokok):</span>
+                            <span className="font-mono font-semibold text-[#1C2321]">
+                              Rp {settingsForm.defaultFeeRupiah.toLocaleString('id-ID')}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Bank Account Card Preview */}
+                        <div className="p-3.5 bg-gradient-to-r from-[#F2EEE4] to-[#EAE4D6] rounded-2xl border border-[#1B4332]/14 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-[9px] font-mono font-bold text-[#6B7A72] uppercase block">
+                                Rekening Infaq Resmi
+                              </span>
+                              <span className="text-xs font-bold text-[#14352A]">
+                                {settingsForm.bankName || 'BSI (Bank Syariah Indonesia)'}
+                              </span>
+                            </div>
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase bg-[#1B4332] text-white">
+                              INFAQ BAZAR MAJELIS
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between p-2.5 bg-[#FBF9F4] rounded-xl border border-[#1B4332]/10">
+                            <div>
+                              <div className="text-base font-bold font-mono text-[#14352A] tracking-wider">
+                                {settingsForm.bankAccountNumber || '7770147608'}
+                              </div>
+                              <div className="text-[10px] text-[#6B7A72]">
+                                a.n. {settingsForm.bankAccountName || 'Tarbiyah Sunnah/ Bisnis'}
+                              </div>
+                            </div>
+                            <div className="px-2.5 py-1 bg-[#1B4332] text-white rounded-lg text-[10.5px] font-bold flex items-center gap-1 opacity-80 cursor-default">
+                              <Copy className="w-3 h-3 text-[#E0B970]" />
+                              <span>Salin Rekening</span>
                             </div>
                           </div>
-                        );
-                      })}
+
+                          {settingsForm.paymentInstructions && (
+                            <div className="p-2 bg-[#FBF9F4] rounded-xl border border-amber-200/60 text-[10px] text-amber-900 leading-relaxed flex items-start gap-1.5">
+                              <AlertCircle className="w-3.5 h-3.5 text-amber-700 shrink-0 mt-0.5" />
+                              <span className="whitespace-pre-line">{settingsForm.paymentInstructions}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
-
-                  <button
-                    type="submit"
-                    disabled={actionLoading}
-                    className="px-5 py-2.5 bg-brand-900 hover:bg-brand-950 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 disabled:opacity-50"
-                  >
-                    {actionLoading ? 'Menyimpan...' : 'Simpan Perubahan Pengaturan'}
-                  </button>
                 </form>
               )}
             </div>

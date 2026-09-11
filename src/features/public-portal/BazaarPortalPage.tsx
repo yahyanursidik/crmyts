@@ -1466,6 +1466,16 @@ export const BazaarPortalPage: React.FC = () => {
                           <span>{copiedBank ? 'Tersalin' : 'Salin Rekening'}</span>
                         </button>
                       </div>
+
+                      {bazaar.paymentInstructions && (
+                        <div className="p-3 bg-[#FBF9F4] rounded-xl border border-amber-200/80 text-[11px] text-amber-950 leading-relaxed flex items-start gap-2">
+                          <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-bold block mb-0.5">Petunjuk Pembayaran Infaq:</span>
+                            <span className="whitespace-pre-line">{bazaar.paymentInstructions}</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Upload Bukti Transfer */}
