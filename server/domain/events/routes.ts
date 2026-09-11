@@ -17,6 +17,10 @@ const createEventSchema = z.object({
   endAt: z.string().optional().nullable(),
   deliveryMode: z.enum(['offline', 'online', 'hybrid']).default('offline'),
   locationName: z.string().optional().nullable(),
+  locationAddress: z.string().max(500, 'Alamat lokasi maksimal 500 karakter').optional().nullable(),
+  googleMapsUrl: z.string().url('Tautan Google Maps tidak valid').optional().nullable().or(z.literal('')),
+  locationDirections: z.string().max(1000, 'Petunjuk lokasi maksimal 1000 karakter').optional().nullable(),
+  showGoogleMaps: z.boolean().default(true),
   meetingUrl: z.string().url('URL tidak valid').optional().nullable().or(z.literal('')),
   
   // Paid Event & Banking Configuration
@@ -277,6 +281,10 @@ export function registerEventsRoutes(router: Router) {
             endAt: body.endAt ? new Date(body.endAt) : null,
             deliveryMode: body.deliveryMode,
             locationName: body.locationName || null,
+            locationAddress: body.locationAddress || null,
+            googleMapsUrl: body.googleMapsUrl || null,
+            locationDirections: body.locationDirections || null,
+            showGoogleMaps: body.showGoogleMaps !== false,
             meetingUrl: body.meetingUrl || null,
             
             isPaid: body.isPaid || false,
@@ -338,6 +346,10 @@ export function registerEventsRoutes(router: Router) {
         if (body.endAt !== undefined) updatePayload.endAt = body.endAt ? new Date(body.endAt) : null;
         if (body.deliveryMode !== undefined) updatePayload.deliveryMode = body.deliveryMode;
         if (body.locationName !== undefined) updatePayload.locationName = body.locationName;
+        if (body.locationAddress !== undefined) updatePayload.locationAddress = body.locationAddress;
+        if (body.googleMapsUrl !== undefined) updatePayload.googleMapsUrl = body.googleMapsUrl || null;
+        if (body.locationDirections !== undefined) updatePayload.locationDirections = body.locationDirections;
+        if (body.showGoogleMaps !== undefined) updatePayload.showGoogleMaps = body.showGoogleMaps;
         if (body.meetingUrl !== undefined) updatePayload.meetingUrl = body.meetingUrl;
         if (body.status !== undefined) updatePayload.status = body.status;
         

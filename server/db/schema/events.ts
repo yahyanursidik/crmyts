@@ -47,6 +47,10 @@ export const events = pgTable(
     endAt: timestamp('end_at', { withTimezone: true }),
     deliveryMode: deliveryModeEnum('delivery_mode').default('offline').notNull(),
     locationName: text('location_name'),
+    locationAddress: text('location_address'),
+    googleMapsUrl: text('google_maps_url'),
+    locationDirections: text('location_directions'),
+    showGoogleMaps: boolean('show_google_maps').default(true).notNull(),
     meetingUrl: text('meeting_url'),
     status: eventStatusEnum('status').default('scheduled').notNull(),
     
@@ -555,4 +559,3 @@ export const bazaarEvaluationsRelations = relations(bazaarEvaluations, ({ one })
     references: [appUsers.id],
   }),
 }));
-

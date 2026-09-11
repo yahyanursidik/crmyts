@@ -282,6 +282,16 @@ body {
   line-height: 1.45;
 }
 
+.event-map__directions {
+  margin: 0;
+  padding: var(--space-sm);
+  border-left: 3px solid var(--color-brand);
+  background: var(--color-paper-2);
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
 .event-map__action {
   display: inline-flex;
   min-height: 2.75rem;
