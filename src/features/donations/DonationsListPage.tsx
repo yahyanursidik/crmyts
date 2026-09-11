@@ -24,6 +24,8 @@ import {
   Search,
   RefreshCw,
   Landmark,
+  Loader2,
+  ExternalLink,
 } from 'lucide-react';
 import { formatPhoneDisplay, getWhatsAppLink } from '@/lib/phone';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -135,7 +137,29 @@ export const DonationsListPage: React.FC = () => {
   const [reconciliationModalOpen, setReconciliationModalOpen] = useState(false);
   const [selectedDonation, setSelectedDonation] = useState<DonationItem | null>(null);
   const [proofPreviewDonation, setProofPreviewDonation] = useState<DonationItem | null>(null);
+  const [proofLoading, setProofLoading] = useState(false);
+  const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'warning' | 'error' } | null>(null);
+
+  useEffect(() => {
+    if (!proofPreviewDonation) {
+      setProofUrl(null);
+      return;
+    }
+    const loadProof = async () => {
+      try {
+        setProofLoading(true);
+        const res = await apiClient<any>(`/donations/${proofPreviewDonation.id}/proof`);
+        setProofUrl(res.data?.proofUrl || res.data?.temporaryUrl || null);
+      } catch (err) {
+        console.error('Failed to load donation proof', err);
+        setProofUrl(null);
+      } finally {
+        setProofLoading(false);
+      }
+    };
+    loadProof();
+  }, [proofPreviewDonation]);
 
   const showToast = (text: string, type: 'success' | 'warning' | 'error' = 'success') => {
     setToastMessage({ text, type });
@@ -1008,12 +1032,43 @@ export const DonationsListPage: React.FC = () => {
               <p><strong>Donatur:</strong> {proofPreviewDonation.person?.fullName || 'Anonim'}</p>
               <p><strong>Nominal:</strong> Rp {proofPreviewDonation.amountRupiah.toLocaleString('id-ID')}</p>
               <p><strong>Referensi:</strong> {proofPreviewDonation.externalReference || '-'}</p>
-              <p className="text-[11px] text-[#6B7A72] pt-2 border-t border-[#1B4332]/10">
-                Dokumen disimpan di storage privat S3 terenkripsi YTS dan hanya dapat diakses staf berwenang.
-              </p>
             </div>
 
-            <div className="flex justify-end">
+            {/* Proof Image / Document Preview from Contabo S3 */}
+            <div className="space-y-2">
+              {proofLoading ? (
+                <div className="flex items-center justify-center p-8 text-xs text-[#6B7A72] bg-white rounded-xl border border-[#1B4332]/10">
+                  <Loader2 className="w-5 h-5 animate-spin mr-2 text-[#1B4332]" />
+                  <span>Memuat bukti transfer dari Contabo S3...</span>
+                </div>
+              ) : proofUrl ? (
+                <div className="rounded-xl overflow-hidden border border-[#1B4332]/14 bg-white flex flex-col items-center">
+                  <img
+                    src={proofUrl}
+                    alt="Bukti Transfer Infaq"
+                    className="max-h-72 object-contain w-full cursor-pointer hover:opacity-95 transition-opacity"
+                    onClick={() => window.open(proofUrl, '_blank')}
+                  />
+                  <div className="p-2.5 w-full bg-[#F2EEE4] border-t border-[#1B4332]/10 flex items-center justify-between text-xs">
+                    <span className="text-[11px] text-[#6B7A72]">Tersimpan di Contabo S3 Vault</span>
+                    <a
+                      href={proofUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-bold text-[#1B4332] hover:underline flex items-center gap-1 text-[11px]"
+                    >
+                      Buka Resolusi Penuh <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+                  Bukti transfer belum diunggah atau tidak ditemukan di penyimpanan S3.
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-1">
               <button
                 onClick={() => setProofPreviewDonation(null)}
                 className="px-4 py-2 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#1C2321] rounded-xl text-xs font-semibold border border-[#1B4332]/12"

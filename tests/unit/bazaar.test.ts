@@ -32,6 +32,7 @@ describe('PRD Web App YTS Bazar – Tenant & Event Management System', () => {
       },
       bazaarEvents: {
         findFirst: vi.fn(),
+        findMany: vi.fn(),
       },
       bazaarBooths: {
         findFirst: vi.fn(),
@@ -351,4 +352,328 @@ describe('PRD Web App YTS Bazar – Tenant & Event Management System', () => {
     const json = JSON.parse(res.body);
     expect(json.data.omzetRange).toBe('2-5m');
   });
+
+  it('8. PUT /api/events/:id/bazaar/applications/:appId/fee updates custom fee and payment notes', async () => {
+    mockDb.query.bazaarApplications.findFirst.mockResolvedValue({
+      id: sampleAppId,
+      infaqAmountRupiah: 150000,
+      status: 'submitted',
+      tenant: { brandName: 'Kopi Sunnah Barakah' },
+    });
+
+    const mockUpdated = {
+      id: sampleAppId,
+      infaqAmountRupiah: 75000,
+      paymentNotes: 'Diskon UMKM binaan 50%',
+      status: 'payment_verified',
+    };
+
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([mockUpdated]),
+        }),
+      }),
+    });
+
+    const res = await router.handle({
+      requestId: 'req_bazaar_8',
+      method: 'PUT',
+      path: `/api/events/${sampleEventId}/bazaar/applications/${sampleAppId}/fee`,
+      headers: {},
+      query: {},
+      params: { id: sampleEventId, appId: sampleAppId },
+      body: {
+        infaqAmountRupiah: 75000,
+        paymentNotes: 'Diskon UMKM binaan 50%',
+        status: 'payment_verified',
+      },
+      user: mockAdminUser,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data.infaqAmountRupiah).toBe(75000);
+    expect(json.data.paymentNotes).toBe('Diskon UMKM binaan 50%');
+    expect(json.data.status).toBe('payment_verified');
+  });
+
+  it('9. PUT /api/events/:id/bazaar/applications/:appId/assign-booth syncs booth price and checks category compatibility', async () => {
+    mockDb.query.bazaarApplications.findFirst.mockResolvedValue({
+      id: sampleAppId,
+      bazaarId: sampleBazaarId,
+      assignedBoothId: null,
+      infaqAmountRupiah: 150000,
+      tenant: { businessCategory: 'kuliner' },
+    });
+
+    mockDb.query.bazaarBooths.findFirst.mockResolvedValue({
+      id: sampleBoothId,
+      bazaarId: sampleBazaarId,
+      code: 'B-01',
+      zone: 'Selasar Barat',
+      priceRupiah: 250000,
+      allowedCategory: 'busana_muslim',
+    });
+
+    mockDb.query.bazaarApplications.findMany.mockResolvedValue([]);
+
+    const mockAssigned = {
+      id: sampleAppId,
+      assignedBoothId: sampleBoothId,
+      status: 'booth_assigned',
+      infaqAmountRupiah: 250000,
+    };
+
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([mockAssigned]),
+        }),
+      }),
+    });
+
+    const res = await router.handle({
+      requestId: 'req_bazaar_9',
+      method: 'PUT',
+      path: `/api/events/${sampleEventId}/bazaar/applications/${sampleAppId}/assign-booth`,
+      headers: {},
+      query: {},
+      params: { id: sampleEventId, appId: sampleAppId },
+      body: {
+        boothId: sampleBoothId,
+        placementReason: 'custom',
+        syncBoothPrice: true,
+      },
+      user: mockAdminUser,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data.infaqAmountRupiah).toBe(250000);
+    expect(json.data.smartWarning).toContain('Perhatian: Stand \'B-01\' dialokasikan khusus untuk kategori \'busana_muslim\'');
+  });
+
+  it('10. GET /api/bazaar/tenants calculates lifetimeInfaqRupiah for CRM profiles', async () => {
+    mockDb.query.bazaarTenants.findMany.mockResolvedValue([
+      {
+        id: sampleTenantId,
+        brandName: 'Penerbit Sunnah',
+        businessCategory: 'buku_kitab',
+        picName: 'Abu Ahmad',
+        picPhone: '08123456789',
+        applications: [
+          { status: 'payment_verified', infaqAmountRupiah: 150000 },
+          { status: 'completed', infaqAmountRupiah: 200000 },
+          { status: 'rejected', infaqAmountRupiah: 150000 },
+        ],
+      },
+    ]);
+
+    const res = await router.handle({
+      requestId: 'req_bazaar_10',
+      method: 'GET',
+      path: '/api/bazaar/tenants',
+      headers: {},
+      query: {},
+      params: {},
+      body: {},
+      user: mockAdminUser,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data[0].lifetimeInfaqRupiah).toBe(350000);
+    expect(json.data[0].totalParticipations).toBe(3);
+  });
+
+  it('11. GET /api/public/events/:id/bazaar/check-status retrieves tenant application status and booth assignment', async () => {
+    mockDb.query.bazaarEvents.findFirst.mockResolvedValue({
+      id: sampleBazaarId,
+      eventId: sampleEventId,
+      title: 'Bazar Daurah Syawal',
+      defaultFeeRupiah: 150000,
+      bankName: 'BSI',
+      bankAccountNumber: '7100012345',
+      bankAccountName: 'Yayasan Tarbiyah Sunnah',
+      event: {
+        id: sampleEventId,
+        title: 'Kajian Daurah Syawal',
+        startAt: new Date().toISOString(),
+        locationName: 'Masjid Tarbiyah Sunnah',
+      },
+    });
+
+    mockDb.query.bazaarApplications.findFirst.mockResolvedValue({
+      id: sampleAppId,
+      bazaarId: sampleBazaarId,
+      status: 'booth_assigned',
+      infaqAmountRupiah: 250000,
+      registeredAt: new Date(),
+      updatedAt: new Date(),
+      electricityNeeded: true,
+      electricityWatts: 900,
+      tenant: {
+        id: sampleTenantId,
+        brandName: 'Penerbit Sunnah',
+        businessCategory: 'buku_kitab',
+        picName: 'Abu Ahmad',
+        picPhone: '08123456789',
+      },
+      assignedBooth: {
+        id: sampleBoothId,
+        code: 'B-01',
+        name: 'Booth Selasar Barat',
+        zone: 'Selasar Barat',
+        size: '2x2 meter',
+        priceRupiah: 250000,
+      },
+    });
+
+    const res = await router.handle({
+      requestId: 'req_bazaar_11',
+      method: 'GET',
+      path: `/api/public/events/${sampleEventId}/bazaar/check-status`,
+      headers: {},
+      query: { appId: sampleAppId },
+      params: { id: sampleEventId },
+      body: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data.application.id).toBe(sampleAppId);
+    expect(json.data.application.status).toBe('booth_assigned');
+    expect(json.data.tenant.brandName).toBe('Penerbit Sunnah');
+    expect(json.data.assignedBooth.code).toBe('B-01');
+  });
+
+  it('12. POST /api/public/events/:id/bazaar/upload-proof updates paymentProofUrl and sets status to payment_verification', async () => {
+    mockDb.query.bazaarApplications.findFirst.mockResolvedValue({
+      id: sampleAppId,
+      bazaarId: sampleBazaarId,
+      status: 'submitted',
+      tenant: {
+        id: sampleTenantId,
+        picPhone: '08123456789',
+      },
+    });
+
+    const mockUpdated = {
+      id: sampleAppId,
+      status: 'payment_verification',
+      paymentProofUrl: 'https://storage.yts.web.id/proofs/transfer_123.jpg',
+    };
+
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([mockUpdated]),
+        }),
+      }),
+    });
+
+    const res = await router.handle({
+      requestId: 'req_bazaar_12',
+      method: 'POST',
+      path: `/api/public/events/${sampleEventId}/bazaar/upload-proof`,
+      headers: {},
+      query: {},
+      params: { id: sampleEventId },
+      body: {
+        applicationId: sampleAppId,
+        phone: '08123456789',
+        paymentProofUrl: 'https://storage.yts.web.id/proofs/transfer_123.jpg',
+        paymentNotes: 'Transfer via BSI Mobile a.n. Abu Ahmad',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data.application.status).toBe('payment_verification');
+    expect(json.data.application.paymentProofUrl).toBe('https://storage.yts.web.id/proofs/transfer_123.jpg');
+  });
+
+  it('13. GET /api/public/bazaars returns active bazaars with booth counts and event details', async () => {
+    mockDb.query.bazaarEvents.findMany.mockResolvedValue([
+      {
+        id: sampleBazaarId,
+        eventId: sampleEventId,
+        title: 'Bazar Daurah Syawal',
+        defaultFeeRupiah: 150000,
+        isOpen: true,
+        booths: [
+          { id: 'b1', code: 'A-01', status: 'available' },
+          { id: 'b2', code: 'A-02', status: 'assigned' },
+        ],
+        event: {
+          id: sampleEventId,
+          title: 'Kajian Daurah Syawal',
+          speaker: 'Ustadz Fulan',
+          startAt: new Date().toISOString(),
+          locationName: 'Masjid Tarbiyah Sunnah',
+        },
+      },
+    ]);
+
+    const res = await router.handle({
+      requestId: 'req_bazaar_13',
+      method: 'GET',
+      path: '/api/public/bazaars',
+      headers: {},
+      query: {},
+      params: {},
+      body: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data).toHaveLength(1);
+    expect(json.data[0].title).toBe('Bazar Daurah Syawal');
+    expect(json.data[0].boothsCount).toBe(2);
+    expect(json.data[0].availableBoothsCount).toBe(1);
+    expect(json.data[0].event.title).toBe('Kajian Daurah Syawal');
+  });
+
+  it('14. PUT /api/events/:id/bazaar/booths/bulk-pricing updates booth pricing per zone/size', async () => {
+    mockDb.query.bazaarEvents.findFirst.mockResolvedValue({
+      id: sampleBazaarId,
+      eventId: sampleEventId,
+    });
+
+    const mockUpdated = [
+      { id: 'b1', code: 'A-01', zone: 'Selasar Depan', size: '2x2 meter', priceRupiah: 200000 },
+      { id: 'b2', code: 'A-02', zone: 'Selasar Depan', size: '2x2 meter', priceRupiah: 200000 },
+    ];
+
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue(mockUpdated),
+        }),
+      }),
+    });
+
+    const res = await router.handle({
+      requestId: 'req_bazaar_14',
+      method: 'PUT',
+      path: `/api/events/${sampleEventId}/bazaar/booths/bulk-pricing`,
+      headers: {},
+      query: {},
+      params: { id: sampleEventId },
+      body: {
+        zone: 'Selasar Depan',
+        size: '2x2 meter',
+        priceRupiah: 200000,
+      },
+      user: mockAdminUser,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data).toHaveLength(2);
+    expect(json.data[0].priceRupiah).toBe(200000);
+    expect(json.meta.total).toBe(2);
+  });
 });
+

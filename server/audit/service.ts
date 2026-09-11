@@ -66,6 +66,8 @@ export interface ExportEventInput {
   requestId?: string;
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Appends an immutable audit record to the audit_logs table
  */
@@ -73,13 +75,24 @@ export async function logAuditEvent(input: AuditEventInput): Promise<void> {
   const db = getDb();
 
   const sanitizedBefore = input.beforeJson ? sanitizeAuditPayload(input.beforeJson) : null;
-  const sanitizedAfter = input.afterJson ? sanitizeAuditPayload(input.afterJson) : null;
+  let sanitizedAfter = input.afterJson ? sanitizeAuditPayload(input.afterJson) : null;
+
+  // Ensure entityId conforms to PostgreSQL UUID data type; preserve non-UUID strings in metadata
+  const isUuid = typeof input.entityId === 'string' && UUID_REGEX.test(input.entityId);
+  const safeEntityId = isUuid ? input.entityId : null;
+
+  if (input.entityId && !isUuid) {
+    sanitizedAfter = {
+      ...(typeof sanitizedAfter === 'object' && sanitizedAfter !== null ? sanitizedAfter : {}),
+      rawEntityId: input.entityId,
+    };
+  }
 
   await db.insert(auditLogs).values({
     actorUserId: input.actorUserId || null,
     action: input.action,
     entityType: input.entityType,
-    entityId: input.entityId || null,
+    entityId: safeEntityId,
     beforeJson: sanitizedBefore,
     afterJson: sanitizedAfter,
     reason: input.reason || null,

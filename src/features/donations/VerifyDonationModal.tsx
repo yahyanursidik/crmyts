@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   CheckCircle2, 
   XCircle, 
   ShieldCheck, 
-  Loader2 
+  Loader2,
+  ExternalLink,
 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 
@@ -39,6 +40,28 @@ export const VerifyDonationModal: React.FC<VerifyDonationModalProps> = ({
   const [rejectionReason, setRejectionReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [proofUrl, setProofUrl] = useState<string | null>(null);
+  const [proofLoading, setProofLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen || !donation || !donation.id) {
+      setProofUrl(null);
+      return;
+    }
+    const loadProof = async () => {
+      try {
+        setProofLoading(true);
+        const res = await apiClient<any>(`/donations/${donation.id}/proof`);
+        setProofUrl(res.data?.proofUrl || res.data?.temporaryUrl || null);
+      } catch (err) {
+        console.error('Failed to load proof', err);
+        setProofUrl(null);
+      } finally {
+        setProofLoading(false);
+      }
+    };
+    loadProof();
+  }, [isOpen, donation?.id]);
 
   if (!isOpen || !donation) return null;
 
@@ -148,6 +171,46 @@ export const VerifyDonationModal: React.FC<VerifyDonationModalProps> = ({
                 <span className="font-mono font-semibold text-surface-800">{donation.externalReference || '-'}</span>
               </div>
             </div>
+          </div>
+
+          {/* Proof of Transfer (S3 Vault) */}
+          <div className="rounded-lg border border-surface-200 overflow-hidden bg-surface-50 p-3 space-y-2">
+            <div className="flex items-center justify-between text-xs font-semibold text-surface-800">
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
+                Bukti Transfer (Contabo S3)
+              </span>
+              {proofUrl && (
+                <a
+                  href={proofUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] text-brand-700 hover:underline flex items-center gap-1"
+                >
+                  Buka Gambar Penuh <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+            </div>
+
+            {proofLoading ? (
+              <div className="flex items-center justify-center p-4 text-xs text-surface-500 bg-white rounded border border-surface-200">
+                <Loader2 className="w-4 h-4 animate-spin mr-1.5 text-brand-700" />
+                Memuat lampiran bukti transfer...
+              </div>
+            ) : proofUrl ? (
+              <div className="bg-white rounded border border-surface-200 p-1 flex justify-center">
+                <img
+                  src={proofUrl}
+                  alt="Bukti Transfer"
+                  className="max-h-56 object-contain rounded cursor-pointer hover:opacity-95"
+                  onClick={() => window.open(proofUrl, '_blank')}
+                />
+              </div>
+            ) : (
+              <p className="text-[11px] text-surface-500 italic bg-white p-2.5 rounded border border-surface-200">
+                Tidak ada berkas bukti transfer yang dilampirkan atau berkas belum diunggah.
+              </p>
+            )}
           </div>
 
           {/* Mode Selector */}

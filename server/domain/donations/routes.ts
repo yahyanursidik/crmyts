@@ -21,6 +21,9 @@ const createDonationSchema = z.object({
   externalReference: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   proofAttachmentId: z.string().uuid().optional().nullable(),
+  proofBase64Data: z.string().optional().nullable(),
+  proofFilename: z.string().optional().nullable(),
+  proofMimeType: z.string().optional().nullable(),
 });
 
 const updateDonationSchema = z.object({
@@ -291,6 +294,28 @@ export function registerDonationsRoutes(router: Router) {
           if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
 
           const result = await db.transaction(async (tx) => {
+            // Process S3 upload if proofBase64Data is provided
+            let finalAttachmentId = body.proofAttachmentId || null;
+            if (body.proofBase64Data && !finalAttachmentId) {
+              try {
+                const base64Clean = body.proofBase64Data.replace(/^data:[a-zA-Z0-9/+-]+;base64,/, '');
+                const buffer = Buffer.from(base64Clean, 'base64');
+                const uploaded = await defaultAttachmentService.upload({
+                  originalFilename: body.proofFilename || 'bukti_transfer.jpg',
+                  mimeType: body.proofMimeType || 'image/jpeg',
+                  buffer,
+                  fileSizeBytes: buffer.length,
+                  sensitivityLevel: 'standard',
+                  uploadedByUserId: user.id,
+                  purpose: 'manual_donation_proof',
+                  requestId: ctx.requestId,
+                });
+                finalAttachmentId = uploaded.id;
+              } catch (err: any) {
+                console.error('[CreateDonation] S3 Attachment upload error:', err);
+              }
+            }
+
             // 1. Insert Donation with default status 'unverified'
             const [created] = await tx
               .insert(donations)
@@ -301,7 +326,7 @@ export function registerDonationsRoutes(router: Router) {
                 donationDate: new Date(body.donationDate),
                 paymentMethod: body.paymentMethod,
                 externalReference: body.externalReference || null,
-                proofAttachmentId: body.proofAttachmentId || null,
+                proofAttachmentId: finalAttachmentId,
                 verificationStatus: 'unverified',
                 createdBy: user.id,
               })
@@ -802,6 +827,7 @@ export function registerDonationsRoutes(router: Router) {
             storageProvider: attachmentMeta?.storageProvider || 's3_contabo',
             mimeType: attachmentMeta?.mimeType || 'image/jpeg',
             temporaryUrl,
+            proofUrl: temporaryUrl || (attachmentMeta?.objectKey ? `${process.env.S3_PUBLIC_URL_PREFIX || 'https://sin1.contabostorage.com/68671c4afe7c45fba062c1c65a776541:crmyts'}/${attachmentMeta.objectKey}` : null),
             message: 'Akses bukti transfer terproteksi oleh otentikasi internal YTS',
           },
           { requestId: ctx.requestId }
