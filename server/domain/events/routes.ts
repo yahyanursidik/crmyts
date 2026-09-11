@@ -4,7 +4,7 @@ import { requireAuth, validateBody } from '../../http/middleware';
 import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import { events, eventAttendance, persons } from '../../db/schema';
-import { desc, eq, and, inArray, sql } from 'drizzle-orm';
+import { desc, eq, and, inArray, sql, or, ilike } from 'drizzle-orm';
 import { normalizeIndonesianPhone } from '../../lib/phone';
 import { extractTicketCode } from '../../../src/lib/participantTicket';
 
@@ -738,23 +738,42 @@ export function registerEventsRoutes(router: Router) {
           ),
           with: { person: true },
         });
-      } else if (phoneQuery) {
-        const cleanQuery = String(phoneQuery).trim();
-        const norm = normalizeIndonesianPhone(cleanQuery);
-        const candidatePersons = await db.query.persons.findMany({
-          where: inArray(persons.phoneE164, [norm, `+${cleanQuery}`, cleanQuery]),
-          columns: { id: true },
+      } else if (phoneQuery || (ctx.body as any).query) {
+        const rawQuery = String(phoneQuery || (ctx.body as any).query).trim();
+        const cleanTicket = extractTicketCode(rawQuery);
+        const norm = normalizeIndonesianPhone(rawQuery);
+
+        // 1. Try direct ticket code
+        targetAttendance = await db.query.eventAttendance.findFirst({
+          where: and(
+            eq(eventAttendance.eventId, eventId),
+            eq(eventAttendance.ticketCode, cleanTicket)
+          ),
+          with: { person: true },
         });
 
-        const personIds = candidatePersons.map((p) => p.id);
-        if (personIds.length > 0) {
-          targetAttendance = await db.query.eventAttendance.findFirst({
-            where: and(
-              eq(eventAttendance.eventId, eventId),
-              inArray(eventAttendance.personId, personIds)
+        // 2. If not found, try person by phone or fullName
+        if (!targetAttendance) {
+          const candidatePersons = await db.query.persons.findMany({
+            where: or(
+              inArray(persons.phoneE164, [norm, `+${rawQuery}`, rawQuery]),
+              ilike(persons.fullName, `%${rawQuery}%`),
+              ilike(persons.phoneE164, `%${rawQuery}%`)
             ),
-            with: { person: true },
+            columns: { id: true },
+            limit: 15,
           });
+
+          const personIds = candidatePersons.map((p) => p.id);
+          if (personIds.length > 0) {
+            targetAttendance = await db.query.eventAttendance.findFirst({
+              where: and(
+                eq(eventAttendance.eventId, eventId),
+                inArray(eventAttendance.personId, personIds)
+              ),
+              with: { person: true },
+            });
+          }
         }
       }
 

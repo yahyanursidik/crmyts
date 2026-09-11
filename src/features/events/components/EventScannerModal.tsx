@@ -80,6 +80,12 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
   const [sessionAkhwat, setSessionAkhwat] = useState(0);
   const [recentScans, setRecentScans] = useState<ScanResultItem[]>([]);
 
+  // Event Details & Participants State for Realtime KPI and Manual Search
+  const [eventData, setEventData] = useState<any | null>(null);
+  const [loadingEvent, setLoadingEvent] = useState(false);
+  const [manualSearchQuery, setManualSearchQuery] = useState('');
+  const [checkingInId, setCheckingInId] = useState<string | null>(null);
+
   // Camera stream refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -219,10 +225,35 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
     };
   }, [isOpen, activeTab, facingMode]);
 
+  // Load Event & Participants for Realtime Gate Presence & Search
+  const loadEventData = useCallback(async () => {
+    if (!eventId) return;
+    try {
+      setLoadingEvent(true);
+      const res = await apiClient<any>(`/events/${eventId}`);
+      if (res.data) {
+        setEventData(res.data);
+      }
+    } catch (e) {
+      console.warn('Gagal memuat data event di scanner gate:', e);
+    } finally {
+      setLoadingEvent(false);
+    }
+  }, [eventId]);
+
+  useEffect(() => {
+    if (isOpen) {
+      loadEventData();
+    }
+  }, [isOpen, loadEventData]);
+
   // Execute scan verify backend call
   const handleExecuteScan = async (params: { ticketCode?: string; phoneQuery?: string; attendanceId?: string }) => {
     if (scanInFlightRef.current) return;
     scanInFlightRef.current = true;
+    if (params.attendanceId) {
+      setCheckingInId(params.attendanceId);
+    }
     try {
       setLoading(true);
       const res = await apiClient<ScanResponse>(`/events/${eventId}/attendances/scan`, {
@@ -248,6 +279,19 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
             timestamp: nowFormatted,
           });
           playFeedbackTone('warning');
+
+          // Ensure local state reflects attended
+          setEventData((prev: any) => {
+            if (!prev?.participants) return prev;
+            return {
+              ...prev,
+              participants: prev.participants.map((p: any) =>
+                p.id === item.id || p.ticketCode === item.ticketCode
+                  ? { ...p, status: 'attended', checkInAt: item.checkInAt || res.data.previousCheckInAt }
+                  : p
+              ),
+            };
+          });
         } else {
           // Success: Check-in OK
           setScanStatus({
@@ -267,7 +311,20 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
             setSessionIkhwan((prev) => prev + 1);
           }
 
-          setRecentScans((prev) => [item, ...prev.slice(0, 7)]);
+          // Update local participant list status so manual search reflects it immediately
+          setEventData((prev: any) => {
+            if (!prev?.participants) return prev;
+            return {
+              ...prev,
+              participants: prev.participants.map((p: any) =>
+                p.id === item.id || p.ticketCode === item.ticketCode
+                  ? { ...p, status: 'attended', checkInAt: item.checkInAt || new Date().toISOString() }
+                  : p
+              ),
+            };
+          });
+
+          setRecentScans((prev) => [item, ...prev.filter(r => r.id !== item.id).slice(0, 7)]);
           if (onAttendeeCheckIn) onAttendeeCheckIn();
         }
       }
@@ -282,6 +339,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
     } finally {
       scanInFlightRef.current = false;
       setLoading(false);
+      setCheckingInId(null);
       setTicketInput('');
       setPhoneQuery('');
       // Auto re-focus input for next scan
@@ -302,6 +360,25 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
     if (!phoneQuery.trim()) return;
     handleExecuteScan({ phoneQuery: phoneQuery.trim() });
   };
+
+  // Participants list & realtime calculations
+  const participantsList: any[] = eventData?.participants || [];
+  const filteredParticipants = participantsList.filter((p: any) => {
+    if (!manualSearchQuery.trim()) return true;
+    const q = manualSearchQuery.toLowerCase().trim();
+    const nameMatch = p.personName && p.personName.toLowerCase().includes(q);
+    const phoneMatch = p.personPhone && p.personPhone.toLowerCase().includes(q);
+    const ticketMatch = p.ticketCode && p.ticketCode.toLowerCase().includes(q);
+    const cityMatch = p.personCity && p.personCity.toLowerCase().includes(q);
+    return Boolean(nameMatch || phoneMatch || ticketMatch || cityMatch);
+  });
+
+  const totalAttended = participantsList.filter((p) => p.status === 'attended').length;
+  const totalRegistered = participantsList.length || eventData?.totalParticipants || 0;
+  const ikhwanAttended = participantsList.filter((p) => p.status === 'attended' && p.personGender === 'ikhwan').length;
+  const akhwatAttended = participantsList.filter((p) => p.status === 'attended' && p.personGender === 'akhwat').length;
+  const totalIkhwan = participantsList.filter((p) => p.personGender === 'ikhwan').length;
+  const totalAkhwat = participantsList.filter((p) => p.personGender === 'akhwat').length;
 
   if (!isOpen) return null;
 
@@ -364,27 +441,63 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
           </div>
         </div>
 
-        {/* 2. Session KPI Bar */}
+        {/* 2. Session KPI Bar (Realtime Database & Session Live Stats) */}
         <div className="bg-slate-950 px-4 sm:px-6 py-2.5 border-b border-slate-800/80 grid grid-cols-3 gap-2 sm:gap-4 text-center">
-          <div className="p-2 bg-slate-900/90 rounded-xl border border-slate-800">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Scan Sesi Ini</span>
-            <span className="text-lg sm:text-xl font-black text-emerald-400 font-display block mt-0.5">
-              {sessionCount} <span className="text-xs font-medium text-slate-400">Jamaah</span>
-            </span>
+          <div className="p-2 bg-slate-900/90 rounded-xl border border-slate-800 flex flex-col justify-center">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Hadir</span>
+              {sessionCount > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-700/60">
+                  +{sessionCount} sesi ini
+                </span>
+              )}
+            </div>
+            <div className="flex items-baseline justify-center gap-1 mt-0.5">
+              <span className="text-lg sm:text-xl font-black text-emerald-400 font-display">
+                {totalAttended}
+              </span>
+              <span className="text-xs font-semibold text-slate-400">
+                / {totalRegistered} <span className="hidden sm:inline">Jamaah</span>
+              </span>
+            </div>
           </div>
 
-          <div className="p-2 bg-slate-900/90 rounded-xl border border-slate-800">
-            <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider block">🕌 Ikhwan</span>
-            <span className="text-lg sm:text-xl font-black text-sky-300 font-display block mt-0.5">
-              {sessionIkhwan}
-            </span>
+          <div className="p-2 bg-slate-900/90 rounded-xl border border-slate-800 flex flex-col justify-center">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider block">🕌 Ikhwan Hadir</span>
+              {sessionIkhwan > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-sky-950 text-sky-300 border border-sky-700/60">
+                  +{sessionIkhwan}
+                </span>
+              )}
+            </div>
+            <div className="flex items-baseline justify-center gap-1 mt-0.5">
+              <span className="text-lg sm:text-xl font-black text-sky-300 font-display">
+                {ikhwanAttended}
+              </span>
+              <span className="text-xs font-medium text-slate-400">
+                / {totalIkhwan}
+              </span>
+            </div>
           </div>
 
-          <div className="p-2 bg-slate-900/90 rounded-xl border border-slate-800">
-            <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wider block">🌸 Akhwat</span>
-            <span className="text-lg sm:text-xl font-black text-rose-300 font-display block mt-0.5">
-              {sessionAkhwat}
-            </span>
+          <div className="p-2 bg-slate-900/90 rounded-xl border border-slate-800 flex flex-col justify-center">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wider block">🌸 Akhwat Hadir</span>
+              {sessionAkhwat > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-rose-950 text-rose-300 border border-rose-700/60">
+                  +{sessionAkhwat}
+                </span>
+              )}
+            </div>
+            <div className="flex items-baseline justify-center gap-1 mt-0.5">
+              <span className="text-lg sm:text-xl font-black text-rose-300 font-display">
+                {akhwatAttended}
+              </span>
+              <span className="text-xs font-medium text-slate-400">
+                / {totalAkhwat}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -513,15 +626,121 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
                   </button>
                 </div>
               ) : (
-                <div className="text-center py-12 space-y-3">
-                  <div className="w-14 h-14 bg-slate-900 rounded-full flex items-center justify-center mx-auto text-slate-500 border border-slate-800">
-                    <Search className="w-6 h-6" />
+                <div className="w-full flex flex-col h-full space-y-2.5">
+                  {/* Search Bar for Manual Search */}
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Cari nama jamaah, nomor WA, atau kode tiket..."
+                      value={manualSearchQuery}
+                      onChange={(e) => setManualSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-8 py-2.5 bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 transition-all"
+                    />
+                    {manualSearchQuery && (
+                      <button
+                        onClick={() => setManualSearchQuery('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs px-1"
+                      >
+                        ✕
+                      </button>
+                    )}
                   </div>
-                  <div>
-                    <h4 className="font-bold text-slate-200 text-sm">Mode Pencarian Manual Aktif</h4>
-                    <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
-                      Ketik nomor WhatsApp, nama jamaah, atau kode tiket di kolom sebelah kanan.
-                    </p>
+
+                  {/* Filter Subtext & Refresh */}
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+                    <span>
+                      Daftar Peserta Terdaftar ({filteredParticipants.length} dari {participantsList.length})
+                    </span>
+                    <button
+                      onClick={loadEventData}
+                      disabled={loadingEvent}
+                      className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-semibold cursor-pointer"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${loadingEvent ? 'animate-spin' : ''}`} />
+                      <span>Segarkan Data</span>
+                    </button>
+                  </div>
+
+                  {/* Scrollable list of participants */}
+                  <div className="flex-1 overflow-y-auto max-h-[280px] sm:max-h-[320px] space-y-2 pr-1">
+                    {loadingEvent && participantsList.length === 0 ? (
+                      <div className="py-12 text-center text-xs text-slate-400">
+                        <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-emerald-400" />
+                        Memuat data pendaftar kajian...
+                      </div>
+                    ) : filteredParticipants.length === 0 ? (
+                      <div className="py-12 text-center text-xs text-slate-500 space-y-1">
+                        <p className="font-semibold text-slate-400">Tidak ada peserta yang cocok</p>
+                        <p className="text-[11px]">Coba cari dengan kata kunci nama atau nomor telepon lain.</p>
+                      </div>
+                    ) : (
+                      filteredParticipants.map((p: any) => {
+                        const isAttended = p.status === 'attended';
+                        const isCheckingThis = checkingInId === p.id;
+                        return (
+                          <div
+                            key={p.id}
+                            className={`p-2.5 rounded-xl border transition-all flex items-center justify-between gap-3 text-xs ${
+                              isAttended
+                                ? 'bg-emerald-950/40 border-emerald-800/40 text-slate-300'
+                                : 'bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-200'
+                            }`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-bold text-white text-sm truncate">
+                                  {p.personName}
+                                </span>
+                                <span
+                                  className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                                    p.personGender === 'akhwat'
+                                      ? 'bg-rose-950 text-rose-300 border border-rose-800/50'
+                                      : 'bg-sky-950 text-sky-300 border border-sky-800/50'
+                                  }`}
+                                >
+                                  {p.personGender === 'akhwat' ? '🌸 Akhwat' : '🕌 Ikhwan'}
+                                </span>
+                                {p.vehicleType && p.vehicleType !== 'none' && (
+                                  <span className="text-[10px] text-slate-400 font-medium">
+                                    {p.vehicleType === 'car' ? '🚗' : '🛵'} {p.vehiclePlateNumber || ''}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400 font-mono">
+                                <span>{p.personPhone}</span>
+                                <span>•</span>
+                                <span className="text-emerald-400 font-semibold">{p.ticketCode}</span>
+                              </div>
+                            </div>
+
+                            {/* Action / Status */}
+                            <div className="shrink-0">
+                              {isAttended ? (
+                                <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-900/60 text-emerald-300 border border-emerald-700/60 flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                  <span>Sudah Hadir</span>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleExecuteScan({ attendanceId: p.id })}
+                                  disabled={loading || isCheckingThis}
+                                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white shadow-xs transition-all flex items-center gap-1 cursor-pointer"
+                                >
+                                  {isCheckingThis ? (
+                                    <RefreshCw className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <CheckCircle2 className="w-3 h-3" />
+                                  )}
+                                  <span>Presensi</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
               )}
@@ -585,12 +804,12 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
               <form onSubmit={handlePhoneSearchSubmit} className="space-y-2 pt-2 border-t border-slate-800">
                 <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
                   <Search className="w-3.5 h-3.5 text-sky-400" />
-                  <span>Cari No. WA Jamaah (Darurat)</span>
+                  <span>Cari No. WA / Nama Jamaah (Darurat)</span>
                 </label>
                 <div className="relative">
                   <input
                     type="text"
-                    placeholder="Contoh: 081234567890..."
+                    placeholder="Contoh: 081234567890 atau Nama..."
                     value={phoneQuery}
                     onChange={(e) => setPhoneQuery(e.target.value)}
                     disabled={loading}
