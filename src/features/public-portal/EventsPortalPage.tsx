@@ -559,15 +559,13 @@ export function EventsPortalPage() {
               <span className="hidden sm:inline">Jadwal Kajian</span>
             </Link>
 
-            {!isSingleEvent && (
-              <Link
-                to="/bazar"
-                className="px-3 py-2 rounded-xl text-xs font-bold text-slate-700 hover:text-emerald-950 hover:bg-emerald-50 items-center gap-1.5 transition-all flex border border-slate-200/80 shadow-2xs bg-white"
-              >
-                <Store className="w-3.5 h-3.5 text-amber-600" />
-                <span className="hidden sm:inline">Bazar UMKM</span>
-              </Link>
-            )}
+            <Link
+              to={isSingleEvent && selectedEvent ? `/bazar/${selectedEvent.id}` : "/bazar"}
+              className="px-3 py-2 rounded-xl text-xs font-bold text-slate-700 hover:text-emerald-950 hover:bg-emerald-50 items-center gap-1.5 transition-all flex border border-slate-200/80 shadow-2xs bg-white"
+            >
+              <Store className="w-3.5 h-3.5 text-amber-600" />
+              <span className="hidden sm:inline">Bazar UMKM</span>
+            </Link>
 
             <Link
               to="/donasi"
@@ -985,6 +983,48 @@ export function EventsPortalPage() {
                         )}
                       </div>
                     )}
+                  </div>
+
+                  {/* Bazar & Stan UMKM Majelis */}
+                  <div className="event-info-panel bg-white p-6 border border-amber-200/70 rounded-3xl shadow-sm space-y-3 relative overflow-hidden">
+                    <div className="flex items-center justify-between pb-2 border-b border-amber-100">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center">
+                          <Store className="w-4 h-4 text-amber-700" />
+                        </div>
+                        <div>
+                          <h3 className="text-base font-bold text-slate-900 font-display">
+                            Bazar &amp; Stan UMKM Majelis Ilmu
+                          </h3>
+                          <p className="text-[11px] text-slate-500">Peluang perniagaan halal &amp; berkah bagi jamaah</p>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-200">
+                        Pendaftaran Terbuka
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-slate-700 leading-relaxed">
+                      Bagi jamaah pelaku usaha UMKM (kuliner halal, busana syar'i, buku, herbal, dan produk sunnah) yang ingin membuka stan perniagaan selama kajian ini, panitia menyediakan fasilitas stan bazar resmi.
+                    </p>
+
+                    <div className="pt-2 flex flex-col sm:flex-row items-center gap-2.5">
+                      <Link
+                        to={`/bazar/${selectedEvent.id}`}
+                        className="w-full sm:w-auto px-4 py-2.5 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2"
+                      >
+                        <Store className="w-3.5 h-3.5 text-[#E0B970]" />
+                        <span>Daftar Stan Bazar UMKM</span>
+                      </Link>
+
+                      <Link
+                        to={`/bazar/${selectedEvent.id}?tab=status`}
+                        className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2"
+                      >
+                        <Search className="w-3.5 h-3.5" />
+                        <span>Cek Status &amp; Upload Bukti Bayar</span>
+                      </Link>
+                    </div>
                   </div>
 
                   {/* Tata Tertib & Batasan Majelis */}

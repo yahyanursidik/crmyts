@@ -32,6 +32,7 @@ describe('PRD Web App YTS Bazar – Tenant & Event Management System', () => {
       },
       bazaarEvents: {
         findFirst: vi.fn(),
+        findMany: vi.fn(),
       },
       bazaarBooths: {
         findFirst: vi.fn(),
@@ -591,6 +592,47 @@ describe('PRD Web App YTS Bazar – Tenant & Event Management System', () => {
     const json = JSON.parse(res.body);
     expect(json.data.application.status).toBe('payment_verification');
     expect(json.data.application.paymentProofUrl).toBe('https://storage.yts.web.id/proofs/transfer_123.jpg');
+  });
+
+  it('13. GET /api/public/bazaars returns active bazaars with booth counts and event details', async () => {
+    mockDb.query.bazaarEvents.findMany.mockResolvedValue([
+      {
+        id: sampleBazaarId,
+        eventId: sampleEventId,
+        title: 'Bazar Daurah Syawal',
+        defaultFeeRupiah: 150000,
+        isOpen: true,
+        booths: [
+          { id: 'b1', code: 'A-01', status: 'available' },
+          { id: 'b2', code: 'A-02', status: 'assigned' },
+        ],
+        event: {
+          id: sampleEventId,
+          title: 'Kajian Daurah Syawal',
+          speaker: 'Ustadz Fulan',
+          startAt: new Date().toISOString(),
+          locationName: 'Masjid Tarbiyah Sunnah',
+        },
+      },
+    ]);
+
+    const res = await router.handle({
+      requestId: 'req_bazaar_13',
+      method: 'GET',
+      path: '/api/public/bazaars',
+      headers: {},
+      query: {},
+      params: {},
+      body: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data).toHaveLength(1);
+    expect(json.data[0].title).toBe('Bazar Daurah Syawal');
+    expect(json.data[0].boothsCount).toBe(2);
+    expect(json.data[0].availableBoothsCount).toBe(1);
+    expect(json.data[0].event.title).toBe('Kajian Daurah Syawal');
   });
 });
 

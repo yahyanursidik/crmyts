@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useParams, Link } from 'react-router';
+import { useParams, Link, useSearchParams } from 'react-router';
 import { apiClient } from '@/lib/apiClient';
 import {
   Store,
@@ -150,7 +150,9 @@ const ELECTRICITY_PRICE_TIERS: Record<number, number> = {
 
 export const BazaarPortalPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const [data, setData] = useState<PublicBazaarResponse | null>(null);
+  const [bazaarDirectory, setBazaarDirectory] = useState<any[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -216,13 +218,36 @@ export const BazaarPortalPage: React.FC = () => {
   };
 
   useEffect(() => {
-    async function loadPublicBazaar() {
-      if (!id) return;
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'status') {
+      setActiveTab('status');
+    }
+    const phoneParam = searchParams.get('phone');
+    if (phoneParam) {
+      setStatusSearchPhone(phoneParam);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    async function loadData() {
       try {
         setLoading(true);
         setError(null);
-        const res = await apiClient<PublicBazaarResponse>(`/public/events/${id}/bazaar`);
-        setData(res.data);
+
+        if (id) {
+          const res = await apiClient<PublicBazaarResponse>(`/public/events/${id}/bazaar`);
+          setData(res.data);
+        } else {
+          // Accessed via /bazar without event ID -> fetch active bazaars directory
+          const res = await apiClient<any[]>('/public/bazaars');
+          const list = res.data || [];
+          if (list.length === 1 && list[0].eventId) {
+            const singleRes = await apiClient<PublicBazaarResponse>(`/public/events/${list[0].eventId}/bazaar`);
+            setData(singleRes.data);
+          } else {
+            setBazaarDirectory(list);
+          }
+        }
       } catch (err: any) {
         setError(err.message || 'Gagal memuat formulir pendaftaran bazar kajian.');
       } finally {
@@ -230,7 +255,7 @@ export const BazaarPortalPage: React.FC = () => {
       }
     }
 
-    loadPublicBazaar();
+    loadData();
   }, [id]);
 
   const handleCopyAccount = (acc: string) => {
@@ -456,6 +481,147 @@ export const BazaarPortalPage: React.FC = () => {
     return (
       <div className="min-h-screen bg-[#FBF9F4] flex flex-col items-center justify-center p-4">
         <LoadingState message="Memuat formulir pendaftaran stan bazar kajian YTS..." />
+      </div>
+    );
+  }
+
+  if (bazaarDirectory && !data) {
+    return (
+      <div className="min-h-screen bg-[#F7F4EC] text-[#1C2321] selection:bg-[#E0B970] selection:text-[#14352A] flex flex-col justify-between font-sans">
+        <header className="border-b border-[#1B4332]/12 bg-[#FBF9F4]/95 backdrop-blur-md sticky top-0 z-30">
+          <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <BrandEmblem size="sm" />
+              <div>
+                <span className="text-[10px] font-mono font-bold text-[#B58B3C] uppercase tracking-wider block">
+                  Yayasan Tarbiyah Sunnah
+                </span>
+                <h1 className="text-sm sm:text-base font-bold text-[#1C2321] font-display leading-tight">
+                  Direktori Bazar &amp; Stan UMKM Majelis Ilmu
+                </h1>
+              </div>
+            </div>
+
+            <Link
+              to="/kajian"
+              className="text-xs font-semibold text-[#6B7A72] hover:text-[#1B4332] flex items-center gap-1.5 transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Jadwal Kajian</span>
+            </Link>
+          </div>
+        </header>
+
+        <main className="max-w-4xl mx-auto px-4 py-8 sm:py-12 flex-1 w-full space-y-6">
+          <div className="bg-gradient-to-br from-[#14352A] via-[#1B4332] to-[#0F4C4A] rounded-3xl p-6 sm:p-8 text-white shadow-xl space-y-3">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-[#E0B970] border border-white/20 text-[10.5px] font-mono font-bold uppercase tracking-wider">
+              <Store className="w-3.5 h-3.5 text-[#E0B970]" />
+              <span>PEMBERDAYAAN EKONOMI UMKM JAMAAH</span>
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold font-display text-white">
+              Daftar Bazar Kajian &amp; Majelis Ilmu Aktif
+            </h2>
+            <p className="text-xs sm:text-sm text-white/80 max-w-2xl leading-relaxed">
+              Silakan pilih kegiatan majelis ilmu di bawah ini untuk mendaftarkan stan usaha Anda atau memantau status kurasi pendaftaran.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {bazaarDirectory.map((b) => (
+              <div
+                key={b.id}
+                className="bg-[#FBF9F4] rounded-3xl p-5 sm:p-6 border border-[#1B4332]/12 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-4"
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-mono font-bold text-[#B58B3C] uppercase block">
+                      Kajian Resmi YTS
+                    </span>
+                    {b.boothsCount > 0 && (
+                      <span className="text-[10.5px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-200">
+                        {b.availableBoothsCount} dari {b.boothsCount} Stand Tersedia
+                      </span>
+                    )}
+                  </div>
+
+                  <h3 className="text-base font-bold text-[#1C2321] font-display leading-snug">
+                    {b.title || b.event?.title}
+                  </h3>
+
+                  {b.event?.speaker && (
+                    <p className="text-xs text-[#1B4332] font-semibold">
+                      Pemateri: {b.event.speaker}
+                    </p>
+                  )}
+
+                  <div className="space-y-1 text-xs text-[#6B7A72] pt-1">
+                    {b.event?.startAt && (
+                      <div className="flex items-center gap-2">
+                        <Calendar className="w-3.5 h-3.5 text-[#1B4332] shrink-0" />
+                        <span>
+                          {new Date(b.event.startAt).toLocaleDateString('id-ID', {
+                            weekday: 'long',
+                            day: 'numeric',
+                            month: 'long',
+                            year: 'numeric',
+                          })}
+                        </span>
+                      </div>
+                    )}
+                    {b.event?.locationName && (
+                      <div className="flex items-center gap-2">
+                        <MapPin className="w-3.5 h-3.5 text-[#1B4332] shrink-0" />
+                        <span className="truncate">{b.event.locationName}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-[#1B4332]/10 space-y-2.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-[#6B7A72]">Infaq Stand Mulai:</span>
+                    <span className="font-bold font-mono text-[#14352A]">
+                      {formatRupiah(b.defaultFeeRupiah || 150000)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Link
+                      to={`/bazar/${b.eventId}`}
+                      className="flex-1 py-2.5 px-3 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-bold text-center transition-all shadow-xs flex items-center justify-center gap-1.5"
+                    >
+                      <Store className="w-3.5 h-3.5 text-[#E0B970]" />
+                      <span>Daftar Stan</span>
+                    </Link>
+
+                    <Link
+                      to={`/bazar/${b.eventId}?tab=status`}
+                      className="py-2.5 px-3 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#1B4332] rounded-xl text-xs font-bold transition-all border border-[#1B4332]/15 flex items-center justify-center gap-1"
+                    >
+                      <Search className="w-3.5 h-3.5" />
+                      <span>Cek Status</span>
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {bazaarDirectory.length === 0 && (
+            <div className="p-8 bg-[#FBF9F4] rounded-3xl border border-[#1B4332]/15 text-center space-y-3">
+              <Store className="w-10 h-10 text-[#B58B3C] mx-auto" />
+              <h3 className="text-base font-bold text-[#1C2321]">Belum Ada Bazar yang Dibuka</h3>
+              <p className="text-xs text-[#6B7A72]">
+                Saat ini belum ada kegiatan bazar majelis ilmu yang sedang membuka pendaftaran. Silakan periksa kembali berkala.
+              </p>
+            </div>
+          )}
+        </main>
+
+        <footer className="border-t border-[#1B4332]/12 bg-[#FBF9F4] py-6 text-center text-xs text-[#6B7A72] space-y-1">
+          <p className="font-semibold text-[#1C2321]">Yayasan Tarbiyah Sunnah Bandung</p>
+          <p className="text-[11px]">Biro Pemberdayaan Ekonomi Umat &amp; Majelis Ilmu Syar'i</p>
+        </footer>
       </div>
     );
   }

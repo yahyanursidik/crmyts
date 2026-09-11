@@ -1473,6 +1473,46 @@ export function registerBazaarRoutes(router: Router) {
   );
 
   // 9. PUBLIC PORTAL
+  // Public List of Active Bazaars (Across all events)
+  router.get('/api/public/bazaars', async (ctx) => {
+    const db = getDb();
+    await ensureBazaarTablesExist(db);
+
+    const bazaars = await db.query.bazaarEvents.findMany({
+      where: eq(bazaarEvents.isOpen, true),
+      orderBy: [desc(bazaarEvents.createdAt)],
+      with: {
+        event: true,
+        booths: true,
+      },
+    });
+
+    const list = bazaars.map((b) => ({
+      id: b.id,
+      eventId: b.eventId,
+      title: b.title,
+      description: b.description,
+      defaultFeeRupiah: b.defaultFeeRupiah,
+      registrationDeadline: b.registrationDeadline,
+      paymentDeadline: b.paymentDeadline,
+      isOpen: b.isOpen,
+      boothsCount: b.booths?.length || 0,
+      availableBoothsCount: b.booths?.filter((booth) => booth.status === 'available').length || 0,
+      event: b.event
+        ? {
+            id: b.event.id,
+            title: b.event.title,
+            speaker: b.event.speaker,
+            startAt: b.event.startAt,
+            endAt: b.event.endAt,
+            locationName: b.event.locationName,
+          }
+        : null,
+    }));
+
+    return successResponse(list, { requestId: ctx.requestId });
+  });
+
   router.get('/api/public/events/:id/bazaar', async (ctx) => {
     const db = getDb();
     await ensureBazaarTablesExist(db);

@@ -131,6 +131,7 @@ export function App() {
             <Route path="/kajian/:id/bazar" element={<BazaarPortalPage />} />
             <Route path="/kajian/:id/bazar/survey" element={<BazaarSurveyPortalPage />} />
             <Route path="/kajian/:id/bazar/survei" element={<BazaarSurveyPortalPage />} />
+            <Route path="/bazar" element={<BazaarPortalPage />} />
             <Route path="/bazar/:id" element={<BazaarPortalPage />} />
             <Route path="/bazar/:id/survey" element={<BazaarSurveyPortalPage />} />
             <Route path="/bazar/:id/survei" element={<BazaarSurveyPortalPage />} />
