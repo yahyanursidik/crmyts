@@ -203,6 +203,9 @@ export const bazaarEvents = pgTable(
     // Zones configuration e.g. [{ id: 'zone_a', name: 'Selasar Timur', color: '#10b981' }]
     layoutZones: jsonb('layout_zones').$type<Array<{ id: string; name: string; description?: string; color?: string }>>(),
     
+    // Category Quotas configuration e.g. [{ category: 'kuliner', maxQuota: 10 }]
+    categoryQuotas: jsonb('category_quotas').$type<Array<{ category: string; maxQuota: number }>>(),
+    
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },

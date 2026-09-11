@@ -20,6 +20,14 @@ import {
   ThumbsUp,
   Star,
   MessageSquare,
+  Coins,
+  Receipt,
+  Tag,
+  Filter,
+  Layers,
+  Edit,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
 
@@ -116,6 +124,7 @@ interface BazaarEventData {
   surveyDeadline?: string | null;
   surveyEnabled: boolean;
   layoutZones?: Array<{ id: string; name: string; description?: string; color?: string }> | null;
+  categoryQuotas?: Array<{ category: string; maxQuota: number }> | null;
   booths: BazaarBooth[];
   applications: BazaarApplication[];
 }
@@ -177,6 +186,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
   const [searchTenant, setSearchTenant] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [boothCategoryFilter, setBoothCategoryFilter] = useState<string>('all');
 
   // Modals & Selection
   const [selectedApp, setSelectedApp] = useState<BazaarApplication | null>(null);
@@ -187,12 +197,40 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
   const [isIncidentModalOpen, setIsIncidentModalOpen] = useState(false);
   const [isEvaluationModalOpen, setIsEvaluationModalOpen] = useState(false);
 
+  // Fee Adjustment Modal
+  const [isFeeModalOpen, setIsFeeModalOpen] = useState(false);
+  const [feeModalApp, setFeeModalApp] = useState<BazaarApplication | null>(null);
+  const [feeForm, setFeeForm] = useState({
+    infaqAmountRupiah: 150000,
+    paymentNotes: '',
+    status: 'submitted',
+  });
+
+  // Individual Booth Edit Modal
+  const [isEditBoothModalOpen, setIsEditBoothModalOpen] = useState(false);
+  const [editingBooth, setEditingBooth] = useState<BazaarBooth | null>(null);
+  const [editBoothForm, setEditBoothForm] = useState({
+    code: '',
+    name: '',
+    zone: 'Zona Utama',
+    size: '2x2 meter',
+    facilities: '',
+    priceRupiah: 150000,
+    allowedCategory: 'all',
+    status: 'available' as 'available' | 'assigned' | 'reserved' | 'blocked',
+    reservedReason: '',
+    reservedForPartnerName: '',
+  });
+
   // Forms
   const [assignForm, setAssignForm] = useState({
     boothId: '',
     placementReason: 'category_isolation' as any,
     placementNotes: '',
     isPublished: true,
+    syncBoothPrice: true,
+    customInfaqAmount: 150000,
+    overrideFee: false,
   });
 
   const [reserveForm, setReserveForm] = useState({
@@ -246,6 +284,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
     paymentDeadline: '',
     surveyDeadline: '',
     surveyEnabled: true,
+    categoryQuotas: [] as Array<{ category: string; maxQuota: number }>,
   });
 
   const [incidentList, setIncidentList] = useState<any[]>([]);
@@ -346,6 +385,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
           paymentDeadline: res.data.bazaar.paymentDeadline ? res.data.bazaar.paymentDeadline.slice(0, 16) : '',
           surveyDeadline: res.data.bazaar.surveyDeadline ? res.data.bazaar.surveyDeadline.slice(0, 16) : '',
           surveyEnabled: res.data.bazaar.surveyEnabled ?? true,
+          categoryQuotas: res.data.bazaar.categoryQuotas || [],
         });
 
         loadIncidents();
@@ -471,20 +511,30 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
     }
   };
 
-  // Manual Booth Assignment (with Smart Collisions Warning)
+  // Manual Booth Assignment (with Smart Collision & Category Checks & Price Sync)
   const handleAssignBooth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedApp) return;
 
     try {
       setActionLoading(true);
+      const payload: any = {
+        boothId: assignForm.boothId || null,
+        placementReason: assignForm.placementReason,
+        placementNotes: assignForm.placementNotes,
+        isPublished: assignForm.isPublished,
+        syncBoothPrice: assignForm.syncBoothPrice,
+      };
+      if (assignForm.overrideFee) {
+        payload.infaqAmountRupiah = Number(assignForm.customInfaqAmount);
+      }
       const res = await apiClient<any>(`/events/${eventId}/bazaar/applications/${selectedApp.id}/assign-booth`, {
         method: 'PUT',
-        body: JSON.stringify(assignForm),
+        body: JSON.stringify(payload),
       });
 
       if (res.data?.smartWarning) {
-        showToast(`⚠️ Peringatan: ${res.data.smartWarning}`);
+        showToast(`⚠️ ${res.data.smartWarning}`);
       } else {
         showToast('Nomor booth berhasil ditetapkan untuk tenant ini!');
       }
@@ -494,6 +544,76 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
       loadBazaarData();
     } catch (err: any) {
       showToast(err.message || 'Gagal menetapkan booth');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Save Tenant Fee / Infaq Adjustment
+  const handleSaveFee = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!feeModalApp) return;
+
+    try {
+      setActionLoading(true);
+      await apiClient(`/events/${eventId}/bazaar/applications/${feeModalApp.id}/fee`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          infaqAmountRupiah: Number(feeForm.infaqAmountRupiah),
+          paymentNotes: feeForm.paymentNotes,
+          status: feeForm.status,
+        }),
+      });
+      showToast(`Tarif untuk ${feeModalApp.tenant.brandName} berhasil diperbarui!`);
+      setIsFeeModalOpen(false);
+      setFeeModalApp(null);
+      loadBazaarData();
+    } catch (err: any) {
+      showToast(err.message || 'Gagal memperbarui tarif');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Save Individual Booth Editing
+  const handleSaveBooth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBooth) return;
+
+    try {
+      setActionLoading(true);
+      const facList = editBoothForm.facilities.split(',').map((f) => f.trim()).filter(Boolean);
+      await apiClient(`/events/${eventId}/bazaar/booths/${editingBooth.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          ...editBoothForm,
+          priceRupiah: Number(editBoothForm.priceRupiah),
+          facilities: facList,
+        }),
+      });
+      showToast(`Stand ${editBoothForm.code} berhasil diperbarui!`);
+      setIsEditBoothModalOpen(false);
+      setEditingBooth(null);
+      loadBazaarData();
+    } catch (err: any) {
+      showToast(err.message || 'Gagal menyimpan data stand');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Delete Individual Booth
+  const handleDeleteBooth = async (boothId: string) => {
+    if (!window.confirm('Yakin ingin menghapus slot stand ini?')) return;
+    try {
+      setActionLoading(true);
+      await apiClient(`/events/${eventId}/bazaar/booths/${boothId}`, { method: 'DELETE' });
+      showToast('Slot stand berhasil dihapus');
+      setIsEditBoothModalOpen(false);
+      setEditingBooth(null);
+      loadBazaarData();
+    } catch (err: any) {
+      showToast(err.message || 'Gagal menghapus stand');
     } finally {
       setActionLoading(false);
     }
@@ -686,8 +806,36 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
     .filter((a) => a.status === 'payment_verified' || a.status === 'booth_assigned' || a.status === 'checked_in' || a.status === 'completed')
     .reduce((sum, a) => sum + (a.infaqAmountRupiah || 0), 0);
 
+  const totalPotentialInfaq = applications
+    .filter((a) => a.status !== 'rejected' && a.status !== 'cancelled')
+    .reduce((sum, a) => sum + (a.infaqAmountRupiah || 0), 0);
+
+  const freeBoothsCount = applications
+    .filter((a) => (a.status === 'payment_verified' || a.status === 'booth_assigned' || a.status === 'checked_in' || a.status === 'completed') && a.infaqAmountRupiah === 0)
+    .length;
+
   const assignedBoothsCount = booths.filter((b) => b.status === 'assigned').length;
   const reservedBoothsCount = booths.filter((b) => b.status === 'reserved').length;
+
+  // Category statistics & quotas
+  const categoryStats = Object.entries(CATEGORY_LABELS).map(([catKey, catLabel]) => {
+    const appsInCat = applications.filter((a) => a.tenant?.businessCategory === catKey);
+    const quotaObj = (bazaarData?.categoryQuotas || []).find((q) => q.category === catKey);
+    const maxQuota = quotaObj?.maxQuota || 0;
+    const acceptedCount = appsInCat.filter((a) => a.status !== 'rejected' && a.status !== 'cancelled').length;
+    const verifiedInfaqCat = appsInCat
+      .filter((a) => a.status === 'payment_verified' || a.status === 'booth_assigned' || a.status === 'checked_in' || a.status === 'completed')
+      .reduce((sum, a) => sum + (a.infaqAmountRupiah || 0), 0);
+    return {
+      category: catKey,
+      label: catLabel,
+      totalApps: appsInCat.length,
+      acceptedCount,
+      maxQuota,
+      verifiedInfaq: verifiedInfaqCat,
+      isFull: maxQuota > 0 && acceptedCount >= maxQuota,
+    };
+  });
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto animate-fade-in">
@@ -799,6 +947,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
               {/* TAB 1: RINGKASAN & KPI */}
               {activeTab === 'overview' && (
                 <div className="space-y-6">
+                  {/* Top 4 KPI Cards */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
                     <div className="p-4 bg-cream-50/50 rounded-2xl border border-cream-300 space-y-1">
                       <span className="text-[10px] font-bold text-surface-500 uppercase">Total Pendaftar</span>
@@ -840,6 +989,115 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                     </div>
                   </div>
 
+                  {/* Financial KPI Potential & Free Stands */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="p-4 bg-gradient-to-br from-amber-50 to-cream-50 rounded-2xl border border-amber-200/70 space-y-1">
+                      <div className="flex items-center gap-2 text-amber-800">
+                        <Coins className="w-4 h-4 text-amber-600" />
+                        <span className="text-[11px] font-bold uppercase tracking-wider">Infaq Lunas Terverifikasi</span>
+                      </div>
+                      <div className="text-xl font-black text-amber-950 font-display">
+                        Rp {totalVerifiedInfaq.toLocaleString('id-ID')}
+                      </div>
+                      <p className="text-[10px] text-surface-500">Dana riil masuk dari tenant lunas / booth ditetapkan</p>
+                    </div>
+
+                    <div className="p-4 bg-gradient-to-br from-blue-50 to-cream-50 rounded-2xl border border-blue-200/70 space-y-1">
+                      <div className="flex items-center gap-2 text-blue-800">
+                        <Receipt className="w-4 h-4 text-blue-600" />
+                        <span className="text-[11px] font-bold uppercase tracking-wider">Potensi Total Infaq</span>
+                      </div>
+                      <div className="text-xl font-black text-blue-950 font-display">
+                        Rp {totalPotentialInfaq.toLocaleString('id-ID')}
+                      </div>
+                      <p className="text-[10px] text-surface-500">Estimasi total infaq jika semua pendaftar disetujui</p>
+                    </div>
+
+                    <div className="p-4 bg-gradient-to-br from-purple-50 to-cream-50 rounded-2xl border border-purple-200/70 space-y-1">
+                      <div className="flex items-center gap-2 text-purple-800">
+                        <Tag className="w-4 h-4 text-purple-600" />
+                        <span className="text-[11px] font-bold uppercase tracking-wider">Stand Dakwah / Bebas Infaq</span>
+                      </div>
+                      <div className="text-xl font-black text-purple-950 font-display">
+                        {freeBoothsCount} <span className="text-xs font-normal text-surface-600">Stand (Rp 0 Bebas Biaya)</span>
+                      </div>
+                      <p className="text-[10px] text-surface-500">Tenant sponsor atau dakwah binaan khusus yayasan</p>
+                    </div>
+                  </div>
+
+                  {/* Category Composition & Quota Monitoring */}
+                  <div className="bg-white p-5 rounded-3xl border border-cream-300 shadow-2xs space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <h3 className="text-xs font-bold text-brand-950 uppercase tracking-wider flex items-center gap-1.5">
+                          <Layers className="w-4 h-4 text-brand-700" /> Komposisi Kategori & Monitoring Kuota Stand
+                        </h3>
+                        <p className="text-[11px] text-surface-500">
+                          Memastikan variasi kategori seimbang dan pendaftar tidak melampaui kuota alokasi zonasi.
+                        </p>
+                      </div>
+                      <span className="text-[11px] text-surface-500 italic">
+                        Klik kategori untuk memfilter data di tab Seleksi
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {categoryStats.map((cat) => {
+                        const pct = cat.maxQuota > 0 ? Math.min(100, Math.round((cat.acceptedCount / cat.maxQuota) * 100)) : 0;
+                        return (
+                          <div
+                            key={cat.category}
+                            onClick={() => {
+                              setCategoryFilter(cat.category);
+                              setActiveTab('applications');
+                            }}
+                            className={`p-3.5 rounded-2xl border transition-all cursor-pointer hover:shadow-xs hover:border-brand-500 ${
+                              cat.isFull
+                                ? 'bg-red-50/40 border-red-200'
+                                : 'bg-cream-50/40 border-cream-200'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="font-bold text-xs text-brand-950 truncate">{cat.label}</span>
+                              {cat.isFull ? (
+                                <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full bg-red-600 text-white shrink-0">
+                                  Penuh
+                                </span>
+                              ) : cat.maxQuota > 0 ? (
+                                <span className="text-[10px] font-bold text-surface-500 shrink-0">
+                                  {cat.acceptedCount} / {cat.maxQuota}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold text-surface-500 shrink-0">
+                                  {cat.acceptedCount} Tenant
+                                </span>
+                              )}
+                            </div>
+
+                            {cat.maxQuota > 0 && (
+                              <div className="w-full bg-cream-200 rounded-full h-1.5 mt-2.5 overflow-hidden">
+                                <div
+                                  className={`h-1.5 rounded-full transition-all ${
+                                    cat.isFull ? 'bg-red-600' : pct >= 80 ? 'bg-amber-500' : 'bg-emerald-600'
+                                  }`}
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                            )}
+
+                            <div className="flex items-center justify-between text-[10px] text-surface-500 mt-2">
+                              <span>Total Daftar: {cat.totalApps}</span>
+                              <span className="font-mono font-bold text-amber-900">
+                                Infaq: Rp {cat.verifiedInfaq.toLocaleString('id-ID')}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 12 Status Lifecycle Table */}
                   <div className="bg-white p-5 rounded-3xl border border-cream-300 shadow-2xs space-y-4">
                     <h3 className="text-xs font-bold text-surface-700 uppercase tracking-wider flex items-center gap-1.5">
                       <Clock className="w-4 h-4 text-brand-700" /> Tahapan Siklus Pendaftaran (12 Status)
@@ -873,11 +1131,27 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                     <div>
                       <h4 className="text-xs font-bold text-brand-950">Denah Slot Stand & Kurasi Penempatan</h4>
                       <p className="text-[11px] text-surface-600">
-                        Penetapan booth dikurasi oleh Panitia untuk mencegah penumpukan kategori sejenis dan menjaga arus jamaah.
+                        Klik pada kartu stand untuk mengubah harga, zonasi kategori, atau fasilitas stand.
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <Filter className="w-3.5 h-3.5 text-surface-400" />
+                        <select
+                          value={boothCategoryFilter}
+                          onChange={(e) => setBoothCategoryFilter(e.target.value)}
+                          className="px-2.5 py-1.5 border border-cream-300 rounded-xl bg-white font-bold text-surface-700 text-xs"
+                        >
+                          <option value="all">Semua Zonasi Kategori</option>
+                          {Object.entries(CATEGORY_LABELS).map(([k, v]) => (
+                            <option key={k} value={k}>
+                              {v}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
                       <button
                         onClick={() => setIsBulkBoothModalOpen(true)}
                         className="px-3 py-1.5 bg-brand-900 hover:bg-brand-950 text-white rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center gap-1"
@@ -906,52 +1180,88 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                      {booths.map((b) => {
-                        const isAvailable = b.status === 'available';
-                        const isAssigned = b.status === 'assigned';
-                        const isReserved = b.status === 'reserved';
+                      {booths
+                        .filter(
+                          (b) =>
+                            boothCategoryFilter === 'all' ||
+                            b.allowedCategory === boothCategoryFilter ||
+                            (boothCategoryFilter !== 'all' && b.allowedCategory === 'all')
+                        )
+                        .map((b) => {
+                          const isAvailable = b.status === 'available';
+                          const isAssigned = b.status === 'assigned';
+                          const isReserved = b.status === 'reserved';
 
-                        return (
-                          <div
-                            key={b.id}
-                            className={`p-3.5 rounded-2xl border text-xs flex flex-col justify-between space-y-2 transition-all ${
-                              isAvailable
-                                ? 'bg-emerald-50/50 border-emerald-200 text-emerald-950'
-                                : isAssigned
-                                ? 'bg-blue-50/50 border-blue-200 text-blue-950'
-                                : isReserved
-                                ? 'bg-purple-50/50 border-purple-200 text-purple-950'
-                                : 'bg-gray-100 border-gray-300 text-gray-700'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="font-black text-sm font-display">{b.code}</span>
-                              <span
-                                className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
-                                  isAvailable
-                                    ? 'bg-emerald-100 text-emerald-800'
-                                    : isAssigned
-                                    ? 'bg-blue-100 text-blue-800'
-                                    : isReserved
-                                    ? 'bg-purple-100 text-purple-800'
-                                    : 'bg-gray-200 text-gray-800'
-                                }`}
-                              >
-                                {isAvailable ? 'Kosong' : isAssigned ? 'Terisi' : isReserved ? 'Reserved' : 'Blokir'}
-                              </span>
-                            </div>
+                          return (
+                            <div
+                              key={b.id}
+                              onClick={() => {
+                                setEditingBooth(b);
+                                setEditBoothForm({
+                                  code: b.code,
+                                  name: b.name,
+                                  zone: b.zone,
+                                  size: b.size,
+                                  facilities: (b.facilities || []).join(', '),
+                                  priceRupiah: b.priceRupiah,
+                                  allowedCategory: b.allowedCategory || 'all',
+                                  status: b.status,
+                                  reservedReason: b.reservedReason || '',
+                                  reservedForPartnerName: b.reservedForPartnerName || '',
+                                });
+                                setIsEditBoothModalOpen(true);
+                              }}
+                              className={`p-3.5 rounded-2xl border text-xs flex flex-col justify-between space-y-2 transition-all cursor-pointer hover:shadow-md hover:scale-101 ${
+                                isAvailable
+                                  ? 'bg-emerald-50/50 border-emerald-200 text-emerald-950'
+                                  : isAssigned
+                                  ? 'bg-blue-50/50 border-blue-200 text-blue-950'
+                                  : isReserved
+                                  ? 'bg-purple-50/50 border-purple-200 text-purple-950'
+                                  : 'bg-gray-100 border-gray-300 text-gray-700'
+                              }`}
+                              title="Klik untuk mengubah tarif, zonasi, atau edit stand"
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-black text-sm font-display">{b.code}</span>
+                                <div className="flex items-center gap-1">
+                                  <span
+                                    className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
+                                      isAvailable
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : isAssigned
+                                        ? 'bg-blue-100 text-blue-800'
+                                        : isReserved
+                                        ? 'bg-purple-100 text-purple-800'
+                                        : 'bg-gray-200 text-gray-800'
+                                    }`}
+                                  >
+                                    {isAvailable ? 'Kosong' : isAssigned ? 'Terisi' : isReserved ? 'Reserved' : 'Blokir'}
+                                  </span>
+                                  <Edit className="w-3 h-3 text-surface-400 opacity-60 group-hover:opacity-100" />
+                                </div>
+                              </div>
 
-                            <div>
-                              <p className="text-[11px] font-bold truncate">{b.zone}</p>
-                              <p className="text-[10px] text-surface-500">
-                                {isReserved && b.reservedForPartnerName
-                                  ? `Mitra: ${b.reservedForPartnerName}`
-                                  : `Rp ${b.priceRupiah.toLocaleString('id-ID')}`}
-                              </p>
+                              <div>
+                                <p className="text-[11px] font-bold truncate">{b.zone}</p>
+                                <p className="text-[10px] font-mono font-bold text-surface-700">
+                                  {isReserved && b.reservedForPartnerName
+                                    ? `Mitra: ${b.reservedForPartnerName}`
+                                    : `Rp ${b.priceRupiah.toLocaleString('id-ID')}`}
+                                </p>
+                              </div>
+
+                              <div className="pt-1 border-t border-cream-200/60 flex items-center gap-1 text-[9px] text-surface-500 truncate">
+                                <Tag className="w-2.5 h-2.5 shrink-0" />
+                                <span className="truncate">
+                                  {b.allowedCategory === 'all'
+                                    ? 'Semua Kategori'
+                                    : CATEGORY_LABELS[b.allowedCategory] || b.allowedCategory}
+                                </span>
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
                     </div>
                   )}
 
@@ -983,6 +1293,55 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
               {/* TAB 3: SELEKSI TENANT & KEUANGAN */}
               {activeTab === 'applications' && (
                 <div className="space-y-4">
+                  {/* Category Navigation Pills Bar */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+                    <button
+                      onClick={() => setCategoryFilter('all')}
+                      className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all ${
+                        categoryFilter === 'all'
+                          ? 'bg-brand-900 text-gold-300 shadow-xs'
+                          : 'bg-cream-100 hover:bg-cream-200 text-surface-700'
+                      }`}
+                    >
+                      Semua Kategori ({applications.length})
+                    </button>
+                    {Object.entries(CATEGORY_LABELS).map(([catKey, catLabel]) => {
+                      const count = applications.filter((a) => a.tenant?.businessCategory === catKey).length;
+                      const quotaObj = (bazaarData?.categoryQuotas || []).find((q) => q.category === catKey);
+                      const isFull = quotaObj && quotaObj.maxQuota > 0 && count >= quotaObj.maxQuota;
+                      return (
+                        <button
+                          key={catKey}
+                          onClick={() => setCategoryFilter(catKey)}
+                          className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                            categoryFilter === catKey
+                              ? 'bg-brand-900 text-gold-300 shadow-xs'
+                              : 'bg-cream-100 hover:bg-cream-200 text-surface-700'
+                          }`}
+                        >
+                          <span>{catLabel}</span>
+                          <span
+                            className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                              categoryFilter === catKey
+                                ? 'bg-brand-800 text-gold-300'
+                                : isFull
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-cream-200 text-surface-600'
+                            }`}
+                          >
+                            {count}
+                            {quotaObj && quotaObj.maxQuota > 0 ? `/${quotaObj.maxQuota}` : ''}
+                          </span>
+                          {isFull && (
+                            <span className="text-[9px] bg-red-600 text-white px-1 py-0.2 rounded-md font-black">
+                              Penuh
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-cream-50/50 p-3 rounded-2xl border border-cream-300">
                     <div className="relative flex-1 max-w-sm">
                       <Search className="w-4 h-4 text-surface-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -1044,6 +1403,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                             <th className="p-3">Brand & Kategori</th>
                             <th className="p-3">PIC & Kontak</th>
                             <th className="p-3">Preferensi / Listrik</th>
+                            <th className="p-3">Tarif Stand / Infaq</th>
                             <th className="p-3">Status</th>
                             <th className="p-3">Booth Final</th>
                             <th className="p-3 text-right">Aksi</th>
@@ -1099,6 +1459,46 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                                 </td>
 
                                 <td className="p-3">
+                                  <div className="flex items-center gap-2">
+                                    <div>
+                                      <span
+                                        className={`font-black font-display block text-xs ${
+                                          app.infaqAmountRupiah === 0 ? 'text-purple-700' : 'text-brand-950'
+                                        }`}
+                                      >
+                                        {app.infaqAmountRupiah === 0
+                                          ? 'Gratis (Sponsor/Dakwah)'
+                                          : `Rp ${app.infaqAmountRupiah.toLocaleString('id-ID')}`}
+                                      </span>
+                                      <span className="text-[10px] text-surface-500 block">
+                                        {app.paymentVerifiedAt ? (
+                                          <span className="text-emerald-700 font-bold flex items-center gap-0.5">
+                                            <Check className="w-3 h-3 text-emerald-600" /> Lunas Terverifikasi
+                                          </span>
+                                        ) : (
+                                          <span className="text-amber-700 italic">Belum Diverifikasi</span>
+                                        )}
+                                      </span>
+                                    </div>
+                                    <button
+                                      onClick={() => {
+                                        setFeeModalApp(app);
+                                        setFeeForm({
+                                          infaqAmountRupiah: app.infaqAmountRupiah,
+                                          paymentNotes: app.paymentNotes || '',
+                                          status: app.status,
+                                        });
+                                        setIsFeeModalOpen(true);
+                                      }}
+                                      className="p-1 hover:bg-cream-200 text-surface-500 hover:text-brand-900 rounded-lg transition-colors"
+                                      title="Sesuaikan Tarif Stand / Beri Diskon"
+                                    >
+                                      <Coins className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+
+                                <td className="p-3">
                                   <span
                                     className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${badge.bg} ${badge.text} ${badge.border}`}
                                   >
@@ -1130,12 +1530,30 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                                     </button>
                                     <button
                                       onClick={() => {
+                                        setFeeModalApp(app);
+                                        setFeeForm({
+                                          infaqAmountRupiah: app.infaqAmountRupiah,
+                                          paymentNotes: app.paymentNotes || '',
+                                          status: app.status,
+                                        });
+                                        setIsFeeModalOpen(true);
+                                      }}
+                                      className="p-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg text-xs font-bold"
+                                      title="Atur Tarif Stand / Diskon"
+                                    >
+                                      <Coins className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => {
                                         setSelectedApp(app);
                                         setAssignForm({
                                           boothId: app.assignedBoothId || '',
                                           placementReason: (app.placementReason as any) || 'category_isolation',
                                           placementNotes: app.placementNotes || '',
                                           isPublished: app.isPublished ?? true,
+                                          syncBoothPrice: true,
+                                          customInfaqAmount: app.assignedBooth?.priceRupiah || app.infaqAmountRupiah,
+                                          overrideFee: false,
                                         });
                                         setIsAssignBoothModalOpen(true);
                                       }}
@@ -1493,10 +1911,24 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                 <form onSubmit={handleSaveSettings} className="space-y-5 max-w-2xl bg-white p-5 rounded-3xl border border-cream-300 shadow-2xs">
                   <div className="space-y-1">
                     <h4 className="text-xs font-bold text-brand-950">Pengaturan Administrasi & Rekening Infaq Stand</h4>
-                    <p className="text-[11px] text-surface-500">Sesuaikan batas waktu, nomor rekening BSI, dan tata tertib syariah.</p>
+                    <p className="text-[11px] text-surface-500">Sesuaikan batas waktu, kuota kategori, tarif dasar, nomor rekening, dan tata tertib syariah.</p>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
+                    <div className="sm:col-span-2">
+                      <label className="font-bold text-surface-700 block mb-1">Tarif Infaq Dasar Stand / Booth (Rp)</label>
+                      <input
+                        type="number"
+                        value={settingsForm.defaultFeeRupiah}
+                        onChange={(e) => setSettingsForm({ ...settingsForm, defaultFeeRupiah: Number(e.target.value) })}
+                        className="w-full p-2 border border-cream-300 rounded-xl bg-cream-50/30 font-mono font-bold"
+                        required
+                      />
+                      <span className="text-[10px] text-surface-500 mt-0.5 block">
+                        Tarif default yang dikenakan saat pendaftar mendaftar umum (sebelum penetapan booth khusus).
+                      </span>
+                    </div>
+
                     <div>
                       <label className="font-bold text-surface-700 block mb-1">Nama Bank</label>
                       <input
@@ -1532,6 +1964,53 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                         onChange={(e) => setSettingsForm({ ...settingsForm, rulesAndTerms: e.target.value })}
                         className="w-full p-2 border border-cream-300 rounded-xl bg-cream-50/30 leading-relaxed"
                       />
+                    </div>
+                  </div>
+
+                  {/* Category Quotas Setting */}
+                  <div className="space-y-3 pt-3 border-t border-cream-200">
+                    <div>
+                      <h5 className="font-bold text-brand-950 text-xs flex items-center gap-1.5">
+                        <Layers className="w-3.5 h-3.5 text-brand-700" /> Alokasi Kuota per Kategori Usaha
+                      </h5>
+                      <p className="text-[11px] text-surface-500">
+                        Tentukan kuota maksimal tenant per kategori (isi 0 jika tanpa kuota batasan). Pendaftar baru yang melampaui kuota otomatis masuk status Daftar Tunggu (Waitlist).
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {Object.entries(CATEGORY_LABELS).map(([catKey, catLabel]) => {
+                        const currentQuotaObj = (settingsForm.categoryQuotas || []).find((q) => q.category === catKey);
+                        const currentVal = currentQuotaObj ? currentQuotaObj.maxQuota : 0;
+                        return (
+                          <div
+                            key={catKey}
+                            className="p-2.5 bg-cream-50/50 rounded-xl border border-cream-300 flex items-center justify-between gap-2"
+                          >
+                            <span className="text-[11px] font-bold text-surface-800 truncate">{catLabel}</span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="text-[10px] text-surface-500">Maks:</span>
+                              <input
+                                type="number"
+                                min={0}
+                                value={currentVal}
+                                onChange={(e) => {
+                                  const val = Math.max(0, Number(e.target.value));
+                                  const updated = [...(settingsForm.categoryQuotas || [])];
+                                  const idx = updated.findIndex((q) => q.category === catKey);
+                                  if (idx >= 0) {
+                                    updated[idx] = { category: catKey, maxQuota: val };
+                                  } else {
+                                    updated.push({ category: catKey, maxQuota: val });
+                                  }
+                                  setSettingsForm({ ...settingsForm, categoryQuotas: updated });
+                                }}
+                                className="w-16 p-1 text-center font-bold border border-cream-300 rounded-lg bg-white text-xs"
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -1571,6 +2050,38 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                 <p className="text-surface-700"><span className="font-bold">Preferensi Stand:</span> {selectedApp.boothPreferences || '-'}</p>
               </div>
 
+              {/* Financial & Infaq Card */}
+              <div className="p-3.5 bg-cream-50/60 rounded-2xl border border-cream-200 text-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-surface-700 flex items-center gap-1">
+                    <Coins className="w-3.5 h-3.5 text-brand-700" /> Tarif & Infaq Stand:
+                  </span>
+                  <span className="font-black text-brand-950 text-sm">
+                    {selectedApp.infaqAmountRupiah === 0
+                      ? 'Gratis (Sponsor/Dakwah)'
+                      : `Rp ${selectedApp.infaqAmountRupiah.toLocaleString('id-ID')}`}
+                  </span>
+                </div>
+                {selectedApp.paymentNotes && (
+                  <p className="text-[11px] text-surface-600 italic">Catatan: {selectedApp.paymentNotes}</p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFeeModalApp(selectedApp);
+                    setFeeForm({
+                      infaqAmountRupiah: selectedApp.infaqAmountRupiah,
+                      paymentNotes: selectedApp.paymentNotes || '',
+                      status: selectedApp.status,
+                    });
+                    setIsFeeModalOpen(true);
+                  }}
+                  className="w-full py-1.5 bg-cream-100 hover:bg-cream-200 text-brand-950 font-bold rounded-xl border border-cream-300 flex items-center justify-center gap-1 text-xs transition-colors"
+                >
+                  <Coins className="w-3.5 h-3.5 text-amber-700" /> Atur Tarif Khusus / Beri Diskon
+                </button>
+              </div>
+
               <div className="flex items-center gap-2 flex-wrap pt-2">
                 <button
                   onClick={() => handleUpdateAppStatus(selectedApp.id, 'accepted')}
@@ -1606,62 +2117,281 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
         )}
 
         {/* MODAL: ASSIGN BOOTH */}
-        {isAssignBoothModalOpen && selectedApp && (
-          <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl max-w-lg w-full p-5 border border-cream-300 shadow-2xl space-y-4">
+        {isAssignBoothModalOpen && selectedApp && (() => {
+          const currentSelectedBooth = booths.find((b) => b.id === assignForm.boothId);
+          const categoryMismatch =
+            currentSelectedBooth &&
+            currentSelectedBooth.allowedCategory !== 'all' &&
+            currentSelectedBooth.allowedCategory !== selectedApp.tenant.businessCategory;
+
+          return (
+            <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl max-w-lg w-full p-5 border border-cream-300 shadow-2xl space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-black text-brand-950">Tetapkan Nomor Booth Tenant</h4>
+                  <button onClick={() => setIsAssignBoothModalOpen(false)} className="p-1 text-surface-400 hover:text-surface-600">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="p-3 bg-cream-50/60 rounded-xl border border-cream-200 text-xs space-y-1">
+                  <p className="font-bold text-brand-950">{selectedApp.tenant.brandName}</p>
+                  <p className="text-surface-600">
+                    Kategori: {CATEGORY_LABELS[selectedApp.tenant.businessCategory] || selectedApp.tenant.businessCategory}
+                  </p>
+                  <p className="text-surface-600">Preferensi: {selectedApp.boothPreferences || 'Tidak ada'}</p>
+                </div>
+
+                <form onSubmit={handleAssignBooth} className="space-y-3.5 text-xs">
+                  <div>
+                    <label className="font-bold text-surface-700 block mb-1">Pilih Slot Stand (Tersedia)</label>
+                    <select
+                      value={assignForm.boothId}
+                      onChange={(e) => {
+                        const bId = e.target.value;
+                        const bObj = booths.find((b) => b.id === bId);
+                        setAssignForm({
+                          ...assignForm,
+                          boothId: bId,
+                          customInfaqAmount: bObj ? bObj.priceRupiah : assignForm.customInfaqAmount,
+                        });
+                      }}
+                      className="w-full p-2 border border-cream-300 rounded-xl bg-white font-bold"
+                      required
+                    >
+                      <option value="">-- Pilih Stand --</option>
+                      {booths
+                        .filter((b) => b.status === 'available' || b.id === selectedApp.assignedBoothId)
+                        .map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.code} - {b.name} ({b.zone} - Rp {b.priceRupiah.toLocaleString('id-ID')})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  {/* Category Mismatch Warning Alert */}
+                  {categoryMismatch && currentSelectedBooth && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs flex items-start gap-2 animate-fade-in">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold">Peringatan Ketidaksesuaian Zonasi Kategori!</p>
+                        <p className="text-[11px] mt-0.5">
+                          Stand {currentSelectedBooth.code} dialokasikan untuk:{' '}
+                          <strong>{CATEGORY_LABELS[currentSelectedBooth.allowedCategory] || currentSelectedBooth.allowedCategory}</strong>,
+                          sedangkan pendaftar ini berkategori{' '}
+                          <strong>{CATEGORY_LABELS[selectedApp.tenant.businessCategory] || selectedApp.tenant.businessCategory}</strong>.
+                          Anda tetap dapat melanjutkan jika disetujui panitia.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {currentSelectedBooth && (
+                    <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl flex items-center justify-between text-xs">
+                      <span className="text-surface-700">Harga Stand Terpilih:</span>
+                      <span className="font-black text-emerald-950">
+                        Rp {currentSelectedBooth.priceRupiah.toLocaleString('id-ID')}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Sync Booth Price Checkbox */}
+                  {currentSelectedBooth && (
+                    <label className="flex items-center gap-2 cursor-pointer pt-1">
+                      <input
+                        type="checkbox"
+                        checked={assignForm.syncBoothPrice}
+                        onChange={(e) => setAssignForm({ ...assignForm, syncBoothPrice: e.target.checked })}
+                        className="rounded text-brand-900 focus:ring-brand-700"
+                      />
+                      <span className="text-xs font-bold text-surface-800">
+                        Sinkronkan tagihan tenant mengikuti tarif stand ini (Rp {currentSelectedBooth.priceRupiah.toLocaleString('id-ID')})
+                      </span>
+                    </label>
+                  )}
+
+                  {/* Manual Fee Override Option */}
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={assignForm.overrideFee}
+                      onChange={(e) => setAssignForm({ ...assignForm, overrideFee: e.target.checked })}
+                      className="rounded text-brand-900 focus:ring-brand-700"
+                    />
+                    <span className="text-xs font-medium text-surface-700">
+                      Atur nominal tarif / infaq khusus secara manual untuk tenant ini
+                    </span>
+                  </label>
+
+                  {assignForm.overrideFee && (
+                    <div className="p-2.5 bg-cream-50/60 rounded-xl border border-cream-300 space-y-1">
+                      <label className="font-bold text-surface-700 block text-xs">Nominal Infaq Khusus (Rp)</label>
+                      <input
+                        type="number"
+                        value={assignForm.customInfaqAmount}
+                        onChange={(e) => setAssignForm({ ...assignForm, customInfaqAmount: Number(e.target.value) })}
+                        className="w-full p-2 border border-cream-300 rounded-xl font-mono font-bold bg-white"
+                        required
+                      />
+                      <span className="text-[10px] text-surface-500">
+                        Isi 0 untuk membebaskan biaya (stand dakwah/sponsor).
+                      </span>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="font-bold text-surface-700 block mb-1">Alasan Penempatan Stand</label>
+                    <select
+                      value={assignForm.placementReason}
+                      onChange={(e) => setAssignForm({ ...assignForm, placementReason: e.target.value as any })}
+                      className="w-full p-2 border border-cream-300 rounded-xl bg-white"
+                    >
+                      <option value="category_isolation">Pemisahan Kategori Sejenis</option>
+                      <option value="traffic_management">Pengendalian Arus Jamaah (Traffic)</option>
+                      <option value="power_access">Akses Daya Listrik Khusus</option>
+                      <option value="equity_rotation">Pemerataan Lokasi Lintas Event</option>
+                      <option value="partner_reserved">Mitra / Donatur Khusus</option>
+                      <option value="custom">Alasan Lainnya</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsAssignBoothModalOpen(false)}
+                      className="px-3 py-2 bg-cream-100 text-surface-700 rounded-xl font-bold"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={actionLoading}
+                      className="px-4 py-2 bg-brand-900 text-white rounded-xl font-bold shadow-md"
+                    >
+                      {actionLoading ? 'Menetapkan...' : 'Simpan Penetapan Stand'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* MODAL: FEE / INFAQ ADJUSTMENT */}
+        {isFeeModalOpen && feeModalApp && (
+          <div className="fixed inset-0 z-70 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-md w-full p-5 border border-cream-300 shadow-2xl space-y-4">
               <div className="flex items-center justify-between">
-                <h4 className="text-sm font-black text-brand-950">Tetapkan Nomor Booth Tenant</h4>
-                <button onClick={() => setIsAssignBoothModalOpen(false)} className="p-1 text-surface-400 hover:text-surface-600">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-gold-100 text-gold-800 flex items-center justify-center">
+                    <Coins className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-brand-950">Atur Tarif & Infaq Stand</h4>
+                    <p className="text-[11px] text-surface-500">{feeModalApp.tenant.brandName}</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsFeeModalOpen(false)} className="p-1 text-surface-400 hover:text-surface-600">
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="p-3 bg-cream-50/60 rounded-xl border border-cream-200 text-xs space-y-1">
-                <p className="font-bold text-brand-950">{selectedApp.tenant.brandName}</p>
-                <p className="text-surface-600">Kategori: {CATEGORY_LABELS[selectedApp.tenant.businessCategory] || selectedApp.tenant.businessCategory}</p>
-                <p className="text-surface-600">Preferensi: {selectedApp.boothPreferences || 'Tidak ada'}</p>
-              </div>
-
-              <form onSubmit={handleAssignBooth} className="space-y-3.5 text-xs">
+              <form onSubmit={handleSaveFee} className="space-y-3.5 text-xs">
+                {/* Presets */}
                 <div>
-                  <label className="font-bold text-surface-700 block mb-1">Pilih Slot Stand (Tersedia)</label>
-                  <select
-                    value={assignForm.boothId}
-                    onChange={(e) => setAssignForm({ ...assignForm, boothId: e.target.value })}
-                    className="w-full p-2 border border-cream-300 rounded-xl bg-white font-bold"
+                  <label className="font-bold text-surface-700 block mb-1.5">Preset Cepat Tarif:</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFeeForm({ ...feeForm, infaqAmountRupiah: 0, paymentNotes: 'Gratis stand dakwah/sponsor yayasan' })
+                      }
+                      className="p-2 rounded-xl border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-900 font-bold text-left text-[11px]"
+                    >
+                      🎁 Gratis Rp 0 (Sponsor/Dakwah)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const base = feeModalApp.assignedBooth?.priceRupiah || bazaarData?.defaultFeeRupiah || 150000;
+                        setFeeForm({
+                          ...feeForm,
+                          infaqAmountRupiah: Math.round(base * 0.5),
+                          paymentNotes: 'Diskon 50% binaan yayasan',
+                        });
+                      }}
+                      className="p-2 rounded-xl border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-left text-[11px]"
+                    >
+                      🏷️ Diskon 50%
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const boothPrice = feeModalApp.assignedBooth?.priceRupiah || bazaarData?.defaultFeeRupiah || 150000;
+                        setFeeForm({ ...feeForm, infaqAmountRupiah: boothPrice, paymentNotes: 'Sesuai tarif inventaris booth' });
+                      }}
+                      className="p-2 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-900 font-bold text-left text-[11px]"
+                    >
+                      🏬 Sesuai Stand (Rp {(feeModalApp.assignedBooth?.priceRupiah || bazaarData?.defaultFeeRupiah || 150000).toLocaleString('id-ID')})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFeeForm({
+                          ...feeForm,
+                          infaqAmountRupiah: bazaarData?.defaultFeeRupiah || 150000,
+                          paymentNotes: 'Tarif standar bazar',
+                        })
+                      }
+                      className="p-2 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold text-left text-[11px]"
+                    >
+                      ✨ Normal (Rp {(bazaarData?.defaultFeeRupiah || 150000).toLocaleString('id-ID')})
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="font-bold text-surface-700 block mb-1">Nominal Infaq / Biaya Stand (Rp)</label>
+                  <input
+                    type="number"
+                    value={feeForm.infaqAmountRupiah}
+                    onChange={(e) => setFeeForm({ ...feeForm, infaqAmountRupiah: Number(e.target.value) })}
+                    className="w-full p-2 border border-cream-300 rounded-xl font-mono text-base font-black text-brand-950"
                     required
-                  >
-                    <option value="">-- Pilih Stand --</option>
-                    {booths
-                      .filter((b) => b.status === 'available' || b.id === selectedApp.assignedBoothId)
-                      .map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.code} - {b.name} ({b.zone} - Rp {b.priceRupiah.toLocaleString('id-ID')})
-                        </option>
-                      ))}
-                  </select>
+                  />
                 </div>
 
                 <div>
-                  <label className="font-bold text-surface-700 block mb-1">Alasan Penempatan Stand</label>
+                  <label className="font-bold text-surface-700 block mb-1">Catatan Keuangan / Alasan Penyesuaian</label>
+                  <textarea
+                    rows={2}
+                    value={feeForm.paymentNotes}
+                    onChange={(e) => setFeeForm({ ...feeForm, paymentNotes: e.target.value })}
+                    className="w-full p-2 border border-cream-300 rounded-xl"
+                    placeholder="Contoh: Pembebasan biaya stan dakwah YTS, atau tambahan daya listrik 1300W"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-bold text-surface-700 block mb-1">Status Pembayaran</label>
                   <select
-                    value={assignForm.placementReason}
-                    onChange={(e) => setAssignForm({ ...assignForm, placementReason: e.target.value as any })}
-                    className="w-full p-2 border border-cream-300 rounded-xl bg-white"
+                    value={feeForm.status}
+                    onChange={(e) => setFeeForm({ ...feeForm, status: e.target.value })}
+                    className="w-full p-2 border border-cream-300 rounded-xl bg-white font-bold"
                   >
-                    <option value="category_isolation">Pemisahan Kategori Sejenis</option>
-                    <option value="traffic_management">Pengendalian Arus Jamaah (Traffic)</option>
-                    <option value="power_access">Akses Daya Listrik Khusus</option>
-                    <option value="equity_rotation">Pemerataan Lokasi Lintas Event</option>
-                    <option value="partner_reserved">Mitra / Donatur Khusus</option>
-                    <option value="custom">Alasan Lainnya</option>
+                    <option value="accepted">Diterima (Menunggu Pembayaran)</option>
+                    <option value="payment_pending">Menunggu Bukti Bayar</option>
+                    <option value="payment_verification">Verifikasi Keuangan</option>
+                    <option value="payment_verified">Lunas / Terverifikasi</option>
+                    <option value="booth_assigned">Booth Ditetapkan</option>
                   </select>
                 </div>
 
-                <div className="flex items-center justify-end gap-2 pt-2">
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-cream-200">
                   <button
                     type="button"
-                    onClick={() => setIsAssignBoothModalOpen(false)}
+                    onClick={() => setIsFeeModalOpen(false)}
                     className="px-3 py-2 bg-cream-100 text-surface-700 rounded-xl font-bold"
                   >
                     Batal
@@ -1669,10 +2399,189 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                   <button
                     type="submit"
                     disabled={actionLoading}
-                    className="px-4 py-2 bg-brand-900 text-white rounded-xl font-bold shadow-md"
+                    className="px-4 py-2 bg-brand-900 hover:bg-brand-950 text-white rounded-xl font-bold shadow-md"
                   >
-                    {actionLoading ? 'Menetapkan...' : 'Simpan Penetapan Stand'}
+                    {actionLoading ? 'Menyimpan...' : 'Simpan Perubahan Tarif'}
                   </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: EDIT INDIVIDUAL BOOTH */}
+        {isEditBoothModalOpen && editingBooth && (
+          <div className="fixed inset-0 z-70 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-lg w-full p-5 border border-cream-300 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-brand-100 text-brand-900 flex items-center justify-center">
+                    <Store className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-brand-950">Kelola Stand {editingBooth.code}</h4>
+                    <p className="text-[11px] text-surface-500">Edit tarif, zonasi, ukuran, dan alokasi kategori</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsEditBoothModalOpen(false)} className="p-1 text-surface-400 hover:text-surface-600">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveBooth} className="space-y-3 text-xs">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold text-surface-700 block mb-1">Kode Stand</label>
+                    <input
+                      type="text"
+                      value={editBoothForm.code}
+                      onChange={(e) => setEditBoothForm({ ...editBoothForm, code: e.target.value })}
+                      className="w-full p-2 border border-cream-300 rounded-xl font-mono uppercase"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold text-surface-700 block mb-1">Nama Stand</label>
+                    <input
+                      type="text"
+                      value={editBoothForm.name}
+                      onChange={(e) => setEditBoothForm({ ...editBoothForm, name: e.target.value })}
+                      className="w-full p-2 border border-cream-300 rounded-xl"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold text-surface-700 block mb-1">Zona Area</label>
+                    <input
+                      type="text"
+                      value={editBoothForm.zone}
+                      onChange={(e) => setEditBoothForm({ ...editBoothForm, zone: e.target.value })}
+                      className="w-full p-2 border border-cream-300 rounded-xl"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold text-surface-700 block mb-1">Ukuran Stand</label>
+                    <input
+                      type="text"
+                      value={editBoothForm.size}
+                      onChange={(e) => setEditBoothForm({ ...editBoothForm, size: e.target.value })}
+                      className="w-full p-2 border border-cream-300 rounded-xl"
+                      placeholder="misal: 2x2 meter"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold text-surface-700 block mb-1">Tarif Infaq Stand (Rp)</label>
+                    <input
+                      type="number"
+                      value={editBoothForm.priceRupiah}
+                      onChange={(e) => setEditBoothForm({ ...editBoothForm, priceRupiah: Number(e.target.value) })}
+                      className="w-full p-2 border border-cream-300 rounded-xl font-mono font-bold"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold text-surface-700 block mb-1">Khusus Kategori (Zonasi)</label>
+                    <select
+                      value={editBoothForm.allowedCategory}
+                      onChange={(e) => setEditBoothForm({ ...editBoothForm, allowedCategory: e.target.value })}
+                      className="w-full p-2 border border-cream-300 rounded-xl bg-white font-medium"
+                    >
+                      <option value="all">Bebas (Semua Kategori)</option>
+                      {Object.entries(CATEGORY_LABELS).map(([k, v]) => (
+                        <option key={k} value={k}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="font-bold text-surface-700 block mb-1">Fasilitas Stand (Pisahkan koma)</label>
+                  <input
+                    type="text"
+                    value={editBoothForm.facilities}
+                    onChange={(e) => setEditBoothForm({ ...editBoothForm, facilities: e.target.value })}
+                    className="w-full p-2 border border-cream-300 rounded-xl"
+                    placeholder="Meja 1x, Kursi 2x, Listrik 450W"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-bold text-surface-700 block mb-1">Status Stand</label>
+                  <select
+                    value={editBoothForm.status}
+                    onChange={(e) => setEditBoothForm({ ...editBoothForm, status: e.target.value as any })}
+                    className="w-full p-2 border border-cream-300 rounded-xl bg-white font-bold"
+                  >
+                    <option value="available">Tersedia (Kosong)</option>
+                    <option value="assigned">Terisi Tenant</option>
+                    <option value="reserved">Reserved (Mitra/Donatur)</option>
+                    <option value="blocked">Diblokir / Tidak Digunakan</option>
+                  </select>
+                </div>
+
+                {editBoothForm.status === 'reserved' && (
+                  <div className="grid grid-cols-2 gap-2 bg-purple-50 p-2.5 rounded-xl border border-purple-200">
+                    <div>
+                      <label className="font-bold text-purple-900 block mb-1">Nama Mitra / Sponsor</label>
+                      <input
+                        type="text"
+                        value={editBoothForm.reservedForPartnerName}
+                        onChange={(e) => setEditBoothForm({ ...editBoothForm, reservedForPartnerName: e.target.value })}
+                        className="w-full p-1.5 border border-purple-300 rounded-lg bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-bold text-purple-900 block mb-1">Alasan Penguncian</label>
+                      <input
+                        type="text"
+                        value={editBoothForm.reservedReason}
+                        onChange={(e) => setEditBoothForm({ ...editBoothForm, reservedReason: e.target.value })}
+                        className="w-full p-1.5 border border-purple-300 rounded-lg bg-white"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-2 border-t border-cream-200">
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteBooth(editingBooth.id)}
+                    disabled={actionLoading || editingBooth.status === 'assigned'}
+                    className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 rounded-xl font-bold flex items-center gap-1 transition-colors disabled:opacity-40"
+                    title={
+                      editingBooth.status === 'assigned'
+                        ? 'Lepaskan tenant terlebih dahulu sebelum menghapus stand'
+                        : 'Hapus stand ini'
+                    }
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Hapus Stand
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditBoothModalOpen(false)}
+                      className="px-3 py-2 bg-cream-100 text-surface-700 rounded-xl font-bold"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={actionLoading}
+                      className="px-4 py-2 bg-brand-900 hover:bg-brand-950 text-white rounded-xl font-bold shadow-md"
+                    >
+                      {actionLoading ? 'Menyimpan...' : 'Simpan Perubahan'}
+                    </button>
+                  </div>
                 </div>
               </form>
             </div>

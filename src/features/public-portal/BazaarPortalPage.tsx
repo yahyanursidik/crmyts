@@ -61,6 +61,7 @@ interface PublicBazaarResponse {
     surveyDeadline?: string | null;
     surveyEnabled: boolean;
     layoutZones?: Array<{ id: string; name: string; description?: string; color?: string }> | null;
+    categoryQuotas?: Array<{ category: string; maxQuota: number }> | null;
     booths: any[];
   };
 }
@@ -279,6 +280,9 @@ export const BazaarPortalPage: React.FC = () => {
                 <Coins className="w-4 h-4 text-[#E0B970]" />
                 <span>
                   Infaq Stan Partisipasi: <strong className="text-[#E0B970] font-mono font-bold">{formatRupiah(bazaar.defaultFeeRupiah || 150000)}</strong>
+                  <span className="text-[11px] text-white/75 block sm:inline sm:ml-1">
+                    *(Dapat disesuaikan panitia berdasarkan ukuran stand, zonasi, atau daya listrik)
+                  </span>
                 </span>
               </div>
 
@@ -345,8 +349,18 @@ export const BazaarPortalPage: React.FC = () => {
               </div>
               <div className="flex justify-between border-b border-[#1B4332]/8 pb-2">
                 <span className="text-[#6B7A72]">Status Awal:</span>
-                <span className="font-bold text-[#C77A16] bg-amber-50 px-2 py-0.5 rounded-md text-[10.5px] border border-amber-200">
-                  {registeredSuccess.application?.status === 'payment_verification'
+                <span
+                  className={`font-bold px-2 py-0.5 rounded-md text-[10.5px] border ${
+                    registeredSuccess.application?.status === 'waitlist'
+                      ? 'text-purple-800 bg-purple-50 border-purple-200'
+                      : registeredSuccess.application?.status === 'payment_verification'
+                      ? 'text-emerald-800 bg-emerald-50 border-emerald-200'
+                      : 'text-[#C77A16] bg-amber-50 border-amber-200'
+                  }`}
+                >
+                  {registeredSuccess.application?.status === 'waitlist'
+                    ? 'Daftar Tunggu (Waitlist) - Kuota Penuh'
+                    : registeredSuccess.application?.status === 'payment_verification'
                     ? 'Verifikasi Pembayaran Infaq'
                     : 'Menunggu Kurasi Panitia'}
                 </span>
@@ -427,11 +441,14 @@ export const BazaarPortalPage: React.FC = () => {
                     onChange={(e) => setFormData({ ...formData, businessCategory: e.target.value })}
                     className="w-full px-3.5 py-2.5 bg-[#F2EEE4] border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
                   >
-                    {BAZAAR_CATEGORIES.map((cat) => (
-                      <option key={cat.value} value={cat.value}>
-                        {cat.label} — {cat.desc}
-                      </option>
-                    ))}
+                    {BAZAAR_CATEGORIES.map((cat) => {
+                      const quotaObj = (bazaar.categoryQuotas || []).find((q) => q.category === cat.value);
+                      return (
+                        <option key={cat.value} value={cat.value}>
+                          {cat.label} {quotaObj && quotaObj.maxQuota > 0 ? `(Alokasi: maks ${quotaObj.maxQuota} stan)` : ''} — {cat.desc}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 

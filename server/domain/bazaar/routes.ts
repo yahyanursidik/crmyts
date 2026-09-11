@@ -44,6 +44,7 @@ export async function ensureBazaarTablesExist(db: any) {
           survey_deadline timestamp with time zone,
           survey_enabled boolean DEFAULT true NOT NULL,
           layout_zones jsonb,
+          category_quotas jsonb,
           created_at timestamp with time zone DEFAULT now() NOT NULL,
           updated_at timestamp with time zone DEFAULT now() NOT NULL
         );
@@ -169,6 +170,7 @@ export async function ensureBazaarTablesExist(db: any) {
         ALTER TABLE bazaar_events ADD COLUMN IF NOT EXISTS survey_deadline timestamp with time zone;
         ALTER TABLE bazaar_events ADD COLUMN IF NOT EXISTS survey_enabled boolean DEFAULT true NOT NULL;
         ALTER TABLE bazaar_events ADD COLUMN IF NOT EXISTS layout_zones jsonb;
+        ALTER TABLE bazaar_events ADD COLUMN IF NOT EXISTS category_quotas jsonb;
 
         ALTER TABLE bazaar_events ADD COLUMN IF NOT EXISTS created_at timestamp with time zone DEFAULT now() NOT NULL;
         ALTER TABLE bazaar_events ADD COLUMN IF NOT EXISTS updated_at timestamp with time zone DEFAULT now() NOT NULL;
@@ -243,6 +245,15 @@ const createBazaarSchema = z.object({
     )
     .optional()
     .nullable(),
+  categoryQuotas: z
+    .array(
+      z.object({
+        category: z.string(),
+        maxQuota: z.number().int().min(0),
+      })
+    )
+    .optional()
+    .nullable(),
 });
 
 const bulkCreateBoothsSchema = z.object({
@@ -300,6 +311,28 @@ const updateApplicationStatusSchema = z.object({
   paymentNotes: z.string().optional().nullable(),
 });
 
+const updateTenantFeeSchema = z.object({
+  infaqAmountRupiah: z.number().int().min(0),
+  paymentNotes: z.string().optional().nullable(),
+  status: z
+    .enum([
+      'draft',
+      'submitted',
+      'under_review',
+      'accepted',
+      'waitlist',
+      'rejected',
+      'payment_pending',
+      'payment_verification',
+      'payment_verified',
+      'booth_assigned',
+      'checked_in',
+      'completed',
+      'cancelled',
+    ])
+    .optional(),
+});
+
 const assignBoothSchema = z.object({
   boothId: z.string().uuid().nullable(),
   placementReason: z
@@ -307,6 +340,8 @@ const assignBoothSchema = z.object({
     .optional(),
   placementNotes: z.string().optional().nullable(),
   isPublished: z.boolean().optional(),
+  infaqAmountRupiah: z.number().int().min(0).optional(),
+  syncBoothPrice: z.boolean().optional(),
 });
 
 const recordIncidentSchema = z.object({
@@ -553,6 +588,7 @@ export function registerBazaarRoutes(router: Router) {
               { id: 'zone_kuliner', name: 'Area Kuliner & Minuman', description: 'Dekat Tempat Wudhu & Parkir', color: '#b45309' },
               { id: 'zone_busana', name: 'Area Busana & Herbal', description: 'Selasar Samping Masjid', color: '#4338ca' },
             ],
+            categoryQuotas: body.categoryQuotas || null,
           })
           .returning();
 
@@ -731,7 +767,26 @@ export function registerBazaarRoutes(router: Router) {
         filtered = filtered.filter((t) => t.internalFlag === flag);
       }
 
-      return successResponse(filtered, { requestId: ctx.requestId, total: filtered.length });
+      const enriched = filtered.map((t) => {
+        const verifiedApps = (t.applications || []).filter(
+          (a: any) =>
+            a.status === 'payment_verified' ||
+            a.status === 'booth_assigned' ||
+            a.status === 'checked_in' ||
+            a.status === 'completed'
+        );
+        const lifetimeInfaqRupiah = verifiedApps.reduce(
+          (sum: number, a: any) => sum + (a.infaqAmountRupiah || 0),
+          0
+        );
+        return {
+          ...t,
+          lifetimeInfaqRupiah,
+          totalParticipations: (t.applications || []).length,
+        };
+      });
+
+      return successResponse(enriched, { requestId: ctx.requestId, total: enriched.length });
     })
   );
 
@@ -961,7 +1016,55 @@ export function registerBazaarRoutes(router: Router) {
     )
   );
 
-  // Manual Booth Assignment by Admin (with Smart Collision Checks)
+  // Update Tenant Application Fee / Infaq Setting
+  router.put(
+    '/api/events/:id/bazaar/applications/:appId/fee',
+    requireAuth(
+      validateBody(updateTenantFeeSchema, async (ctx, body) => {
+        const db = getDb();
+        const appId = ctx.params?.appId;
+        if (!appId) {
+          return errorResponse('VALIDATION_ERROR', 'App ID diperlukan.', 400, ctx.requestId);
+        }
+
+        const existing = await db.query.bazaarApplications.findFirst({
+          where: eq(bazaarApplications.id, appId),
+          with: { tenant: true },
+        });
+
+        if (!existing) {
+          return errorResponse('NOT_FOUND', 'Pendaftaran tenant tidak ditemukan.', 404, ctx.requestId);
+        }
+
+        const isVerified = body.status === 'payment_verified';
+        const [updated] = await db
+          .update(bazaarApplications)
+          .set({
+            infaqAmountRupiah: body.infaqAmountRupiah,
+            paymentNotes: body.paymentNotes !== undefined ? body.paymentNotes : existing.paymentNotes,
+            status: body.status || existing.status,
+            paymentVerifiedAt: isVerified
+              ? new Date()
+              : body.status && body.status !== 'payment_verified' && existing.status === 'payment_verified'
+              ? null
+              : existing.paymentVerifiedAt,
+            paymentVerifiedBy: isVerified
+              ? (ctx.user?.id || '00000000-0000-0000-0000-000000000000')
+              : existing.paymentVerifiedBy,
+            updatedAt: new Date(),
+          })
+          .where(eq(bazaarApplications.id, appId))
+          .returning();
+
+        return successResponse(updated, {
+          requestId: ctx.requestId,
+          message: `Tarif pendaftaran untuk ${existing.tenant?.brandName || 'tenant'} berhasil diperbarui menjadi Rp ${body.infaqAmountRupiah.toLocaleString('id-ID')}`,
+        });
+      })
+    )
+  );
+
+  // Manual Booth Assignment by Admin (with Smart Collision Checks & Category Validation)
   router.put(
     '/api/events/:id/bazaar/applications/:appId/assign-booth',
     requireAuth(
@@ -1036,6 +1139,17 @@ export function registerBazaarRoutes(router: Router) {
           smartWarning = `Perhatian: Terdapat ${sameCategoryInZone.length} booth berkategori '${application.tenant?.businessCategory}' di zona '${targetBooth.zone}' (${sameCategoryInZone.map((z) => z.assignedBooth?.code).join(', ')}).`;
         }
 
+        // Category validation warning if booth specifies allowed category
+        if (
+          targetBooth.allowedCategory &&
+          targetBooth.allowedCategory !== 'all' &&
+          application.tenant?.businessCategory &&
+          targetBooth.allowedCategory !== application.tenant.businessCategory
+        ) {
+          const catWarning = `Perhatian: Stand '${targetBooth.code}' dialokasikan khusus untuk kategori '${targetBooth.allowedCategory}', sedangkan tenant berkategori '${application.tenant.businessCategory}'.`;
+          smartWarning = smartWarning ? `${smartWarning} | ${catWarning}` : catWarning;
+        }
+
         // Free previous booth if any
         if (application.assignedBoothId && application.assignedBoothId !== body.boothId) {
           await db
@@ -1050,6 +1164,14 @@ export function registerBazaarRoutes(router: Router) {
           .set({ status: 'assigned', updatedAt: new Date() })
           .where(eq(bazaarBooths.id, body.boothId));
 
+        // Determine infaq amount (custom or synced from booth price)
+        let newInfaqAmount = application.infaqAmountRupiah;
+        if (body.infaqAmountRupiah !== undefined) {
+          newInfaqAmount = body.infaqAmountRupiah;
+        } else if (body.syncBoothPrice && targetBooth.priceRupiah > 0) {
+          newInfaqAmount = targetBooth.priceRupiah;
+        }
+
         // Update application
         const [assigned] = await db
           .update(bazaarApplications)
@@ -1060,6 +1182,7 @@ export function registerBazaarRoutes(router: Router) {
             assignedBy: ctx.user?.id || '00000000-0000-0000-0000-000000000000',
             assignedAt: new Date(),
             status: 'booth_assigned',
+            infaqAmountRupiah: newInfaqAmount,
             isPublished: body.isPublished ?? application.isPublished,
             updatedAt: new Date(),
           })
@@ -1437,6 +1560,7 @@ export function registerBazaarRoutes(router: Router) {
           surveyDeadline: bazaar.surveyDeadline,
           surveyEnabled: bazaar.surveyEnabled,
           layoutZones: bazaar.layoutZones,
+          categoryQuotas: bazaar.categoryQuotas || null,
           booths: sanitizedBooths,
           registeredTenants,
         },
@@ -1476,18 +1600,21 @@ export function registerBazaarRoutes(router: Router) {
       });
 
       if (!masterTenant) {
-        let person = await db.query.persons.findFirst({
+        let personId: string | null = null;
+        const existingPerson = await db.query.persons.findFirst({
           where: eq(persons.phoneE164, normalizedPhone),
         });
 
-        let personId: string | null = person?.id || null;
-        if (!personId) {
+        if (existingPerson) {
+          personId = existingPerson.id;
+        } else {
           const [newPerson] = await db
             .insert(persons)
             .values({
               fullName: body.picName,
               phoneE164: normalizedPhone,
               email: body.picEmail || null,
+              sourceCode: 'BAZAAR_PORTAL',
             })
             .returning();
           personId = newPerson ? newPerson.id : null;
@@ -1543,9 +1670,29 @@ export function registerBazaarRoutes(router: Router) {
         return errorResponse('CONFLICT', 'Brand/Usaha Anda sudah terdaftar pada bazar kajian ini.', 409, ctx.requestId);
       }
 
-      // 3. Create Application
+      // 3. Create Application & Check Category Quotas
       const hasPayment = !!body.paymentProofUrl;
-      const initialStatus = hasPayment ? 'payment_verification' : 'submitted';
+      let initialStatus = hasPayment ? 'payment_verification' : 'submitted';
+
+      if (bazaar.categoryQuotas && Array.isArray(bazaar.categoryQuotas)) {
+        const catSetting = (bazaar.categoryQuotas as any[]).find((q: any) => q.category === body.businessCategory);
+        if (catSetting && catSetting.maxQuota > 0) {
+          const catApps = await db.query.bazaarApplications.findMany({
+            where: eq(bazaarApplications.bazaarId, bazaar.id),
+            with: { tenant: true },
+          });
+          const activeCount = catApps.filter(
+            (a: any) =>
+              a.tenant?.businessCategory === body.businessCategory &&
+              a.status !== 'rejected' &&
+              a.status !== 'cancelled'
+          ).length;
+
+          if (activeCount >= catSetting.maxQuota) {
+            initialStatus = 'waitlist';
+          }
+        }
+      }
 
       const [createdApp] = await db
         .insert(bazaarApplications)

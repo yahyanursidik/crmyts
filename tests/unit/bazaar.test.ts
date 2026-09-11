@@ -351,4 +351,138 @@ describe('PRD Web App YTS Bazar – Tenant & Event Management System', () => {
     const json = JSON.parse(res.body);
     expect(json.data.omzetRange).toBe('2-5m');
   });
+
+  it('8. PUT /api/events/:id/bazaar/applications/:appId/fee updates custom fee and payment notes', async () => {
+    mockDb.query.bazaarApplications.findFirst.mockResolvedValue({
+      id: sampleAppId,
+      infaqAmountRupiah: 150000,
+      status: 'submitted',
+      tenant: { brandName: 'Kopi Sunnah Barakah' },
+    });
+
+    const mockUpdated = {
+      id: sampleAppId,
+      infaqAmountRupiah: 75000,
+      paymentNotes: 'Diskon UMKM binaan 50%',
+      status: 'payment_verified',
+    };
+
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([mockUpdated]),
+        }),
+      }),
+    });
+
+    const res = await router.handle({
+      requestId: 'req_bazaar_8',
+      method: 'PUT',
+      path: `/api/events/${sampleEventId}/bazaar/applications/${sampleAppId}/fee`,
+      headers: {},
+      query: {},
+      params: { id: sampleEventId, appId: sampleAppId },
+      body: {
+        infaqAmountRupiah: 75000,
+        paymentNotes: 'Diskon UMKM binaan 50%',
+        status: 'payment_verified',
+      },
+      user: mockAdminUser,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data.infaqAmountRupiah).toBe(75000);
+    expect(json.data.paymentNotes).toBe('Diskon UMKM binaan 50%');
+    expect(json.data.status).toBe('payment_verified');
+  });
+
+  it('9. PUT /api/events/:id/bazaar/applications/:appId/assign-booth syncs booth price and checks category compatibility', async () => {
+    mockDb.query.bazaarApplications.findFirst.mockResolvedValue({
+      id: sampleAppId,
+      bazaarId: sampleBazaarId,
+      assignedBoothId: null,
+      infaqAmountRupiah: 150000,
+      tenant: { businessCategory: 'kuliner' },
+    });
+
+    mockDb.query.bazaarBooths.findFirst.mockResolvedValue({
+      id: sampleBoothId,
+      bazaarId: sampleBazaarId,
+      code: 'B-01',
+      zone: 'Selasar Barat',
+      priceRupiah: 250000,
+      allowedCategory: 'busana_muslim',
+    });
+
+    mockDb.query.bazaarApplications.findMany.mockResolvedValue([]);
+
+    const mockAssigned = {
+      id: sampleAppId,
+      assignedBoothId: sampleBoothId,
+      status: 'booth_assigned',
+      infaqAmountRupiah: 250000,
+    };
+
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([mockAssigned]),
+        }),
+      }),
+    });
+
+    const res = await router.handle({
+      requestId: 'req_bazaar_9',
+      method: 'PUT',
+      path: `/api/events/${sampleEventId}/bazaar/applications/${sampleAppId}/assign-booth`,
+      headers: {},
+      query: {},
+      params: { id: sampleEventId, appId: sampleAppId },
+      body: {
+        boothId: sampleBoothId,
+        placementReason: 'custom',
+        syncBoothPrice: true,
+      },
+      user: mockAdminUser,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data.infaqAmountRupiah).toBe(250000);
+    expect(json.data.smartWarning).toContain('Perhatian: Stand \'B-01\' dialokasikan khusus untuk kategori \'busana_muslim\'');
+  });
+
+  it('10. GET /api/bazaar/tenants calculates lifetimeInfaqRupiah for CRM profiles', async () => {
+    mockDb.query.bazaarTenants.findMany.mockResolvedValue([
+      {
+        id: sampleTenantId,
+        brandName: 'Penerbit Sunnah',
+        businessCategory: 'buku_kitab',
+        picName: 'Abu Ahmad',
+        picPhone: '08123456789',
+        applications: [
+          { status: 'payment_verified', infaqAmountRupiah: 150000 },
+          { status: 'completed', infaqAmountRupiah: 200000 },
+          { status: 'rejected', infaqAmountRupiah: 150000 },
+        ],
+      },
+    ]);
+
+    const res = await router.handle({
+      requestId: 'req_bazaar_10',
+      method: 'GET',
+      path: '/api/bazaar/tenants',
+      headers: {},
+      query: {},
+      params: {},
+      body: {},
+      user: mockAdminUser,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data[0].lifetimeInfaqRupiah).toBe(350000);
+    expect(json.data[0].totalParticipations).toBe(3);
+  });
 });

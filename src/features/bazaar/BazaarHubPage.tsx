@@ -33,6 +33,8 @@ interface MasterTenantItem {
   applications?: any[];
   incidents?: any[];
   evaluations?: any[];
+  lifetimeInfaqRupiah?: number;
+  totalParticipations?: number;
   createdAt: string;
 }
 
@@ -528,6 +530,45 @@ export const BazaarHubPage: React.FC = () => {
       {/* TAB 2: DATABASE TENANT CRM */}
       {hubTab === 'tenants_crm' && (
         <div className="space-y-4">
+          {/* Category Navigation Pills */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+            <button
+              onClick={() => setTenantCategoryFilter('all')}
+              className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all ${
+                tenantCategoryFilter === 'all'
+                  ? 'bg-[#1B4332] text-[#E0B970] shadow-xs'
+                  : 'bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#3D4A44]'
+              }`}
+            >
+              Semua Kategori ({masterTenants.length})
+            </button>
+            {Object.entries(CATEGORY_LABELS).map(([catKey, label]) => {
+              const count = masterTenants.filter((t) => t.businessCategory === catKey).length;
+              return (
+                <button
+                  key={catKey}
+                  onClick={() => setTenantCategoryFilter(catKey)}
+                  className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                    tenantCategoryFilter === catKey
+                      ? 'bg-[#1B4332] text-[#E0B970] shadow-xs'
+                      : 'bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#3D4A44]'
+                  }`}
+                >
+                  <span>{label}</span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                      tenantCategoryFilter === catKey
+                        ? 'bg-[#14352A] text-[#E0B970]'
+                        : 'bg-[#1B4332]/10 text-[#14352A]'
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
           {/* Search & Filters */}
           <div className="bg-[#FBF9F4] p-4 rounded-2xl border border-[#1B4332]/12 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
             <div className="relative flex-1 min-w-[240px]">
@@ -590,6 +631,7 @@ export const BazaarHubPage: React.FC = () => {
                     <th className="py-3 px-3">Kategori</th>
                     <th className="py-3 px-3">PIC &amp; Kontak</th>
                     <th className="py-3 px-3">Partisipasi</th>
+                    <th className="py-3 px-3">Total Infaq</th>
                     <th className="py-3 px-3">Flag Internal</th>
                     <th className="py-3 px-4 text-right">Aksi</th>
                   </tr>
@@ -627,6 +669,12 @@ export const BazaarHubPage: React.FC = () => {
                       <td className="py-3 px-3">
                         <span className="font-mono text-[11px] font-bold text-[#1B4332]">
                           {(t.applications || []).length} Event
+                        </span>
+                      </td>
+
+                      <td className="py-3 px-3">
+                        <span className="font-mono text-[11px] font-bold text-[#8E6B22]">
+                          Rp {(t.lifetimeInfaqRupiah || 0).toLocaleString('id-ID')}
                         </span>
                       </td>
 
@@ -743,6 +791,26 @@ export const BazaarHubPage: React.FC = () => {
             </div>
 
             <div className="p-5 overflow-y-auto space-y-4 text-xs">
+              {/* Financial & Loyalty Stats */}
+              <div className="grid grid-cols-2 gap-3 p-3.5 bg-gradient-to-r from-[#FBF9F4] to-[#F2EEE4] rounded-xl border border-[#B58B3C]/30">
+                <div>
+                  <span className="text-[10px] font-bold text-[#8E6B22] uppercase tracking-wider block">
+                    Total Infaq Terverifikasi
+                  </span>
+                  <span className="text-base font-bold font-display text-[#1C2321]">
+                    Rp {(selectedTenantDetail.lifetimeInfaqRupiah || 0).toLocaleString('id-ID')}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-[#1B4332] uppercase tracking-wider block">
+                    Total Keikutsertaan
+                  </span>
+                  <span className="text-base font-bold font-display text-[#1C2321]">
+                    {selectedTenantDetail.totalParticipations || (selectedTenantDetail.applications || []).length} Event
+                  </span>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3 p-3.5 bg-[#F2EEE4] rounded-xl border border-[#1B4332]/10">
                 <div>
                   <span className="text-[10.5px] text-[#6B7A72] block">Nama PIC</span>
@@ -769,12 +837,24 @@ export const BazaarHubPage: React.FC = () => {
                 ) : (
                   <div className="space-y-2">
                     {(selectedTenantDetail.applications || []).map((app: any, idx: number) => (
-                      <div key={idx} className="p-3 bg-white rounded-xl border border-[#1B4332]/10 flex items-center justify-between">
+                      <div
+                        key={idx}
+                        className="p-3 bg-white rounded-xl border border-[#1B4332]/10 flex items-center justify-between gap-2"
+                      >
                         <div>
                           <p className="font-bold text-[#1C2321]">{app.bazaar?.event?.title || 'Kajian Daurah'}</p>
-                          <p className="text-[11px] text-[#6B7A72]">Stand: {app.assignedBooth?.code || 'Belum diplot'}</p>
+                          <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[#6B7A72]">
+                            <span>Stand: {app.assignedBooth?.code || 'Belum diplot'}</span>
+                            <span>•</span>
+                            <span className="font-bold text-[#8E6B22]">
+                              Infaq:{' '}
+                              {app.infaqAmountRupiah === 0
+                                ? 'Gratis (Sponsor)'
+                                : `Rp ${(app.infaqAmountRupiah || 0).toLocaleString('id-ID')}`}
+                            </span>
+                          </div>
                         </div>
-                        <span className="font-mono text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-[#1B4332]/10 text-[#14352A]">
+                        <span className="font-mono text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-[#1B4332]/10 text-[#14352A] shrink-0">
                           {app.status}
                         </span>
                       </div>
