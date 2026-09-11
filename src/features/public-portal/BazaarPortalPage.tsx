@@ -409,6 +409,40 @@ export const BazaarPortalPage: React.FC = () => {
     return zones;
   }, [data?.bazaar.booths]);
 
+  const boothPrices = useMemo(() => {
+    return (data?.bazaar.booths || [])
+      .map((b) => b.priceRupiah)
+      .filter((p) => typeof p === 'number' && p > 0);
+  }, [data?.bazaar.booths]);
+
+  const minBoothPrice = boothPrices.length > 0 ? Math.min(...boothPrices) : 0;
+  const maxBoothPrice = boothPrices.length > 0 ? Math.max(...boothPrices) : 0;
+
+  const headerPriceDisplay = useMemo(() => {
+    if (minBoothPrice > 0) {
+      if (minBoothPrice === maxBoothPrice) {
+        return {
+          priceText: formatRupiah(minBoothPrice),
+          subText: '*(Tersedia pilihan stan & fasilitas listrik)',
+        };
+      }
+      return {
+        priceText: `Mulai dari ${formatRupiah(minBoothPrice)} - ${formatRupiah(maxBoothPrice)}`,
+        subText: '*(Tergantung zona, ukuran & lokasi stan)',
+      };
+    }
+    if (data?.bazaar.defaultFeeRupiah && data.bazaar.defaultFeeRupiah > 0) {
+      return {
+        priceText: formatRupiah(data.bazaar.defaultFeeRupiah),
+        subText: '*(Tarif infaq dasar stan majelis)',
+      };
+    }
+    return {
+      priceText: 'Sesuai Stand Terpilih',
+      subText: '*(Pilih stand pada denah interaktif)',
+    };
+  }, [minBoothPrice, maxBoothPrice, data?.bazaar.defaultFeeRupiah]);
+
   // Self-service Status Tracker
   const handleCheckStatus = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -667,39 +701,6 @@ export const BazaarPortalPage: React.FC = () => {
   const totalBooths = bazaar.booths?.length || 0;
   const availableBoothsCount = bazaar.booths?.filter((b) => b.status === 'available').length || 0;
 
-  const boothPrices = useMemo(() => {
-    return (bazaar.booths || [])
-      .map((b) => b.priceRupiah)
-      .filter((p) => typeof p === 'number' && p > 0);
-  }, [bazaar.booths]);
-
-  const minBoothPrice = boothPrices.length > 0 ? Math.min(...boothPrices) : 0;
-  const maxBoothPrice = boothPrices.length > 0 ? Math.max(...boothPrices) : 0;
-
-  const headerPriceDisplay = useMemo(() => {
-    if (minBoothPrice > 0) {
-      if (minBoothPrice === maxBoothPrice) {
-        return {
-          priceText: formatRupiah(minBoothPrice),
-          subText: '*(Tersedia pilihan stan & fasilitas listrik)',
-        };
-      }
-      return {
-        priceText: `Mulai dari ${formatRupiah(minBoothPrice)} - ${formatRupiah(maxBoothPrice)}`,
-        subText: '*(Tergantung zona, ukuran & lokasi stan)',
-      };
-    }
-    if (bazaar.defaultFeeRupiah && bazaar.defaultFeeRupiah > 0) {
-      return {
-        priceText: formatRupiah(bazaar.defaultFeeRupiah),
-        subText: '*(Tarif infaq dasar stan majelis)',
-      };
-    }
-    return {
-      priceText: 'Sesuai Stand Terpilih',
-      subText: '*(Pilih stand pada denah interaktif)',
-    };
-  }, [minBoothPrice, maxBoothPrice, bazaar.defaultFeeRupiah]);
 
   return (
     <ErrorBoundary moduleName="Portal Pendaftaran Bazar">
