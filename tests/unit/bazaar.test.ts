@@ -485,4 +485,112 @@ describe('PRD Web App YTS Bazar – Tenant & Event Management System', () => {
     expect(json.data[0].lifetimeInfaqRupiah).toBe(350000);
     expect(json.data[0].totalParticipations).toBe(3);
   });
+
+  it('11. GET /api/public/events/:id/bazaar/check-status retrieves tenant application status and booth assignment', async () => {
+    mockDb.query.bazaarEvents.findFirst.mockResolvedValue({
+      id: sampleBazaarId,
+      eventId: sampleEventId,
+      title: 'Bazar Daurah Syawal',
+      defaultFeeRupiah: 150000,
+      bankName: 'BSI',
+      bankAccountNumber: '7100012345',
+      bankAccountName: 'Yayasan Tarbiyah Sunnah',
+      event: {
+        id: sampleEventId,
+        title: 'Kajian Daurah Syawal',
+        startAt: new Date().toISOString(),
+        locationName: 'Masjid Tarbiyah Sunnah',
+      },
+    });
+
+    mockDb.query.bazaarApplications.findFirst.mockResolvedValue({
+      id: sampleAppId,
+      bazaarId: sampleBazaarId,
+      status: 'booth_assigned',
+      infaqAmountRupiah: 250000,
+      registeredAt: new Date(),
+      updatedAt: new Date(),
+      electricityNeeded: true,
+      electricityWatts: 900,
+      tenant: {
+        id: sampleTenantId,
+        brandName: 'Penerbit Sunnah',
+        businessCategory: 'buku_kitab',
+        picName: 'Abu Ahmad',
+        picPhone: '08123456789',
+      },
+      assignedBooth: {
+        id: sampleBoothId,
+        code: 'B-01',
+        name: 'Booth Selasar Barat',
+        zone: 'Selasar Barat',
+        size: '2x2 meter',
+        priceRupiah: 250000,
+      },
+    });
+
+    const res = await router.handle({
+      requestId: 'req_bazaar_11',
+      method: 'GET',
+      path: `/api/public/events/${sampleEventId}/bazaar/check-status`,
+      headers: {},
+      query: { appId: sampleAppId },
+      params: { id: sampleEventId },
+      body: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data.application.id).toBe(sampleAppId);
+    expect(json.data.application.status).toBe('booth_assigned');
+    expect(json.data.tenant.brandName).toBe('Penerbit Sunnah');
+    expect(json.data.assignedBooth.code).toBe('B-01');
+  });
+
+  it('12. POST /api/public/events/:id/bazaar/upload-proof updates paymentProofUrl and sets status to payment_verification', async () => {
+    mockDb.query.bazaarApplications.findFirst.mockResolvedValue({
+      id: sampleAppId,
+      bazaarId: sampleBazaarId,
+      status: 'submitted',
+      tenant: {
+        id: sampleTenantId,
+        picPhone: '08123456789',
+      },
+    });
+
+    const mockUpdated = {
+      id: sampleAppId,
+      status: 'payment_verification',
+      paymentProofUrl: 'https://storage.yts.web.id/proofs/transfer_123.jpg',
+    };
+
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([mockUpdated]),
+        }),
+      }),
+    });
+
+    const res = await router.handle({
+      requestId: 'req_bazaar_12',
+      method: 'POST',
+      path: `/api/public/events/${sampleEventId}/bazaar/upload-proof`,
+      headers: {},
+      query: {},
+      params: { id: sampleEventId },
+      body: {
+        applicationId: sampleAppId,
+        phone: '08123456789',
+        paymentProofUrl: 'https://storage.yts.web.id/proofs/transfer_123.jpg',
+        paymentNotes: 'Transfer via BSI Mobile a.n. Abu Ahmad',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data.application.status).toBe('payment_verification');
+    expect(json.data.application.paymentProofUrl).toBe('https://storage.yts.web.id/proofs/transfer_123.jpg');
+  });
 });
+

@@ -189,6 +189,16 @@ export async function ensureBazaarTablesExist(db: any) {
         ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS created_at timestamp with time zone DEFAULT now() NOT NULL;
         ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS updated_at timestamp with time zone DEFAULT now() NOT NULL;
 
+        DO $$ 
+        BEGIN
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bazaar_tenants' AND column_name='bazaar_id') THEN
+            ALTER TABLE bazaar_tenants ALTER COLUMN bazaar_id DROP NOT NULL;
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bazaar_tenants' AND column_name='event_id') THEN
+            ALTER TABLE bazaar_tenants ALTER COLUMN event_id DROP NOT NULL;
+          END IF;
+        END $$;
+
         ALTER TABLE bazaar_booths ADD COLUMN IF NOT EXISTS reserved_reason text;
         ALTER TABLE bazaar_booths ADD COLUMN IF NOT EXISTS reserved_for_partner_name text;
         ALTER TABLE bazaar_booths ADD COLUMN IF NOT EXISTS reserved_by uuid REFERENCES app_users(id);
@@ -395,6 +405,13 @@ const publicSurveySchema = z.object({
   omzetRange: z.enum(['<1m', '1-2m', '2-5m', '5-10m', '>10m']),
   feedback: z.string().optional().nullable(),
   willingToJoinNext: z.boolean().default(true),
+});
+
+const publicUploadProofSchema = z.object({
+  applicationId: z.string().uuid('ID Pendaftaran tidak valid'),
+  phone: z.string().min(8, 'Nomor WhatsApp verifikasi diperlukan'),
+  paymentProofUrl: z.string().min(3, 'Bukti transfer pembayaran diperlukan'),
+  paymentNotes: z.string().optional().nullable(),
 });
 
 export function registerBazaarRoutes(router: Router) {
@@ -1803,6 +1820,197 @@ export function registerBazaarRoutes(router: Router) {
         .where(eq(bazaarApplications.id, application.id));
 
       return successResponse(survey, { requestId: ctx.requestId, message: 'Jazakumullahu khairan! Survei pasca-event berhasil dikirim.' });
+    })
+  );
+
+  // Public Tenant Application Status Tracker
+  router.get('/api/public/events/:id/bazaar/check-status', async (ctx) => {
+    const db = getDb();
+    await ensureBazaarTablesExist(db);
+    const eventId = ctx.params?.id;
+    if (!eventId) {
+      return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+    }
+
+    const phone = ctx.query?.phone?.trim();
+    const appId = ctx.query?.appId?.trim();
+
+    if (!phone && !appId) {
+      return errorResponse('VALIDATION_ERROR', 'Harap masukkan Nomor WhatsApp atau ID Pendaftaran.', 400, ctx.requestId);
+    }
+
+    let bazaar = await db.query.bazaarEvents.findFirst({
+      where: or(eq(bazaarEvents.eventId, eventId), eq(bazaarEvents.id, eventId)),
+      with: {
+        event: true,
+      },
+    });
+
+    if (!bazaar) {
+      return errorResponse('NOT_FOUND', 'Bazar tidak ditemukan.', 404, ctx.requestId);
+    }
+
+    let application: any = null;
+
+    if (appId) {
+      application = await db.query.bazaarApplications.findFirst({
+        where: and(eq(bazaarApplications.id, appId), eq(bazaarApplications.bazaarId, bazaar.id)),
+        with: {
+          tenant: true,
+          assignedBooth: true,
+        },
+      });
+    }
+
+    if (!application && phone) {
+      const normalizedPhone = normalizeIndonesianPhone(phone);
+      const apps = await db.query.bazaarApplications.findMany({
+        where: eq(bazaarApplications.bazaarId, bazaar.id),
+        orderBy: [desc(bazaarApplications.registeredAt)],
+        with: {
+          tenant: true,
+          assignedBooth: true,
+        },
+      });
+
+      application = apps.find(
+        (a) => a.tenant?.picPhone && normalizeIndonesianPhone(a.tenant.picPhone) === normalizedPhone
+      );
+    }
+
+    if (!application) {
+      return errorResponse(
+        'NOT_FOUND',
+        'Data pendaftaran tidak ditemukan. Pastikan Nomor WhatsApp atau ID Pendaftaran sesuai.',
+        404,
+        ctx.requestId
+      );
+    }
+
+    return successResponse(
+      {
+        application: {
+          id: application.id,
+          status: application.status,
+          registeredAt: application.registeredAt,
+          updatedAt: application.updatedAt,
+          electricityNeeded: application.electricityNeeded,
+          electricityWatts: application.electricityWatts,
+          specialRequests: application.specialRequests,
+          boothPreferences: application.boothPreferences,
+          infaqAmountRupiah: application.infaqAmountRupiah,
+          paymentProofUrl: application.paymentProofUrl,
+          paymentVerifiedAt: application.paymentVerifiedAt,
+          paymentNotes: application.paymentNotes,
+          adminNotes: application.adminNotes,
+          rejectionReason: application.rejectionReason,
+          isPublished: application.isPublished,
+        },
+        tenant: {
+          id: application.tenant?.id,
+          brandName: application.tenant?.brandName,
+          businessCategory: application.tenant?.businessCategory,
+          picName: application.tenant?.picName,
+          picPhone: application.tenant?.picPhone,
+          picEmail: application.tenant?.picEmail,
+          address: application.tenant?.address,
+          instagram: application.tenant?.instagram,
+          catalogUrl: application.tenant?.catalogUrl,
+          productDescription: application.tenant?.productDescription,
+        },
+        assignedBooth: application.assignedBooth
+          ? {
+              id: application.assignedBooth.id,
+              code: application.assignedBooth.code,
+              name: application.assignedBooth.name,
+              zone: application.assignedBooth.zone,
+              size: application.assignedBooth.size,
+              facilities: application.assignedBooth.facilities,
+              priceRupiah: application.assignedBooth.priceRupiah,
+            }
+          : null,
+        bazaar: {
+          id: bazaar.id,
+          title: bazaar.title,
+          defaultFeeRupiah: bazaar.defaultFeeRupiah,
+          bankName: bazaar.bankName,
+          bankAccountNumber: bazaar.bankAccountNumber,
+          bankAccountName: bazaar.bankAccountName,
+          paymentInstructions: bazaar.paymentInstructions,
+        },
+        event: bazaar.event
+          ? {
+              id: bazaar.event.id,
+              title: bazaar.event.title,
+              startAt: bazaar.event.startAt,
+              locationName: bazaar.event.locationName,
+              speaker: bazaar.event.speaker,
+            }
+          : null,
+      },
+      { requestId: ctx.requestId }
+    );
+  });
+
+  // Public Upload Proof of Payment (Susulan)
+  router.post(
+    '/api/public/events/:id/bazaar/upload-proof',
+    validateBody(publicUploadProofSchema, async (ctx, body) => {
+      const db = getDb();
+      await ensureBazaarTablesExist(db);
+      const eventId = ctx.params?.id;
+      if (!eventId) {
+        return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+      }
+
+      const application = await db.query.bazaarApplications.findFirst({
+        where: eq(bazaarApplications.id, body.applicationId),
+        with: {
+          tenant: true,
+        },
+      });
+
+      if (!application) {
+        return errorResponse('NOT_FOUND', 'Pendaftaran tidak ditemukan.', 404, ctx.requestId);
+      }
+
+      const inputPhone = normalizeIndonesianPhone(body.phone);
+      const tenantPhone = application.tenant?.picPhone ? normalizeIndonesianPhone(application.tenant.picPhone) : '';
+
+      if (inputPhone !== tenantPhone) {
+        return errorResponse(
+          'FORBIDDEN',
+          'Nomor WhatsApp verifikasi tidak sesuai dengan data pendaftaran.',
+          403,
+          ctx.requestId
+        );
+      }
+
+      const newStatus =
+        application.status === 'submitted' || application.status === 'payment_pending'
+          ? 'payment_verification'
+          : application.status;
+
+      const [updated] = await db
+        .update(bazaarApplications)
+        .set({
+          paymentProofUrl: body.paymentProofUrl,
+          paymentNotes: body.paymentNotes || application.paymentNotes,
+          status: newStatus,
+          updatedAt: new Date(),
+        })
+        .where(eq(bazaarApplications.id, application.id))
+        .returning();
+
+      return successResponse(
+        {
+          application: updated,
+        },
+        {
+          requestId: ctx.requestId,
+          message: 'Bukti transfer berhasil diunggah! Panitia akan memverifikasi infaq Anda.',
+        }
+      );
     })
   );
 }
