@@ -199,11 +199,10 @@ body {
 }
 
 .registration-panel {
-  position: sticky;
-  top: calc(var(--space-md) + 4.5rem);
+  position: static;
   min-width: 0;
-  max-height: calc(100vh - 6.5rem);
-  overflow-y: auto;
+  max-height: none;
+  overflow: visible;
   border-color: var(--color-rule-strong);
   border-radius: var(--radius-card);
   box-shadow: 0 20px 42px -34px var(--color-brand-ink);
@@ -211,6 +210,117 @@ body {
 
 .registration-panel__heading {
   border-color: var(--color-rule);
+}
+
+.registration-panel__helper {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.registration-form {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.registration-form input:not([type='checkbox']):not([type='radio']):not([type='file']),
+.registration-form select,
+.registration-form textarea {
+  min-height: 2.875rem;
+  border-color: var(--color-rule-strong);
+  border-radius: var(--radius-input);
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
+.registration-form textarea {
+  min-height: 6.5rem;
+  resize: vertical;
+}
+
+.registration-form input:not([type='checkbox']):not([type='radio']):not([type='file']):focus,
+.registration-form select:focus,
+.registration-form textarea:focus {
+  border-color: var(--color-brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-brand) 18%, transparent);
+}
+
+.registration-form label {
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
+.event-map {
+  display: grid;
+  gap: var(--space-sm);
+  padding-top: var(--space-xs);
+}
+
+.event-map__header {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: end;
+  justify-content: space-between;
+}
+
+.event-map__eyebrow {
+  display: block;
+  color: var(--color-brand);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.event-map__copy {
+  margin: var(--space-3xs) 0 0;
+  color: var(--color-ink-muted);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.event-map__action {
+  display: inline-flex;
+  min-height: 2.75rem;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding-inline: var(--space-sm);
+  border: 1px solid var(--color-brand-ink);
+  border-radius: var(--radius-input);
+  background: var(--color-brand-ink);
+  color: var(--color-paper-3);
+  font-size: var(--text-xs);
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.event-map__action:hover {
+  background: var(--color-ink);
+}
+
+.event-map__action:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 3px;
+}
+
+.event-map__frame-wrap {
+  min-height: 16rem;
+  overflow: hidden;
+  border: 1px solid var(--color-rule-strong);
+  border-radius: var(--radius-card);
+  background: var(--color-paper-2);
+}
+
+.event-map__frame {
+  display: block;
+  width: 100%;
+  min-height: 16rem;
+  border: 0;
 }
 
 .registration-steps {
@@ -270,10 +380,8 @@ body {
     grid-column: 1 / -1;
   }
 
-  .registration-panel {
-    position: static;
-    max-height: none;
-    overflow: visible;
+  .event-map__header {
+    align-items: start;
   }
 }
 
@@ -294,6 +402,16 @@ body {
   }
 
   .event-path__action {
+    width: 100%;
+  }
+
+  .event-map__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .event-map__action {
+    justify-content: center;
     width: 100%;
   }
 
