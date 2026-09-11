@@ -299,6 +299,12 @@ const updateBoothSchema = z.object({
   positionY: z.number().int().optional(),
 });
 
+const bulkUpdateBoothPricingSchema = z.object({
+  zone: z.string().optional(),
+  size: z.string().optional(),
+  priceRupiah: z.number().int().min(0, 'Tarif infaq tidak boleh negatif'),
+});
+
 const updateApplicationStatusSchema = z.object({
   status: z.enum([
     'draft',
@@ -688,6 +694,51 @@ export function registerBazaarRoutes(router: Router) {
 
         const inserted = await db.insert(bazaarBooths).values(boothRows).returning();
         return successResponse(inserted, { requestId: ctx.requestId, total: inserted.length });
+      })
+    )
+  );
+
+  router.put(
+    '/api/events/:id/bazaar/booths/bulk-pricing',
+    requireAuth(
+      validateBody(bulkUpdateBoothPricingSchema, async (ctx, body) => {
+        const db = getDb();
+        await ensureBazaarTablesExist(db);
+        const eventId = ctx.params?.id;
+        if (!eventId) {
+          return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+        }
+
+        const bazaar = await db.query.bazaarEvents.findFirst({
+          where: eq(bazaarEvents.eventId, eventId),
+        });
+
+        if (!bazaar) {
+          return errorResponse('NOT_FOUND', 'Bazar belum diinisialisasi.', 404, ctx.requestId);
+        }
+
+        const conditions = [eq(bazaarBooths.bazaarId, bazaar.id)];
+        if (body.zone && body.zone !== 'ALL') {
+          conditions.push(eq(bazaarBooths.zone, body.zone));
+        }
+        if (body.size && body.size !== 'ALL') {
+          conditions.push(eq(bazaarBooths.size, body.size));
+        }
+
+        const updated = await db
+          .update(bazaarBooths)
+          .set({
+            priceRupiah: body.priceRupiah,
+            updatedAt: new Date(),
+          })
+          .where(and(...conditions))
+          .returning();
+
+        return successResponse(updated, {
+          requestId: ctx.requestId,
+          total: updated.length,
+          message: `Berhasil memperbarui tarif ${updated.length} stand.`,
+        });
       })
     )
   );

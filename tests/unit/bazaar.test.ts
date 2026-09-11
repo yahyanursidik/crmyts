@@ -634,5 +634,46 @@ describe('PRD Web App YTS Bazar – Tenant & Event Management System', () => {
     expect(json.data[0].availableBoothsCount).toBe(1);
     expect(json.data[0].event.title).toBe('Kajian Daurah Syawal');
   });
+
+  it('14. PUT /api/events/:id/bazaar/booths/bulk-pricing updates booth pricing per zone/size', async () => {
+    mockDb.query.bazaarEvents.findFirst.mockResolvedValue({
+      id: sampleBazaarId,
+      eventId: sampleEventId,
+    });
+
+    const mockUpdated = [
+      { id: 'b1', code: 'A-01', zone: 'Selasar Depan', size: '2x2 meter', priceRupiah: 200000 },
+      { id: 'b2', code: 'A-02', zone: 'Selasar Depan', size: '2x2 meter', priceRupiah: 200000 },
+    ];
+
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue(mockUpdated),
+        }),
+      }),
+    });
+
+    const res = await router.handle({
+      requestId: 'req_bazaar_14',
+      method: 'PUT',
+      path: `/api/events/${sampleEventId}/bazaar/booths/bulk-pricing`,
+      headers: {},
+      query: {},
+      params: { id: sampleEventId },
+      body: {
+        zone: 'Selasar Depan',
+        size: '2x2 meter',
+        priceRupiah: 200000,
+      },
+      user: mockAdminUser,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data).toHaveLength(2);
+    expect(json.data[0].priceRupiah).toBe(200000);
+    expect(json.meta.total).toBe(2);
+  });
 });
 

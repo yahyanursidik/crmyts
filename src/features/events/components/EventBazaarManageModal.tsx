@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { apiClient } from '@/lib/apiClient';
 import {
   X,
@@ -179,6 +179,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
   const [actionLoading, setActionLoading] = useState(false);
   const [eventInfo, setEventInfo] = useState<any>(null);
   const [bazaarData, setBazaarData] = useState<BazaarEventData | null>(null);
+  const booths = bazaarData?.booths || [];
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -188,6 +189,13 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [boothCategoryFilter, setBoothCategoryFilter] = useState<string>('all');
+  const [boothZoneFilter, setBoothZoneFilter] = useState<string>('all');
+  const [isBulkZonePricingModalOpen, setIsBulkZonePricingModalOpen] = useState(false);
+  const [bulkZonePricingForm, setBulkZonePricingForm] = useState({
+    zone: 'ALL',
+    size: 'ALL',
+    priceRupiah: 150000,
+  });
 
   // Modals & Selection
   const [selectedApp, setSelectedApp] = useState<BazaarApplication | null>(null);
@@ -492,6 +500,54 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
     }
   };
 
+  // Derived Zone Statistics & Options
+  const uniqueZones = useMemo(() => Array.from(new Set(booths.map((b) => b.zone).filter(Boolean))), [booths]);
+  const uniqueSizes = useMemo(() => Array.from(new Set(booths.map((b) => b.size).filter(Boolean))), [booths]);
+
+  const zoneStats = useMemo(() => {
+    const map = new Map<string, { count: number; available: number; minPrice: number; maxPrice: number; sizes: Set<string> }>();
+    booths.forEach((b) => {
+      const z = b.zone || 'Tanpa Zona';
+      if (!map.has(z)) {
+        map.set(z, { count: 0, available: 0, minPrice: b.priceRupiah, maxPrice: b.priceRupiah, sizes: new Set([b.size || '2x2 meter']) });
+      }
+      const st = map.get(z)!;
+      st.count += 1;
+      if (b.status === 'available') st.available += 1;
+      st.minPrice = Math.min(st.minPrice, b.priceRupiah);
+      st.maxPrice = Math.max(st.maxPrice, b.priceRupiah);
+      if (b.size) st.sizes.add(b.size);
+    });
+    return Array.from(map.entries()).map(([zone, data]) => ({
+      zone,
+      ...data,
+      sizesList: Array.from(data.sizes).join(', '),
+    }));
+  }, [booths]);
+
+  // Bulk Update Booth Pricing by Zone / Size
+  const handleBulkUpdateZonePricing = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setActionLoading(true);
+      const res: any = await apiClient(`/events/${eventId}/bazaar/booths/bulk-pricing`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          zone: bulkZonePricingForm.zone,
+          size: bulkZonePricingForm.size,
+          priceRupiah: Number(bulkZonePricingForm.priceRupiah),
+        }),
+      });
+      showToast(res.message || 'Tarif stand berhasil diperbarui secara massal!');
+      setIsBulkZonePricingModalOpen(false);
+      loadBazaarData();
+    } catch (err: any) {
+      showToast(err.message || 'Gagal memperbarui tarif stand massal');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   // Update Application Status
   const handleUpdateAppStatus = async (appId: string, status: string, notes?: string) => {
     try {
@@ -784,7 +840,6 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
 
   if (!isOpen) return null;
 
-  const booths = bazaarData?.booths || [];
   const applications = bazaarData?.applications || [];
 
   // Filtered applications
@@ -1139,6 +1194,22 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
 
                     <div className="flex items-center gap-2 flex-wrap">
                       <div className="flex items-center gap-1.5 text-xs">
+                        <Layers className="w-3.5 h-3.5 text-surface-400" />
+                        <select
+                          value={boothZoneFilter}
+                          onChange={(e) => setBoothZoneFilter(e.target.value)}
+                          className="px-2.5 py-1.5 border border-cream-300 rounded-xl bg-white font-bold text-surface-700 text-xs"
+                        >
+                          <option value="all">Semua Zona Area ({booths.length})</option>
+                          {uniqueZones.map((z) => (
+                            <option key={z} value={z}>
+                              {z} ({booths.filter((b) => b.zone === z).length} Stand)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 text-xs">
                         <Filter className="w-3.5 h-3.5 text-surface-400" />
                         <select
                           value={boothCategoryFilter}
@@ -1155,6 +1226,15 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                       </div>
 
                       <button
+                        type="button"
+                        onClick={() => setIsBulkZonePricingModalOpen(true)}
+                        className="px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center gap-1"
+                        title="Atur tarif stand secara massal per area atau ukuran"
+                      >
+                        <Coins className="w-3.5 h-3.5" /> Atur Tarif per Area
+                      </button>
+
+                      <button
                         onClick={() => setIsBulkBoothModalOpen(true)}
                         className="px-3 py-1.5 bg-brand-900 hover:bg-brand-950 text-white rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center gap-1"
                       >
@@ -1168,6 +1248,39 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                       </button>
                     </div>
                   </div>
+
+                  {/* Rekapitulasi Tarif & Slot per Area */}
+                  {zoneStats.length > 0 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
+                      {zoneStats.map((st) => (
+                        <div
+                          key={st.zone}
+                          onClick={() => setBoothZoneFilter(boothZoneFilter === st.zone ? 'all' : st.zone)}
+                          className={`p-3 rounded-2xl border text-xs space-y-1 shadow-2xs cursor-pointer transition-all ${
+                            boothZoneFilter === st.zone
+                              ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-400/40'
+                              : 'bg-white hover:bg-cream-50/70 border-cream-200'
+                          }`}
+                          title="Klik untuk memfilter stand di area ini"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-black text-brand-950 truncate">{st.zone}</span>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 bg-cream-100 rounded text-brand-800">
+                              {st.available}/{st.count} Tersedia
+                            </span>
+                          </div>
+                          <div className="text-[11.5px] font-mono font-black text-emerald-800">
+                            {st.minPrice === st.maxPrice
+                              ? `Rp ${st.minPrice.toLocaleString('id-ID')}`
+                              : `Rp ${st.minPrice.toLocaleString('id-ID')} - Rp ${st.maxPrice.toLocaleString('id-ID')}`}
+                          </div>
+                          <div className="text-[10px] text-surface-500 truncate">
+                            Ukuran: {st.sizesList || '2x2 meter'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   {booths.length === 0 ? (
                     <div className="p-12 text-center border-2 border-dashed border-cream-300 rounded-3xl space-y-2">
@@ -1183,12 +1296,14 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                   ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                       {booths
-                        .filter(
-                          (b) =>
+                        .filter((b) => {
+                          const matchCategory =
                             boothCategoryFilter === 'all' ||
                             b.allowedCategory === boothCategoryFilter ||
-                            (boothCategoryFilter !== 'all' && b.allowedCategory === 'all')
-                        )
+                            (boothCategoryFilter !== 'all' && b.allowedCategory === 'all');
+                          const matchZone = boothZoneFilter === 'all' || b.zone === boothZoneFilter;
+                          return matchCategory && matchZone;
+                        })
                         .map((b) => {
                           const isAvailable = b.status === 'available';
                           const isAssigned = b.status === 'assigned';
@@ -2226,6 +2341,94 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
               <div className="max-h-[70vh] overflow-auto flex items-center justify-center bg-slate-50 rounded-2xl border p-2">
                 <img src={viewingProofUrl} alt="Bukti Transfer Penuh" className="max-w-full max-h-[65vh] object-contain rounded-lg" />
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: BULK PRICING PER ZONE / SIZE */}
+        {isBulkZonePricingModalOpen && (
+          <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-md w-full p-6 border border-cream-300 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-cream-200 pb-3">
+                <div className="flex items-center gap-2">
+                  <Coins className="w-5 h-5 text-amber-700" />
+                  <h4 className="text-sm font-black text-brand-950">Atur Tarif Massal per Area / Jenis Stand</h4>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsBulkZonePricingModalOpen(false)}
+                  className="p-1 text-surface-400 hover:text-surface-600"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleBulkUpdateZonePricing} className="space-y-4 text-xs">
+                <div>
+                  <label className="font-bold text-surface-700 block mb-1">Pilih Zona Area</label>
+                  <select
+                    value={bulkZonePricingForm.zone}
+                    onChange={(e) => setBulkZonePricingForm({ ...bulkZonePricingForm, zone: e.target.value })}
+                    className="w-full p-2.5 border border-cream-300 rounded-xl bg-white font-medium"
+                  >
+                    <option value="ALL">Semua Zona Area</option>
+                    {uniqueZones.map((z) => (
+                      <option key={z} value={z}>
+                        {z} ({booths.filter((b) => b.zone === z).length} Stand)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-bold text-surface-700 block mb-1">Pilih Ukuran / Jenis Stand</label>
+                  <select
+                    value={bulkZonePricingForm.size}
+                    onChange={(e) => setBulkZonePricingForm({ ...bulkZonePricingForm, size: e.target.value })}
+                    className="w-full p-2.5 border border-cream-300 rounded-xl bg-white font-medium"
+                  >
+                    <option value="ALL">Semua Ukuran Stand</option>
+                    {uniqueSizes.map((s) => (
+                      <option key={s} value={s}>
+                        {s} ({booths.filter((b) => b.size === s).length} Stand)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-bold text-surface-700 block mb-1">Tarif Infaq Baru (Rp)</label>
+                  <input
+                    type="number"
+                    value={bulkZonePricingForm.priceRupiah}
+                    onChange={(e) => setBulkZonePricingForm({ ...bulkZonePricingForm, priceRupiah: Number(e.target.value) })}
+                    className="w-full p-2.5 border border-cream-300 rounded-xl font-mono font-bold text-brand-950 text-sm"
+                    required
+                    min={0}
+                    step={5000}
+                  />
+                  <p className="text-[10px] text-surface-500 mt-1">
+                    Tarif baru akan langsung diterapkan ke seluruh slot stand yang memenuhi kriteria area dan ukuran di atas.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-cream-200">
+                  <button
+                    type="button"
+                    onClick={() => setIsBulkZonePricingModalOpen(false)}
+                    className="px-4 py-2 border border-cream-300 text-surface-700 rounded-xl font-bold"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={actionLoading}
+                    className="px-4 py-2 bg-amber-700 hover:bg-amber-800 text-white rounded-xl font-bold transition-all shadow-xs"
+                  >
+                    {actionLoading ? 'Menyimpan...' : 'Terapkan Tarif ke Stand'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
