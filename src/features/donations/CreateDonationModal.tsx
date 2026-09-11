@@ -47,6 +47,11 @@ export const CreateDonationModal: React.FC<CreateDonationModalProps> = ({
   const [externalReference, setExternalReference] = useState('');
   const [notes, setNotes] = useState('');
   const [hasProofUpload, setHasProofUpload] = useState(false);
+  const [proofFile, setProofFile] = useState<{
+    base64: string;
+    filename: string;
+    mimeType: string;
+  } | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -72,10 +77,13 @@ export const CreateDonationModal: React.FC<CreateDonationModalProps> = ({
     fetchPrograms();
   }, [isOpen]);
 
+  // Reset form when opened
   useEffect(() => {
+    if (!isOpen) return;
     if (initialPersonId) {
       setSelectedPersonId(initialPersonId);
       setSelectedPersonName(initialPersonName || '');
+      setPersonSearch(initialPersonName || '');
     } else {
       setSelectedPersonId('');
       setSelectedPersonName('');
@@ -84,6 +92,7 @@ export const CreateDonationModal: React.FC<CreateDonationModalProps> = ({
     setExternalReference('');
     setNotes('');
     setHasProofUpload(false);
+    setProofFile(null);
     setError(null);
   }, [initialPersonId, initialPersonName, isOpen]);
 
@@ -144,7 +153,9 @@ export const CreateDonationModal: React.FC<CreateDonationModalProps> = ({
           paymentMethod,
           externalReference: externalReference.trim() || null,
           notes: notes.trim() || null,
-          proofAttachmentId: hasProofUpload ? '018f9999-9999-7000-8000-000000000001' : null,
+          proofBase64Data: proofFile?.base64 || null,
+          proofFilename: proofFile?.filename || null,
+          proofMimeType: proofFile?.mimeType || null,
         }),
       });
 
@@ -386,12 +397,31 @@ export const CreateDonationModal: React.FC<CreateDonationModalProps> = ({
                 type="file"
                 accept="image/*,application/pdf"
                 className="hidden"
-                onChange={() => setHasProofUpload(true)}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  if (file.size > 10 * 1024 * 1024) {
+                    setError('Ukuran berkas melebihi 10MB');
+                    return;
+                  }
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    setProofFile({
+                      base64: reader.result as string,
+                      filename: file.name,
+                      mimeType: file.type || 'image/jpeg',
+                    });
+                    setHasProofUpload(true);
+                  };
+                  reader.readAsDataURL(file);
+                }}
               />
               <div className="flex items-center gap-2 text-xs">
                 <Upload className="w-4 h-4 text-surface-500" />
-                {hasProofUpload ? (
-                  <span className="font-semibold text-emerald-800">✓ Bukti Transfer Siap Diunggah</span>
+                {hasProofUpload && proofFile ? (
+                  <span className="font-semibold text-emerald-800 truncate max-w-[280px]">
+                    ✓ {proofFile.filename}
+                  </span>
                 ) : (
                   <span className="text-surface-600">Klik untuk lampirkan struk / screenshot transfer</span>
                 )}

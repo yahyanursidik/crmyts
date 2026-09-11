@@ -395,7 +395,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
           description: res.data.bazaar.description || '',
           isOpen: res.data.bazaar.isOpen,
           rulesAndTerms: res.data.bazaar.rulesAndTerms || '',
-          defaultFeeRupiah: res.data.bazaar.defaultFeeRupiah || 150000,
+          defaultFeeRupiah: res.data.bazaar.defaultFeeRupiah ?? 0,
           bankName: res.data.bazaar.bankName || 'BSI (Bank Syariah Indonesia)',
           bankAccountNumber: res.data.bazaar.bankAccountNumber || '7144778899',
           bankAccountName: res.data.bazaar.bankAccountName || 'Yayasan Tarbiyah Sunnah (Bazar)',
@@ -2077,7 +2077,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                           step={5000}
                         />
                         <p className="text-[10.5px] text-surface-600 leading-relaxed">
-                          Tarif default yang digunakan oleh kalkulator estimasi infaq jika pendaftar belum memilih nomor stand spesifik di denah.
+                          Tarif dasar umum yang berlaku jika stan belum memiliki tarif individu di denah inventaris. Jika denah stan memiliki variasi harga, formulir pendaftar akan menampilkan rentang harga stan secara otomatis.
                         </p>
                       </div>
 
@@ -2266,7 +2266,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                           <span>Pratinjau Langsung Formulir Publik</span>
                         </div>
                         <p className="text-[11px] text-amber-900/80 leading-relaxed">
-                          Ini adalah tampilan <strong>Bagian 4 (Estimasi Infaq &amp; Rekening Resmi)</strong> yang persis akan dilihat oleh calon pendaftar di portal web bazar:
+                          Ini adalah tampilan <strong>Bagian 4 (Infaq Partisipasi &amp; Rekening Resmi)</strong> yang persis akan dilihat oleh calon pendaftar di portal web bazar:
                         </p>
                       </div>
 
@@ -2277,7 +2277,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                             4
                           </div>
                           <div>
-                            <h4 className="text-xs font-bold text-[#1C2321]">Estimasi Infaq &amp; Rekening Resmi Panitia</h4>
+                            <h4 className="text-xs font-bold text-[#1C2321]">Infaq Partisipasi &amp; Rekening Resmi Panitia</h4>
                             <p className="text-[10px] text-[#6B7A72]">Penyaluran infaq operasional dakwah, fasilitas listrik, dan kebersihan majelis</p>
                           </div>
                         </div>
@@ -2285,13 +2285,13 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                         {/* Breakdown Preview */}
                         <div className="p-3.5 bg-[#F2EEE4] rounded-2xl border border-[#1B4332]/14 space-y-2">
                           <div className="flex items-center justify-between font-bold text-xs text-[#14352A]">
-                            <span>Rincian Estimasi Infaq Partisipasi:</span>
+                            <span>Rincian Infaq Partisipasi:</span>
                             <span className="font-mono text-sm text-[#1B4332]">
                               Rp {settingsForm.defaultFeeRupiah.toLocaleString('id-ID')}
                             </span>
                           </div>
                           <div className="text-[11px] text-[#6B7A72] flex justify-between pt-1 border-t border-[#1B4332]/10">
-                            <span>Biaya Stand (Tarif Pokok):</span>
+                            <span>Biaya Stand (Stand Terpilih / Tarif Pokok):</span>
                             <span className="font-mono font-semibold text-[#1C2321]">
                               Rp {settingsForm.defaultFeeRupiah.toLocaleString('id-ID')}
                             </span>
@@ -2822,7 +2822,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        const base = feeModalApp.assignedBooth?.priceRupiah || bazaarData?.defaultFeeRupiah || 150000;
+                        const base = feeModalApp.assignedBooth?.priceRupiah || bazaarData?.defaultFeeRupiah || 0;
                         setFeeForm({
                           ...feeForm,
                           infaqAmountRupiah: Math.round(base * 0.5),
@@ -2836,25 +2836,25 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        const boothPrice = feeModalApp.assignedBooth?.priceRupiah || bazaarData?.defaultFeeRupiah || 150000;
+                        const boothPrice = feeModalApp.assignedBooth?.priceRupiah || bazaarData?.defaultFeeRupiah || 0;
                         setFeeForm({ ...feeForm, infaqAmountRupiah: boothPrice, paymentNotes: 'Sesuai tarif inventaris booth' });
                       }}
                       className="p-2 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-900 font-bold text-left text-[11px]"
                     >
-                      🏬 Sesuai Stand (Rp {(feeModalApp.assignedBooth?.priceRupiah || bazaarData?.defaultFeeRupiah || 150000).toLocaleString('id-ID')})
+                      🏬 Sesuai Stand (Rp {(feeModalApp.assignedBooth?.priceRupiah || bazaarData?.defaultFeeRupiah || 0).toLocaleString('id-ID')})
                     </button>
                     <button
                       type="button"
                       onClick={() =>
                         setFeeForm({
                           ...feeForm,
-                          infaqAmountRupiah: bazaarData?.defaultFeeRupiah || 150000,
+                          infaqAmountRupiah: bazaarData?.defaultFeeRupiah || 0,
                           paymentNotes: 'Tarif standar bazar',
                         })
                       }
                       className="p-2 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold text-left text-[11px]"
                     >
-                      ✨ Normal (Rp {(bazaarData?.defaultFeeRupiah || 150000).toLocaleString('id-ID')})
+                      ✨ Normal (Rp {(bazaarData?.defaultFeeRupiah || 0).toLocaleString('id-ID')})
                     </button>
                   </div>
                 </div>

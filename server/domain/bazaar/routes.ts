@@ -16,6 +16,7 @@ import {
 } from '../../db/schema';
 import { eq, and, desc, asc, sql, ilike, or } from 'drizzle-orm';
 import { normalizeIndonesianPhone } from '../../lib/phone';
+import { ensureS3StorageUrl } from '../../storage/providers/s3';
 
 let bazaarTablesInitialized = false;
 let bazaarInitPromise: Promise<void> | null = null;
@@ -1538,28 +1539,38 @@ export function registerBazaarRoutes(router: Router) {
       },
     });
 
-    const list = bazaars.map((b) => ({
-      id: b.id,
-      eventId: b.eventId,
-      title: b.title,
-      description: b.description,
-      defaultFeeRupiah: b.defaultFeeRupiah,
-      registrationDeadline: b.registrationDeadline,
-      paymentDeadline: b.paymentDeadline,
-      isOpen: b.isOpen,
-      boothsCount: b.booths?.length || 0,
-      availableBoothsCount: b.booths?.filter((booth) => booth.status === 'available').length || 0,
-      event: b.event
-        ? {
-            id: b.event.id,
-            title: b.event.title,
-            speaker: b.event.speaker,
-            startAt: b.event.startAt,
-            endAt: b.event.endAt,
-            locationName: b.event.locationName,
-          }
-        : null,
-    }));
+    const list = bazaars.map((b) => {
+      const boothPrices = (b.booths || [])
+        .map((booth) => booth.priceRupiah)
+        .filter((p) => typeof p === 'number' && p > 0);
+      const minFeeRupiah = boothPrices.length > 0 ? Math.min(...boothPrices) : b.defaultFeeRupiah;
+      const maxFeeRupiah = boothPrices.length > 0 ? Math.max(...boothPrices) : b.defaultFeeRupiah;
+
+      return {
+        id: b.id,
+        eventId: b.eventId,
+        title: b.title,
+        description: b.description,
+        defaultFeeRupiah: b.defaultFeeRupiah,
+        minFeeRupiah,
+        maxFeeRupiah,
+        registrationDeadline: b.registrationDeadline,
+        paymentDeadline: b.paymentDeadline,
+        isOpen: b.isOpen,
+        boothsCount: b.booths?.length || 0,
+        availableBoothsCount: b.booths?.filter((booth) => booth.status === 'available').length || 0,
+        event: b.event
+          ? {
+              id: b.event.id,
+              title: b.event.title,
+              speaker: b.event.speaker,
+              startAt: b.event.startAt,
+              endAt: b.event.endAt,
+              locationName: b.event.locationName,
+            }
+          : null,
+      };
+    });
 
     return successResponse(list, { requestId: ctx.requestId });
   });
@@ -1802,6 +1813,13 @@ export function registerBazaarRoutes(router: Router) {
         }
       }
 
+      // Upload proof to Contabo S3 if provided (base64 data URL or external)
+      const storedProofUrl = await ensureS3StorageUrl(
+        body.paymentProofUrl,
+        'bazaar-proofs',
+        `bazaar_${masterTenant.brandName}`
+      );
+
       const [createdApp] = await db
         .insert(bazaarApplications)
         .values({
@@ -1813,7 +1831,7 @@ export function registerBazaarRoutes(router: Router) {
           specialRequests: body.specialRequests || null,
           boothPreferences: body.boothPreferences || null,
           infaqAmountRupiah: body.infaqAmountRupiah || bazaar.defaultFeeRupiah,
-          paymentProofUrl: body.paymentProofUrl || null,
+          paymentProofUrl: storedProofUrl || null,
         })
         .returning();
 
@@ -2082,10 +2100,17 @@ export function registerBazaarRoutes(router: Router) {
           ? 'payment_verification'
           : application.status;
 
+      // Upload proof to Contabo S3
+      const storedProofUrl = await ensureS3StorageUrl(
+        body.paymentProofUrl,
+        'bazaar-proofs',
+        `bazaar_susulan_${application.id}`
+      );
+
       const [updated] = await db
         .update(bazaarApplications)
         .set({
-          paymentProofUrl: body.paymentProofUrl,
+          paymentProofUrl: storedProofUrl || body.paymentProofUrl,
           paymentNotes: body.paymentNotes || application.paymentNotes,
           status: newStatus,
           updatedAt: new Date(),

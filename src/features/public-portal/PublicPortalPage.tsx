@@ -16,6 +16,7 @@ import {
   Calendar,
   Clock,
   Ticket,
+  Upload,
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -97,6 +98,7 @@ export function PublicPortalPage() {
   const [donorNotes, setDonorNotes] = useState('');
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'bank_transfer' | 'qris'>('bank_transfer');
+  const [proofFile, setProofFile] = useState<{ base64: string; name: string } | null>(null);
   const [submittingDonation, setSubmittingDonation] = useState(false);
   const [donationSuccess, setDonationSuccess] = useState<any | null>(null);
 
@@ -184,6 +186,7 @@ export function PublicPortalPage() {
           amountRupiah: amount,
           paymentMethod,
           notes: donorNotes || null,
+          transferProofUrl: proofFile?.base64 || null,
           isAnonymous,
         }),
       });
@@ -890,6 +893,48 @@ export function PublicPortalPage() {
                     onChange={(e) => setDonorNotes(e.target.value)}
                     className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                   />
+                </div>
+
+                {/* Upload Bukti Transfer */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Lampiran Bukti Transfer (Opsional)
+                  </label>
+                  <label className={`flex items-center justify-center p-3 border-2 border-dashed rounded-xl cursor-pointer transition-colors ${
+                    proofFile ? 'border-emerald-500 bg-emerald-50/50' : 'border-slate-300 hover:border-emerald-600 bg-slate-50'
+                  }`}>
+                    <input
+                      type="file"
+                      accept="image/*,application/pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        if (file.size > 10 * 1024 * 1024) {
+                          alert('Ukuran berkas maksimal 10MB');
+                          return;
+                        }
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          setProofFile({
+                            base64: reader.result as string,
+                            name: file.name,
+                          });
+                        };
+                        reader.readAsDataURL(file);
+                      }}
+                    />
+                    <div className="flex items-center gap-2 text-xs">
+                      <Upload className="w-4 h-4 text-slate-500" />
+                      {proofFile ? (
+                        <span className="font-semibold text-emerald-800 truncate max-w-[260px]">
+                          ✓ {proofFile.name}
+                        </span>
+                      ) : (
+                        <span className="text-slate-600">Klik untuk lampirkan struk / screenshot transfer</span>
+                      )}
+                    </div>
+                  </label>
                 </div>
 
                 <button

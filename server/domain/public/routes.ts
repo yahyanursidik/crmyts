@@ -13,6 +13,7 @@ import {
   appUsers,
   events,
   eventAttendance,
+  attachments,
 } from '../../db/schema';
 import { and, eq, sql } from 'drizzle-orm';
 import { normalizeIndonesianPhone } from '../../lib/phone';
@@ -23,6 +24,7 @@ import {
   sendDonationReceivedEmail,
   sendWaqfInquiryConfirmationEmail,
 } from '../../email/service';
+import { ensureS3StorageUrl, uploadPublicProofFile } from '../../storage/providers/s3';
 
 const publicDonationSchema = z.object({
   fullName: z.string().min(2, 'Nama lengkap minimal 2 karakter'),
@@ -86,7 +88,43 @@ function safeWhatsAppGroupUrl(value?: string | null): string | null {
   }
 }
 
+const publicUploadSchema = z.object({
+  base64Data: z.string().min(1, 'Data berkas (Base64) wajib disertakan'),
+  filename: z.string().optional(),
+  mimeType: z.string().optional().default('image/jpeg'),
+  folder: z.enum(['bazaar-proofs', 'event-proofs', 'donation-proofs', 'public-proofs']).default('public-proofs'),
+});
+
 export function registerPublicPortalRoutes(router: Router) {
+  // 0. POST /api/public/upload (Public Upload for Proofs to Contabo S3)
+  router.post(
+    '/api/public/upload',
+    validateBody(publicUploadSchema, async (ctx, body) => {
+      try {
+        const base64Clean = body.base64Data.replace(/^data:[a-zA-Z0-9/+-]+;base64,/, '');
+        const buffer = Buffer.from(base64Clean, 'base64');
+        if (buffer.length === 0) {
+          return errorResponse('VALIDATION_ERROR', 'Berkas kosong tidak dapat diunggah', 400, ctx.requestId);
+        }
+        if (buffer.length > 10 * 1024 * 1024) {
+          return errorResponse('VALIDATION_ERROR', 'Ukuran berkas melebihi batas maksimal 10MB', 400, ctx.requestId);
+        }
+
+        const uploaded = await uploadPublicProofFile({
+          folder: body.folder || 'public-proofs',
+          filename: body.filename,
+          body: buffer,
+          mimeType: body.mimeType || 'image/jpeg',
+        });
+
+        return successResponse(uploaded, { requestId: ctx.requestId }, 201);
+      } catch (err: any) {
+        console.error('[POST /api/public/upload Error]:', err);
+        return errorResponse('INTERNAL_ERROR', err.message || 'Gagal mengunggah berkas ke S3', 500, ctx.requestId);
+      }
+    })
+  );
+
   // 1. GET /api/public/portal-info (Public Aggregates, Active Programs, Bank Accounts, Upcoming Kajian)
   router.get('/api/public/portal-info', async (ctx) => {
     const db = getDb();
@@ -294,6 +332,40 @@ export function registerPublicPortalRoutes(router: Router) {
       });
       const amilId = defaultAmil?.id || '018f0000-0000-7000-8000-000000000001';
 
+      // Process and upload transfer proof to Contabo S3 if provided
+      let proofAttachmentId: string | null = null;
+      let storedProofUrl: string | null = null;
+      if (body.transferProofUrl) {
+        storedProofUrl = await ensureS3StorageUrl(
+          body.transferProofUrl,
+          'donation-proofs',
+          `infaq_${invoiceRef}`
+        );
+
+        if (storedProofUrl) {
+          try {
+            const [newAtt] = await db
+              .insert(attachments)
+              .values({
+                storageProvider: 's3_contabo',
+                bucket: process.env.S3_BUCKET || 'crmyts',
+                objectKey: storedProofUrl.replace(/^https?:\/\/[^/]+\/[^/]+\//, ''),
+                originalFilename: `bukti_transfer_${invoiceRef}.jpg`,
+                mimeType: 'image/jpeg',
+                fileSize: BigInt(2048),
+                sensitivityLevel: 'standard',
+                uploadedBy: amilId,
+              })
+              .returning();
+            if (newAtt) {
+              proofAttachmentId = newAtt.id;
+            }
+          } catch (attErr) {
+            console.warn('[Public Donation Proof Attachment Insert Error]:', attErr);
+          }
+        }
+      }
+
       // Insert unverified donation record
       const [newDonation] = await db
         .insert(donations)
@@ -305,6 +377,7 @@ export function registerPublicPortalRoutes(router: Router) {
           externalReference: body.bankReference || invoiceRef,
           verificationStatus: 'unverified',
           donationDate: new Date(),
+          proofAttachmentId: proofAttachmentId || null,
           createdBy: amilId,
         })
         .returning();
@@ -315,7 +388,7 @@ export function registerPublicPortalRoutes(router: Router) {
         .values({
           personId: person.id,
           title: `Verifikasi Mutasi Infaq: Rp ${body.amountRupiah.toLocaleString('id-ID')} (${displayName})`,
-          description: `Konfirmasi transfer online masuk via Portal Publik. Ref: ${invoiceRef}. Mohon cek mutasi rekening BSI dan terbitkan E-Receipt.`,
+          description: `Konfirmasi transfer online masuk via Portal Publik. Ref: ${invoiceRef}.${storedProofUrl ? ' Bukti transfer: ' + storedProofUrl : ''} Mohon cek mutasi rekening BSI dan terbitkan E-Receipt.`,
           priority: 'high',
           status: 'pending',
           ownerUserId: amilId,
@@ -641,6 +714,13 @@ export function registerPublicPortalRoutes(router: Router) {
 
       const totalGroupPrice = isPaidEvent ? totalParticipantsCount * (targetEvent.priceRupiah || 0) : 0;
 
+      // Upload payment proof to Contabo S3 if provided
+      const storedProofUrl = await ensureS3StorageUrl(
+        body.paymentProofUrl,
+        'event-proofs',
+        `tiket_${ticketCode}`
+      );
+
       if (!existingAttendance) {
         await db.insert(eventAttendance).values({
           eventId: targetEvent.id,
@@ -656,7 +736,7 @@ export function registerPublicPortalRoutes(router: Router) {
           age: null,
 
           paymentStatus: initialPaymentStatus,
-          paymentProofUrl: body.paymentProofUrl || null,
+          paymentProofUrl: storedProofUrl || null,
           paymentAmountRupiah: isPaidEvent ? (body.paymentAmountRupiah || totalGroupPrice) : 0,
 
           vehicleType,
@@ -685,7 +765,7 @@ export function registerPublicPortalRoutes(router: Router) {
           .update(eventAttendance)
           .set({
             paymentStatus: 'waiting_verification',
-            paymentProofUrl: body.paymentProofUrl,
+            paymentProofUrl: storedProofUrl || body.paymentProofUrl,
             paymentAmountRupiah: totalGroupPrice,
             paymentRejectionReason: null,
           })

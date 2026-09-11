@@ -299,11 +299,14 @@ export const BazaarPortalPage: React.FC = () => {
 
   // Live Transparent Fee Calculation
   const feeCalculation = useMemo(() => {
+    const hasBoothsConfigured = Boolean(data?.bazaar.booths && data.bazaar.booths.length > 0);
     const baseBoothPrice = selectedBooth
       ? selectedBooth.priceRupiah
-      : data?.bazaar.defaultFeeRupiah || 150000;
+      : hasBoothsConfigured
+      ? 0
+      : (data?.bazaar.defaultFeeRupiah || 0);
 
-    const electricityAddon = formData.electricityNeeded
+    const electricityAddon = (selectedBooth || !hasBoothsConfigured) && formData.electricityNeeded
       ? ELECTRICITY_PRICE_TIERS[formData.electricityWatts] || 0
       : 0;
 
@@ -313,12 +316,18 @@ export const BazaarPortalPage: React.FC = () => {
       baseBoothPrice,
       electricityAddon,
       totalInfaq,
+      hasBoothsConfigured,
+      hasSelectedBooth: Boolean(selectedBooth),
     };
-  }, [selectedBooth, data?.bazaar.defaultFeeRupiah, formData.electricityNeeded, formData.electricityWatts]);
+  }, [selectedBooth, data?.bazaar.booths, data?.bazaar.defaultFeeRupiah, formData.electricityNeeded, formData.electricityWatts]);
 
   // Handle Form Submission
   const handleSubmitRegistration = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (data?.bazaar.booths && data.bazaar.booths.length > 0 && !selectedBooth) {
+      showToast('Silakan pilih salah satu stand/booth terlebih dahulu pada langkah 3.');
+      return;
+    }
     if (!formData.agreedToRules) {
       showToast('Harap setujui adab dan tata tertib majelis terlebih dahulu.');
       return;
@@ -581,7 +590,7 @@ export const BazaarPortalPage: React.FC = () => {
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-[#6B7A72]">Infaq Stand Mulai:</span>
                     <span className="font-bold font-mono text-[#14352A]">
-                      {formatRupiah(b.defaultFeeRupiah || 150000)}
+                      {formatRupiah(b.minFeeRupiah || b.defaultFeeRupiah || 0)}
                     </span>
                   </div>
 
@@ -655,6 +664,40 @@ export const BazaarPortalPage: React.FC = () => {
 
   const totalBooths = bazaar.booths?.length || 0;
   const availableBoothsCount = bazaar.booths?.filter((b) => b.status === 'available').length || 0;
+
+  const boothPrices = useMemo(() => {
+    return (bazaar.booths || [])
+      .map((b) => b.priceRupiah)
+      .filter((p) => typeof p === 'number' && p > 0);
+  }, [bazaar.booths]);
+
+  const minBoothPrice = boothPrices.length > 0 ? Math.min(...boothPrices) : 0;
+  const maxBoothPrice = boothPrices.length > 0 ? Math.max(...boothPrices) : 0;
+
+  const headerPriceDisplay = useMemo(() => {
+    if (minBoothPrice > 0) {
+      if (minBoothPrice === maxBoothPrice) {
+        return {
+          priceText: formatRupiah(minBoothPrice),
+          subText: '*(Tersedia pilihan stan & fasilitas listrik)',
+        };
+      }
+      return {
+        priceText: `Mulai dari ${formatRupiah(minBoothPrice)} - ${formatRupiah(maxBoothPrice)}`,
+        subText: '*(Tergantung zona, ukuran & lokasi stan)',
+      };
+    }
+    if (bazaar.defaultFeeRupiah && bazaar.defaultFeeRupiah > 0) {
+      return {
+        priceText: formatRupiah(bazaar.defaultFeeRupiah),
+        subText: '*(Tarif infaq dasar stan majelis)',
+      };
+    }
+    return {
+      priceText: 'Sesuai Stand Terpilih',
+      subText: '*(Pilih stand pada denah interaktif)',
+    };
+  }, [minBoothPrice, maxBoothPrice, bazaar.defaultFeeRupiah]);
 
   return (
     <div className="min-h-screen bg-[#F7F4EC] text-[#1C2321] selection:bg-[#E0B970] selection:text-[#14352A] flex flex-col justify-between font-sans">
@@ -740,11 +783,12 @@ export const BazaarPortalPage: React.FC = () => {
 
             <div className="pt-2.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-3 text-xs">
               <div className="flex items-center gap-1.5 text-white/90">
-                <Coins className="w-4 h-4 text-[#E0B970]" />
+                <Coins className="w-4 h-4 text-[#E0B970] shrink-0" />
                 <span>
-                  Infaq Stan Partisipasi: <strong className="text-[#E0B970] font-mono font-bold">{formatRupiah(bazaar.defaultFeeRupiah || 150000)}</strong>
+                  Infaq Stan Partisipasi:{' '}
+                  <strong className="text-[#E0B970] font-mono font-bold">{headerPriceDisplay.priceText}</strong>
                   <span className="text-[11px] text-white/75 block sm:inline sm:ml-1">
-                    *(Tersedia pilihan stan 2x2m &amp; fasilitas listrik)
+                    {headerPriceDisplay.subText}
                   </span>
                 </span>
               </div>
@@ -864,7 +908,7 @@ export const BazaarPortalPage: React.FC = () => {
                     </div>
                   )}
                   <div className="flex justify-between">
-                    <span className="text-[#6B7A72]">Estimasi Infaq:</span>
+                    <span className="text-[#6B7A72]">Infaq Partisipasi:</span>
                     <span className="font-mono font-bold text-[#14352A]">
                       {formatRupiah(registeredSuccess.application?.infaqAmountRupiah || feeCalculation.totalInfaq)}
                     </span>
@@ -1397,7 +1441,7 @@ export const BazaarPortalPage: React.FC = () => {
                     </div>
                     <div>
                       <h3 className="text-sm font-bold font-display text-[#1C2321]">
-                        Estimasi Infaq &amp; Rekening Resmi Panitia
+                        Infaq Partisipasi &amp; Rekening Resmi Panitia
                       </h3>
                       <p className="text-[11px] text-[#6B7A72]">
                         Penyaluran infaq operasional dakwah, fasilitas listrik, dan kebersihan majelis
@@ -1409,7 +1453,7 @@ export const BazaarPortalPage: React.FC = () => {
                     {/* Live Fee Calculator Breakdown */}
                     <div className="p-4 bg-[#F2EEE4] rounded-2xl border border-[#1B4332]/14 space-y-2.5">
                       <div className="flex items-center justify-between font-bold text-xs text-[#14352A]">
-                        <span>Rincian Estimasi Infaq Partisipasi:</span>
+                        <span>Rincian Infaq Partisipasi:</span>
                         <span className="font-mono text-sm text-[#1B4332]">
                           {formatRupiah(feeCalculation.totalInfaq)}
                         </span>
@@ -1418,20 +1462,28 @@ export const BazaarPortalPage: React.FC = () => {
                       <div className="text-[11.5px] text-[#6B7A72] space-y-1 pt-1 border-t border-[#1B4332]/10">
                         <div className="flex justify-between">
                           <span>
-                            Biaya Stand ({selectedBooth ? `Stand ${selectedBooth.code}` : 'Tarif Pokok'}):
+                            Biaya Stand ({selectedBooth ? `Stand ${selectedBooth.code}` : feeCalculation.hasBoothsConfigured ? 'Belum Memilih Stand' : 'Tarif Pokok'}):
                           </span>
                           <span className="font-mono font-semibold text-[#1C2321]">
-                            {formatRupiah(feeCalculation.baseBoothPrice)}
+                            {selectedBooth || !feeCalculation.hasBoothsConfigured
+                              ? formatRupiah(feeCalculation.baseBoothPrice)
+                              : 'Rp 0'}
                           </span>
                         </div>
 
-                        {formData.electricityNeeded && feeCalculation.electricityAddon > 0 && (
+                        {selectedBooth && formData.electricityNeeded && feeCalculation.electricityAddon > 0 && (
                           <div className="flex justify-between">
                             <span>Tambahan Daya Listrik ({formData.electricityWatts}W):</span>
                             <span className="font-mono font-semibold text-[#1C2321]">
                               +{formatRupiah(feeCalculation.electricityAddon)}
                             </span>
                           </div>
+                        )}
+
+                        {!selectedBooth && feeCalculation.hasBoothsConfigured && (
+                          <p className="text-[11px] text-amber-800 font-medium italic pt-1">
+                            * Biaya stand adalah Rp 0 sampai Anda memilih nomor stand/booth pada langkah 3 di atas.
+                          </p>
                         )}
                       </div>
                     </div>
@@ -1927,7 +1979,7 @@ export const BazaarPortalPage: React.FC = () => {
                       </td>
                     </tr>
                     <tr>
-                      <td className="p-2.5 font-semibold text-[#6B7A72]">Estimasi Infaq Stand</td>
+                      <td className="p-2.5 font-semibold text-[#6B7A72]">Infaq Partisipasi Stand</td>
                       <td className="p-2.5 font-mono font-bold text-[#14352A]">
                         {formatRupiah(slipData.application?.infaqAmountRupiah || feeCalculation.totalInfaq)}
                       </td>

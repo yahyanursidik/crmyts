@@ -680,7 +680,7 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
     expect(res.statusCode).toBe(200);
     expect(updatedSetVal).not.toBeNull();
     expect(updatedSetVal.paymentStatus).toBe('waiting_verification');
-    expect(updatedSetVal.paymentProofUrl).toBe('data:image/jpeg;base64,receipt_reupload_data');
+    expect(updatedSetVal.paymentProofUrl).toMatch(/contabostorage\.com|event-proofs/);
     expect(updatedSetVal.paymentAmountRupiah).toBe(75000);
   });
 });
