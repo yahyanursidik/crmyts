@@ -15,6 +15,7 @@ import {
   PlusCircle,
   Car,
   Bike,
+  MapPin,
   ShieldAlert,
   FileSpreadsheet,
   CreditCard,
@@ -82,6 +83,10 @@ interface EventDetail {
   endAt?: string | null;
   deliveryMode: string;
   locationName?: string | null;
+  locationAddress?: string | null;
+  googleMapsUrl?: string | null;
+  locationDirections?: string | null;
+  showGoogleMaps?: boolean;
   meetingUrl?: string | null;
   status: string;
   
@@ -165,6 +170,11 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   const [motorcycleParkingQuota, setMotorcycleParkingQuota] = useState<number | ''>('');
   const [venueRules, setVenueRules] = useState<string[]>([]);
   const [customVenueRules, setCustomVenueRules] = useState('');
+  const [locationName, setLocationName] = useState('');
+  const [locationAddress, setLocationAddress] = useState('');
+  const [googleMapsUrl, setGoogleMapsUrl] = useState('');
+  const [locationDirections, setLocationDirections] = useState('');
+  const [showGoogleMaps, setShowGoogleMaps] = useState(true);
 
   // Paid Event & Banking Details State
   const [isPaid, setIsPaid] = useState<boolean>(false);
@@ -232,6 +242,11 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       setMotorcycleParkingQuota(res.data.motorcycleParkingQuota || '');
       setVenueRules(res.data.venueRules || []);
       setCustomVenueRules(res.data.customVenueRules || '');
+      setLocationName(res.data.locationName || '');
+      setLocationAddress(res.data.locationAddress || '');
+      setGoogleMapsUrl(res.data.googleMapsUrl || '');
+      setLocationDirections(res.data.locationDirections || '');
+      setShowGoogleMaps(res.data.showGoogleMaps !== false);
 
       setIsPaid(res.data.isPaid || false);
       setPriceRupiah(res.data.priceRupiah || '');
@@ -312,6 +327,11 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           motorcycleParkingQuota: motorcycleParkingQuota ? Number(motorcycleParkingQuota) : null,
           venueRules,
           customVenueRules: customVenueRules || null,
+          locationName: locationName.trim() || null,
+          locationAddress: locationAddress.trim() || null,
+          googleMapsUrl: googleMapsUrl.trim() || null,
+          locationDirections: locationDirections.trim() || null,
+          showGoogleMaps,
           isPaid,
           priceRupiah: isPaid && priceRupiah ? Number(priceRupiah) : 0,
           bankName: isPaid ? bankName : null,
@@ -320,7 +340,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           paymentInstructions: isPaid ? paymentInstructions : null,
         }),
       });
-      showToast('Pengaturan biaya daurah, kuota, segmen, fasilitas parkir & aturan berhasil disimpan!');
+      showToast('Pengaturan lokasi, Google Maps, biaya, kuota, segmen, parkir & aturan berhasil disimpan!');
       loadEventDetail();
       onEventUpdated();
     } catch (err: any) {
@@ -910,10 +930,80 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           {/* TAB 2: PENGATURAN SEGMEN, KUOTA, FASILITAS & ATURAN LOKASI */}
           {activeTab === 'settings' && (
             <form onSubmit={handleSaveSettings} className="space-y-6">
+              {/* 1. Location & Google Maps */}
+              <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
+                <div className="flex items-start gap-2">
+                  <MapPin className="w-4 h-4 text-rose-700 mt-0.5 shrink-0" />
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900">1. Lokasi &amp; Google Maps</h4>
+                    <p className="text-xs text-slate-500">Atur detail lokasi yang tampil pada halaman pendaftaran publik dan tombol navigasi jamaah.</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Nama Tempat / Venue</label>
+                    <input
+                      type="text"
+                      placeholder="Contoh: Masjid Tarbiyah Sunnah Bandung"
+                      value={locationName}
+                      onChange={(e) => setLocationName(e.target.value)}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Tautan Google Maps (Opsional)</label>
+                    <input
+                      type="url"
+                      placeholder="https://maps.app.goo.gl/..."
+                      value={googleMapsUrl}
+                      onChange={(e) => setGoogleMapsUrl(e.target.value)}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Alamat Lengkap Lokasi</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Contoh: Jl. Jurang No. 64, Pasteur, Kec. Sukajadi, Kota Bandung"
+                    value={locationAddress}
+                    onChange={(e) => setLocationAddress(e.target.value)}
+                    className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none resize-y"
+                  />
+                  <p className="mt-1 text-[10px] text-slate-400">Jika tidak mengisi tautan Google Maps, sistem membuat navigasi otomatis dari alamat ini atau nama venue.</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Petunjuk Kedatangan (Opsional)</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Contoh: Gunakan pintu gerbang utama. Parkir motor berada di sisi timur dan akan diarahkan petugas."
+                    value={locationDirections}
+                    onChange={(e) => setLocationDirections(e.target.value)}
+                    className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none resize-y"
+                  />
+                </div>
+
+                <label className="p-3 bg-teal-50 border border-teal-200 rounded-xl flex items-center justify-between gap-3 cursor-pointer">
+                  <div>
+                    <span className="text-xs font-bold text-teal-950 block">Tampilkan Google Maps untuk jamaah</span>
+                    <span className="text-[11px] text-teal-800">Peta hanya ditampilkan pada kajian offline atau hybrid.</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={showGoogleMaps}
+                    onChange={(e) => setShowGoogleMaps(e.target.checked)}
+                    className="h-4 w-4 rounded text-teal-700 focus:ring-teal-500"
+                  />
+                </label>
+              </div>
+
               {/* 1. Target Audience Segmentation */}
               <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
                 <div>
-                  <h4 className="text-sm font-bold text-slate-900">1. Segmentasi & Target Jamaah Majelis</h4>
+                  <h4 className="text-sm font-bold text-slate-900">2. Segmentasi & Target Jamaah Majelis</h4>
                   <p className="text-xs text-slate-500">
                     Pilih target audiens. Sistem akan membatasi formulir pendaftaran sesuai kategori ini.
                   </p>
@@ -1045,7 +1135,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                   <div>
                     <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                       <CreditCard className="w-4 h-4 text-amber-700" />
-                      <span>2. Tipe Kegiatan & Biaya Pendaftaran / Daurah</span>
+                      <span>3. Tipe Kegiatan & Biaya Pendaftaran / Daurah</span>
                     </h4>
                     <p className="text-xs text-slate-500">
                       Tentukan apakah kegiatan gratis (infaq sukarela) atau berbayar dengan instruksi rekening bank.
@@ -1199,7 +1289,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
               <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
                 <div>
                   <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    <Car className="w-4 h-4 text-indigo-700" /> 3. Batasan Fasilitas Parkir Kendaraan
+                    <Car className="w-4 h-4 text-indigo-700" /> 4. Batasan Fasilitas Parkir Kendaraan
                   </h4>
                   <p className="text-xs text-slate-500">
                     Tentukan kapasitas slot parkir di lokasi kajian untuk menghindari kemacetan dan keterbatasan area.
@@ -1242,7 +1332,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
               <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
                 <div>
                   <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    <ShieldAlert className="w-4 h-4 text-emerald-700" /> 4. Tata Tertib & Aturan Khusus Lokasi Majelis
+                    <ShieldAlert className="w-4 h-4 text-emerald-700" /> 5. Tata Tertib & Aturan Khusus Lokasi Majelis
                   </h4>
                   <p className="text-xs text-slate-500">
                     Pilih aturan yang wajib disetujui jamaah saat mendaftar online.

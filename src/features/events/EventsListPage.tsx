@@ -41,6 +41,10 @@ interface EventItem {
   endAt?: string | null;
   deliveryMode: string;
   locationName?: string | null;
+  locationAddress?: string | null;
+  googleMapsUrl?: string | null;
+  locationDirections?: string | null;
+  showGoogleMaps?: boolean;
   meetingUrl?: string | null;
   status: string;
 
@@ -116,6 +120,10 @@ export const EventsListPage: React.FC = () => {
     endAt: '',
     deliveryMode: 'offline' as 'offline' | 'online' | 'hybrid',
     locationName: 'Masjid Tarbiyah Sunnah Bandung',
+    locationAddress: '',
+    googleMapsUrl: '',
+    locationDirections: '',
+    showGoogleMaps: true,
     meetingUrl: '',
     targetAudience: 'umum',
     quota: '',
@@ -172,6 +180,10 @@ export const EventsListPage: React.FC = () => {
         endAt: '',
         deliveryMode: 'offline',
         locationName: 'Masjid Tarbiyah Sunnah Bandung',
+        locationAddress: '',
+        googleMapsUrl: '',
+        locationDirections: '',
+        showGoogleMaps: true,
         meetingUrl: '',
         targetAudience: 'umum',
         quota: '',
@@ -1029,6 +1041,61 @@ export const EventsListPage: React.FC = () => {
                   className="w-full p-2.5 bg-[#F2EEE4] border border-[#1B4332]/14 rounded-lg focus:ring-2 focus:ring-[#1B4332] outline-none"
                 />
               </div>
+
+              {newEvent.deliveryMode !== 'online' && (
+                <div className="p-3.5 bg-[#F2EEE4]/70 border border-[#1B4332]/14 rounded-xl space-y-3">
+                  <div className="flex items-start gap-2">
+                    <MapPin className="w-4 h-4 text-[#1B4332] mt-0.5 shrink-0" />
+                    <div>
+                      <h4 className="font-bold text-[#1C2321]">Lokasi &amp; Google Maps</h4>
+                      <p className="text-[11px] text-[#6B7A72] mt-0.5">Alamat lengkap membuat peta publik lebih akurat. Tautan Google Maps bersifat opsional.</p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-[#1C2321] mb-1">Alamat Lengkap Lokasi</label>
+                    <textarea
+                      rows={2}
+                      placeholder="Contoh: Jl. Jurang No. 64, Pasteur, Kec. Sukajadi, Kota Bandung"
+                      value={newEvent.locationAddress}
+                      onChange={(e) => setNewEvent({ ...newEvent, locationAddress: e.target.value })}
+                      className="w-full p-2.5 bg-white border border-[#1B4332]/14 rounded-lg focus:ring-2 focus:ring-[#1B4332] outline-none resize-y"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-[#1C2321] mb-1">Tautan Google Maps (Opsional)</label>
+                    <input
+                      type="url"
+                      placeholder="https://maps.app.goo.gl/..."
+                      value={newEvent.googleMapsUrl}
+                      onChange={(e) => setNewEvent({ ...newEvent, googleMapsUrl: e.target.value })}
+                      className="w-full p-2.5 bg-white border border-[#1B4332]/14 rounded-lg focus:ring-2 focus:ring-[#1B4332] outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-[#1C2321] mb-1">Petunjuk Kedatangan (Opsional)</label>
+                    <textarea
+                      rows={2}
+                      placeholder="Contoh: Masuk melalui gerbang utama, parkir diarahkan petugas di sisi timur."
+                      value={newEvent.locationDirections}
+                      onChange={(e) => setNewEvent({ ...newEvent, locationDirections: e.target.value })}
+                      className="w-full p-2.5 bg-white border border-[#1B4332]/14 rounded-lg focus:ring-2 focus:ring-[#1B4332] outline-none resize-y"
+                    />
+                  </div>
+
+                  <label className="flex items-center gap-2 cursor-pointer text-[#1C2321] font-semibold">
+                    <input
+                      type="checkbox"
+                      checked={newEvent.showGoogleMaps}
+                      onChange={(e) => setNewEvent({ ...newEvent, showGoogleMaps: e.target.checked })}
+                      className="rounded text-[#1B4332] focus:ring-[#1B4332]"
+                    />
+                    Tampilkan peta dan tombol navigasi pada halaman pendaftaran publik
+                  </label>
+                </div>
+              )}
 
               <div className="grid grid-cols-3 gap-3">
                 <div>

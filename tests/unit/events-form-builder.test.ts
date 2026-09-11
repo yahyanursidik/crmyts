@@ -53,6 +53,10 @@ describe('Events Management & Form Builder API', () => {
         startAt: '2026-08-25T08:30:00.000Z',
         deliveryMode: 'offline',
         locationName: 'Masjid Tarbiyah Sunnah',
+        locationAddress: 'Jl. Jurang No. 64, Pasteur, Kota Bandung',
+        googleMapsUrl: 'https://maps.app.goo.gl/contohMasjidTarbiyah',
+        locationDirections: 'Masuk melalui gerbang utama, lalu ikuti petunjuk panitia ke area parkir.',
+        showGoogleMaps: true,
         targetAudience: 'akhwat_only',
         quota: 100,
         quotaAkhwat: 100,
@@ -90,6 +94,9 @@ describe('Events Management & Form Builder API', () => {
     expect(body.data.carParkingQuota).toBe(20);
     expect(body.data.venueRules).toContain('no_toddlers');
     expect(insertedEvent.targetAudience).toBe('akhwat_only');
+    expect(insertedEvent.locationAddress).toBe('Jl. Jurang No. 64, Pasteur, Kota Bandung');
+    expect(insertedEvent.googleMapsUrl).toBe('https://maps.app.goo.gl/contohMasjidTarbiyah');
+    expect(insertedEvent.showGoogleMaps).toBe(true);
   });
 
   it('GET /api/events/:id returns event details with participants and logistics', async () => {
@@ -211,6 +218,10 @@ describe('Events Management & Form Builder API', () => {
         quota: 120,
         carParkingQuota: 30,
         venueRules: ['stay_overnight', 'no_toddlers'],
+        locationAddress: 'Jl. Masjid Raya No. 12, Kota Bandung',
+        googleMapsUrl: 'https://www.google.com/maps/search/?api=1&query=Masjid+Raya+Bandung',
+        locationDirections: 'Gunakan parkir sisi timur.',
+        showGoogleMaps: false,
       },
       requestId: 'req_ev_update_1',
     });
@@ -221,6 +232,8 @@ describe('Events Management & Form Builder API', () => {
     expect(body.data.quota).toBe(120);
     expect(body.data.carParkingQuota).toBe(30);
     expect(updatedEvent.targetAudience).toBe('itikaf_ramadan');
+    expect(updatedEvent.locationAddress).toBe('Jl. Masjid Raya No. 12, Kota Bandung');
+    expect(updatedEvent.showGoogleMaps).toBe(false);
   });
 
   it('POST /api/events/:id/toggle-attendance toggles attendance check-in status', async () => {

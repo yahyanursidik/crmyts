@@ -47,6 +47,10 @@ interface EventItem {
   endAt?: string | null;
   deliveryMode: string;
   locationName: string;
+  locationAddress?: string | null;
+  googleMapsUrl?: string | null;
+  locationDirections?: string | null;
+  showGoogleMaps?: boolean;
   meetingUrl?: string | null;
   
   isRegistrationOpen: boolean;
@@ -222,11 +226,15 @@ export function EventsPortalPage() {
   }, [targetId]);
 
   const selectedEvent = data?.events?.find((ev) => ev.id === selectedEventId);
-  const isOfflineEvent = selectedEvent?.deliveryMode === 'offline';
-  const locationQuery = selectedEvent?.locationName?.trim() || data?.foundation.address?.trim() || '';
-  const googleMapsUrl = locationQuery
+  const isVenueEvent = selectedEvent?.deliveryMode !== 'online';
+  const locationQuery =
+    selectedEvent?.locationAddress?.trim() ||
+    selectedEvent?.locationName?.trim() ||
+    data?.foundation.address?.trim() ||
+    '';
+  const googleMapsUrl = selectedEvent?.googleMapsUrl?.trim() || (locationQuery
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(locationQuery)}`
-    : null;
+    : null);
   const googleMapsEmbedUrl = locationQuery
     ? `https://www.google.com/maps?q=${encodeURIComponent(locationQuery)}&z=16&output=embed`
     : null;
@@ -945,7 +953,7 @@ export function EventsPortalPage() {
                       </div>
                     </div>
 
-                    {isOfflineEvent && googleMapsUrl && googleMapsEmbedUrl && (
+                    {isVenueEvent && selectedEvent.showGoogleMaps !== false && googleMapsUrl && googleMapsEmbedUrl && (
                       <div className="event-map" aria-label={`Peta lokasi ${selectedEvent.locationName}`}>
                         <div className="event-map__header">
                           <div>
@@ -970,6 +978,11 @@ export function EventsPortalPage() {
                             referrerPolicy="no-referrer-when-downgrade"
                           />
                         </div>
+                        {selectedEvent.locationDirections && (
+                          <p className="event-map__directions">
+                            <b>Petunjuk kedatangan:</b> {selectedEvent.locationDirections}
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
