@@ -26,6 +26,7 @@ import { BazaarPortalPage } from './features/public-portal/BazaarPortalPage';
 import { BazaarSurveyPortalPage } from './features/public-portal/BazaarSurveyPortalPage';
 import { BazaarHubPage } from './features/bazaar/BazaarHubPage';
 import { ParticipantPortalPage } from './features/public-portal/ParticipantPortalPage';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 export function App() {
   return (
@@ -95,66 +96,68 @@ export function App() {
             },
           ]}
         >
-          <Routes>
-            <Route
-              element={
-                <Authenticated key="authenticated-routes" fallback={<Navigate to="/login" replace />}>
-                  <AppShell>
-                    <Outlet />
-                  </AppShell>
-                </Authenticated>
-              }
-            >
-              <Route index element={<DashboardPage />} />
-              <Route path="people" element={<PersonsListPage />} />
-              <Route path="people/:id" element={<PersonDetailPage />} />
-              <Route path="events" element={<EventsListPage />} />
-              <Route path="bazaar" element={<BazaarHubPage />} />
-              <Route path="interactions" element={<InteractionsListPage />} />
-              <Route path="tasks" element={<TasksListPage />} />
-              <Route path="donations" element={<DonationsListPage />} />
-              <Route path="donors-pipeline" element={<DonorPipelinePage />} />
-              <Route path="waqf" element={<WaqfPipelinePage />} />
-              <Route path="data-quality" element={<DataQualityPage />} />
-              <Route path="audit" element={<AuditLogPage />} />
-              <Route path="settings" element={<SettingsPage />} />
-              <Route path="reports" element={<ReportsPage />} />
-              <Route path="automation" element={<AutomationPage />} />
-            </Route>
+          <ErrorBoundary moduleName="Aplikasi">
+            <Routes>
+              <Route
+                element={
+                  <Authenticated key="authenticated-routes" fallback={<Navigate to="/login" replace />}>
+                    <AppShell>
+                      <Outlet />
+                    </AppShell>
+                  </Authenticated>
+                }
+              >
+                <Route index element={<DashboardPage />} />
+                <Route path="people" element={<PersonsListPage />} />
+                <Route path="people/:id" element={<PersonDetailPage />} />
+                <Route path="events" element={<EventsListPage />} />
+                <Route path="bazaar" element={<BazaarHubPage />} />
+                <Route path="interactions" element={<InteractionsListPage />} />
+                <Route path="tasks" element={<TasksListPage />} />
+                <Route path="donations" element={<DonationsListPage />} />
+                <Route path="donors-pipeline" element={<DonorPipelinePage />} />
+                <Route path="waqf" element={<WaqfPipelinePage />} />
+                <Route path="data-quality" element={<DataQualityPage />} />
+                <Route path="audit" element={<AuditLogPage />} />
+                <Route path="settings" element={<SettingsPage />} />
+                <Route path="reports" element={<ReportsPage />} />
+                <Route path="automation" element={<AutomationPage />} />
+              </Route>
 
-            {/* Public Landing Pages (Separated Portals) */}
-            <Route path="/portal" element={<DonationsPortalPage />} />
-            <Route path="/donasi" element={<DonationsPortalPage />} />
-            <Route path="/berbagi" element={<DonationsPortalPage />} />
-            <Route path="/kajian" element={<EventsPortalPage />} />
-            <Route path="/kajian/:id" element={<EventsPortalPage />} />
-            <Route path="/kajian/:id/bazar" element={<BazaarPortalPage />} />
-            <Route path="/kajian/:id/bazar/survey" element={<BazaarSurveyPortalPage />} />
-            <Route path="/kajian/:id/bazar/survei" element={<BazaarSurveyPortalPage />} />
-            <Route path="/bazar" element={<BazaarPortalPage />} />
-            <Route path="/bazar/:id" element={<BazaarPortalPage />} />
-            <Route path="/bazar/:id/survey" element={<BazaarSurveyPortalPage />} />
-            <Route path="/bazar/:id/survei" element={<BazaarSurveyPortalPage />} />
-            <Route path="/event" element={<EventsPortalPage />} />
-            <Route path="/event/:id" element={<EventsPortalPage />} />
-            <Route path="/event/:id/bazar" element={<BazaarPortalPage />} />
-            <Route path="/event/:id/bazar/survey" element={<BazaarSurveyPortalPage />} />
-            <Route path="/daurah" element={<EventsPortalPage />} />
-            <Route path="/daurah/:id" element={<EventsPortalPage />} />
-            <Route path="/daurah/:id/bazar" element={<BazaarPortalPage />} />
-            <Route path="/daurah/:id/bazar/survey" element={<BazaarSurveyPortalPage />} />
-            <Route path="/public/events/:id" element={<EventsPortalPage />} />
-            <Route path="/peserta/:eventId" element={<ParticipantPortalPage />} />
+              {/* Public Landing Pages (Separated Portals) */}
+              <Route path="/portal" element={<DonationsPortalPage />} />
+              <Route path="/donasi" element={<DonationsPortalPage />} />
+              <Route path="/berbagi" element={<DonationsPortalPage />} />
+              <Route path="/kajian" element={<EventsPortalPage />} />
+              <Route path="/kajian/:id" element={<EventsPortalPage />} />
+              <Route path="/kajian/:id/bazar" element={<BazaarPortalPage />} />
+              <Route path="/kajian/:id/bazar/survey" element={<BazaarSurveyPortalPage />} />
+              <Route path="/kajian/:id/bazar/survei" element={<BazaarSurveyPortalPage />} />
+              <Route path="/bazar" element={<BazaarPortalPage />} />
+              <Route path="/bazar/:id" element={<BazaarPortalPage />} />
+              <Route path="/bazar/:id/survey" element={<BazaarSurveyPortalPage />} />
+              <Route path="/bazar/:id/survei" element={<BazaarSurveyPortalPage />} />
+              <Route path="/event" element={<EventsPortalPage />} />
+              <Route path="/event/:id" element={<EventsPortalPage />} />
+              <Route path="/event/:id/bazar" element={<BazaarPortalPage />} />
+              <Route path="/event/:id/bazar/survey" element={<BazaarSurveyPortalPage />} />
+              <Route path="/daurah" element={<EventsPortalPage />} />
+              <Route path="/daurah/:id" element={<EventsPortalPage />} />
+              <Route path="/daurah/:id/bazar" element={<BazaarPortalPage />} />
+              <Route path="/daurah/:id/bazar/survey" element={<BazaarSurveyPortalPage />} />
+              <Route path="/public/events/:id" element={<EventsPortalPage />} />
+              <Route path="/peserta/:eventId" element={<ParticipantPortalPage />} />
 
-            <Route
-              path="/login"
-              element={
-                <Authenticated key="login-route" fallback={<LoginPage />}>
-                  <Navigate to="/" replace />
-                </Authenticated>
-              }
-            />
-          </Routes>
+              <Route
+                path="/login"
+                element={
+                  <Authenticated key="login-route" fallback={<LoginPage />}>
+                    <Navigate to="/" replace />
+                  </Authenticated>
+                }
+              />
+            </Routes>
+          </ErrorBoundary>
         </Refine>
       </ThemeProvider>
     </BrowserRouter>

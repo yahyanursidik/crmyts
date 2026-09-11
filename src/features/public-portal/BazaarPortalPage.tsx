@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { LoadingState } from '@/components/common/LoadingState';
+import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 
 export const BAZAAR_CATEGORIES = [
   { value: 'kuliner', label: '🍲 Kuliner Halal & Minuman', desc: 'Makanan siap saji, aneka minuman segar, snack halal' },
@@ -136,8 +137,9 @@ export interface ApplicationStatusData {
   } | null;
 }
 
-export function formatRupiah(val: number): string {
-  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
+export function formatRupiah(val?: number | null): string {
+  const n = typeof val === 'number' && !isNaN(val) ? val : 0;
+  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n);
 }
 
 const ELECTRICITY_PRICE_TIERS: Record<number, number> = {
@@ -700,8 +702,9 @@ export const BazaarPortalPage: React.FC = () => {
   }, [minBoothPrice, maxBoothPrice, bazaar.defaultFeeRupiah]);
 
   return (
-    <div className="min-h-screen bg-[#F7F4EC] text-[#1C2321] selection:bg-[#E0B970] selection:text-[#14352A] flex flex-col justify-between font-sans">
-      {/* Toast Notification */}
+    <ErrorBoundary moduleName="Portal Pendaftaran Bazar">
+      <div className="min-h-screen bg-[#F7F4EC] text-[#1C2321] selection:bg-[#E0B970] selection:text-[#14352A] flex flex-col justify-between font-sans">
+        {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-60 bg-[#14352A] text-[#E0B970] px-5 py-2.5 rounded-2xl shadow-xl text-xs font-bold border border-[#E0B970]/30 flex items-center gap-2 animate-in slide-in-from-top duration-200">
           <Sparkles className="w-4 h-4 text-[#E0B970] shrink-0" />
@@ -1716,11 +1719,11 @@ export const BazaarPortalPage: React.FC = () => {
                       DATA PENDAFTARAN RESMI
                     </span>
                     <h3 className="text-lg font-bold font-display text-[#1C2321]">
-                      {statusResult.tenant.brandName}
+                      {statusResult.tenant?.brandName || 'Tanpa Nama Brand'}
                     </h3>
                     <p className="text-[11px] text-[#6B7A72]">
-                      PIC: {statusResult.tenant.picName} ({statusResult.tenant.picPhone}) · Kategori:{' '}
-                      <span className="capitalize font-semibold">{statusResult.tenant.businessCategory}</span>
+                      PIC: {statusResult.tenant?.picName || '-'} ({statusResult.tenant?.picPhone || '-'}) · Kategori:{' '}
+                      <span className="capitalize font-semibold">{statusResult.tenant?.businessCategory || '-'}</span>
                     </p>
                   </div>
 
@@ -1744,23 +1747,23 @@ export const BazaarPortalPage: React.FC = () => {
                         key: 'under_review',
                         label: '2. Kurasi',
                         active: ['under_review', 'accepted', 'payment_pending', 'payment_verification', 'payment_verified', 'booth_assigned', 'completed'].includes(
-                          statusResult.application.status
+                          statusResult.application?.status || ''
                         ),
                       },
                       {
                         key: 'payment_verified',
                         label: '3. Infaq Lunas',
-                        active: ['payment_verified', 'booth_assigned', 'completed'].includes(statusResult.application.status),
+                        active: ['payment_verified', 'booth_assigned', 'completed'].includes(statusResult.application?.status || ''),
                       },
                       {
                         key: 'booth_assigned',
                         label: '4. Stand Plot',
-                        active: ['booth_assigned', 'completed'].includes(statusResult.application.status),
+                        active: ['booth_assigned', 'completed'].includes(statusResult.application?.status || ''),
                       },
                       {
                         key: 'completed',
                         label: '5. Siap Hadir',
-                        active: ['completed', 'checked_in'].includes(statusResult.application.status),
+                        active: ['completed', 'checked_in'].includes(statusResult.application?.status || ''),
                       },
                     ].map((step, idx) => (
                       <div
@@ -1812,7 +1815,7 @@ export const BazaarPortalPage: React.FC = () => {
                       <Clock className="w-4 h-4 text-[#B58B3C] shrink-0" />
                       <span>
                         Penetapan nomor stan definitif sedang dalam proses kurasi panitia.
-                        {statusResult.application.boothPreferences && (
+                        {statusResult.application?.boothPreferences && (
                           <> Preferensi stand Anda: <strong>Stand {statusResult.application.boothPreferences}</strong>.</>
                         )}
                       </span>
@@ -1821,7 +1824,7 @@ export const BazaarPortalPage: React.FC = () => {
                 )}
 
                 {/* Catatan Admin jika ada */}
-                {statusResult.application.adminNotes && (
+                {statusResult.application?.adminNotes && (
                   <div className="p-3.5 bg-amber-50 rounded-2xl border border-amber-200 text-xs text-amber-900 space-y-1">
                     <span className="font-bold block">Pesan dari Panitia Bazar:</span>
                     <p className="leading-relaxed">{statusResult.application.adminNotes}</p>
@@ -1829,7 +1832,7 @@ export const BazaarPortalPage: React.FC = () => {
                 )}
 
                 {/* Upload Bukti Bayar Susulan jika belum ada */}
-                {!statusResult.application.paymentProofUrl && (
+                {!statusResult.application?.paymentProofUrl && (
                   <div className="p-4 bg-[#F2EEE4] rounded-2xl border border-[#1B4332]/12 text-xs space-y-3">
                     <div className="flex items-center gap-2 font-bold text-[#14352A]">
                       <Upload className="w-4 h-4 text-[#1B4332]" />
@@ -1927,16 +1930,26 @@ export const BazaarPortalPage: React.FC = () => {
               <div className="p-3 bg-[#F7F4EC] rounded-xl space-y-1 border border-[#1B4332]/10">
                 <span className="text-[10px] font-mono text-[#6B7A72] uppercase block">Kegiatan Majelis:</span>
                 <div className="font-bold text-sm text-[#14352A]">
-                  {slipData.bazaar?.title || slipData.event?.title || event.title}
+                  {slipData.bazaar?.title || slipData.event?.title || event?.title || 'Kegiatan Kajian & Bazar'}
                 </div>
                 <div className="text-[11px] text-[#3D4A44]">
-                  {new Date(slipData.event?.startAt || event.startAt).toLocaleDateString('id-ID', {
-                    weekday: 'long',
-                    day: 'numeric',
-                    month: 'long',
-                    year: 'numeric',
-                  })}{' '}
-                  · {slipData.event?.locationName || event.locationName}
+                  {(() => {
+                    const dateStr = slipData.event?.startAt || event?.startAt;
+                    if (!dateStr) return 'Jadwal akan diumumkan';
+                    try {
+                      const d = new Date(dateStr);
+                      if (isNaN(d.getTime())) return dateStr;
+                      return d.toLocaleDateString('id-ID', {
+                        weekday: 'long',
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric',
+                      });
+                    } catch {
+                      return dateStr;
+                    }
+                  })()}{' '}
+                  · {slipData.event?.locationName || event?.locationName || 'Lokasi Menyesuaikan'}
                 </div>
               </div>
 
@@ -1952,16 +1965,16 @@ export const BazaarPortalPage: React.FC = () => {
                     </tr>
                     <tr className="border-b border-[#1B4332]/10">
                       <td className="p-2.5 font-semibold text-[#6B7A72]">Nama Brand / Usaha</td>
-                      <td className="p-2.5 font-bold text-[#1C2321]">{slipData.tenant?.brandName}</td>
+                      <td className="p-2.5 font-bold text-[#1C2321]">{slipData.tenant?.brandName || 'Tanpa Nama Brand'}</td>
                     </tr>
                     <tr className="border-b border-[#1B4332]/10 bg-[#FBF9F4]">
                       <td className="p-2.5 font-semibold text-[#6B7A72]">Kategori Usaha</td>
-                      <td className="p-2.5 capitalize">{slipData.tenant?.businessCategory}</td>
+                      <td className="p-2.5 capitalize">{slipData.tenant?.businessCategory || '-'}</td>
                     </tr>
                     <tr className="border-b border-[#1B4332]/10">
                       <td className="p-2.5 font-semibold text-[#6B7A72]">Nama PIC &amp; WhatsApp</td>
                       <td className="p-2.5">
-                        {slipData.tenant?.picName} ({slipData.tenant?.picPhone})
+                        {slipData.tenant?.picName || '-'} ({slipData.tenant?.picPhone || '-'})
                       </td>
                     </tr>
                     <tr className="border-b border-[#1B4332]/10 bg-[#FBF9F4]">
@@ -2019,6 +2032,7 @@ export const BazaarPortalPage: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </ErrorBoundary>
   );
 };

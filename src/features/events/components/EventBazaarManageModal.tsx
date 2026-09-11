@@ -32,6 +32,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
+import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 
 interface BazaarBooth {
   id: string;
@@ -350,7 +351,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
       s.satisfactionCommunication || 0,
       s.willingToJoinNext ? 'Ya' : 'Tidak',
       `"${(s.feedback || '').replace(/"/g, '""')}"`,
-      `"${new Date(s.submittedAt).toLocaleString('id-ID')}"`,
+      `"${s.submittedAt ? new Date(s.submittedAt).toLocaleString('id-ID') : '-'}"`,
     ]);
 
     const csvContent = [headers.join(','), ...rows.map((r: any) => r.join(','))].join('\n');
@@ -631,7 +632,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
           status: feeForm.status,
         }),
       });
-      showToast(`Tarif untuk ${feeModalApp.tenant.brandName} berhasil diperbarui!`);
+      showToast(`Tarif untuk ${feeModalApp.tenant?.brandName || 'Tenant'} berhasil diperbarui!`);
       setIsFeeModalOpen(false);
       setFeeModalApp(null);
       loadBazaarData();
@@ -819,18 +820,18 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
 
     const rows = bazaarData.applications.map((app) => [
       app.id,
-      `"${app.tenant.brandName.replace(/"/g, '""')}"`,
-      `"${CATEGORY_LABELS[app.tenant.businessCategory] || app.tenant.businessCategory}"`,
-      `"${app.tenant.picName.replace(/"/g, '""')}"`,
-      `"${app.tenant.picPhone}"`,
-      `"${app.tenant.picKtpNumber || '-'}"`,
-      `"${app.tenant.instagram || '-'}"`,
+      `"${(app.tenant?.brandName || 'Tanpa Nama').replace(/"/g, '""')}"`,
+      `"${(app.tenant?.businessCategory && CATEGORY_LABELS[app.tenant.businessCategory]) || app.tenant?.businessCategory || '-'}"`,
+      `"${(app.tenant?.picName || '-').replace(/"/g, '""')}"`,
+      `"${app.tenant?.picPhone || '-'}"`,
+      `"${app.tenant?.picKtpNumber || '-'}"`,
+      `"${app.tenant?.instagram || '-'}"`,
       `"${STATUS_BADGES[app.status]?.label || app.status}"`,
       `"${app.assignedBooth?.code || 'Belum Ditetapkan'}"`,
       `"${app.assignedBooth?.zone || '-'}"`,
       app.electricityNeeded ? `${app.electricityWatts} Watt` : 'Tidak',
       `"${(app.boothPreferences || '-').replace(/"/g, '""')}"`,
-      app.infaqAmountRupiah,
+      app.infaqAmountRupiah || 0,
       app.paymentVerifiedAt ? 'Lunas (Terverifikasi)' : 'Belum Diverifikasi',
       `"${(app.adminNotes || '-').replace(/"/g, '""')}"`,
       app.registeredAt,
@@ -856,13 +857,13 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
     const q = searchTenant.toLowerCase().trim();
     const matchSearch =
       !q ||
-      app.tenant.brandName.toLowerCase().includes(q) ||
-      app.tenant.picName.toLowerCase().includes(q) ||
-      app.tenant.picPhone.includes(q) ||
+      (app.tenant?.brandName && app.tenant.brandName.toLowerCase().includes(q)) ||
+      (app.tenant?.picName && app.tenant.picName.toLowerCase().includes(q)) ||
+      (app.tenant?.picPhone && app.tenant.picPhone.includes(q)) ||
       (app.assignedBooth?.code && app.assignedBooth.code.toLowerCase().includes(q));
 
     const matchStatus = statusFilter === 'all' || app.status === statusFilter;
-    const matchCategory = categoryFilter === 'all' || app.tenant.businessCategory === categoryFilter;
+    const matchCategory = categoryFilter === 'all' || app.tenant?.businessCategory === categoryFilter;
 
     return matchSearch && matchStatus && matchCategory;
   });
@@ -877,7 +878,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
     .reduce((sum, a) => sum + (a.infaqAmountRupiah || 0), 0);
 
   const freeBoothsCount = applications
-    .filter((a) => (a.status === 'payment_verified' || a.status === 'booth_assigned' || a.status === 'checked_in' || a.status === 'completed') && a.infaqAmountRupiah === 0)
+    .filter((a) => (a.status === 'payment_verified' || a.status === 'booth_assigned' || a.status === 'checked_in' || a.status === 'completed') && (a.infaqAmountRupiah || 0) === 0)
     .length;
 
   const assignedBoothsCount = booths.filter((b) => b.status === 'assigned').length;
@@ -906,7 +907,8 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto animate-fade-in">
       <div className="bg-white w-full max-w-6xl rounded-3xl shadow-2xl border border-cream-300 flex flex-col max-h-[92vh] overflow-hidden">
-        {/* Toast Notification */}
+        <ErrorBoundary moduleName="Panel Kelola Bazar">
+          {/* Toast Notification */}
         {toastMessage && (
           <div className="absolute top-4 left-1/2 -translate-x-1/2 z-60 bg-brand-950 text-gold-300 px-5 py-2.5 rounded-2xl shadow-xl text-xs font-bold border border-gold-500/30 flex items-center gap-2 animate-bounce">
             <Sparkles className="w-4 h-4 text-gold-400" />
@@ -1373,7 +1375,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                                 <p className="text-[10px] font-mono font-bold text-surface-700">
                                   {isReserved && b.reservedForPartnerName
                                     ? `Mitra: ${b.reservedForPartnerName}`
-                                    : `Rp ${b.priceRupiah.toLocaleString('id-ID')}`}
+                                    : `Rp ${(b.priceRupiah || 0).toLocaleString('id-ID')}`}
                                 </p>
                               </div>
 
@@ -1551,7 +1553,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                               <tr key={app.id} className="hover:bg-cream-50/50 transition-colors">
                                 <td className="p-3">
                                   <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className="font-bold text-brand-950">{app.tenant.brandName}</span>
+                                    <span className="font-bold text-brand-950">{app.tenant?.brandName || 'Tanpa Nama Usaha'}</span>
                                     {isRepeat && (
                                       <span className="text-[9px] font-black uppercase px-1.5 py-0.2 bg-blue-100 text-blue-800 rounded border border-blue-200">
                                         Repeat
@@ -1564,13 +1566,13 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                                     )}
                                   </div>
                                   <span className="text-[10px] text-surface-500 block">
-                                    {CATEGORY_LABELS[app.tenant.businessCategory] || app.tenant.businessCategory}
+                                    {(app.tenant?.businessCategory && CATEGORY_LABELS[app.tenant.businessCategory]) || app.tenant?.businessCategory || '-'}
                                   </span>
                                 </td>
 
                                 <td className="p-3">
-                                  <span className="font-bold text-surface-900 block">{app.tenant.picName}</span>
-                                  <span className="text-[10px] text-surface-500 font-mono">{app.tenant.picPhone}</span>
+                                  <span className="font-bold text-surface-900 block">{app.tenant?.picName || '-'}</span>
+                                  <span className="text-[10px] text-surface-500 font-mono">{app.tenant?.picPhone || '-'}</span>
                                 </td>
 
                                 <td className="p-3">
@@ -1589,12 +1591,12 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                                     <div>
                                       <span
                                         className={`font-black font-display block text-xs ${
-                                          app.infaqAmountRupiah === 0 ? 'text-purple-700' : 'text-brand-950'
+                                          (app.infaqAmountRupiah || 0) === 0 ? 'text-purple-700' : 'text-brand-950'
                                         }`}
                                       >
-                                        {app.infaqAmountRupiah === 0
+                                        {(app.infaqAmountRupiah || 0) === 0
                                           ? 'Gratis (Sponsor/Dakwah)'
-                                          : `Rp ${app.infaqAmountRupiah.toLocaleString('id-ID')}`}
+                                          : `Rp ${(app.infaqAmountRupiah || 0).toLocaleString('id-ID')}`}
                                       </span>
                                       <span className="text-[10px] text-surface-500 block">
                                         {app.paymentVerifiedAt ? (
@@ -1620,7 +1622,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                                       onClick={() => {
                                         setFeeModalApp(app);
                                         setFeeForm({
-                                          infaqAmountRupiah: app.infaqAmountRupiah,
+                                          infaqAmountRupiah: app.infaqAmountRupiah || 0,
                                           paymentNotes: app.paymentNotes || '',
                                           status: app.status,
                                         });
@@ -1668,7 +1670,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                                       onClick={() => {
                                         setFeeModalApp(app);
                                         setFeeForm({
-                                          infaqAmountRupiah: app.infaqAmountRupiah,
+                                          infaqAmountRupiah: app.infaqAmountRupiah || 0,
                                           paymentNotes: app.paymentNotes || '',
                                           status: app.status,
                                         });
@@ -1688,7 +1690,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                                           placementNotes: app.placementNotes || '',
                                           isPublished: app.isPublished ?? true,
                                           syncBoothPrice: true,
-                                          customInfaqAmount: app.assignedBooth?.priceRupiah || app.infaqAmountRupiah,
+                                          customInfaqAmount: app.assignedBooth?.priceRupiah || app.infaqAmountRupiah || 0,
                                           overrideFee: false,
                                         });
                                         setIsAssignBoothModalOpen(true);
@@ -1739,7 +1741,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                           className="p-3 bg-cream-50/40 rounded-xl border border-cream-200 flex items-center justify-between text-xs"
                         >
                           <div>
-                            <span className="font-bold text-brand-950 block">{app.tenant.brandName}</span>
+                            <span className="font-bold text-brand-950 block">{app.tenant?.brandName || 'Tenant'}</span>
                             <span className="text-[10px] text-surface-500">Stand: {app.assignedBooth?.code || '-'}</span>
                           </div>
                           {app.status === 'checked_in' || app.status === 'completed' ? (
@@ -1779,7 +1781,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                         >
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                              <span className="font-bold text-brand-950">{inc.tenant?.brandName}</span>
+                              <span className="font-bold text-brand-950">{inc.tenant?.brandName || 'Tenant'}</span>
                               <span
                                 className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
                                   inc.type === 'positive' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
@@ -1789,7 +1791,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                               </span>
                             </div>
                             <span className="text-[10px] text-surface-400">
-                              {new Date(inc.recordedAt).toLocaleString('id-ID')} • Oleh: {inc.recorder?.fullName}
+                              {inc.recordedAt ? new Date(inc.recordedAt).toLocaleString('id-ID') : '-'} • Oleh: {inc.recorder?.fullName || 'Panitia'}
                             </span>
                           </div>
                           <p className="text-surface-700">{inc.description}</p>
@@ -1993,8 +1995,8 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                             {surveyStats?.items?.map((s: any) => (
                               <tr key={s.id} className="hover:bg-cream-50/40 transition-colors">
                                 <td className="p-3">
-                                  <span className="font-bold text-brand-950 block">{s.tenant?.brandName}</span>
-                                  <span className="text-[10px] text-surface-500">PIC: {s.tenant?.picName}</span>
+                                  <span className="font-bold text-brand-950 block">{s.tenant?.brandName || 'Tenant'}</span>
+                                  <span className="text-[10px] text-surface-500">PIC: {s.tenant?.picName || '-'}</span>
                                 </td>
                                 <td className="p-3 font-mono font-bold text-surface-800">
                                   {s.application?.assignedBooth?.code || '-'}
@@ -2287,13 +2289,13 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                           <div className="flex items-center justify-between font-bold text-xs text-[#14352A]">
                             <span>Rincian Infaq Partisipasi:</span>
                             <span className="font-mono text-sm text-[#1B4332]">
-                              Rp {settingsForm.defaultFeeRupiah.toLocaleString('id-ID')}
+                              Rp {(settingsForm.defaultFeeRupiah || 0).toLocaleString('id-ID')}
                             </span>
                           </div>
                           <div className="text-[11px] text-[#6B7A72] flex justify-between pt-1 border-t border-[#1B4332]/10">
                             <span>Biaya Stand (Stand Terpilih / Tarif Pokok):</span>
                             <span className="font-mono font-semibold text-[#1C2321]">
-                              Rp {settingsForm.defaultFeeRupiah.toLocaleString('id-ID')}
+                              Rp {(settingsForm.defaultFeeRupiah || 0).toLocaleString('id-ID')}
                             </span>
                           </div>
                         </div>
@@ -2358,21 +2360,21 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
 
               <div className="p-3.5 bg-cream-50/60 rounded-2xl border border-cream-200 text-xs space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-brand-950 text-sm">{selectedApp.tenant.brandName}</span>
+                  <span className="font-bold text-brand-950 text-sm">{selectedApp.tenant?.brandName || 'Tanpa Nama Brand'}</span>
                   <span className="text-[10px] font-bold px-2 py-0.5 bg-brand-100 text-brand-900 rounded-full">
-                    {CATEGORY_LABELS[selectedApp.tenant.businessCategory] || selectedApp.tenant.businessCategory}
+                    {(selectedApp.tenant?.businessCategory && CATEGORY_LABELS[selectedApp.tenant.businessCategory]) || selectedApp.tenant?.businessCategory || '-'}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between pt-1">
                   <p className="text-surface-700">
-                    <span className="font-bold">PIC:</span> {selectedApp.tenant.picName}{' '}
-                    <span className="font-mono text-surface-500">({selectedApp.tenant.picPhone})</span>
+                    <span className="font-bold">PIC:</span> {selectedApp.tenant?.picName || '-'}{' '}
+                    <span className="font-mono text-surface-500">({selectedApp.tenant?.picPhone || '-'})</span>
                   </p>
-                  {selectedApp.tenant.picPhone && (
+                  {selectedApp.tenant?.picPhone && (
                     <a
-                      href={`https://wa.me/${selectedApp.tenant.picPhone.replace(/\D/g, '')}?text=${encodeURIComponent(
-                        `Assalamu'alaikum Warahmatullahi Wabarakatuh ${selectedApp.tenant.picName}, kami dari Panitia Bazar Yayasan Tarbiyah Sunnah terkait pendaftaran stan *${selectedApp.tenant.brandName}*...`
+                      href={`https://wa.me/${selectedApp.tenant?.picPhone ? selectedApp.tenant.picPhone.replace(/\D/g, '') : ''}?text=${encodeURIComponent(
+                        `Assalamu'alaikum Warahmatullahi Wabarakatuh ${selectedApp.tenant?.picName || ''}, kami dari Panitia Bazar Yayasan Tarbiyah Sunnah terkait pendaftaran stan *${selectedApp.tenant?.brandName || ''}*...`
                       )}`}
                       target="_blank"
                       rel="noopener noreferrer"
@@ -2383,7 +2385,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                   )}
                 </div>
 
-                <p className="text-surface-700"><span className="font-bold">Produk:</span> {selectedApp.tenant.productDescription}</p>
+                <p className="text-surface-700"><span className="font-bold">Produk:</span> {selectedApp.tenant?.productDescription || '-'}</p>
                 <p className="text-surface-700"><span className="font-bold">Preferensi Stand:</span> {selectedApp.boothPreferences || 'Tidak ada preferensi khusus'}</p>
 
                 {/* Listrik & K3 Operasional */}
@@ -2444,9 +2446,9 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                     <Coins className="w-3.5 h-3.5 text-brand-700" /> Tarif & Infaq Stand:
                   </span>
                   <span className="font-black text-brand-950 text-sm">
-                    {selectedApp.infaqAmountRupiah === 0
+                    {(selectedApp.infaqAmountRupiah || 0) === 0
                       ? 'Gratis (Sponsor/Dakwah)'
-                      : `Rp ${selectedApp.infaqAmountRupiah.toLocaleString('id-ID')}`}
+                      : `Rp ${(selectedApp.infaqAmountRupiah || 0).toLocaleString('id-ID')}`}
                   </span>
                 </div>
                 {selectedApp.paymentNotes && (
@@ -2457,7 +2459,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                   onClick={() => {
                     setFeeModalApp(selectedApp);
                     setFeeForm({
-                      infaqAmountRupiah: selectedApp.infaqAmountRupiah,
+                      infaqAmountRupiah: selectedApp.infaqAmountRupiah || 0,
                       paymentNotes: selectedApp.paymentNotes || '',
                       status: selectedApp.status,
                     });
@@ -2630,7 +2632,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
           const categoryMismatch =
             currentSelectedBooth &&
             currentSelectedBooth.allowedCategory !== 'all' &&
-            currentSelectedBooth.allowedCategory !== selectedApp.tenant.businessCategory;
+            currentSelectedBooth.allowedCategory !== (selectedApp.tenant?.businessCategory || '');
 
           return (
             <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
@@ -2643,9 +2645,9 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                 </div>
 
                 <div className="p-3 bg-cream-50/60 rounded-xl border border-cream-200 text-xs space-y-1">
-                  <p className="font-bold text-brand-950">{selectedApp.tenant.brandName}</p>
+                  <p className="font-bold text-brand-950">{selectedApp.tenant?.brandName || 'Tenant'}</p>
                   <p className="text-surface-600">
-                    Kategori: {CATEGORY_LABELS[selectedApp.tenant.businessCategory] || selectedApp.tenant.businessCategory}
+                    Kategori: {(selectedApp.tenant?.businessCategory && CATEGORY_LABELS[selectedApp.tenant.businessCategory]) || selectedApp.tenant?.businessCategory || '-'}
                   </p>
                   <p className="text-surface-600">Preferensi: {selectedApp.boothPreferences || 'Tidak ada'}</p>
                 </div>
@@ -2672,7 +2674,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                         .filter((b) => b.status === 'available' || b.id === selectedApp.assignedBoothId)
                         .map((b) => (
                           <option key={b.id} value={b.id}>
-                            {b.code} - {b.name} ({b.zone} - Rp {b.priceRupiah.toLocaleString('id-ID')})
+                            {b.code} - {b.name} ({b.zone} - Rp {(b.priceRupiah || 0).toLocaleString('id-ID')})
                           </option>
                         ))}
                     </select>
@@ -2688,7 +2690,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                           Stand {currentSelectedBooth.code} dialokasikan untuk:{' '}
                           <strong>{CATEGORY_LABELS[currentSelectedBooth.allowedCategory] || currentSelectedBooth.allowedCategory}</strong>,
                           sedangkan pendaftar ini berkategori{' '}
-                          <strong>{CATEGORY_LABELS[selectedApp.tenant.businessCategory] || selectedApp.tenant.businessCategory}</strong>.
+                          <strong>{(selectedApp.tenant?.businessCategory && CATEGORY_LABELS[selectedApp.tenant.businessCategory]) || selectedApp.tenant?.businessCategory || '-'}</strong>.
                           Anda tetap dapat melanjutkan jika disetujui panitia.
                         </p>
                       </div>
@@ -2699,7 +2701,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                     <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl flex items-center justify-between text-xs">
                       <span className="text-surface-700">Harga Stand Terpilih:</span>
                       <span className="font-black text-emerald-950">
-                        Rp {currentSelectedBooth.priceRupiah.toLocaleString('id-ID')}
+                        Rp {(currentSelectedBooth.priceRupiah || 0).toLocaleString('id-ID')}
                       </span>
                     </div>
                   )}
@@ -2714,7 +2716,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                         className="rounded text-brand-900 focus:ring-brand-700"
                       />
                       <span className="text-xs font-bold text-surface-800">
-                        Sinkronkan tagihan tenant mengikuti tarif stand ini (Rp {currentSelectedBooth.priceRupiah.toLocaleString('id-ID')})
+                        Sinkronkan tagihan tenant mengikuti tarif stand ini (Rp {(currentSelectedBooth.priceRupiah || 0).toLocaleString('id-ID')})
                       </span>
                     </label>
                   )}
@@ -2797,7 +2799,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                   </div>
                   <div>
                     <h4 className="text-sm font-black text-brand-950">Atur Tarif & Infaq Stand</h4>
-                    <p className="text-[11px] text-surface-500">{feeModalApp.tenant.brandName}</p>
+                    <p className="text-[11px] text-surface-500">{feeModalApp.tenant?.brandName || 'Tenant'}</p>
                   </div>
                 </div>
                 <button onClick={() => setIsFeeModalOpen(false)} className="p-1 text-surface-400 hover:text-surface-600">
@@ -3190,7 +3192,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                     <option value="">-- Pilih Tenant --</option>
                     {applications.map((app) => (
                       <option key={app.id} value={app.id}>
-                        {app.tenant.brandName} ({app.assignedBooth?.code || 'Stand -'})
+                        {app.tenant?.brandName || 'Tenant'} ({app.assignedBooth?.code || 'Stand -'})
                       </option>
                     ))}
                   </select>
@@ -3285,7 +3287,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                     <option value="">-- Pilih Tenant --</option>
                     {applications.map((app) => (
                       <option key={app.id} value={app.id}>
-                        {app.tenant.brandName}
+                        {app.tenant?.brandName || 'Tenant'}
                       </option>
                     ))}
                   </select>
@@ -3430,6 +3432,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
             </div>
           </div>
         )}
+        </ErrorBoundary>
       </div>
     </div>
   );

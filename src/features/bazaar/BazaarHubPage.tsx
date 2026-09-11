@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
 import { EventBazaarManageModal } from '../events/components/EventBazaarManageModal';
+import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 
 interface MasterTenantItem {
   id: string;
@@ -250,7 +251,8 @@ export const BazaarHubPage: React.FC = () => {
   });
 
   return (
-    <div className="space-y-6 max-w-[1400px] mx-auto pb-16">
+    <ErrorBoundary moduleName="Bazar & Tenant Daurah">
+      <div className="space-y-6 max-w-[1400px] mx-auto pb-16">
       {/* 1. Header Page */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#1B4332]/12 pb-4">
         <div>
@@ -907,6 +909,7 @@ export const BazaarHubPage: React.FC = () => {
           <span>{toastMessage}</span>
         </div>
       )}
-    </div>
+      </div>
+    </ErrorBoundary>
   );
 };

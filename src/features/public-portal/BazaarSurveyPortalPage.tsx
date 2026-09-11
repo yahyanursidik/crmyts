@@ -355,7 +355,7 @@ export const BazaarSurveyPortalPage: React.FC = () => {
                       <option value="">-- Pilih Brand Terdaftar pada Event Ini --</option>
                       {tenantsList.map((t) => (
                         <option key={t.id} value={t.id}>
-                          {t.brandName} {t.boothCode ? `[Stan: ${t.boothCode}]` : ''} — PIC: {t.picName}
+                          {t.brandName || 'Tanpa Nama'} {t.boothCode ? `[Stan: ${t.boothCode}]` : ''} — PIC: {t.picName || '-'}
                         </option>
                       ))}
                     </select>
