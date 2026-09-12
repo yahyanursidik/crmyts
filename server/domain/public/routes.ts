@@ -1586,16 +1586,25 @@ export function registerPublicPortalRoutes(router: Router) {
     const participants = atts.map((a) => ({
       id: a.id,
       ticketCode: a.ticketCode,
+      personId: a.personId,
+      personName: a.person?.fullName || 'Anonim',
       fullName: a.person?.fullName || 'Anonim',
+      personGender: a.person?.gender || 'ikhwan',
       gender: a.person?.gender || 'ikhwan',
+      personPhone: a.person?.phoneE164 || '-',
       phoneE164: a.person?.phoneE164 || '-',
+      personCity: a.person?.cityRegency || null,
       cityRegency: a.person?.cityRegency || null,
+      personEmail: a.person?.email || null,
       status: a.status,
       checkInAt: a.checkInAt ? a.checkInAt.toISOString() : null,
       vehicleType: a.vehicleType,
       vehiclePlateNumber: a.vehiclePlateNumber,
       registrationGroupId: a.registrationGroupId,
       familyRelationship: a.familyRelationship,
+      age: a.age,
+      gateName: (a.registrationData as any)?.gateName || null,
+      registrationData: a.registrationData,
     }));
 
     const recentCheckIns = checkedInAtts
@@ -1604,10 +1613,19 @@ export function registerPublicPortalRoutes(router: Router) {
       .slice(0, 30)
       .map((a) => ({
         id: a.id,
+        personId: a.personId,
         ticketCode: a.ticketCode,
+        personName: a.person?.fullName || 'Anonim',
         fullName: a.person?.fullName || 'Anonim',
+        personGender: a.person?.gender || 'ikhwan',
         gender: a.person?.gender || 'ikhwan',
+        personPhone: a.person?.phoneE164 || '-',
+        phoneE164: a.person?.phoneE164 || '-',
+        personCity: a.person?.cityRegency || null,
+        cityRegency: a.person?.cityRegency || null,
         checkInAt: a.checkInAt ? a.checkInAt.toISOString() : null,
+        vehicleType: a.vehicleType,
+        vehiclePlateNumber: a.vehiclePlateNumber,
         gateName: (a.registrationData as any)?.gateName || null,
       }));
 
@@ -1874,7 +1892,15 @@ export function registerPublicPortalRoutes(router: Router) {
             status: updated.status,
             checkInAt: updated.checkInAt ? new Date(updated.checkInAt).toISOString() : null,
             personName: target.person?.fullName || 'Anonim',
+            fullName: target.person?.fullName || 'Anonim',
             personGender: target.person?.gender || 'ikhwan',
+            gender: target.person?.gender || 'ikhwan',
+            personPhone: target.person?.phoneE164 || '-',
+            phoneE164: target.person?.phoneE164 || '-',
+            personCity: target.person?.cityRegency || null,
+            cityRegency: target.person?.cityRegency || null,
+            vehicleType: updated.vehicleType,
+            vehiclePlateNumber: updated.vehiclePlateNumber,
           },
         },
         { requestId: ctx.requestId }

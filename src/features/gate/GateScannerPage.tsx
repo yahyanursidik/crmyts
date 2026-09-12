@@ -31,6 +31,12 @@ import {
   Flame,
   CheckCheck,
   Undo2,
+  Phone,
+  MessageSquare,
+  Info,
+  X,
+  Smile,
+  HeartHandshake,
 } from 'lucide-react';
 import { Html5Qrcode, CameraDevice } from 'html5-qrcode';
 import { apiClient } from '@/lib/apiClient';
@@ -54,18 +60,26 @@ interface GateEvent {
 
 interface ParticipantItem {
   id: string;
-  personId: string;
-  personName: string;
-  personPhone: string;
-  personGender: 'ikhwan' | 'akhwat' | string;
+  personId?: string;
+  personName?: string;
+  fullName?: string;
+  personPhone?: string;
+  phoneE164?: string;
+  personGender?: 'ikhwan' | 'akhwat' | string;
+  gender?: 'ikhwan' | 'akhwat' | string;
   personCity?: string | null;
+  cityRegency?: string | null;
+  personEmail?: string | null;
   ticketCode: string;
   status: 'registered' | 'attended';
   checkInAt?: string | null;
   vehicleType?: string | null;
   vehiclePlateNumber?: string | null;
-  registrationData?: Record<string, any> | null;
+  registrationGroupId?: string | null;
   familyRelationship?: string | null;
+  age?: number | null;
+  gateName?: string | null;
+  registrationData?: Record<string, any> | null;
 }
 
 interface GateStats {
@@ -89,6 +103,45 @@ interface ScanResponse {
   attendance: ParticipantItem;
   stats?: GateStats;
 }
+
+// Helpers for robust field extraction and warm greeting
+const getParticipantName = (p?: ParticipantItem | null) => {
+  if (!p) return 'Jamaah';
+  return p.personName || p.fullName || 'Jamaah';
+};
+
+const getParticipantGender = (p?: ParticipantItem | null): 'ikhwan' | 'akhwat' => {
+  if (!p) return 'ikhwan';
+  const g = (p.personGender || p.gender || 'ikhwan').toLowerCase();
+  return g === 'akhwat' ? 'akhwat' : 'ikhwan';
+};
+
+const getParticipantPhone = (p?: ParticipantItem | null) => {
+  if (!p) return '-';
+  return p.personPhone || p.phoneE164 || '-';
+};
+
+const getParticipantCity = (p?: ParticipantItem | null) => {
+  if (!p) return null;
+  return p.personCity || p.cityRegency || null;
+};
+
+const getGreetingInfo = (p?: ParticipantItem | null) => {
+  const name = getParticipantName(p);
+  const gender = getParticipantGender(p);
+  const isIkhwan = gender === 'ikhwan';
+  const prefix = isIkhwan ? 'Akhi' : 'Ukhti';
+  const altPrefix = isIkhwan ? 'Pak' : 'Ibu';
+  const firstName = name.split(' ')[0] || name;
+  return {
+    prefix,
+    altPrefix,
+    firstName,
+    sapaan: `${prefix} ${firstName}`,
+    sapaanFormal: `${altPrefix} ${name}`,
+    fullGreeting: `Ahlan wa Sahlan, ${prefix} ${firstName}!`,
+  };
+};
 
 export const GateScannerPage: React.FC = () => {
   const params = useParams<{ id?: string; eventId?: string }>();
@@ -141,6 +194,7 @@ export const GateScannerPage: React.FC = () => {
     type: 'success' | 'warning' | 'error';
     title: string;
     message: string;
+    greeting?: string;
     data?: ParticipantItem | null;
     timestamp: string;
   } | null>(null);
@@ -150,6 +204,9 @@ export const GateScannerPage: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<'all' | 'unattended' | 'attended'>('all');
   const [filterGender, setFilterGender] = useState<'all' | 'ikhwan' | 'akhwat'>('all');
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+
+  // Detail Modal for specific participant
+  const [selectedParticipantModal, setSelectedParticipantModal] = useState<ParticipantItem | null>(null);
 
   // Refs
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
@@ -351,6 +408,8 @@ export const GateScannerPage: React.FC = () => {
         if (res.data?.success) {
           const item = res.data.attendance;
           const isDup = res.data.alreadyCheckedIn;
+          const name = getParticipantName(item);
+          const greeting = getGreetingInfo(item);
 
           if (isDup) {
             const prevTime = res.data.previousCheckInAt
@@ -359,8 +418,9 @@ export const GateScannerPage: React.FC = () => {
 
             setScanStatus({
               type: 'warning',
-              title: '⚠️ Jamaah Sudah Presensi!',
-              message: `Tiket ${item.ticketCode} atas nama ${item.personName} sudah presensi pukul ${prevTime} WIB.`,
+              title: `⚠️ Sudah Presensi: ${greeting.sapaan}`,
+              message: `Tiket ${item.ticketCode} atas nama ${name} sudah tercatat presensi pukul ${prevTime} WIB.`,
+              greeting: `Sapa: "Ahlan ${greeting.sapaan}, data antum sudah masuk tadi"`,
               data: item,
               timestamp: nowTime,
             });
@@ -369,8 +429,9 @@ export const GateScannerPage: React.FC = () => {
           } else {
             setScanStatus({
               type: 'success',
-              title: '✅ Presensi Berhasil!',
-              message: `Ahlan wa sahlan, ${item.personName}! Berhasil presensi di ${stationName}.`,
+              title: `✅ ${greeting.fullGreeting}`,
+              message: `${name} berhasil dicatat presensi di ${stationName}.`,
+              greeting: `Silakan sapa: "${greeting.fullGreeting} Silakan masuk ke majelis."`,
               data: item,
               timestamp: nowTime,
             });
@@ -388,7 +449,7 @@ export const GateScannerPage: React.FC = () => {
             } else {
               setStats((prev) => {
                 if (!prev) return prev;
-                const isIkhwan = item.personGender === 'ikhwan';
+                const isIkhwan = getParticipantGender(item) === 'ikhwan';
                 return {
                   ...prev,
                   totalCheckedIn: prev.totalCheckedIn + 1,
@@ -426,6 +487,8 @@ export const GateScannerPage: React.FC = () => {
 
     const targetStatus = participant.status === 'attended' ? 'registered' : 'attended';
     const nowTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    const name = getParticipantName(participant);
+    const greeting = getGreetingInfo(participant);
 
     try {
       const res = await apiClient<{ success: boolean; attendance: any }>(
@@ -442,35 +505,39 @@ export const GateScannerPage: React.FC = () => {
 
       if (res.data?.success) {
         const isNowAttended = targetStatus === 'attended';
+        const updatedItem = {
+          ...participant,
+          ...res.data.attendance,
+          status: targetStatus,
+          checkInAt: isNowAttended ? new Date().toISOString() : null,
+        };
+
         setParticipants((prev) =>
-          prev.map((p) =>
-            p.id === participant.id
-              ? {
-                  ...p,
-                  status: targetStatus,
-                  checkInAt: isNowAttended ? new Date().toISOString() : null,
-                }
-              : p
-          )
+          prev.map((p) => (p.id === participant.id ? updatedItem : p))
         );
+
+        if (selectedParticipantModal?.id === participant.id) {
+          setSelectedParticipantModal(updatedItem);
+        }
 
         if (isNowAttended) {
           setScanStatus({
             type: 'success',
-            title: '✅ Berhasil Hadir (Manual)',
-            message: `${participant.personName} berhasil dicatat hadir di ${stationName}.`,
-            data: { ...participant, status: 'attended' },
+            title: `✅ ${greeting.fullGreeting}`,
+            message: `${name} berhasil dicatat hadir di ${stationName} (Manual).`,
+            greeting: `Sapa: "${greeting.fullGreeting}"`,
+            data: updatedItem,
             timestamp: nowTime,
           });
           playFeedbackTone('success');
           triggerHaptic('success');
-          setRecentCheckIns((prev) => [participant, ...prev.filter((p) => p.id !== participant.id)].slice(0, 15));
+          setRecentCheckIns((prev) => [updatedItem, ...prev.filter((p) => p.id !== participant.id)].slice(0, 15));
         } else {
           setScanStatus({
             type: 'warning',
             title: '↩️ Status Presensi Dibatalkan',
-            message: `Presensi atas nama ${participant.personName} telah dibatalkan kembali ke belum hadir.`,
-            data: { ...participant, status: 'registered' },
+            message: `Presensi atas nama ${name} telah dibatalkan kembali ke belum hadir.`,
+            data: updatedItem,
             timestamp: nowTime,
           });
           playFeedbackTone('warning');
@@ -786,16 +853,23 @@ export const GateScannerPage: React.FC = () => {
   const filteredParticipants = participants.filter((p) => {
     if (filterStatus === 'unattended' && p.status === 'attended') return false;
     if (filterStatus === 'attended' && p.status !== 'attended') return false;
-    if (filterGender !== 'all' && p.personGender !== filterGender) return false;
+    const g = getParticipantGender(p);
+    if (filterGender !== 'all' && g !== filterGender) return false;
 
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase().trim();
-    const nameMatch = p.personName?.toLowerCase().includes(q);
-    const phoneMatch = p.personPhone?.includes(q);
-    const ticketMatch = p.ticketCode?.toLowerCase().includes(q);
-    const cityMatch = p.personCity?.toLowerCase().includes(q);
-    const plateMatch = p.vehiclePlateNumber?.toLowerCase().includes(q);
-    return Boolean(nameMatch || phoneMatch || ticketMatch || cityMatch || plateMatch);
+    const name = getParticipantName(p).toLowerCase();
+    const phone = getParticipantPhone(p);
+    const ticket = p.ticketCode?.toLowerCase() || '';
+    const city = getParticipantCity(p)?.toLowerCase() || '';
+    const plate = p.vehiclePlateNumber?.toLowerCase() || '';
+    return Boolean(
+      name.includes(q) ||
+      phone.includes(q) ||
+      ticket.includes(q) ||
+      city.includes(q) ||
+      plate.includes(q)
+    );
   });
 
   // Render: 1. No event selected -> Event Picker Screen
@@ -1125,11 +1199,11 @@ export const GateScannerPage: React.FC = () => {
           {/* Ikhwan Hadir */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 flex flex-col justify-between">
             <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-blue-500" />
+              <span className="w-2 h-2 rounded-full bg-sky-400" />
               Ikhwan Hadir
             </span>
             <div className="mt-2 flex items-baseline justify-between">
-              <span className="text-xl sm:text-2xl font-black text-blue-400">
+              <span className="text-xl sm:text-2xl font-black text-sky-400">
                 {stats?.ikhwanCheckedIn || 0}
               </span>
               <span className="text-[11px] text-slate-500">
@@ -1145,7 +1219,7 @@ export const GateScannerPage: React.FC = () => {
           {/* Akhwat Hadir */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 flex flex-col justify-between">
             <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-pink-500" />
+              <span className="w-2 h-2 rounded-full bg-pink-400" />
               Akhwat Hadir
             </span>
             <div className="mt-2 flex items-baseline justify-between">
@@ -1205,7 +1279,7 @@ export const GateScannerPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Scan Status Banner (Prominent Real-time Feedback) */}
+        {/* Scan Status Banner (Prominent Real-time Feedback & Greeting) */}
         {scanStatus && (
           <div
             className={`rounded-2xl p-4 sm:p-5 border shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2 duration-200 ${
@@ -1218,7 +1292,7 @@ export const GateScannerPage: React.FC = () => {
           >
             <div className="flex items-start gap-3.5">
               <div
-                className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${
+                className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-md ${
                   scanStatus.type === 'success'
                     ? 'bg-emerald-500 text-slate-950'
                     : scanStatus.type === 'warning'
@@ -1231,38 +1305,55 @@ export const GateScannerPage: React.FC = () => {
                 {scanStatus.type === 'error' && <AlertCircle className="w-7 h-7 stroke-[2.5]" />}
               </div>
 
-              <div>
-                <div className="flex items-center gap-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="text-base sm:text-lg font-black tracking-tight">{scanStatus.title}</h2>
                   <span className="text-[11px] px-2 py-0.5 rounded-full bg-black/30 font-medium">
                     {scanStatus.timestamp} WIB
                   </span>
                 </div>
-                <p className="text-xs sm:text-sm opacity-90 mt-0.5">{scanStatus.message}</p>
+
+                {/* Sapaan Petugas Lapangan */}
+                {scanStatus.greeting && (
+                  <div className="mt-1 flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-white/95 bg-black/20 px-2.5 py-1 rounded-lg border border-white/10 w-fit">
+                    <Smile className="w-4 h-4 text-emerald-300 shrink-0" />
+                    <span>{scanStatus.greeting}</span>
+                  </div>
+                )}
+
+                <p className="text-xs sm:text-sm opacity-90 mt-1">{scanStatus.message}</p>
 
                 {/* Additional Jamaah Badges */}
                 {scanStatus.data && (
                   <div className="flex flex-wrap items-center gap-2 mt-2 text-xs">
-                    <span className="font-semibold bg-black/40 px-2 py-0.5 rounded-md border border-white/10">
+                    <span className="font-bold text-white bg-black/40 px-2 py-0.5 rounded-md border border-white/10">
+                      👤 {getParticipantName(scanStatus.data)}
+                    </span>
+                    <span className="font-mono font-semibold bg-black/40 px-2 py-0.5 rounded-md border border-white/10 text-emerald-300">
                       Tiket: {scanStatus.data.ticketCode}
                     </span>
                     <span
                       className={`font-semibold px-2 py-0.5 rounded-md capitalize ${
-                        scanStatus.data.personGender === 'ikhwan'
-                          ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                        getParticipantGender(scanStatus.data) === 'ikhwan'
+                          ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
                           : 'bg-pink-500/20 text-pink-300 border border-pink-500/30'
                       }`}
                     >
-                      {scanStatus.data.personGender}
+                      {getParticipantGender(scanStatus.data) === 'ikhwan' ? '🕌 Ikhwan' : '🌸 Akhwat'}
                     </span>
-                    {scanStatus.data.vehiclePlateNumber && (
-                      <span className="bg-black/40 px-2 py-0.5 rounded-md border border-white/10">
-                        🚗 {scanStatus.data.vehicleType || 'Kendaraan'}: {scanStatus.data.vehiclePlateNumber}
+                    {getParticipantPhone(scanStatus.data) !== '-' && (
+                      <span className="bg-black/40 px-2 py-0.5 rounded-md border border-white/10 text-slate-200">
+                        📱 {getParticipantPhone(scanStatus.data)}
                       </span>
                     )}
-                    {scanStatus.data.personCity && (
-                      <span className="bg-black/40 px-2 py-0.5 rounded-md border border-white/10">
-                        📍 {scanStatus.data.personCity}
+                    {getParticipantCity(scanStatus.data) && (
+                      <span className="bg-black/40 px-2 py-0.5 rounded-md border border-white/10 text-slate-200">
+                        📍 {getParticipantCity(scanStatus.data)}
+                      </span>
+                    )}
+                    {scanStatus.data.vehiclePlateNumber && (
+                      <span className="bg-black/40 px-2 py-0.5 rounded-md border border-white/10 text-slate-200">
+                        🚗 {scanStatus.data.vehicleType || 'Kendaraan'}: {scanStatus.data.vehiclePlateNumber}
                       </span>
                     )}
                   </div>
@@ -1270,12 +1361,23 @@ export const GateScannerPage: React.FC = () => {
               </div>
             </div>
 
-            <button
-              onClick={() => setScanStatus(null)}
-              className="self-end sm:self-center px-3 py-1.5 text-xs font-semibold rounded-lg bg-black/30 hover:bg-black/50 text-white/80 hover:text-white transition-colors"
-            >
-              Tutup Notifikasi
-            </button>
+            <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+              {scanStatus.data && (
+                <button
+                  onClick={() => setSelectedParticipantModal(scanStatus.data!)}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-white/15 hover:bg-white/25 text-white transition-colors flex items-center gap-1.5"
+                >
+                  <Info className="w-3.5 h-3.5" />
+                  <span>Detail Lengkap</span>
+                </button>
+              )}
+              <button
+                onClick={() => setScanStatus(null)}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-black/30 hover:bg-black/50 text-white/80 hover:text-white transition-colors"
+              >
+                Tutup
+              </button>
+            </div>
           </div>
         )}
 
@@ -1522,7 +1624,7 @@ export const GateScannerPage: React.FC = () => {
               )}
             </div>
 
-            {/* Live Feed: Recent Check-Ins */}
+            {/* Live Feed: Recent Check-Ins with Greeting Information */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 flex flex-col flex-1">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
@@ -1539,6 +1641,10 @@ export const GateScannerPage: React.FC = () => {
               ) : (
                 <div className="space-y-2 overflow-y-auto max-h-56 pr-1">
                   {recentCheckIns.slice(0, 8).map((rc) => {
+                    const name = getParticipantName(rc);
+                    const gender = getParticipantGender(rc);
+                    const isIkhwan = gender === 'ikhwan';
+                    const greeting = getGreetingInfo(rc);
                     const timeStr = rc.checkInAt
                       ? new Date(rc.checkInAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
                       : 'Baru saja';
@@ -1546,22 +1652,27 @@ export const GateScannerPage: React.FC = () => {
                     return (
                       <div
                         key={rc.id}
-                        className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-2.5 flex items-center justify-between gap-2"
+                        onClick={() => setSelectedParticipantModal(rc)}
+                        className="bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 rounded-xl p-2.5 flex items-center justify-between gap-2 cursor-pointer transition-colors"
+                        title="Klik untuk lihat detail"
                       >
                         <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-bold text-white truncate">{rc.personName}</span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-xs font-bold text-white truncate">{name}</span>
                             <span
                               className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${
-                                rc.personGender === 'ikhwan'
-                                  ? 'bg-blue-500/20 text-blue-300'
+                                isIkhwan
+                                  ? 'bg-sky-500/20 text-sky-300'
                                   : 'bg-pink-500/20 text-pink-300'
                               }`}
                             >
-                              {rc.personGender}
+                              {greeting.prefix}
                             </span>
                           </div>
-                          <span className="text-[11px] text-slate-400 font-mono">{rc.ticketCode}</span>
+                          <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
+                            <span className="font-mono text-emerald-400">{rc.ticketCode}</span>
+                            {rc.vehiclePlateNumber && <span>🚗 {rc.vehiclePlateNumber}</span>}
+                          </div>
                         </div>
                         <span className="text-[11px] text-emerald-400 font-medium shrink-0">{timeStr}</span>
                       </div>
@@ -1582,7 +1693,7 @@ export const GateScannerPage: React.FC = () => {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Cari daftar peserta (nama, no. WA, tiket)..."
+                  placeholder="Cari jamaah (nama, no. WA, tiket, kota, plat)..."
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-9 pr-3.5 py-2 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                 />
                 {searchQuery && (
@@ -1642,7 +1753,7 @@ export const GateScannerPage: React.FC = () => {
             </div>
 
             {/* Participants Table / List */}
-            <div className="flex-1 overflow-y-auto max-h-[600px] border border-slate-800 rounded-2xl divide-y divide-slate-800/80 bg-slate-950/40">
+            <div className="flex-1 overflow-y-auto max-h-[620px] border border-slate-800 rounded-2xl divide-y divide-slate-800/80 bg-slate-950/40">
               {loadingData ? (
                 <div className="py-16 text-center text-slate-500 text-xs flex flex-col items-center">
                   <RefreshCw className="w-6 h-6 animate-spin text-emerald-500 mb-2" />
@@ -1655,6 +1766,15 @@ export const GateScannerPage: React.FC = () => {
               ) : (
                 filteredParticipants.map((p) => {
                   const isAttended = p.status === 'attended';
+                  const name = getParticipantName(p);
+                  const gender = getParticipantGender(p);
+                  const isIkhwan = gender === 'ikhwan';
+                  const greeting = getGreetingInfo(p);
+                  const phone = getParticipantPhone(p);
+                  const city = getParticipantCity(p);
+                  const cleanPhoneDigits = phone.replace(/\D/g, '');
+                  const waUrl = cleanPhoneDigits ? `https://wa.me/${cleanPhoneDigits.startsWith('0') ? '62' + cleanPhoneDigits.slice(1) : cleanPhoneDigits}` : null;
+
                   const checkInTime = p.checkInAt
                     ? new Date(p.checkInAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
                     : null;
@@ -1663,39 +1783,117 @@ export const GateScannerPage: React.FC = () => {
                   return (
                     <div
                       key={p.id}
-                      className="p-3 sm:p-3.5 flex items-center justify-between gap-3 hover:bg-slate-900/60 transition-colors"
+                      className="p-3.5 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 hover:bg-slate-900/60 transition-colors"
                     >
                       <div className="min-w-0 flex-1">
+                        {/* Row 1: Greeting Cue & Name & Gender */}
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-bold text-white truncate">{p.personName}</span>
+                          {/* Sapaan Badge */}
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 border ${
+                              isIkhwan
+                                ? 'bg-sky-950 text-sky-300 border-sky-800/50'
+                                : 'bg-pink-950 text-pink-300 border-pink-800/50'
+                            }`}
+                            title={`Sapaan ramah: Ahlan wa Sahlan, ${greeting.prefix} ${greeting.firstName}!`}
+                          >
+                            <Smile className="w-3 h-3" />
+                            <span>Sapa: {greeting.sapaan}</span>
+                          </span>
+
+                          {/* Full Name */}
+                          <h4 className="text-sm sm:text-base font-bold text-white truncate max-w-xs">
+                            {name}
+                          </h4>
+
+                          {/* Gender Badge */}
                           <span
                             className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                              p.personGender === 'ikhwan'
-                                ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                              isIkhwan
+                                ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
                                 : 'bg-pink-500/10 text-pink-400 border border-pink-500/20'
                             }`}
                           >
-                            {p.personGender}
+                            {isIkhwan ? '🕌 Ikhwan' : '🌸 Akhwat'}
                           </span>
-                          {p.vehiclePlateNumber && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-                              🚗 {p.vehiclePlateNumber}
-                            </span>
-                          )}
+
+                          {/* Ticket Code */}
+                          <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-800 text-emerald-400 font-bold border border-slate-700">
+                            {p.ticketCode}
+                          </span>
                         </div>
 
-                        <div className="flex items-center gap-3 text-xs text-slate-400 mt-1 flex-wrap">
-                          <span className="font-mono text-emerald-400 font-semibold">{p.ticketCode}</span>
-                          {p.personPhone && <span>{p.personPhone}</span>}
-                          {p.personCity && <span>📍 {p.personCity}</span>}
-                          {isAttended && checkInTime && (
-                            <span className="text-emerald-400 font-medium">Hadir: {checkInTime} WIB</span>
+                        {/* Row 2: General Details (Phone, City, Vehicle, Family) */}
+                        <div className="flex items-center gap-3 text-xs text-slate-400 mt-2 flex-wrap">
+                          {/* WhatsApp / Phone with click to call/wa */}
+                          {phone !== '-' && (
+                            <div className="flex items-center gap-1">
+                              <Phone className="w-3.5 h-3.5 text-slate-500" />
+                              {waUrl ? (
+                                <a
+                                  href={waUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-slate-300 hover:text-emerald-400 transition-colors"
+                                  title="Chat via WhatsApp"
+                                >
+                                  {phone}
+                                </a>
+                              ) : (
+                                <span className="text-slate-300">{phone}</span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* City */}
+                          {city && (
+                            <span className="flex items-center gap-1 text-slate-300">
+                              <MapPin className="w-3.5 h-3.5 text-slate-500" />
+                              <span>{city}</span>
+                            </span>
+                          )}
+
+                          {/* Vehicle */}
+                          {p.vehiclePlateNumber && (
+                            <span className="flex items-center gap-1 text-indigo-300 bg-indigo-950/40 border border-indigo-800/40 px-1.5 py-0.5 rounded text-[11px]">
+                              <Car className="w-3 h-3 text-indigo-400" />
+                              <span>{p.vehicleType === 'motorcycle' ? 'Motor' : 'Mobil'}: {p.vehiclePlateNumber}</span>
+                            </span>
+                          )}
+
+                          {/* Family Group */}
+                          {p.familyRelationship && (
+                            <span className="flex items-center gap-1 text-amber-300 bg-amber-950/40 border border-amber-800/40 px-1.5 py-0.5 rounded text-[11px]">
+                              <Users className="w-3 h-3 text-amber-400" />
+                              <span>Rombongan: {p.familyRelationship}</span>
+                            </span>
+                          )}
+
+                          {/* Attendance Status & Timestamp */}
+                          {isAttended && checkInTime ? (
+                            <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                              <CheckCheck className="w-3.5 h-3.5" />
+                              <span>Hadir: {checkInTime} WIB {p.gateName ? `(${p.gateName})` : ''}</span>
+                            </span>
+                          ) : (
+                            <span className="text-amber-400/80 font-medium">⏳ Belum Hadir</span>
                           )}
                         </div>
                       </div>
 
-                      {/* 1-Click Action Button */}
-                      <div className="shrink-0">
+                      {/* Action Buttons */}
+                      <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                        {/* Detail Modal Button */}
+                        <button
+                          onClick={() => setSelectedParticipantModal(p)}
+                          className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-semibold flex items-center gap-1 transition-colors"
+                          title="Lihat profil detail peserta"
+                        >
+                          <Info className="w-3.5 h-3.5" />
+                          <span className="hidden md:inline">Detail</span>
+                        </button>
+
+                        {/* 1-Click Action Button */}
                         {isAttended ? (
                           <button
                             onClick={() => handleToggleAttendance(p)}
@@ -1708,7 +1906,7 @@ export const GateScannerPage: React.FC = () => {
                             ) : (
                               <Undo2 className="w-3.5 h-3.5 text-slate-400" />
                             )}
-                            <span className="hidden sm:inline">Batal Hadir</span>
+                            <span>Batal Hadir</span>
                           </button>
                         ) : (
                           <button
@@ -1733,6 +1931,167 @@ export const GateScannerPage: React.FC = () => {
           </div>
         </div>
       </main>
+
+      {/* Participant Detail Drawer/Modal */}
+      {selectedParticipantModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg p-6 shadow-2xl relative text-slate-100">
+            <button
+              onClick={() => setSelectedParticipantModal(null)}
+              className="absolute right-4 top-4 p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* Greeting Header */}
+            {(() => {
+              const modalItem = selectedParticipantModal;
+              const name = getParticipantName(modalItem);
+              const gender = getParticipantGender(modalItem);
+              const isIkhwan = gender === 'ikhwan';
+              const greeting = getGreetingInfo(modalItem);
+              const phone = getParticipantPhone(modalItem);
+              const city = getParticipantCity(modalItem);
+              const isAttended = modalItem.status === 'attended';
+              const cleanPhoneDigits = phone.replace(/\D/g, '');
+              const waUrl = cleanPhoneDigits ? `https://wa.me/${cleanPhoneDigits.startsWith('0') ? '62' + cleanPhoneDigits.slice(1) : cleanPhoneDigits}` : null;
+
+              return (
+                <div className="space-y-4">
+                  {/* Avatar & Title */}
+                  <div className="flex items-center gap-3.5 pt-1">
+                    <div
+                      className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shadow-inner ${
+                        isIkhwan ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-pink-500/20 text-pink-400 border border-pink-500/30'
+                      }`}
+                    >
+                      {isIkhwan ? '🕌' : '🌸'}
+                    </div>
+                    <div>
+                      <span
+                        className={`text-[11px] font-bold px-2 py-0.5 rounded-md border ${
+                          isIkhwan ? 'bg-sky-950 text-sky-300 border-sky-800/60' : 'bg-pink-950 text-pink-300 border-pink-800/60'
+                        }`}
+                      >
+                        👋 Sapa: {greeting.sapaan}
+                      </span>
+                      <h3 className="text-xl font-black text-white mt-1">{name}</h3>
+                      <p className="text-xs text-slate-400">
+                        {isIkhwan ? 'Ikhwan (Pria)' : 'Akhwat (Wanita)'} • Tiket: <span className="font-mono text-emerald-400 font-bold">{modalItem.ticketCode}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Suggestion greeting message */}
+                  <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-3.5 text-xs text-slate-200 flex items-start gap-2.5">
+                    <HeartHandshake className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-semibold text-white block mb-0.5">Panduan Menyapa di Gerbang:</span>
+                      <p className="text-slate-300">
+                        "{greeting.fullGreeting} Silakan masuk ke majelis kajian, semoga berkah ilmunya."
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Detail Grid */}
+                  <div className="grid grid-cols-2 gap-3 text-xs bg-slate-950/60 p-4 rounded-2xl border border-slate-800/80">
+                    <div>
+                      <span className="text-slate-500 block text-[11px]">Nomor WhatsApp:</span>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="font-bold text-white">{phone}</span>
+                        {waUrl && (
+                          <a
+                            href={waUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="p-1 rounded bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30"
+                            title="Buka Chat WhatsApp"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="text-slate-500 block text-[11px]">Kota Domisili:</span>
+                      <span className="font-bold text-white block mt-0.5">{city || 'Tidak diisi'}</span>
+                    </div>
+
+                    <div>
+                      <span className="text-slate-500 block text-[11px]">Kendaraan & Plat:</span>
+                      <span className="font-bold text-white block mt-0.5">
+                        {modalItem.vehiclePlateNumber ? `${modalItem.vehicleType === 'motorcycle' ? 'Motor' : 'Mobil'}: ${modalItem.vehiclePlateNumber}` : 'Tanpa Kendaraan'}
+                      </span>
+                    </div>
+
+                    <div>
+                      <span className="text-slate-500 block text-[11px]">Rombongan / Keluarga:</span>
+                      <span className="font-bold text-white block mt-0.5">
+                        {modalItem.familyRelationship || 'Individu (Mandiri)'}
+                      </span>
+                    </div>
+
+                    <div>
+                      <span className="text-slate-500 block text-[11px]">Status Kehadiran:</span>
+                      <span
+                        className={`font-bold inline-block mt-0.5 ${
+                          isAttended ? 'text-emerald-400' : 'text-amber-400'
+                        }`}
+                      >
+                        {isAttended ? '✅ Sudah Hadir' : '⏳ Belum Hadir'}
+                      </span>
+                    </div>
+
+                    <div>
+                      <span className="text-slate-500 block text-[11px]">Waktu Presensi & Gate:</span>
+                      <span className="font-bold text-white block mt-0.5">
+                        {modalItem.checkInAt ? `${new Date(modalItem.checkInAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB (${modalItem.gateName || stationName})` : '-'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center justify-between gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedParticipantModal(null)}
+                      className="px-4 py-2.5 text-xs font-semibold rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700"
+                    >
+                      Tutup
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleToggleAttendance(modalItem)}
+                      disabled={actionLoadingId === modalItem.id}
+                      className={`px-5 py-2.5 text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-lg transition-all ${
+                        isAttended
+                          ? 'bg-slate-800 hover:bg-rose-900/50 text-rose-300 border border-rose-500/40'
+                          : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/40'
+                      }`}
+                    >
+                      {actionLoadingId === modalItem.id ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : isAttended ? (
+                        <>
+                          <Undo2 className="w-4 h-4" />
+                          <span>Batalkan Hadir</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCheck className="w-4 h-4" />
+                          <span>Tandai Hadir Sekarang (1-Klik)</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* Station Settings Modal */}
       {showSettingsModal && (

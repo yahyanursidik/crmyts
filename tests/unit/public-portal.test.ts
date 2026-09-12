@@ -1604,7 +1604,13 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
       expect(body.data.stats.carsCount).toBe(1);
       expect(body.data.stats.motorcyclesCount).toBe(1);
       expect(body.data.participants.length).toBe(2);
+      expect(body.data.participants[0].personName).toBe('Ahmad Fauzi');
+      expect(body.data.participants[0].personGender).toBe('ikhwan');
+      expect(body.data.participants[0].personPhone).toBe('+628123456789');
+      expect(body.data.participants[0].personCity).toBe('Bandung');
       expect(body.data.recentCheckIns.length).toBe(1);
+      expect(body.data.recentCheckIns[0].personName).toBe('Ahmad Fauzi');
+      expect(body.data.recentCheckIns[0].personGender).toBe('ikhwan');
     });
 
     it('POST /api/public/gate/events/:id/scan checks in unregistered ticket and warns on duplicate check-in', async () => {
