@@ -15,7 +15,7 @@ import {
   eventAttendance,
   attachments,
 } from '../../db/schema';
-import { and, eq, sql, or, inArray, desc, asc } from 'drizzle-orm';
+import { and, eq, sql, or, inArray, desc, asc, ilike } from 'drizzle-orm';
 import { normalizeIndonesianPhone } from '../../lib/phone';
 import { buildParticipantPortalPath, extractTicketCode } from '../../../src/lib/participantTicket';
 import { createMemorableTicketCode } from '../events/participantCodes';
@@ -1493,6 +1493,389 @@ export function registerPublicPortalRoutes(router: Router) {
           },
           totalKajianAttended,
           pastFamilyMembers,
+        },
+        { requestId: ctx.requestId }
+      );
+    })
+  );
+
+  // =========================================================================
+  // 7. PUBLIC GATE SCANNER ENDPOINTS (NO LOGIN REQUIRED FOR FIELD VOLUNTEERS)
+  // =========================================================================
+
+  // 7a. GET /api/public/gate/events (List Active & Upcoming Events for Gate Selector)
+  router.get('/api/public/gate/events', async (ctx) => {
+    const db = getDb();
+    const scheduledEvents = await db.query.events.findMany({
+      orderBy: [desc(events.startAt)],
+      limit: 25,
+      with: {
+        attendances: {
+          with: {
+            person: {
+              columns: { id: true, gender: true },
+            },
+          },
+        },
+      },
+    });
+
+    const formatted = scheduledEvents.map((ev) => {
+      const atts = ev.attendances || [];
+      const checkedInCount = atts.filter((a) => a.status === 'attended').length;
+      const ikhwanCount = atts.filter((a) => a.person?.gender === 'ikhwan').length;
+      const akhwatCount = atts.filter((a) => a.person?.gender === 'akhwat').length;
+
+      return {
+        id: ev.id,
+        title: ev.title,
+        category: ev.category,
+        speaker: ev.speaker,
+        startAt: ev.startAt.toISOString(),
+        endAt: ev.endAt ? ev.endAt.toISOString() : null,
+        locationName: ev.locationName || 'Masjid Tarbiyah Sunnah',
+        targetAudience: ev.targetAudience || 'umum',
+        quota: ev.quota,
+        status: ev.status,
+        attendanceCount: atts.length,
+        totalRegistered: atts.length,
+        checkedInCount,
+        totalCheckedIn: checkedInCount,
+        ikhwanCount,
+        akhwatCount,
+      };
+    });
+
+    return successResponse({ events: formatted }, { requestId: ctx.requestId });
+  });
+
+  // 7b. GET /api/public/gate/events/:id (Event Details, Realtime KPI, and Participant Cache)
+  router.get('/api/public/gate/events/:id', async (ctx) => {
+    const db = getDb();
+    const eventId = ctx.params.id;
+
+    if (!eventId) {
+      return errorResponse('VALIDATION_ERROR', 'ID kajian diperlukan', 400, ctx.requestId);
+    }
+
+    const targetEvent = await db.query.events.findFirst({
+      where: eq(events.id, eventId),
+      with: {
+        attendances: {
+          with: {
+            person: true,
+          },
+        },
+      },
+    });
+
+    if (!targetEvent) {
+      return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
+    }
+
+    const atts = targetEvent.attendances || [];
+    const checkedInAtts = atts.filter((a) => a.status === 'attended');
+    const ikhwanAtts = atts.filter((a) => a.person?.gender === 'ikhwan');
+    const akhwatAtts = atts.filter((a) => a.person?.gender === 'akhwat');
+
+    const ikhwanCheckedIn = ikhwanAtts.filter((a) => a.status === 'attended').length;
+    const akhwatCheckedIn = akhwatAtts.filter((a) => a.status === 'attended').length;
+    const carsCount = atts.filter((a) => a.vehicleType === 'car').length;
+    const motorcyclesCount = atts.filter((a) => a.vehicleType === 'motorcycle').length;
+
+    const participants = atts.map((a) => ({
+      id: a.id,
+      ticketCode: a.ticketCode,
+      fullName: a.person?.fullName || 'Anonim',
+      gender: a.person?.gender || 'ikhwan',
+      phoneE164: a.person?.phoneE164 || '-',
+      cityRegency: a.person?.cityRegency || null,
+      status: a.status,
+      checkInAt: a.checkInAt ? a.checkInAt.toISOString() : null,
+      vehicleType: a.vehicleType,
+      vehiclePlateNumber: a.vehiclePlateNumber,
+      registrationGroupId: a.registrationGroupId,
+      familyRelationship: a.familyRelationship,
+    }));
+
+    const recentCheckIns = checkedInAtts
+      .filter((a) => a.checkInAt)
+      .sort((a, b) => new Date(b.checkInAt!).getTime() - new Date(a.checkInAt!).getTime())
+      .slice(0, 30)
+      .map((a) => ({
+        id: a.id,
+        ticketCode: a.ticketCode,
+        fullName: a.person?.fullName || 'Anonim',
+        gender: a.person?.gender || 'ikhwan',
+        checkInAt: a.checkInAt ? a.checkInAt.toISOString() : null,
+        gateName: (a.registrationData as any)?.gateName || null,
+      }));
+
+    return successResponse(
+      {
+        event: {
+          id: targetEvent.id,
+          title: targetEvent.title,
+          category: targetEvent.category,
+          speaker: targetEvent.speaker,
+          startAt: targetEvent.startAt.toISOString(),
+          endAt: targetEvent.endAt ? targetEvent.endAt.toISOString() : null,
+          locationName: targetEvent.locationName || 'Masjid Tarbiyah Sunnah',
+          targetAudience: targetEvent.targetAudience || 'umum',
+          quota: targetEvent.quota,
+          quotaIkhwan: targetEvent.quotaIkhwan,
+          quotaAkhwat: targetEvent.quotaAkhwat,
+          venueRules: targetEvent.venueRules || [],
+          customVenueRules: targetEvent.customVenueRules,
+          status: targetEvent.status,
+        },
+        stats: {
+          totalRegistered: atts.length,
+          totalCheckedIn: checkedInAtts.length,
+          totalRemaining: Math.max(0, atts.length - checkedInAtts.length),
+          percentage: atts.length > 0 ? Math.round((checkedInAtts.length / atts.length) * 100) : 0,
+          ikhwanRegistered: ikhwanAtts.length,
+          ikhwanCheckedIn,
+          akhwatRegistered: akhwatAtts.length,
+          akhwatCheckedIn,
+          carsCount,
+          motorcyclesCount,
+        },
+        participants,
+        recentCheckIns,
+      },
+      { requestId: ctx.requestId }
+    );
+  });
+
+  // 7c. POST /api/public/gate/events/:id/scan (Fast Gate Scanner Check-In - No Login Required)
+  const publicGateScanSchema = z.object({
+    ticketCode: z.string().optional().nullable(),
+    attendanceId: z.string().optional().nullable(),
+    query: z.string().optional().nullable(),
+    gateName: z.string().optional().nullable(),
+    officerName: z.string().optional().nullable(),
+  });
+
+  router.post(
+    '/api/public/gate/events/:id/scan',
+    validateBody(publicGateScanSchema, async (ctx, body) => {
+      const db = getDb();
+      const eventId = ctx.params.id;
+      const { ticketCode, attendanceId, query, gateName, officerName } = body;
+
+      if (!eventId) {
+        return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
+      }
+
+      let targetAttendance: any = null;
+
+      // 1. Match by attendance ID (from direct click)
+      if (attendanceId) {
+        targetAttendance = await db.query.eventAttendance.findFirst({
+          where: and(eq(eventAttendance.id, attendanceId), eq(eventAttendance.eventId, eventId)),
+          with: { person: true },
+        });
+      }
+
+      // 2. Match by ticket code
+      if (!targetAttendance && ticketCode) {
+        const rawCode = String(ticketCode).trim();
+        const cleanCode = extractTicketCode(rawCode);
+        targetAttendance = await db.query.eventAttendance.findFirst({
+          where: and(
+            eq(eventAttendance.eventId, eventId),
+            or(
+              eq(eventAttendance.ticketCode, cleanCode),
+              eq(eventAttendance.ticketCode, rawCode.toUpperCase()),
+              ilike(eventAttendance.ticketCode, `%${rawCode}%`)
+            )
+          ),
+          with: { person: true },
+        });
+      }
+
+      // 3. Match by query (phone, name, or ticket code suffix)
+      if (!targetAttendance && query) {
+        const rawQuery = String(query).trim();
+        const cleanTicket = extractTicketCode(rawQuery);
+        const phoneNorm = normalizeIndonesianPhone(rawQuery);
+
+        targetAttendance = await db.query.eventAttendance.findFirst({
+          where: and(
+            eq(eventAttendance.eventId, eventId),
+            or(
+              eq(eventAttendance.ticketCode, cleanTicket),
+              eq(eventAttendance.ticketCode, rawQuery.toUpperCase()),
+              ilike(eventAttendance.ticketCode, `%${rawQuery}%`)
+            )
+          ),
+          with: { person: true },
+        });
+
+        if (!targetAttendance) {
+          const candidatePersons = await db.query.persons.findMany({
+            where: or(
+              inArray(persons.phoneE164, [phoneNorm, `+${rawQuery}`, rawQuery]),
+              ilike(persons.fullName, `%${rawQuery}%`),
+              ilike(persons.phoneE164, `%${rawQuery}%`)
+            ),
+            columns: { id: true },
+            limit: 15,
+          });
+
+          const personIds = candidatePersons.map((p) => p.id);
+          if (personIds.length > 0) {
+            targetAttendance = await db.query.eventAttendance.findFirst({
+              where: and(
+                eq(eventAttendance.eventId, eventId),
+                inArray(eventAttendance.personId, personIds)
+              ),
+              with: { person: true },
+            });
+          }
+        }
+      }
+
+      if (!targetAttendance) {
+        return errorResponse(
+          'NOT_FOUND',
+          'Tiket atau data jamaah tidak ditemukan untuk kajian ini.',
+          404,
+          ctx.requestId
+        );
+      }
+
+      const alreadyCheckedIn = targetAttendance.status === 'attended';
+      const previousCheckInAt = targetAttendance.checkInAt ? new Date(targetAttendance.checkInAt).toISOString() : null;
+
+      let updatedAttendance = targetAttendance;
+      if (!alreadyCheckedIn) {
+        const existingRegData = (targetAttendance.registrationData as any) || {};
+        const newRegData = {
+          ...existingRegData,
+          gateName: gateName || existingRegData.gateName || 'Pintu Utama',
+          officerName: officerName || existingRegData.officerName || 'Panitia Gerbang',
+          scannedAt: new Date().toISOString(),
+        };
+
+        const [updated] = await db
+          .update(eventAttendance)
+          .set({
+            status: 'attended',
+            checkInAt: new Date(),
+            registrationData: newRegData,
+          })
+          .where(eq(eventAttendance.id, targetAttendance.id))
+          .returning();
+        updatedAttendance = { ...targetAttendance, ...updated, registrationData: newRegData };
+      }
+
+      // Re-calculate quick event stats
+      const allAtts = await db.query.eventAttendance.findMany({
+        where: eq(eventAttendance.eventId, eventId),
+        with: { person: { columns: { gender: true } } },
+      });
+      const checkedInCount = allAtts.filter((a) => a.status === 'attended').length;
+      const ikhwanCheckedIn = allAtts.filter((a) => a.status === 'attended' && a.person?.gender === 'ikhwan').length;
+      const akhwatCheckedIn = allAtts.filter((a) => a.status === 'attended' && a.person?.gender === 'akhwat').length;
+
+      return successResponse(
+        {
+          success: true,
+          alreadyCheckedIn,
+          checkedInNow: !alreadyCheckedIn,
+          previousCheckInAt,
+          attendance: {
+            id: updatedAttendance.id,
+            personId: updatedAttendance.personId,
+            personName: updatedAttendance.person?.fullName || 'Anonim',
+            personPhone: updatedAttendance.person?.phoneE164 || '-',
+            personGender: updatedAttendance.person?.gender || 'ikhwan',
+            personCity: updatedAttendance.person?.cityRegency || null,
+            ticketCode: updatedAttendance.ticketCode,
+            status: 'attended',
+            checkInAt: updatedAttendance.checkInAt ? new Date(updatedAttendance.checkInAt).toISOString() : new Date().toISOString(),
+            vehicleType: updatedAttendance.vehicleType,
+            vehiclePlateNumber: updatedAttendance.vehiclePlateNumber,
+            registrationData: updatedAttendance.registrationData,
+            familyRelationship: updatedAttendance.familyRelationship,
+          },
+          stats: {
+            totalRegistered: allAtts.length,
+            totalCheckedIn: checkedInCount,
+            totalRemaining: Math.max(0, allAtts.length - checkedInCount),
+            percentage: allAtts.length > 0 ? Math.round((checkedInCount / allAtts.length) * 100) : 0,
+            ikhwanCheckedIn,
+            akhwatCheckedIn,
+          },
+        },
+        { requestId: ctx.requestId }
+      );
+    })
+  );
+
+  // 7d. POST /api/public/gate/events/:id/toggle-checkin (1-Click Manual Check-In / Undo)
+  const publicGateToggleSchema = z.object({
+    attendanceId: z.string().min(1, 'Attendance ID wajib diisi'),
+    targetStatus: z.enum(['registered', 'attended']).optional(),
+    gateName: z.string().optional().nullable(),
+  });
+
+  router.post(
+    '/api/public/gate/events/:id/toggle-checkin',
+    validateBody(publicGateToggleSchema, async (ctx, body) => {
+      const db = getDb();
+      const eventId = ctx.params.id;
+      if (!eventId) {
+        return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
+      }
+      const { attendanceId, targetStatus, gateName } = body;
+
+      const target = await db.query.eventAttendance.findFirst({
+        where: and(eq(eventAttendance.id, attendanceId), eq(eventAttendance.eventId, eventId)),
+        with: { person: true },
+      });
+
+      if (!target) {
+        return errorResponse('NOT_FOUND', 'Data kehadiran tidak ditemukan', 404, ctx.requestId);
+      }
+
+      const nextStatus = targetStatus || (target.status === 'attended' ? 'registered' : 'attended');
+      const nextCheckInAt = nextStatus === 'attended' ? new Date() : sql`NULL`;
+
+      const existingRegData = (target.registrationData as any) || {};
+      const newRegData = {
+        ...existingRegData,
+        gateName: gateName || existingRegData.gateName || 'Pintu Utama',
+        lastToggledAt: new Date().toISOString(),
+      };
+
+      const [updated] = await db
+        .update(eventAttendance)
+        .set({
+          status: nextStatus,
+          checkInAt: nextCheckInAt,
+          registrationData: newRegData,
+        })
+        .where(eq(eventAttendance.id, target.id))
+        .returning();
+
+      if (!updated) {
+        return errorResponse('INTERNAL_ERROR', 'Gagal memperbarui status kehadiran', 500, ctx.requestId);
+      }
+
+      return successResponse(
+        {
+          success: true,
+          attendance: {
+            id: updated.id,
+            ticketCode: updated.ticketCode,
+            status: updated.status,
+            checkInAt: updated.checkInAt ? new Date(updated.checkInAt).toISOString() : null,
+            personName: target.person?.fullName || 'Anonim',
+            personGender: target.person?.gender || 'ikhwan',
+          },
         },
         { requestId: ctx.requestId }
       );

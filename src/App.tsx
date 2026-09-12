@@ -26,6 +26,7 @@ import { BazaarPortalPage } from './features/public-portal/BazaarPortalPage';
 import { BazaarSurveyPortalPage } from './features/public-portal/BazaarSurveyPortalPage';
 import { BazaarHubPage } from './features/bazaar/BazaarHubPage';
 import { ParticipantPortalPage } from './features/public-portal/ParticipantPortalPage';
+import { GateScannerPage } from './features/gate/GateScannerPage';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 export function App() {
@@ -150,6 +151,14 @@ export function App() {
               <Route path="/peserta/:eventId" element={<ParticipantPortalPage />} />
               <Route path="/tiket" element={<ParticipantPortalPage />} />
               <Route path="/cek-tiket" element={<ParticipantPortalPage />} />
+
+              {/* Public Gate Scanner (No Login Required) */}
+              <Route path="/gate" element={<GateScannerPage />} />
+              <Route path="/gate/:id" element={<GateScannerPage />} />
+              <Route path="/scanner" element={<GateScannerPage />} />
+              <Route path="/scanner/:id" element={<GateScannerPage />} />
+              <Route path="/presensi" element={<GateScannerPage />} />
+              <Route path="/presensi/:id" element={<GateScannerPage />} />
 
               <Route
                 path="/login"

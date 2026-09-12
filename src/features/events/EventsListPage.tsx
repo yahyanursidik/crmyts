@@ -355,6 +355,50 @@ export const EventsListPage: React.FC = () => {
         </div>
       </div>
 
+      {/* 2b. Gate Scanner Lapangan (Tanpa Login) Banner */}
+      <div className="p-4 bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 border border-slate-700/60 rounded-2xl shadow-2xs flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-slate-100">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center shrink-0 text-emerald-400">
+            <QrCode className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-sm sm:text-base font-bold text-white">
+                Gate Scanner Mandiri (Tanpa Login)
+              </h4>
+              <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                /gate
+              </span>
+            </div>
+            <p className="text-xs text-slate-300/80 mt-0.5 leading-relaxed font-normal">
+              Akses cepat panitia pintu di lapangan untuk presensi jamaah (kamera, foto QR, scanner gun, dan 1-klik manual) tanpa akun login.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <a
+            href="/gate"
+            target="_blank"
+            rel="noreferrer"
+            className="py-2 px-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-xs transition-all shadow-xs flex items-center gap-1.5 active:scale-98"
+          >
+            <span>Buka Gate Scanner</span>
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(`${window.location.origin}/gate`);
+              showToast('Link Gate Scanner Mandiri (/gate) berhasil disalin!');
+            }}
+            className="py-2 px-3 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 border border-white/20"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            <span>Salin Link Gate</span>
+          </button>
+        </div>
+      </div>
+
       {/* 3. Summary KPI Cards (Mockup 1a Strip Style) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* 1. Total Kajian */}

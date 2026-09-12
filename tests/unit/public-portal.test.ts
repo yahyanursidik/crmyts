@@ -1471,4 +1471,304 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
     const body = JSON.parse(res.body);
     expect(body.data.person.email).toBe('hendro@example.com');
   });
+
+  describe('Public Gate Scanner Endpoints (No Login Required)', () => {
+    it('GET /api/public/gate/events returns active and scheduled events for gate picker', async () => {
+      const mockEvents = [
+        {
+          id: '018f0000-0000-0000-0000-000000000099',
+          title: 'Kajian Akbar Bedah Buku',
+          speaker: 'Ustadz Yazid, Lc.',
+          startAt: new Date(Date.now() + 3600000),
+          endAt: new Date(Date.now() + 7200000),
+          locationName: 'Masjid Tarbiyah Sunnah',
+          targetAudience: 'umum',
+          quota: 200,
+          quotaIkhwan: 100,
+          quotaAkhwat: 100,
+          status: 'scheduled',
+          attendances: [
+            { id: 'att_1', status: 'attended' },
+            { id: 'att_2', status: 'registered' },
+          ],
+        },
+      ];
+
+      const mockDb = {
+        query: {
+          events: {
+            findMany: vi.fn().mockResolvedValue(mockEvents),
+          },
+        },
+      };
+
+      vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+      const res = await router.handle({
+        path: '/api/public/gate/events',
+        method: 'GET',
+        headers: {},
+        query: {},
+        params: {},
+        body: null,
+        requestId: 'req_gate_events_1',
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.data.events.length).toBe(1);
+      expect(body.data.events[0].title).toBe('Kajian Akbar Bedah Buku');
+      expect(body.data.events[0].totalRegistered).toBe(2);
+      expect(body.data.events[0].totalCheckedIn).toBe(1);
+    });
+
+    it('GET /api/public/gate/events/:id returns operational event data, statistics, and participants', async () => {
+      const targetEvent = {
+        id: '018f0000-0000-0000-0000-000000000099',
+        title: 'Kajian Akbar Bedah Buku',
+        speaker: 'Ustadz Yazid, Lc.',
+        startAt: new Date(),
+        endAt: null,
+        locationName: 'Masjid Tarbiyah Sunnah',
+        targetAudience: 'umum',
+        quota: 200,
+        quotaIkhwan: 100,
+        quotaAkhwat: 100,
+        status: 'in_progress',
+        attendances: [
+          {
+            id: 'att_1',
+            personId: 'p_1',
+            ticketCode: 'KJN-1234',
+            status: 'attended',
+            checkInAt: new Date(),
+            vehicleType: 'car',
+            vehiclePlateNumber: 'D 1234 ABC',
+            registrationData: {},
+            familyRelationship: null,
+            person: {
+              fullName: 'Ahmad Fauzi',
+              phoneE164: '+628123456789',
+              gender: 'ikhwan',
+              cityRegency: 'Bandung',
+            },
+          },
+          {
+            id: 'att_2',
+            personId: 'p_2',
+            ticketCode: 'KJN-5678',
+            status: 'registered',
+            checkInAt: null,
+            vehicleType: 'motorcycle',
+            vehiclePlateNumber: 'D 5678 XYZ',
+            registrationData: {},
+            familyRelationship: null,
+            person: {
+              fullName: 'Fatimah Az-Zahra',
+              phoneE164: '+628987654321',
+              gender: 'akhwat',
+              cityRegency: 'Cimahi',
+            },
+          },
+        ],
+      };
+
+      const mockDb = {
+        query: {
+          events: {
+            findFirst: vi.fn().mockResolvedValue(targetEvent),
+          },
+        },
+      };
+
+      vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+      const res = await router.handle({
+        path: '/api/public/gate/events/018f0000-0000-0000-0000-000000000099',
+        method: 'GET',
+        headers: {},
+        query: {},
+        params: { id: '018f0000-0000-0000-0000-000000000099' },
+        body: null,
+        requestId: 'req_gate_detail_1',
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.data.event.title).toBe('Kajian Akbar Bedah Buku');
+      expect(body.data.stats.totalRegistered).toBe(2);
+      expect(body.data.stats.totalCheckedIn).toBe(1);
+      expect(body.data.stats.totalRemaining).toBe(1);
+      expect(body.data.stats.ikhwanCheckedIn).toBe(1);
+      expect(body.data.stats.akhwatCheckedIn).toBe(0);
+      expect(body.data.stats.carsCount).toBe(1);
+      expect(body.data.stats.motorcyclesCount).toBe(1);
+      expect(body.data.participants.length).toBe(2);
+      expect(body.data.recentCheckIns.length).toBe(1);
+    });
+
+    it('POST /api/public/gate/events/:id/scan checks in unregistered ticket and warns on duplicate check-in', async () => {
+      let currentStatus = 'registered';
+      let currentCheckInAt: any = null;
+
+      const mockAttendance = {
+        id: 'att_target_scan_01',
+        eventId: '018f0000-0000-0000-0000-000000000099',
+        personId: 'p_target_01',
+        ticketCode: 'KJN-9999',
+        status: currentStatus,
+        checkInAt: currentCheckInAt,
+        vehicleType: 'car',
+        vehiclePlateNumber: 'B 1234 DEF',
+        registrationData: {},
+        familyRelationship: null,
+        person: {
+          fullName: 'Abdullah Pratama',
+          phoneE164: '+6281122334455',
+          gender: 'ikhwan',
+          cityRegency: 'Jakarta',
+        },
+      };
+
+      const mockDb = {
+        query: {
+          eventAttendance: {
+            findFirst: vi.fn().mockImplementation(() => {
+              return Promise.resolve({
+                ...mockAttendance,
+                status: currentStatus,
+                checkInAt: currentCheckInAt,
+              });
+            }),
+            findMany: vi.fn().mockResolvedValue([
+              {
+                id: 'att_target_scan_01',
+                status: 'attended',
+                person: { gender: 'ikhwan' },
+              },
+            ]),
+          },
+        },
+        update: vi.fn().mockImplementation(() => ({
+          set: vi.fn().mockImplementation((payload) => {
+            currentStatus = payload.status;
+            currentCheckInAt = payload.checkInAt;
+            return {
+              where: vi.fn().mockImplementation(() => ({
+                returning: vi.fn().mockResolvedValue([
+                  {
+                    ...mockAttendance,
+                    status: currentStatus,
+                    checkInAt: currentCheckInAt,
+                  },
+                ]),
+              })),
+            };
+          }),
+        })),
+      };
+
+      vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+      // First Scan: successfully check in
+      const res1 = await router.handle({
+        path: '/api/public/gate/events/018f0000-0000-0000-0000-000000000099/scan',
+        method: 'POST',
+        headers: {},
+        query: {},
+        params: { id: '018f0000-0000-0000-0000-000000000099' },
+        body: {
+          ticketCode: 'KJN-9999',
+          gateName: 'Pintu 1 Ikhwan',
+        },
+        requestId: 'req_scan_first_1',
+      });
+
+      expect(res1.statusCode).toBe(200);
+      const body1 = JSON.parse(res1.body);
+      expect(body1.data.success).toBe(true);
+      expect(body1.data.alreadyCheckedIn).toBe(false);
+      expect(body1.data.checkedInNow).toBe(true);
+      expect(body1.data.attendance.personName).toBe('Abdullah Pratama');
+
+      // Second Scan: warning duplicate check-in
+      const res2 = await router.handle({
+        path: '/api/public/gate/events/018f0000-0000-0000-0000-000000000099/scan',
+        method: 'POST',
+        headers: {},
+        query: {},
+        params: { id: '018f0000-0000-0000-0000-000000000099' },
+        body: {
+          ticketCode: 'KJN-9999',
+          gateName: 'Pintu 1 Ikhwan',
+        },
+        requestId: 'req_scan_duplicate_2',
+      });
+
+      expect(res2.statusCode).toBe(200);
+      const body2 = JSON.parse(res2.body);
+      expect(body2.data.success).toBe(true);
+      expect(body2.data.alreadyCheckedIn).toBe(true);
+      expect(body2.data.checkedInNow).toBe(false);
+      expect(body2.data.previousCheckInAt).toBeDefined();
+    });
+
+    it('POST /api/public/gate/events/:id/toggle-checkin supports 1-click manual attendance toggle', async () => {
+      const mockTarget = {
+        id: 'att_toggle_01',
+        eventId: '018f0000-0000-0000-0000-000000000099',
+        ticketCode: 'KJN-7777',
+        status: 'registered',
+        checkInAt: null,
+        registrationData: {},
+        person: {
+          fullName: 'Umar Wiranto',
+          gender: 'ikhwan',
+        },
+      };
+
+      const mockDb = {
+        query: {
+          eventAttendance: {
+            findFirst: vi.fn().mockResolvedValue(mockTarget),
+          },
+        },
+        update: vi.fn().mockImplementation(() => ({
+          set: vi.fn().mockImplementation((payload) => ({
+            where: vi.fn().mockImplementation(() => ({
+              returning: vi.fn().mockResolvedValue([
+                {
+                  ...mockTarget,
+                  status: payload.status,
+                  checkInAt: payload.checkInAt,
+                },
+              ]),
+            })),
+          })),
+        })),
+      };
+
+      vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+      const res = await router.handle({
+        path: '/api/public/gate/events/018f0000-0000-0000-0000-000000000099/toggle-checkin',
+        method: 'POST',
+        headers: {},
+        query: {},
+        params: { id: '018f0000-0000-0000-0000-000000000099' },
+        body: {
+          attendanceId: 'att_toggle_01',
+          targetStatus: 'attended',
+          gateName: 'Pintu Gerbang Utama',
+        },
+        requestId: 'req_toggle_checkin_1',
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.data.success).toBe(true);
+      expect(body.data.attendance.status).toBe('attended');
+      expect(body.data.attendance.personName).toBe('Umar Wiranto');
+    });
+  });
 });

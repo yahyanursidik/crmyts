@@ -21,6 +21,7 @@ import {
   Image as ImageIcon,
   Copy,
   Check,
+  ExternalLink,
 } from 'lucide-react';
 import { Html5Qrcode, CameraDevice } from 'html5-qrcode';
 import { apiClient } from '@/lib/apiClient';
@@ -876,6 +877,18 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
             >
               {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
             </button>
+
+            {/* Standalone Gate Link */}
+            <a
+              href={`/gate/${eventId}`}
+              target="_blank"
+              rel="noreferrer"
+              title="Buka Halaman Gate Mandiri (Bisa Dibagikan Tanpa Login)"
+              className="p-2 bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-600/30 rounded-xl transition-all hidden sm:flex items-center gap-1.5 text-xs font-semibold"
+            >
+              <ExternalLink className="w-4 h-4" />
+              <span>Gate Mandiri (Tanpa Login)</span>
+            </a>
 
             {/* Fullscreen Toggle */}
             <button
