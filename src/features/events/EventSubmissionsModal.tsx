@@ -61,6 +61,14 @@ interface ParticipantItem {
   referrerName?: string | null;
   referrerCode?: string | null;
   referralCount?: number;
+
+  // Attendance History & Loyalty
+  pastAttendedCount?: number;
+  totalAttendedCount?: number;
+  currentKajianNumber?: number;
+  loyaltyTier?: 'first_timer' | 'active' | 'loyal' | 'istiqomah';
+  loyaltyLabel?: string;
+  lastAttendedTitle?: string | null;
 }
 
 interface EventDetailData {
@@ -86,6 +94,11 @@ interface EventDetailData {
   akhwatCount: number;
   carsCount: number;
   motorcyclesCount: number;
+
+  firstTimerCount?: number;
+  returningCount?: number;
+  checkedInFirstTimerCount?: number;
+  checkedInReturningCount?: number;
 
   waitingVerificationCount?: number;
   verifiedPaymentCount?: number;
@@ -113,6 +126,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'attended' | 'registered' | 'waiting_verification' | 'ikhwan' | 'akhwat' | 'from_referral'>('all');
   const [vehicleFilter, setVehicleFilter] = useState<'all' | 'car' | 'motorcycle' | 'none'>('all');
+  const [loyaltyFilter, setLoyaltyFilter] = useState<'all' | 'first_timer' | 'returning' | 'loyal' | 'istiqomah'>('all');
 
   // Selected for Bulk Actions
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -317,7 +331,20 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
         ? p.vehicleType === 'motorcycle'
         : p.vehicleType === 'none' || !p.vehicleType;
 
-    return matchSearch && matchTab && matchVehicle;
+    const matchLoyalty =
+      loyaltyFilter === 'all'
+        ? true
+        : loyaltyFilter === 'first_timer'
+        ? (p.currentKajianNumber || 1) === 1
+        : loyaltyFilter === 'returning'
+        ? (p.currentKajianNumber || 1) >= 2
+        : loyaltyFilter === 'loyal'
+        ? (p.currentKajianNumber || 1) >= 5
+        : loyaltyFilter === 'istiqomah'
+        ? (p.currentKajianNumber || 1) >= 10
+        : true;
+
+    return matchSearch && matchTab && matchVehicle && matchLoyalty;
   });
 
   // Select all toggle
@@ -355,6 +382,9 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
       'No. WhatsApp',
       'Email',
       'Kota / Domisili',
+      'Frekuensi Kehadiran Kajian',
+      'Status Loyalitas Majelis',
+      'Kajian Terakhir Dihadiri',
       'Kode Undangan Milik Sendiri',
       'Diundang Oleh (Nama)',
       'Kode Pengundang',
@@ -374,6 +404,9 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
       `"${p.personPhone}"`,
       `"${p.personEmail || '-'}"`,
       `"${p.personCity || '-'}"`,
+      `"${(p.currentKajianNumber || 1) > 1 ? `Kehadiran ke-${p.currentKajianNumber}` : 'Kajian Perdana'}"`,
+      `"${p.loyaltyLabel || '🌱 Kajian Perdana'}"`,
+      `"${(p.lastAttendedTitle || '-').replace(/"/g, '""')}"`,
       `"${p.referralCode || '-'}"`,
       `"${(p.referrerName || '-').replace(/"/g, '""')}"`,
       `"${p.referrerCode || '-'}"`,
@@ -463,52 +496,53 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
 
           {/* 2. Quick KPI Counters */}
           {data && (
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 p-3 sm:p-4 bg-cream-100/70 border-b border-cream-300 text-center">
-              <div className="p-2.5 bg-white rounded-2xl border border-cream-300 shadow-2xs">
-                <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">Total Terdaftar</span>
-                <span className="text-base sm:text-lg font-black text-brand-950 block mt-0.5 font-display">
-                  {data.totalParticipants} <span className="text-xs font-medium text-surface-500">Jamaah</span>
-                </span>
-              </div>
+            <div className="bg-cream-100/70 border-b border-cream-300">
+              <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5 p-3 sm:p-4 text-center">
+                <div className="p-2.5 bg-white rounded-2xl border border-cream-300 shadow-2xs">
+                  <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">Total Terdaftar</span>
+                  <span className="text-base sm:text-lg font-black text-brand-950 block mt-0.5 font-display">
+                    {data.totalParticipants} <span className="text-xs font-medium text-surface-500">Jamaah</span>
+                  </span>
+                </div>
 
-              <div className="p-2.5 bg-emerald-50 rounded-2xl border border-emerald-200 shadow-2xs">
-                <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block flex items-center justify-center gap-1">
-                  <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Hadir (Checked-in)
-                </span>
-                <span className="text-base sm:text-lg font-black text-emerald-950 block mt-0.5 font-display">
-                  {data.attendedCount} <span className="text-xs font-medium text-emerald-700">({data.totalParticipants > 0 ? Math.round((data.attendedCount / data.totalParticipants) * 100) : 0}%)</span>
-                </span>
-              </div>
+                <div className="p-2.5 bg-emerald-50 rounded-2xl border border-emerald-200 shadow-2xs">
+                  <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block flex items-center justify-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Hadir (Presensi)
+                  </span>
+                  <span className="text-base sm:text-lg font-black text-emerald-950 block mt-0.5 font-display">
+                    {data.attendedCount} <span className="text-xs font-medium text-emerald-700">({data.totalParticipants > 0 ? Math.round((data.attendedCount / data.totalParticipants) * 100) : 0}%)</span>
+                  </span>
+                </div>
 
-              <div className="p-2.5 bg-white rounded-2xl border border-cream-300 shadow-2xs">
-                <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">Ikhwan / Akhwat</span>
-                <span className="text-base sm:text-lg font-black text-surface-800 block mt-0.5 font-display">
-                  {data.ikhwanCount} / {data.akhwatCount}
-                </span>
-              </div>
+                {/* Loyalty KPI Ratio */}
+                <div className="p-2.5 bg-sky-50 rounded-2xl border border-sky-200 shadow-2xs">
+                  <span className="text-[10px] font-bold text-sky-800 uppercase tracking-wider block">🌱 Jamaah Baru</span>
+                  <span className="text-base sm:text-lg font-black text-sky-950 block mt-0.5 font-display">
+                    {data.firstTimerCount ?? data.participants.filter(p => (p.currentKajianNumber || 1) === 1).length} <span className="text-xs font-medium text-sky-700">Kajian ke-1</span>
+                  </span>
+                </div>
 
-              <div className="p-2.5 bg-white rounded-2xl border border-cream-300 shadow-2xs">
-                <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">Parkir Kendaraan</span>
-                <span className="text-base sm:text-lg font-black text-surface-800 block mt-0.5 font-display">
-                  🚗 {data.carsCount} | 🛵 {data.motorcyclesCount}
-                </span>
-              </div>
-
-              {data.isPaid ? (
-                <div className="p-2.5 bg-amber-50 rounded-2xl border border-amber-200 shadow-2xs col-span-2 sm:col-span-1">
-                  <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Verifikasi Pembayaran</span>
+                <div className="p-2.5 bg-amber-50 rounded-2xl border border-amber-200 shadow-2xs">
+                  <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">⭐ Jamaah Kembali</span>
                   <span className="text-base sm:text-lg font-black text-amber-950 block mt-0.5 font-display">
-                    {data.waitingVerificationCount || 0} <span className="text-xs font-medium text-amber-700">Perlu Review</span>
+                    {data.returningCount ?? data.participants.filter(p => (p.currentKajianNumber || 1) >= 2).length} <span className="text-xs font-medium text-amber-700">(≥2x Hadir)</span>
                   </span>
                 </div>
-              ) : (
-                <div className="p-2.5 bg-white rounded-2xl border border-cream-300 shadow-2xs col-span-2 sm:col-span-1">
-                  <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">Belum Hadir</span>
-                  <span className="text-base sm:text-lg font-black text-amber-900 block mt-0.5 font-display">
-                    {data.totalParticipants - data.attendedCount} Jamaah
+
+                <div className="p-2.5 bg-white rounded-2xl border border-cream-300 shadow-2xs">
+                  <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">Ikhwan / Akhwat</span>
+                  <span className="text-base sm:text-lg font-black text-surface-800 block mt-0.5 font-display">
+                    {data.ikhwanCount} / {data.akhwatCount}
                   </span>
                 </div>
-              )}
+
+                <div className="p-2.5 bg-white rounded-2xl border border-cream-300 shadow-2xs">
+                  <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">Parkir Kendaraan</span>
+                  <span className="text-base sm:text-lg font-black text-surface-800 block mt-0.5 font-display">
+                    🚗 {data.carsCount} | 🛵 {data.motorcyclesCount}
+                  </span>
+                </div>
+              </div>
             </div>
           )}
 
@@ -645,8 +679,23 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                 </button>
               </div>
 
-              {/* Vehicle Filter Selector */}
-              <div className="flex items-center gap-1.5">
+              {/* Filter Selectors: Riwayat Kajian & Parkir */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {/* Loyalty Filter Selector */}
+                <select
+                  value={loyaltyFilter}
+                  onChange={(e: any) => setLoyaltyFilter(e.target.value)}
+                  className="py-1.5 px-3 border border-cream-300 rounded-xl text-xs font-bold bg-white text-surface-700 focus:ring-2 focus:ring-brand-700"
+                  title="Filter berdasarkan frekuensi kehadiran kajian"
+                >
+                  <option value="all">Semua Riwayat (Baru & Lama)</option>
+                  <option value="first_timer">🌱 Jamaah Baru (Kajian ke-1)</option>
+                  <option value="returning">🔷 Pernah Hadir (≥2x)</option>
+                  <option value="loyal">⭐ Jamaah Setia (≥5x)</option>
+                  <option value="istiqomah">👑 Istiqomah (≥10x)</option>
+                </select>
+
+                {/* Vehicle Filter Selector */}
                 <select
                   value={vehicleFilter}
                   onChange={(e: any) => setVehicleFilter(e.target.value)}
@@ -748,6 +797,19 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                                     >
                                       {p.personGender === 'ikhwan' ? '🕌 Ikhwan' : '🌸 Akhwat'}
                                     </span>
+                                    {(p.currentKajianNumber || 1) > 1 ? (
+                                      <span
+                                        className="text-[9px] font-bold text-amber-900 bg-amber-50 border border-amber-300 px-1.5 py-0.2 rounded inline-flex items-center gap-1"
+                                        title={p.lastAttendedTitle ? `Kajian terakhir dihadiri: ${p.lastAttendedTitle}` : undefined}
+                                      >
+                                        <span>⭐ Kehadiran ke-{p.currentKajianNumber}</span>
+                                        <span className="text-amber-700">({p.loyaltyLabel || 'Jamaah Rutin'})</span>
+                                      </span>
+                                    ) : (
+                                      <span className="text-[9px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 px-1.5 py-0.2 rounded inline-flex items-center gap-1">
+                                        🌱 Kajian ke-1 (Baru)
+                                      </span>
+                                    )}
                                     {(p.isSpecialInvite || p.source === 'admin_invite' || p.referredByAttendanceId) && (
                                       <span className="text-[9px] font-bold text-emerald-900 bg-emerald-50 border border-emerald-300 px-1.5 py-0.2 rounded">
                                         ✨ Undangan Panitia
@@ -947,11 +1009,26 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                               <span className="font-mono text-[10px] font-bold text-brand-900 block mt-0.5">
                                 Tiket: {p.ticketCode || '-'}
                               </span>
-                              {(p.isSpecialInvite || p.source === 'admin_invite' || p.referredByAttendanceId) && (
-                                <span className="inline-block mt-1 text-[9px] font-bold text-emerald-900 bg-emerald-50 border border-emerald-300 px-1.5 py-0.2 rounded">
-                                  ✨ Undangan Panitia
-                                </span>
-                              )}
+                              <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                                {(p.currentKajianNumber || 1) > 1 ? (
+                                  <span
+                                    className="text-[9px] font-bold text-amber-900 bg-amber-50 border border-amber-300 px-1.5 py-0.2 rounded inline-flex items-center gap-1"
+                                    title={p.lastAttendedTitle ? `Kajian terakhir: ${p.lastAttendedTitle}` : undefined}
+                                  >
+                                    <span>⭐ Kehadiran ke-{p.currentKajianNumber}</span>
+                                    <span className="text-amber-700">({p.loyaltyLabel || 'Jamaah Rutin'})</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 px-1.5 py-0.2 rounded inline-flex items-center gap-1">
+                                    🌱 Kajian ke-1 (Baru)
+                                  </span>
+                                )}
+                                {(p.isSpecialInvite || p.source === 'admin_invite' || p.referredByAttendanceId) && (
+                                  <span className="text-[9px] font-bold text-emerald-900 bg-emerald-50 border border-emerald-300 px-1.5 py-0.2 rounded">
+                                    ✨ Undangan Panitia
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
 

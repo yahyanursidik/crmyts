@@ -20,6 +20,12 @@ import { normalizeIndonesianPhone } from '../../lib/phone';
 import { buildParticipantPortalPath, extractTicketCode } from '../../../src/lib/participantTicket';
 import { createMemorableTicketCode } from '../events/participantCodes';
 import {
+  getPersonsAttendanceStats,
+  getSinglePersonAttendanceStats,
+  getLoyaltyTierInfo,
+  buildPersonalizedGreeting,
+} from '../events/attendanceHistory';
+import {
   sendEventRegistrationTicketEmail,
   sendDonationReceivedEmail,
   sendWaqfInquiryConfirmationEmail,
@@ -1387,6 +1393,10 @@ export function registerPublicPortalRoutes(router: Router) {
           ? `${rawPhone.slice(0, 4)} •••• ${rawPhone.slice(-4)}`
           : rawPhone;
 
+      // Calculate attendance history & loyalty metrics
+      const attendedCount = attendances.filter((a) => a.status === 'attended').length;
+      const loyaltyTierInfo = getLoyaltyTierInfo(attendedCount > 0 ? attendedCount : 1);
+
       return successResponse(
         {
           person: {
@@ -1399,6 +1409,10 @@ export function registerPublicPortalRoutes(router: Router) {
           },
           upcomingCount: upcoming.length,
           historyCount: history.length,
+          attendedCount,
+          loyaltyTier: loyaltyTierInfo.tier,
+          loyaltyLabel: loyaltyTierInfo.badge,
+          loyaltyDescription: loyaltyTierInfo.description,
           upcoming,
           history,
           announcements,
@@ -1436,16 +1450,46 @@ export function registerPublicPortalRoutes(router: Router) {
         return successResponse({ found: false }, { requestId: ctx.requestId });
       }
 
-      // Count past kajian attendance
-      const attendanceRecords = await db.query.eventAttendance.findMany({
-        where: eq(eventAttendance.personId, person.id),
-        orderBy: [sql`${eventAttendance.checkInAt} DESC`],
-        limit: 10,
-      });
-
-      const totalKajianAttended = attendanceRecords.length;
-
       // Check if this person has past family members registered in their groups
+      let attendanceRecords: any[] = [];
+      try {
+        if (db?.query?.eventAttendance?.findMany) {
+          attendanceRecords = await db.query.eventAttendance.findMany({
+            where: eq(eventAttendance.personId, person.id),
+            orderBy: [sql`${eventAttendance.checkInAt} DESC`],
+            limit: 10,
+          });
+        }
+      } catch {
+        attendanceRecords = [];
+      }
+      if (!Array.isArray(attendanceRecords)) attendanceRecords = [];
+
+      // Count past kajian attendance with attended status
+      let totalKajianAttended = 0;
+      try {
+        if (typeof db?.select === 'function') {
+          const selectRes = await db
+            .select({ count: sql<number>`count(*)::int` })
+            .from(eventAttendance)
+            .where(and(eq(eventAttendance.personId, person.id), eq(eventAttendance.status, 'attended')));
+          if (Array.isArray(selectRes) && selectRes[0]?.count != null) {
+            totalKajianAttended = Number(selectRes[0].count) || 0;
+          }
+        }
+      } catch {
+        totalKajianAttended = 0;
+      }
+
+      // Fallback from attendanceRecords if select query didn't yield
+      if (totalKajianAttended === 0 && attendanceRecords.length > 0) {
+        const attendedOnly = attendanceRecords.filter((a) => a.status === 'attended');
+        totalKajianAttended = attendedOnly.length > 0 ? attendedOnly.length : attendanceRecords.length;
+      }
+
+      const nextKajianNumber = totalKajianAttended + 1;
+      const loyaltyInfo = getLoyaltyTierInfo(nextKajianNumber);
+
       const groupIds = attendanceRecords
         .map((a) => a.registrationGroupId)
         .filter((gid): gid is string => Boolean(gid));
@@ -1492,6 +1536,9 @@ export function registerPublicPortalRoutes(router: Router) {
             cityRegency: person.cityRegency || '',
           },
           totalKajianAttended,
+          nextKajianNumber,
+          loyaltyTier: loyaltyInfo.tier,
+          loyaltyLabel: loyaltyInfo.badge,
           pastFamilyMembers,
         },
         { requestId: ctx.requestId }
@@ -1583,38 +1630,16 @@ export function registerPublicPortalRoutes(router: Router) {
     const carsCount = atts.filter((a) => a.vehicleType === 'car').length;
     const motorcyclesCount = atts.filter((a) => a.vehicleType === 'motorcycle').length;
 
-    const participants = atts.map((a) => ({
-      id: a.id,
-      ticketCode: a.ticketCode,
-      personId: a.personId,
-      personName: a.person?.fullName || 'Anonim',
-      fullName: a.person?.fullName || 'Anonim',
-      personGender: a.person?.gender || 'ikhwan',
-      gender: a.person?.gender || 'ikhwan',
-      personPhone: a.person?.phoneE164 || '-',
-      phoneE164: a.person?.phoneE164 || '-',
-      personCity: a.person?.cityRegency || null,
-      cityRegency: a.person?.cityRegency || null,
-      personEmail: a.person?.email || null,
-      status: a.status,
-      checkInAt: a.checkInAt ? a.checkInAt.toISOString() : null,
-      vehicleType: a.vehicleType,
-      vehiclePlateNumber: a.vehiclePlateNumber,
-      registrationGroupId: a.registrationGroupId,
-      familyRelationship: a.familyRelationship,
-      age: a.age,
-      gateName: (a.registrationData as any)?.gateName || null,
-      registrationData: a.registrationData,
-    }));
+    // Batch calculate past attendance history and loyalty tier for all participants
+    const personIds = atts.map((a) => a.personId).filter(Boolean) as string[];
+    const attendanceStatsMap = await getPersonsAttendanceStats(db, personIds, eventId);
 
-    const recentCheckIns = checkedInAtts
-      .filter((a) => a.checkInAt)
-      .sort((a, b) => new Date(b.checkInAt!).getTime() - new Date(a.checkInAt!).getTime())
-      .slice(0, 30)
-      .map((a) => ({
+    const participants = atts.map((a) => {
+      const pStats = attendanceStatsMap.get(a.personId);
+      return {
         id: a.id,
-        personId: a.personId,
         ticketCode: a.ticketCode,
+        personId: a.personId,
         personName: a.person?.fullName || 'Anonim',
         fullName: a.person?.fullName || 'Anonim',
         personGender: a.person?.gender || 'ikhwan',
@@ -1623,11 +1648,61 @@ export function registerPublicPortalRoutes(router: Router) {
         phoneE164: a.person?.phoneE164 || '-',
         personCity: a.person?.cityRegency || null,
         cityRegency: a.person?.cityRegency || null,
+        personEmail: a.person?.email || null,
+        status: a.status,
         checkInAt: a.checkInAt ? a.checkInAt.toISOString() : null,
         vehicleType: a.vehicleType,
         vehiclePlateNumber: a.vehiclePlateNumber,
+        registrationGroupId: a.registrationGroupId,
+        familyRelationship: a.familyRelationship,
+        age: a.age,
         gateName: (a.registrationData as any)?.gateName || null,
-      }));
+        registrationData: a.registrationData,
+        pastAttendedCount: pStats?.pastAttendedCount ?? 0,
+        totalAttendedCount: pStats?.totalAttendedCount ?? (a.status === 'attended' ? 1 : 0),
+        pastRegisteredCount: pStats?.pastRegisteredCount ?? 0,
+        currentKajianNumber: pStats?.currentKajianNumber ?? 1,
+        loyaltyTier: pStats?.loyaltyTier ?? 'perdana',
+        loyaltyLabel: pStats?.loyaltyLabel ?? '🌱 Jamaah Baru',
+        lastAttendedTitle: pStats?.lastAttendedTitle ?? null,
+        lastAttendedDate: pStats?.lastAttendedDate ?? null,
+      };
+    });
+
+    const recentCheckIns = checkedInAtts
+      .filter((a) => a.checkInAt)
+      .sort((a, b) => new Date(b.checkInAt!).getTime() - new Date(a.checkInAt!).getTime())
+      .slice(0, 30)
+      .map((a) => {
+        const pStats = attendanceStatsMap.get(a.personId);
+        return {
+          id: a.id,
+          personId: a.personId,
+          ticketCode: a.ticketCode,
+          personName: a.person?.fullName || 'Anonim',
+          fullName: a.person?.fullName || 'Anonim',
+          personGender: a.person?.gender || 'ikhwan',
+          gender: a.person?.gender || 'ikhwan',
+          personPhone: a.person?.phoneE164 || '-',
+          phoneE164: a.person?.phoneE164 || '-',
+          personCity: a.person?.cityRegency || null,
+          cityRegency: a.person?.cityRegency || null,
+          checkInAt: a.checkInAt ? a.checkInAt.toISOString() : null,
+          vehicleType: a.vehicleType,
+          vehiclePlateNumber: a.vehiclePlateNumber,
+          gateName: (a.registrationData as any)?.gateName || null,
+          pastAttendedCount: pStats?.pastAttendedCount ?? 0,
+          currentKajianNumber: pStats?.currentKajianNumber ?? 1,
+          loyaltyTier: pStats?.loyaltyTier ?? 'perdana',
+          loyaltyLabel: pStats?.loyaltyLabel ?? '🌱 Jamaah Baru',
+          lastAttendedTitle: pStats?.lastAttendedTitle ?? null,
+        };
+      });
+
+    const firstTimerCount = participants.filter((p) => p.currentKajianNumber <= 1).length;
+    const returningCount = participants.filter((p) => p.currentKajianNumber > 1).length;
+    const checkedInFirstTimerCount = participants.filter((p) => p.status === 'attended' && p.currentKajianNumber <= 1).length;
+    const checkedInReturningCount = participants.filter((p) => p.status === 'attended' && p.currentKajianNumber > 1).length;
 
     return successResponse(
       {
@@ -1658,6 +1733,10 @@ export function registerPublicPortalRoutes(router: Router) {
           akhwatCheckedIn,
           carsCount,
           motorcyclesCount,
+          firstTimerCount,
+          returningCount,
+          checkedInFirstTimerCount,
+          checkedInReturningCount,
         },
         participants,
         recentCheckIns,
@@ -1798,6 +1877,14 @@ export function registerPublicPortalRoutes(router: Router) {
       const ikhwanCheckedIn = allAtts.filter((a) => a.status === 'attended' && a.person?.gender === 'ikhwan').length;
       const akhwatCheckedIn = allAtts.filter((a) => a.status === 'attended' && a.person?.gender === 'akhwat').length;
 
+      // Calculate attendance history & loyalty metrics for this person
+      const pStats = await getSinglePersonAttendanceStats(db, updatedAttendance.personId, eventId);
+      const greetingInfo = buildPersonalizedGreeting(
+        updatedAttendance.person?.fullName || 'Jamaah',
+        updatedAttendance.person?.gender || 'ikhwan',
+        pStats.currentKajianNumber
+      );
+
       return successResponse(
         {
           success: true,
@@ -1808,9 +1895,13 @@ export function registerPublicPortalRoutes(router: Router) {
             id: updatedAttendance.id,
             personId: updatedAttendance.personId,
             personName: updatedAttendance.person?.fullName || 'Anonim',
+            fullName: updatedAttendance.person?.fullName || 'Anonim',
             personPhone: updatedAttendance.person?.phoneE164 || '-',
+            phoneE164: updatedAttendance.person?.phoneE164 || '-',
             personGender: updatedAttendance.person?.gender || 'ikhwan',
+            gender: updatedAttendance.person?.gender || 'ikhwan',
             personCity: updatedAttendance.person?.cityRegency || null,
+            cityRegency: updatedAttendance.person?.cityRegency || null,
             ticketCode: updatedAttendance.ticketCode,
             status: 'attended',
             checkInAt: updatedAttendance.checkInAt ? new Date(updatedAttendance.checkInAt).toISOString() : new Date().toISOString(),
@@ -1818,6 +1909,15 @@ export function registerPublicPortalRoutes(router: Router) {
             vehiclePlateNumber: updatedAttendance.vehiclePlateNumber,
             registrationData: updatedAttendance.registrationData,
             familyRelationship: updatedAttendance.familyRelationship,
+            gateName: (updatedAttendance.registrationData as any)?.gateName || gateName || 'Pintu Utama',
+            pastAttendedCount: pStats.pastAttendedCount,
+            totalAttendedCount: pStats.pastAttendedCount + 1,
+            currentKajianNumber: pStats.currentKajianNumber,
+            loyaltyTier: pStats.loyaltyTier,
+            loyaltyLabel: pStats.loyaltyLabel,
+            lastAttendedTitle: pStats.lastAttendedTitle,
+            greetingMessage: greetingInfo.fullGreeting,
+            shortGreeting: greetingInfo.shortGreeting,
           },
           stats: {
             totalRegistered: allAtts.length,
@@ -1883,11 +1983,20 @@ export function registerPublicPortalRoutes(router: Router) {
         return errorResponse('INTERNAL_ERROR', 'Gagal memperbarui status kehadiran', 500, ctx.requestId);
       }
 
+      // Calculate attendance history & loyalty metrics for this person
+      const pStats = await getSinglePersonAttendanceStats(db, target.personId, eventId);
+      const greetingInfo = buildPersonalizedGreeting(
+        target.person?.fullName || 'Jamaah',
+        target.person?.gender || 'ikhwan',
+        pStats.currentKajianNumber
+      );
+
       return successResponse(
         {
           success: true,
           attendance: {
             id: updated.id,
+            personId: target.personId,
             ticketCode: updated.ticketCode,
             status: updated.status,
             checkInAt: updated.checkInAt ? new Date(updated.checkInAt).toISOString() : null,
@@ -1901,6 +2010,17 @@ export function registerPublicPortalRoutes(router: Router) {
             cityRegency: target.person?.cityRegency || null,
             vehicleType: updated.vehicleType,
             vehiclePlateNumber: updated.vehiclePlateNumber,
+            gateName: newRegData.gateName,
+            registrationData: newRegData,
+            familyRelationship: target.familyRelationship,
+            pastAttendedCount: pStats.pastAttendedCount,
+            totalAttendedCount: nextStatus === 'attended' ? pStats.pastAttendedCount + 1 : pStats.pastAttendedCount,
+            currentKajianNumber: pStats.currentKajianNumber,
+            loyaltyTier: pStats.loyaltyTier,
+            loyaltyLabel: pStats.loyaltyLabel,
+            lastAttendedTitle: pStats.lastAttendedTitle,
+            greetingMessage: greetingInfo.fullGreeting,
+            shortGreeting: greetingInfo.shortGreeting,
           },
         },
         { requestId: ctx.requestId }

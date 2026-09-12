@@ -9,6 +9,10 @@ import { normalizeIndonesianPhone } from '../../lib/phone';
 import { extractTicketCode } from '../../../src/lib/participantTicket';
 import { createMemorableTicketCode } from './participantCodes';
 import { logAuditEvent } from '../../audit/service';
+import {
+  getPersonsAttendanceStats,
+  getSinglePersonAttendanceStats,
+} from './attendanceHistory';
 
 const createEventSchema = z.object({
   title: z.string().min(3, 'Judul kajian minimal 3 karakter'),
@@ -193,7 +197,11 @@ export function registerEventsRoutes(router: Router) {
         eventItem.formConfig?.adminInviteCode?.trim().toUpperCase() ||
         `UNDANGAN-${eventItem.id.slice(0, 6).toUpperCase()}`;
 
+      const personIds = eventItem.attendances.map((att) => att.personId).filter(Boolean) as string[];
+      const attendanceStatsMap = await getPersonsAttendanceStats(db, personIds, eventId);
+
       const participants = eventItem.attendances.map((att) => {
+        const pStats = attendanceStatsMap.get(att.personId);
         const isSpecialInvite =
           (att.registrationData as any)?.isSpecialInvite === true ||
           (att.registrationData as any)?.inviteSource === 'admin_invite' ||
@@ -215,6 +223,16 @@ export function registerEventsRoutes(router: Router) {
           isSpecialInvite,
           referredByAttendanceId: att.referredByAttendanceId,
           
+          // Attendance History & Loyalty
+          pastAttendedCount: pStats?.pastAttendedCount ?? 0,
+          totalAttendedCount: pStats?.totalAttendedCount ?? (att.status === 'attended' ? 1 : 0),
+          pastRegisteredCount: pStats?.pastRegisteredCount ?? 0,
+          currentKajianNumber: pStats?.currentKajianNumber ?? 1,
+          loyaltyTier: pStats?.loyaltyTier ?? 'perdana',
+          loyaltyLabel: pStats?.loyaltyLabel ?? '🌱 Jamaah Baru',
+          lastAttendedTitle: pStats?.lastAttendedTitle ?? null,
+          lastAttendedDate: pStats?.lastAttendedDate ?? null,
+
           // Payment Information
           paymentStatus: att.paymentStatus || (eventItem.isPaid ? 'pending_payment' : 'free'),
           paymentProofUrl: att.paymentProofUrl || null,
@@ -242,6 +260,8 @@ export function registerEventsRoutes(router: Router) {
       const verifiedPaymentCount = participants.filter((p) => p.paymentStatus === 'verified').length;
       const pendingPaymentCount = participants.filter((p) => p.paymentStatus === 'pending_payment').length;
       const specialInviteCount = participants.filter((p) => p.isSpecialInvite).length;
+      const firstTimerCount = participants.filter((p) => p.currentKajianNumber <= 1).length;
+      const returningCount = participants.filter((p) => p.currentKajianNumber > 1).length;
 
       return successResponse(
         {
@@ -259,6 +279,8 @@ export function registerEventsRoutes(router: Router) {
           pendingPaymentCount,
           specialInviteCount,
           referralSignups: specialInviteCount,
+          firstTimerCount,
+          returningCount,
         },
         { requestId: ctx.requestId }
       );
@@ -456,7 +478,21 @@ export function registerEventsRoutes(router: Router) {
               .set({ status: 'attended', checkInAt: new Date() })
               .where(eq(eventAttendance.id, attendance.id))
               .returning();
-            return successResponse(updated, { requestId: ctx.requestId });
+            if (!updated) {
+              return errorResponse('INTERNAL_ERROR', 'Gagal mencatat presensi', 500, ctx.requestId);
+            }
+            const pStats = await getSinglePersonAttendanceStats(db, updated.personId, eventId);
+            return successResponse(
+              {
+                ...updated,
+                pastAttendedCount: pStats.pastAttendedCount,
+                totalAttendedCount: pStats.pastAttendedCount + 1,
+                currentKajianNumber: pStats.currentKajianNumber,
+                loyaltyTier: pStats.loyaltyTier,
+                loyaltyLabel: pStats.loyaltyLabel,
+              },
+              { requestId: ctx.requestId }
+            );
           }
         }
 
@@ -476,9 +512,18 @@ export function registerEventsRoutes(router: Router) {
             : insertQuery;
 
           const [attendance] = await onConflict.returning();
+          const targetPid = attendance ? attendance.personId : personId;
+          const pStats = await getSinglePersonAttendanceStats(db, targetPid, eventId);
 
           return successResponse(
-            attendance || { status: 'attended', message: 'Jamaah sudah tercatat hadir' },
+            {
+              ...(attendance || { status: 'attended', message: 'Jamaah sudah tercatat hadir' }),
+              pastAttendedCount: pStats.pastAttendedCount,
+              totalAttendedCount: pStats.pastAttendedCount + 1,
+              currentKajianNumber: pStats.currentKajianNumber,
+              loyaltyTier: pStats.loyaltyTier,
+              loyaltyLabel: pStats.loyaltyLabel,
+            },
             { requestId: ctx.requestId }
           );
         }
@@ -518,7 +563,23 @@ export function registerEventsRoutes(router: Router) {
         .where(eq(eventAttendance.id, attendanceId))
         .returning();
 
-      return successResponse(updated, { requestId: ctx.requestId });
+      if (!updated) {
+        return errorResponse('INTERNAL_ERROR', 'Gagal memperbarui status presensi', 500, ctx.requestId);
+      }
+
+      const pStats = await getSinglePersonAttendanceStats(db, updated.personId, eventId);
+
+      return successResponse(
+        {
+          ...updated,
+          pastAttendedCount: pStats.pastAttendedCount,
+          totalAttendedCount: newStatus === 'attended' ? pStats.pastAttendedCount + 1 : pStats.pastAttendedCount,
+          currentKajianNumber: pStats.currentKajianNumber,
+          loyaltyTier: pStats.loyaltyTier,
+          loyaltyLabel: pStats.loyaltyLabel,
+        },
+        { requestId: ctx.requestId }
+      );
     })
   );
 

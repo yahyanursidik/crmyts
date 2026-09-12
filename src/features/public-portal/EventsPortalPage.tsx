@@ -197,6 +197,9 @@ export function EventsPortalPage() {
     found: boolean;
     name?: string;
     totalKajian?: number;
+    nextKajianNumber?: number;
+    loyaltyTier?: string;
+    loyaltyLabel?: string;
     pastFamilyMembers?: any[];
   } | null>(null);
 
@@ -437,6 +440,9 @@ export function EventsPortalPage() {
             found: true,
             name: p.fullName,
             totalKajian: json.data.totalKajianAttended || 0,
+            nextKajianNumber: json.data.nextKajianNumber || ((json.data.totalKajianAttended || 0) + 1),
+            loyaltyTier: json.data.loyaltyTier,
+            loyaltyLabel: json.data.loyaltyLabel,
             pastFamilyMembers: json.data.pastFamilyMembers || [],
           });
         } else {
@@ -1377,18 +1383,26 @@ export function EventsPortalPage() {
                     {/* Feedback when found */}
                     {lookupSuccess?.found && (
                       <div className="p-2.5 bg-white rounded-xl border border-emerald-300 text-xs space-y-1.5 animate-in fade-in">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between flex-wrap gap-1.5">
                           <span className="text-emerald-950 font-bold flex items-center gap-1">
                             <Check className="w-3.5 h-3.5 text-emerald-600" />
-                            Ahlan wa Sahlan, <b>{lookupSuccess.name}</b>!
+                            Ahlan wa Sahlan kembali, <b>{lookupSuccess.name}</b>!
                           </span>
                           <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                            {lookupSuccess.totalKajian ? `Kajian ke-${lookupSuccess.totalKajian + 1}` : 'Jamaah Terdaftar'}
+                            {(lookupSuccess.totalKajian || 0) > 0
+                              ? `⭐ Kajian ke-${(lookupSuccess.totalKajian || 0) + 1} (${lookupSuccess.loyaltyLabel || 'Jamaah Rutin'})`
+                              : '🌱 Jamaah Terdaftar'}
                           </span>
                         </div>
-                        <p className="text-[10px] text-slate-500">
-                          Biodata nama, gender, domisili, dan kontak Anda telah otomatis terisi di bawah.
-                        </p>
+                        {(lookupSuccess.totalKajian || 0) > 0 ? (
+                          <p className="text-[10.5px] text-emerald-900 font-medium">
+                            Alhamdulillah, Anda telah menghadiri <strong>{lookupSuccess.totalKajian} kajian</strong> sebelumnya di Yayasan Tarbiyah Sunnah. Formulir pendaftaran otomatis diisi dengan data profil Anda.
+                          </p>
+                        ) : (
+                          <p className="text-[10px] text-slate-500">
+                            Biodata nama, gender, domisili, dan kontak Anda telah otomatis terisi di bawah.
+                          </p>
+                        )}
 
                         {/* 1-Click Load Past Family Members */}
                         {lookupSuccess.pastFamilyMembers && lookupSuccess.pastFamilyMembers.length > 0 && familyMembers.length === 0 && (

@@ -40,6 +40,16 @@ interface ScanResultItem {
   vehicleType?: string;
   vehiclePlateNumber?: string | null;
   registrationData?: Record<string, any> | null;
+
+  // Loyalty & Attendance History
+  pastAttendedCount?: number;
+  totalAttendedCount?: number;
+  currentKajianNumber?: number;
+  loyaltyTier?: 'first_timer' | 'active' | 'loyal' | 'istiqomah';
+  loyaltyLabel?: string;
+  lastAttendedTitle?: string | null;
+  greetingMessage?: string;
+  shortGreeting?: string;
 }
 
 interface ScanResponse {
@@ -1047,6 +1057,38 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
                           </span>
                         </div>
                       )}
+
+                      {/* Attendance History & Loyalty Badge */}
+                      <div className="sm:col-span-2 pt-2 mt-1 border-t border-white/10 flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-400 font-medium text-[11px]">Riwayat Majelis:</span>
+                          {(scanStatus.data.currentKajianNumber || 1) > 1 ? (
+                            <span
+                              className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-900/80 text-amber-200 border border-amber-700/60 inline-flex items-center gap-1"
+                              title={scanStatus.data.lastAttendedTitle ? `Kajian terakhir: ${scanStatus.data.lastAttendedTitle}` : undefined}
+                            >
+                              <span>⭐ Kehadiran ke-{scanStatus.data.currentKajianNumber}</span>
+                              <span className="text-amber-400 font-semibold">({scanStatus.data.loyaltyLabel || 'Jamaah Rutin'})</span>
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-900/80 text-emerald-200 border border-emerald-700/60 inline-flex items-center gap-1">
+                              🌱 Kajian Perdana (Baru)
+                            </span>
+                          )}
+                        </div>
+
+                        {scanStatus.data.shortGreeting && (
+                          <span className="text-[11px] font-semibold text-emerald-300 italic">
+                            "{scanStatus.data.shortGreeting}"
+                          </span>
+                        )}
+                      </div>
+
+                      {scanStatus.data.greetingMessage && (
+                        <div className="sm:col-span-2 p-2 bg-emerald-950/60 rounded-lg border border-emerald-800/60 text-emerald-200 text-[11px] font-medium leading-relaxed">
+                          💡 <strong>Panduan Sapa Panitia:</strong> "{scanStatus.data.greetingMessage}"
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1639,10 +1681,19 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
                                   </span>
                                 )}
                               </div>
-                              <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400 font-mono">
+                              <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400 font-mono flex-wrap">
                                 <span>{p.personPhone}</span>
                                 <span>•</span>
                                 <span className="text-emerald-400 font-semibold">{p.ticketCode}</span>
+                                {(p.currentKajianNumber || 1) > 1 ? (
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-950 text-amber-300 border border-amber-800/50">
+                                    ⭐ Kehadiran ke-{p.currentKajianNumber}
+                                  </span>
+                                ) : (
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800/50">
+                                    🌱 Baru
+                                  </span>
+                                )}
                               </div>
                             </div>
 
@@ -1781,9 +1832,20 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
                           />
                           <span className="font-bold text-slate-200">{scan.personName}</span>
                         </div>
-                        <span className="font-mono text-[10px] text-emerald-400 font-semibold">
-                          {scan.ticketCode}
-                        </span>
+                        <div className="flex items-center gap-1.5 font-mono text-[10px]">
+                          {(scan.currentKajianNumber || 1) > 1 ? (
+                            <span className="text-[9px] font-bold text-amber-400">
+                              (ke-{scan.currentKajianNumber})
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-bold text-emerald-400">
+                              (baru)
+                            </span>
+                          )}
+                          <span className="text-emerald-400 font-semibold">
+                            {scan.ticketCode}
+                          </span>
+                        </div>
                       </div>
                     ))}
                   </div>

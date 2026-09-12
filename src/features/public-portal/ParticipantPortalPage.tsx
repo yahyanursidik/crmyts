@@ -107,6 +107,10 @@ interface MyEventsResponse {
   };
   upcomingCount: number;
   historyCount: number;
+  attendedCount?: number;
+  loyaltyTier?: 'first_timer' | 'active' | 'loyal' | 'istiqomah';
+  loyaltyLabel?: string;
+  loyaltyDescription?: string;
   upcoming: ParticipantEventItem[];
   history: ParticipantEventItem[];
   announcements: AnnouncementItem[];
@@ -436,6 +440,69 @@ export function ParticipantPortalPage() {
                   <LogOut className="w-3.5 h-3.5" />
                   <span>Keluar</span>
                 </button>
+              </div>
+            </div>
+
+            {/* Banner Apresiasi Keistiqomahan Menuntut Ilmu */}
+            <div className="bg-gradient-to-br from-brand-950 via-brand-900 to-teal-950 text-white rounded-3xl p-5 sm:p-6 border border-brand-850 shadow-md relative overflow-hidden">
+              {/* Background decorative ornament */}
+              <div className="absolute right-0 top-0 w-64 h-64 bg-gold-400/5 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="space-y-1.5 max-w-xl">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gold-400/20 text-gold-300 border border-gold-400/30 flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-gold-400" />
+                      <span>Keistiqomahan Majelis Ilmu</span>
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white/10 text-white/90 border border-white/15">
+                      {hubData.loyaltyLabel || ((hubData.attendedCount || 0) > 0 ? '🔷 Jamaah Aktif' : '🌱 Kajian Perdana')}
+                    </span>
+                  </div>
+
+                  <h3 className="text-base sm:text-lg font-bold text-white font-display">
+                    {(hubData.attendedCount || 0) > 0 ? (
+                      <>
+                        Alhamdulillah! Anda telah menghadiri{' '}
+                        <span className="text-gold-300 underline decoration-gold-400/60 font-black">
+                          {hubData.attendedCount} kajian
+                        </span>{' '}
+                        di Yayasan Tarbiyah Sunnah
+                      </>
+                    ) : (
+                      <>Ahlan wa Sahlan di Portal Jamaah Yayasan Tarbiyah Sunnah</>
+                    )}
+                  </h3>
+
+                  <p className="text-xs text-white/80 leading-relaxed italic font-serif">
+                    "Barangsiapa menempuh jalan untuk mencari ilmu, maka Allah akan mudahkan baginya jalan menuju surga."
+                    <span className="not-italic text-white/60 block mt-0.5 font-sans text-[11px]">
+                      (HR. Muslim no. 2699)
+                    </span>
+                  </p>
+                </div>
+
+                {/* Counter & Milestone Stamp */}
+                <div className="bg-white/10 backdrop-blur-xs rounded-2xl p-3.5 sm:p-4 border border-white/15 text-center shrink-0 w-full sm:w-auto min-w-[170px]">
+                  <span className="text-[10px] font-bold text-white/70 uppercase tracking-wider block">
+                    Total Kajian Dihadiri
+                  </span>
+                  <div className="flex items-baseline justify-center gap-1.5 mt-0.5">
+                    <span className="text-2xl sm:text-3xl font-black text-gold-300 font-display">
+                      {hubData.attendedCount || 0}
+                    </span>
+                    <span className="text-xs font-semibold text-white/80">Kajian</span>
+                  </div>
+                  <span className="text-[10px] text-emerald-300 font-bold block mt-1">
+                    {(hubData.attendedCount || 0) >= 10
+                      ? '👑 Jamaah Istiqomah'
+                      : (hubData.attendedCount || 0) >= 5
+                      ? '⭐ Jamaah Setia'
+                      : (hubData.attendedCount || 0) >= 2
+                      ? '🔷 Jamaah Aktif'
+                      : '🌱 Kajian Pertama'}
+                  </span>
+                </div>
               </div>
             </div>
 

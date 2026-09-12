@@ -37,6 +37,7 @@ import {
   X,
   Smile,
   HeartHandshake,
+  Award,
 } from 'lucide-react';
 import { Html5Qrcode, CameraDevice } from 'html5-qrcode';
 import { apiClient } from '@/lib/apiClient';
@@ -49,13 +50,14 @@ interface GateEvent {
   startAt: string;
   endAt: string | null;
   locationName: string | null;
-  targetAudience: string;
-  quota: number | null;
-  quotaIkhwan: number | null;
-  quotaAkhwat: number | null;
+  targetAudience: string | null;
+  quota?: number | null;
+  quotaIkhwan?: number | null;
+  quotaAkhwat?: number | null;
   status: string;
-  totalRegistered: number;
-  totalCheckedIn: number;
+  totalRegistered?: number;
+  totalCheckedIn?: number;
+  percentage?: number;
 }
 
 interface ParticipantItem {
@@ -80,6 +82,16 @@ interface ParticipantItem {
   age?: number | null;
   gateName?: string | null;
   registrationData?: Record<string, any> | null;
+  pastAttendedCount?: number;
+  totalAttendedCount?: number;
+  pastRegisteredCount?: number;
+  currentKajianNumber?: number;
+  loyaltyTier?: 'perdana' | 'aktif' | 'setia' | 'istiqomah';
+  loyaltyLabel?: string;
+  lastAttendedTitle?: string | null;
+  lastAttendedDate?: string | null;
+  greetingMessage?: string;
+  shortGreeting?: string;
 }
 
 interface GateStats {
@@ -93,6 +105,10 @@ interface GateStats {
   akhwatCheckedIn: number;
   carsCount: number;
   motorcyclesCount: number;
+  firstTimerCount?: number;
+  returningCount?: number;
+  checkedInFirstTimerCount?: number;
+  checkedInReturningCount?: number;
 }
 
 interface ScanResponse {
@@ -133,13 +149,41 @@ const getGreetingInfo = (p?: ParticipantItem | null) => {
   const prefix = isIkhwan ? 'Akhi' : 'Ukhti';
   const altPrefix = isIkhwan ? 'Pak' : 'Ibu';
   const firstName = name.split(' ')[0] || name;
+  const kajianNo = p?.currentKajianNumber || (p?.pastAttendedCount ? p.pastAttendedCount + 1 : 1);
+  const isFirstTime = kajianNo <= 1;
+
+  let fullGreeting = `Ahlan wa Sahlan, ${prefix} ${firstName}! Selamat datang di kajian perdana bersama Yayasan Tarbiyah Sunnah.`;
+  let loyaltyBadge = '🌱 Kajian ke-1 (Baru)';
+  let loyaltyDesc = 'Kajian Perdana di Yayasan Tarbiyah Sunnah';
+
+  if (!isFirstTime) {
+    if (kajianNo <= 4) {
+      fullGreeting = `Ahlan wa Sahlan kembali, ${prefix} ${firstName}! Alhamdulillah ini kehadiran ke-${kajianNo} di majelis ilmu Yayasan.`;
+      loyaltyBadge = `🔷 Kehadiran ke-${kajianNo} (Aktif)`;
+      loyaltyDesc = `Sudah ${p?.pastAttendedCount || kajianNo - 1}x mengikuti kajian yayasan`;
+    } else if (kajianNo <= 9) {
+      fullGreeting = `Ahlan wa Sahlan kembali, ${prefix} ${firstName}! Barakallahu fiik, ini kehadiran ke-${kajianNo} Akhi/Ukhti di Yayasan.`;
+      loyaltyBadge = `⭐ Kehadiran ke-${kajianNo} (Setia)`;
+      loyaltyDesc = `Jamaah Setia: ${p?.pastAttendedCount || kajianNo - 1}x istiqomah hadir`;
+    } else {
+      fullGreeting = `Ahlan wa Sahlan kembali, ${prefix} ${firstName}! Masya Allah, keistiqomahan ke-${kajianNo} di Yayasan Tarbiyah Sunnah.`;
+      loyaltyBadge = `👑 Kehadiran ke-${kajianNo} (Istiqomah)`;
+      loyaltyDesc = `Jamaah Istiqomah: ${p?.pastAttendedCount || kajianNo - 1}x menghadiri majelis ilmu`;
+    }
+  }
+
   return {
     prefix,
     altPrefix,
     firstName,
     sapaan: `${prefix} ${firstName}`,
     sapaanFormal: `${altPrefix} ${name}`,
-    fullGreeting: `Ahlan wa Sahlan, ${prefix} ${firstName}!`,
+    fullGreeting,
+    shortGreeting: isFirstTime ? `Ahlan ${prefix} ${firstName}` : `Ahlan ${prefix} ${firstName} (Kajian ke-${kajianNo})`,
+    kajianNo,
+    isFirstTime,
+    loyaltyBadge,
+    loyaltyDesc,
   };
 };
 
@@ -203,6 +247,7 @@ export const GateScannerPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'unattended' | 'attended'>('all');
   const [filterGender, setFilterGender] = useState<'all' | 'ikhwan' | 'akhwat'>('all');
+  const [filterLoyalty, setFilterLoyalty] = useState<'all' | 'first_timer' | 'returning' | 'loyal'>('all');
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   // Detail Modal for specific participant
@@ -865,6 +910,10 @@ export const GateScannerPage: React.FC = () => {
     if (filterStatus === 'attended' && p.status !== 'attended') return false;
     const g = getParticipantGender(p);
     if (filterGender !== 'all' && g !== filterGender) return false;
+    const kajNo = p.currentKajianNumber || (p.pastAttendedCount ? p.pastAttendedCount + 1 : 1);
+    if (filterLoyalty === 'first_timer' && kajNo > 1) return false;
+    if (filterLoyalty === 'returning' && kajNo <= 1) return false;
+    if (filterLoyalty === 'loyal' && kajNo < 5) return false;
 
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase().trim();
@@ -1187,7 +1236,7 @@ export const GateScannerPage: React.FC = () => {
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5 flex flex-col gap-4">
         {/* Real-time KPI Metric Banner */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2.5">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-2.5">
           {/* Total Hadir */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 flex flex-col justify-between">
             <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
@@ -1287,6 +1336,40 @@ export const GateScannerPage: React.FC = () => {
             </div>
             <span className="mt-2 text-[10px] text-slate-500">Parkir terdata</span>
           </div>
+
+          {/* Jamaah Baru (Kajian ke-1) */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 flex flex-col justify-between">
+            <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
+              <Award className="w-3.5 h-3.5 text-emerald-400" />
+              Jamaah Baru
+            </span>
+            <div className="mt-2 flex items-baseline justify-between">
+              <span className="text-xl sm:text-2xl font-black text-emerald-400">
+                {stats?.firstTimerCount ?? participants.filter((p) => (p.currentKajianNumber || 1) <= 1).length}
+              </span>
+              <span className="text-[11px] text-slate-500">1x</span>
+            </div>
+            <span className="mt-2 text-[10px] text-slate-400">
+              Hadir: {stats?.checkedInFirstTimerCount ?? participants.filter((p) => p.status === 'attended' && (p.currentKajianNumber || 1) <= 1).length}
+            </span>
+          </div>
+
+          {/* Jamaah Kembali (Rutin/Setia) */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 flex flex-col justify-between">
+            <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+              Kembali
+            </span>
+            <div className="mt-2 flex items-baseline justify-between">
+              <span className="text-xl sm:text-2xl font-black text-purple-400">
+                {stats?.returningCount ?? participants.filter((p) => (p.currentKajianNumber || 1) > 1).length}
+              </span>
+              <span className="text-[11px] text-slate-500">≥2x</span>
+            </div>
+            <span className="mt-2 text-[10px] text-slate-400">
+              Hadir: {stats?.checkedInReturningCount ?? participants.filter((p) => p.status === 'attended' && (p.currentKajianNumber || 1) > 1).length}
+            </span>
+          </div>
         </div>
 
         {/* Scan Status Banner (Prominent Real-time Feedback & Greeting) */}
@@ -1350,6 +1433,21 @@ export const GateScannerPage: React.FC = () => {
                       }`}
                     >
                       {getParticipantGender(scanStatus.data) === 'ikhwan' ? '🕌 Ikhwan' : '🌸 Akhwat'}
+                    </span>
+                    {/* Loyalty Milestone Badge */}
+                    <span
+                      className={`font-bold px-2 py-0.5 rounded-md border text-xs flex items-center gap-1 ${
+                        (scanStatus.data.currentKajianNumber || 1) <= 1
+                          ? 'bg-emerald-900/60 text-emerald-300 border-emerald-500/40'
+                          : (scanStatus.data.currentKajianNumber || 1) <= 4
+                          ? 'bg-sky-900/60 text-sky-300 border-sky-500/40'
+                          : 'bg-purple-900/60 text-purple-300 border-purple-500/40'
+                      }`}
+                    >
+                      <Award className="w-3.5 h-3.5" />
+                      {(scanStatus.data.currentKajianNumber || 1) <= 1
+                        ? 'Kajian ke-1 (Baru)'
+                        : `Kehadiran ke-${scanStatus.data.currentKajianNumber} (${scanStatus.data.pastAttendedCount || 0}x sebelumnya)`}
                     </span>
                     {getParticipantPhone(scanStatus.data) !== '-' && (
                       <span className="bg-black/40 px-2 py-0.5 rounded-md border border-white/10 text-slate-200">
@@ -1792,6 +1890,18 @@ export const GateScannerPage: React.FC = () => {
                   <option value="ikhwan">Ikhwan</option>
                   <option value="akhwat">Akhwat</option>
                 </select>
+
+                {/* Loyalty Filter Toggle */}
+                <select
+                  value={filterLoyalty}
+                  onChange={(e) => setFilterLoyalty(e.target.value as any)}
+                  className="bg-slate-800 border border-slate-700 text-slate-300 rounded-lg px-2 py-1.5 text-[11px] focus:outline-none font-medium"
+                >
+                  <option value="all">Semua Riwayat</option>
+                  <option value="first_timer">🌱 Jamaah Baru (1x)</option>
+                  <option value="returning">⭐ Kembali (≥2x)</option>
+                  <option value="loyal">👑 Setia (≥5x)</option>
+                </select>
               </div>
             </div>
 
@@ -1829,7 +1939,7 @@ export const GateScannerPage: React.FC = () => {
                       className="p-3.5 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 hover:bg-slate-900/60 transition-colors"
                     >
                       <div className="min-w-0 flex-1">
-                        {/* Row 1: Greeting Cue & Name & Gender */}
+                        {/* Row 1: Greeting Cue & Name & Gender & Loyalty Badge */}
                         <div className="flex items-center gap-2 flex-wrap">
                           {/* Sapaan Badge */}
                           <span
@@ -1838,10 +1948,31 @@ export const GateScannerPage: React.FC = () => {
                                 ? 'bg-sky-950 text-sky-300 border-sky-800/50'
                                 : 'bg-pink-950 text-pink-300 border-pink-800/50'
                             }`}
-                            title={`Sapaan ramah: Ahlan wa Sahlan, ${greeting.prefix} ${greeting.firstName}!`}
+                            title={`Sapaan ramah: ${greeting.fullGreeting}`}
                           >
                             <Smile className="w-3 h-3" />
                             <span>Sapa: {greeting.sapaan}</span>
+                          </span>
+
+                          {/* Attendance Frequency Badge */}
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 border ${
+                              (p.currentKajianNumber || 1) <= 1
+                                ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800/50'
+                                : (p.currentKajianNumber || 1) <= 4
+                                ? 'bg-sky-950/80 text-sky-300 border-sky-800/50'
+                                : (p.currentKajianNumber || 1) <= 9
+                                ? 'bg-purple-950/80 text-purple-300 border-purple-800/50'
+                                : 'bg-amber-950/80 text-amber-300 border-amber-800/50'
+                            }`}
+                            title={greeting.loyaltyDesc}
+                          >
+                            <Award className="w-3 h-3" />
+                            <span>
+                              {(p.currentKajianNumber || 1) <= 1
+                                ? 'Kajian ke-1 (Baru)'
+                                : `Kehadiran ke-${p.currentKajianNumber}`}
+                            </span>
                           </span>
 
                           {/* Full Name */}
@@ -1866,7 +1997,7 @@ export const GateScannerPage: React.FC = () => {
                           </span>
                         </div>
 
-                        {/* Row 2: General Details (Phone, City, Vehicle, Family) */}
+                        {/* Row 2: General Details (Phone, City, Vehicle, Family, Past Kajian) */}
                         <div className="flex items-center gap-3 text-xs text-slate-400 mt-2 flex-wrap">
                           {/* WhatsApp / Phone with click to call/wa */}
                           {phone !== '-' && (
@@ -1909,6 +2040,16 @@ export const GateScannerPage: React.FC = () => {
                             <span className="flex items-center gap-1 text-amber-300 bg-amber-950/40 border border-amber-800/40 px-1.5 py-0.5 rounded text-[11px]">
                               <Users className="w-3 h-3 text-amber-400" />
                               <span>Rombongan: {p.familyRelationship}</span>
+                            </span>
+                          )}
+
+                          {/* Last Attended Kajian Badge */}
+                          {p.lastAttendedTitle && (
+                            <span
+                              className="flex items-center gap-1 text-[11px] text-slate-300 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700/70 truncate max-w-[240px]"
+                              title={`Kajian Sebelumnya: ${p.lastAttendedTitle}`}
+                            >
+                              <span>📖 Terakhir: {p.lastAttendedTitle}</span>
                             </span>
                           )}
 
@@ -2033,6 +2174,53 @@ export const GateScannerPage: React.FC = () => {
                       <p className="text-slate-300">
                         "{greeting.fullGreeting} Silakan masuk ke majelis kajian, semoga berkah ilmunya."
                       </p>
+                    </div>
+                  </div>
+
+                  {/* Seksi Riwayat Kehadiran & Loyalitas Majelis */}
+                  <div className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                        <Award className="w-4 h-4 text-amber-400" />
+                        Riwayat Keikutsertaan Kajian Yayasan
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          (modalItem.currentKajianNumber || 1) <= 1
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                            : (modalItem.currentKajianNumber || 1) <= 4
+                            ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                            : (modalItem.currentKajianNumber || 1) <= 9
+                            ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                            : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                        }`}
+                      >
+                        {greeting.loyaltyBadge}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800">
+                        <span className="text-[10px] text-slate-400 block">Frekuensi Kehadiran</span>
+                        <span className="text-sm font-black text-white mt-0.5 block">
+                          {(modalItem.currentKajianNumber || 1) <= 1
+                            ? 'Kajian Perdana (ke-1)'
+                            : `Kehadiran ke-${modalItem.currentKajianNumber}`}
+                        </span>
+                        <span className="text-[10px] text-slate-500 block mt-0.5">
+                          {modalItem.pastAttendedCount ? `Pernah hadir ${modalItem.pastAttendedCount}x sebelumnya` : 'Kajian pertama'}
+                        </span>
+                      </div>
+
+                      <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800">
+                        <span className="text-[10px] text-slate-400 block">Kajian Terakhir</span>
+                        <span className="text-xs font-bold text-slate-200 mt-0.5 block truncate" title={modalItem.lastAttendedTitle || 'Kajian Perdana'}>
+                          {modalItem.lastAttendedTitle || 'Belum ada data'}
+                        </span>
+                        <span className="text-[10px] text-slate-500 block mt-0.5">
+                          {modalItem.lastAttendedDate ? new Date(modalItem.lastAttendedDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Kajian Perdana'}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
