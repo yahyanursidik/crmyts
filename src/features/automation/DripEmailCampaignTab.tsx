@@ -24,6 +24,7 @@ import {
   Code,
   Sparkles,
   Users,
+  Edit3,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
@@ -115,6 +116,17 @@ export function DripEmailCampaignTab() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [audienceCount, setAudienceCount] = useState<number | null>(null);
   const [loadingAudience, setLoadingAudience] = useState(false);
+
+  // Edit Campaign Form State
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editSubject, setEditSubject] = useState('');
+  const [editDailyQuota, setEditDailyQuota] = useState<number>(50);
+  const [editTotalDays, setEditTotalDays] = useState<number>(14);
+  const [editBodyHtml, setEditBodyHtml] = useState('');
+  const [editPreviewMode, setEditPreviewMode] = useState<'editor' | 'preview'>('editor');
+  const [updatingCampaign, setUpdatingCampaign] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   // Confirm Dialog State
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -320,20 +332,66 @@ export function DripEmailCampaignTab() {
   };
 
   const handleSendTestEmail = async () => {
-    if (!currentCampaign || !testEmailInput.trim()) return;
+    if (!currentCampaign) {
+      showToast('Silakan pilih program kampanye email terlebih dahulu.', 'error');
+      return;
+    }
+    const cleanEmail = testEmailInput.trim();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      showToast('Masukkan alamat email tujuan tes yang valid.', 'warning');
+      return;
+    }
     try {
       setSendingTest(true);
       const res = await apiClient<any>(`/automation/email-campaigns/${currentCampaign.id}/test-email`, {
         method: 'POST',
-        body: JSON.stringify({ testEmail: testEmailInput.trim() }),
+        body: JSON.stringify({ testEmail: cleanEmail }),
       });
-      showToast(res.data?.message || 'Email tes pratinjau berhasil dikirim!', 'success');
+      showToast(res.data?.message || `Email sampel tes berhasil dikirim ke ${cleanEmail}`, 'success');
       setTestModalOpen(false);
       setTestEmailInput('');
     } catch (err: any) {
       showToast(err.message || 'Gagal mengirim email tes', 'error');
     } finally {
       setSendingTest(false);
+    }
+  };
+
+  const handleOpenEditModal = () => {
+    if (!currentCampaign) return;
+    setEditTitle(currentCampaign.title);
+    setEditSubject(currentCampaign.subject);
+    setEditDailyQuota(currentCampaign.dailyQuota);
+    setEditTotalDays(currentCampaign.totalDays);
+    setEditBodyHtml(currentCampaign.bodyHtml);
+    setEditPreviewMode('editor');
+    setEditError(null);
+    setEditModalOpen(true);
+  };
+
+  const handleUpdateCampaign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentCampaign) return;
+    setEditError(null);
+    try {
+      setUpdatingCampaign(true);
+      await apiClient<DripEmailCampaign>(`/automation/email-campaigns/${currentCampaign.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          title: editTitle.trim(),
+          subject: editSubject.trim(),
+          dailyQuota: editDailyQuota,
+          totalDays: editTotalDays,
+          bodyHtml: editBodyHtml.trim(),
+        }),
+      });
+      showToast('Program drip email campaign berhasil diperbarui!', 'success');
+      setEditModalOpen(false);
+      await fetchCampaigns();
+    } catch (err: any) {
+      setEditError(err.message || 'Gagal memperbarui program campaign email');
+    } finally {
+      setUpdatingCampaign(false);
     }
   };
 
@@ -419,6 +477,13 @@ export function DripEmailCampaignTab() {
       .replace(/\{\{city\}\}/g, 'Kota Bandung');
   }, [newBodyHtml, newGenderFilter]);
 
+  const simulatedEditHtmlPreview = useMemo(() => {
+    return editBodyHtml
+      .replace(/\{\{fullName\}\}/g, 'Bapak Hendra Pratama')
+      .replace(/\{\{genderTitle\}\}/g, currentCampaign?.filterGender === 'akhwat' ? 'Ukhti' : 'Akhi')
+      .replace(/\{\{city\}\}/g, 'Kota Bandung');
+  }, [editBodyHtml, currentCampaign?.filterGender]);
+
   return (
     <div className="space-y-6">
       {/* 1. Deliverability & Warm-up Banner */}
@@ -499,6 +564,17 @@ export function DripEmailCampaignTab() {
               <Eye className="w-3.5 h-3.5 text-[#6B7A72]" />
               <span>Tes Preview</span>
             </button>
+
+            {currentCampaign && (
+              <button
+                onClick={handleOpenEditModal}
+                className="px-3 py-1.5 bg-white hover:bg-[#F2EEE4] text-[#14352A] rounded-xl border border-[#1B4332]/12 font-semibold flex items-center gap-1.5 shadow-2xs transition-all active:scale-98"
+                title="Ubah judul, subjek, kuota harian, atau isi draf email program ini"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-[#1B4332]" />
+                <span>Edit Program</span>
+              </button>
+            )}
 
             {currentCampaign && currentCampaign.status !== 'completed' && (
               <button
@@ -868,10 +944,23 @@ export function DripEmailCampaignTab() {
               </button>
             </div>
 
-            <div className="p-5 space-y-3 text-xs">
+            <div className="p-5 space-y-3.5 text-xs">
               <p className="text-[#6B7A72] leading-relaxed">
-                Kirimkan 1 sampel email sapaan resmi bertata letak Tarbiyah Sunnah ke alamat email Anda untuk memeriksa tampilan layout, subject, dan isi pesan sebelum dijalankan massal.
+                Kirimkan 1 sampel email sapaan resmi bertata letak Tarbiyah Sunnah ke alamat email Anda untuk memeriksa tampilan layout, subjek, dan variabel personalisasi sebelum dijalankan secara massal.
               </p>
+
+              {currentCampaign && (
+                <div className="p-3 bg-[#F2EEE4] rounded-xl border border-[#1B4332]/10 space-y-1.5 text-xs">
+                  <div>
+                    <span className="text-[#6B7A72] block text-[10.5px]">Program Kampanye:</span>
+                    <strong className="text-[#1C2321]">{currentCampaign.title}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[#6B7A72] block text-[10.5px]">Subjek Email:</span>
+                    <span className="font-semibold text-[#14352A]">[PREVIEW TES] {currentCampaign.subject}</span>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-1">
                 <label className="font-semibold text-[#1C2321]">Alamat Email Penerima Tes:</label>
@@ -895,18 +984,201 @@ export function DripEmailCampaignTab() {
                 <button
                   type="button"
                   onClick={handleSendTestEmail}
-                  disabled={sendingTest || !testEmailInput.trim()}
+                  disabled={sendingTest || !testEmailInput.trim() || !currentCampaign}
                   className="px-4 py-2 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl font-semibold shadow-xs flex items-center gap-1.5 active:scale-98 disabled:opacity-50"
                 >
                   {sendingTest ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
+                    <Loader2 className="w-3.5 h-3.5 animate-spin mr-1 text-[#E0B970]" />
                   ) : (
                     <Send className="w-3.5 h-3.5 text-[#E0B970]" />
                   )}
-                  <span>Kirim Sampel Tes</span>
+                  <span>{sendingTest ? 'Mengirim...' : 'Kirim Sampel Tes'}</span>
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDIT PROGRAM DRIP EMAIL */}
+      {editModalOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl border border-[#1B4332]/20 w-full max-w-3xl overflow-hidden animate-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-[#1B4332]/10 flex items-center justify-between bg-[#FBF9F4]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-[#1B4332]/10 border border-[#1B4332]/20 flex items-center justify-center">
+                  <Edit3 className="w-4 h-4 text-[#1B4332]" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold font-display text-[#1C2321]">
+                    Edit Program Drip Email Sapaan Jamaah
+                  </h3>
+                  <p className="text-[11px] text-[#6B7A72]">
+                    Sesuaikan judul, subjek, batas kuota harian, serta susunan draf HTML email.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditModalOpen(false)}
+                className="p-1.5 rounded-lg text-[#6B7A72] hover:text-[#1C2321] hover:bg-[#F2EEE4]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Error Banner if any */}
+            {editError && (
+              <div className="mx-6 mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-900 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                <span>{editError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleUpdateCampaign} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto text-xs">
+              {/* Row 1: Title & Subject */}
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label className="font-semibold text-[#1C2321]">Nama / Judul Internal Program:</label>
+                  <input
+                    type="text"
+                    required
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="w-full px-3.5 py-2.5 border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] bg-[#FBF9F4] focus:bg-white focus:ring-2 focus:ring-[#1B4332] outline-none shadow-2xs"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-[#1C2321]">Subjek Email Resmi:</label>
+                  <input
+                    type="text"
+                    required
+                    value={editSubject}
+                    onChange={(e) => setEditSubject(e.target.value)}
+                    className="w-full px-3.5 py-2.5 border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] bg-[#FBF9F4] focus:bg-white focus:ring-2 focus:ring-[#1B4332] outline-none shadow-2xs"
+                  />
+                </div>
+              </div>
+
+              {/* Row 2: Daily Quota & Total Days */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div className="space-y-1">
+                  <label className="font-semibold text-[#1C2321]">Batas Kuota Harian (Email/Hari):</label>
+                  <input
+                    type="number"
+                    min={10}
+                    max={400}
+                    value={editDailyQuota}
+                    onChange={(e) => setEditDailyQuota(parseInt(e.target.value, 10) || 50)}
+                    className="w-full px-3.5 py-2.5 border border-[#1B4332]/14 rounded-xl text-xs font-bold text-[#14352A] bg-[#FBF9F4] focus:bg-white focus:ring-2 focus:ring-[#1B4332] outline-none shadow-2xs"
+                  />
+                  <p className="text-[10px] text-[#6B7A72]">Rekomendasi warm-up reputasi: 20–50 email/hari</p>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-[#1C2321]">Target Total Hari Kampanye:</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={90}
+                    value={editTotalDays}
+                    onChange={(e) => setEditTotalDays(parseInt(e.target.value, 10) || 14)}
+                    className="w-full px-3.5 py-2.5 border border-[#1B4332]/14 rounded-xl text-xs font-bold text-[#14352A] bg-[#FBF9F4] focus:bg-white focus:ring-2 focus:ring-[#1B4332] outline-none shadow-2xs"
+                  />
+                  <p className="text-[10px] text-[#6B7A72]">Durasi seluruh siklus tahapan broadcast sapaan</p>
+                </div>
+              </div>
+
+              {/* Row 3: HTML Editor vs Live Preview */}
+              <div className="space-y-2 pt-2 border-t border-[#1B4332]/10">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-[#1C2321]">Isi Draf Email (HTML):</label>
+                  <div className="flex items-center gap-1 bg-[#F2EEE4] p-1 rounded-xl border border-[#1B4332]/12">
+                    <button
+                      type="button"
+                      onClick={() => setEditPreviewMode('editor')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                        editPreviewMode === 'editor'
+                          ? 'bg-white text-[#14352A] shadow-2xs'
+                          : 'text-[#6B7A72] hover:text-[#1C2321]'
+                      }`}
+                    >
+                      <Code className="w-3.5 h-3.5" />
+                      <span>Editor HTML</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditPreviewMode('preview')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                        editPreviewMode === 'preview'
+                          ? 'bg-white text-[#14352A] shadow-2xs'
+                          : 'text-[#6B7A72] hover:text-[#1C2321]'
+                      }`}
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-[#E0B970]" />
+                      <span>Pratinjau Tampilan</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 text-[10px] text-[#6B7A72] font-mono">
+                  <span>Variabel Tersedia:</span>
+                  <span className="px-1.5 py-0.5 bg-[#FBF9F4] rounded border border-[#1B4332]/10 text-[#14352A]">{'{{fullName}}'}</span>
+                  <span className="px-1.5 py-0.5 bg-[#FBF9F4] rounded border border-[#1B4332]/10 text-[#14352A]">{'{{genderTitle}}'}</span>
+                  <span className="px-1.5 py-0.5 bg-[#FBF9F4] rounded border border-[#1B4332]/10 text-[#14352A]">{'{{city}}'}</span>
+                </div>
+
+                {editPreviewMode === 'editor' ? (
+                  <textarea
+                    rows={8}
+                    required
+                    value={editBodyHtml}
+                    onChange={(e) => setEditBodyHtml(e.target.value)}
+                    className="w-full p-3.5 border border-[#1B4332]/14 rounded-xl text-xs font-mono bg-[#FBF9F4] text-[#1C2321] focus:bg-white focus:ring-2 focus:ring-[#1B4332] outline-none leading-relaxed shadow-2xs"
+                  />
+                ) : (
+                  <div className="border border-[#1B4332]/15 rounded-xl bg-white p-5 space-y-3 text-xs shadow-inner">
+                    <div className="pb-3 border-b border-[#1B4332]/10 space-y-1">
+                      <div className="text-[11px] text-[#6B7A72]">
+                        <strong>Subjek:</strong> {editSubject}
+                      </div>
+                      <div className="text-[11px] text-[#6B7A72]">
+                        <strong>Dari:</strong> Layanan Jamaah YTS &lt;no-reply@tarbiyahsunnah.id&gt;
+                      </div>
+                    </div>
+                    <div
+                      className="prose prose-xs max-w-none text-[#1C2321] leading-relaxed"
+                      dangerouslySetInnerHTML={{ __html: simulatedEditHtmlPreview }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Action Buttons */}
+              <div className="pt-3 border-t border-[#1B4332]/10 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditModalOpen(false)}
+                  className="px-4 py-2 bg-[#FBF9F4] hover:bg-[#F2EEE4] text-[#1C2321] rounded-xl font-bold border border-[#1B4332]/12"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={updatingCampaign}
+                  className="px-5 py-2.5 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl font-bold shadow-xs flex items-center gap-1.5 active:scale-98 disabled:opacity-50 transition-all"
+                >
+                  {updatingCampaign ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-[#E0B970]" />
+                  ) : (
+                    <Check className="w-4 h-4 text-[#E0B970]" />
+                  )}
+                  <span>{updatingCampaign ? 'Menyimpan Perubahan...' : 'Simpan Perubahan'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

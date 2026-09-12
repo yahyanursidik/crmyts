@@ -125,4 +125,244 @@ describe('Drip Email Campaign Endpoints', () => {
     const body = JSON.parse(response.body);
     expect(body.data.count).toBe(2);
   });
+
+  it('sends single test email preview successfully when campaign exists', async () => {
+    const router = new Router();
+    registerAutomationRoutes(router);
+
+    const mockDb = {
+      query: {
+        persons: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: '018f9999-0000-7000-8000-333333333333',
+              fullName: 'Jamaah Uji 1',
+              email: 'jamaah1@example.com',
+              gender: 'ikhwan',
+              cityRegency: 'Kota Bandung',
+              createdAt: new Date(),
+              isActive: true,
+            },
+          ]),
+        },
+      },
+      insert: vi.fn().mockReturnValue({
+        values: vi.fn().mockResolvedValue([]),
+      }),
+    };
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    // 1. Create a campaign first
+    const createRes = await router.handle({
+      requestId: 'req_create_for_test_email',
+      method: 'POST',
+      path: '/api/automation/email-campaigns',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        title: 'Campaign Uji Test Email',
+        subject: 'Bismillah, Subjek Uji',
+        bodyHtml: '<p>Halo {{fullName}} di {{city}}</p>',
+        dailyQuota: 30,
+        totalDays: 7,
+      },
+      user: adminUser,
+    });
+    expect(createRes.statusCode).toBe(201);
+    const campaignId = JSON.parse(createRes.body).data.id;
+
+    // 2. Mock email sending
+    const emailService = await import('../../server/email/service');
+    const sendEmailSpy = vi.spyOn(emailService, 'sendEmail').mockResolvedValue({
+      success: true,
+      messageId: 'yts-test-message-id',
+    });
+
+    // 3. Dispatch test email
+    const testRes = await router.handle({
+      requestId: 'req_send_test_email',
+      method: 'POST',
+      path: `/api/automation/email-campaigns/${campaignId}/test-email`,
+      headers: {},
+      query: {},
+      params: { id: campaignId },
+      body: {
+        testEmail: 'tester@tarbiyahsunnah.id',
+      },
+      user: adminUser,
+    });
+
+    expect(testRes.statusCode).toBe(200);
+    const testBody = JSON.parse(testRes.body);
+    expect(testBody.data.message).toContain('tester@tarbiyahsunnah.id');
+    expect(testBody.data.messageId).toBe('yts-test-message-id');
+
+    expect(sendEmailSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'tester@tarbiyahsunnah.id',
+        subject: '[PREVIEW TES] Bismillah, Subjek Uji',
+      })
+    );
+  });
+
+  it('returns 404 when sending test email for non-existent campaign', async () => {
+    const router = new Router();
+    registerAutomationRoutes(router);
+
+    const mockDb = {
+      query: {
+        emailCampaigns: {
+          findFirst: vi.fn().mockResolvedValue(null),
+        },
+      },
+    };
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const testRes = await router.handle({
+      requestId: 'req_send_test_email_404',
+      method: 'POST',
+      path: '/api/automation/email-campaigns/non-existent-campaign-id/test-email',
+      headers: {},
+      query: {},
+      params: { id: 'non-existent-campaign-id' },
+      body: {
+        testEmail: 'tester@tarbiyahsunnah.id',
+      },
+      user: adminUser,
+    });
+
+    expect(testRes.statusCode).toBe(404);
+    const body = JSON.parse(testRes.body);
+    expect(body.error).toBeDefined();
+    expect(body.error.message).toContain('tidak ditemukan');
+  });
+
+  it('updates campaign details via PUT /api/automation/email-campaigns/:id', async () => {
+    const router = new Router();
+    registerAutomationRoutes(router);
+
+    const mockDb = {
+      query: {
+        persons: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: '018f9999-0000-7000-8000-555555555555',
+              fullName: 'Jamaah Uji 3',
+              email: 'jamaah3@example.com',
+              gender: 'ikhwan',
+              cityRegency: 'Kota Cimahi',
+              createdAt: new Date(),
+              isActive: true,
+            },
+          ]),
+        },
+      },
+      insert: vi.fn().mockReturnValue({
+        values: vi.fn().mockResolvedValue([]),
+      }),
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue([]),
+        }),
+      }),
+    };
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    // Create campaign
+    const createRes = await router.handle({
+      requestId: 'req_create_for_update',
+      method: 'POST',
+      path: '/api/automation/email-campaigns',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        title: 'Campaign Sebelum Update',
+        subject: 'Subjek Awal',
+        bodyHtml: '<p>Awal</p>',
+        dailyQuota: 20,
+        totalDays: 10,
+      },
+      user: adminUser,
+    });
+    const campaignId = JSON.parse(createRes.body).data.id;
+
+    // Update campaign
+    const updateRes = await router.handle({
+      requestId: 'req_update_campaign',
+      method: 'PUT',
+      path: `/api/automation/email-campaigns/${campaignId}`,
+      headers: {},
+      query: {},
+      params: { id: campaignId },
+      body: {
+        title: 'Campaign Sesudah Update',
+        subject: 'Subjek Baru Terupdate',
+        dailyQuota: 45,
+      },
+      user: adminUser,
+    });
+
+    expect(updateRes.statusCode).toBe(200);
+    const updateBody = JSON.parse(updateRes.body);
+    expect(updateBody.data.title).toBe('Campaign Sesudah Update');
+    expect(updateBody.data.subject).toBe('Subjek Baru Terupdate');
+    expect(updateBody.data.dailyQuota).toBe(45);
+  });
+
+  it('logs CRM outreach interaction and audit event via POST /api/automation/log-outreach', async () => {
+    const router = new Router();
+    registerAutomationRoutes(router);
+
+    const mockDb = {
+      query: {
+        persons: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: '018f9999-0000-7000-8000-666666666666',
+            fullName: 'Ahmad Jamaah CRM',
+            phoneE164: '+6281234567890',
+            email: 'ahmad@example.com',
+          }),
+        },
+      },
+      insert: vi.fn().mockReturnValue({
+        values: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([
+            {
+              id: '018f9999-0000-7000-8000-777777777777',
+              personId: '018f9999-0000-7000-8000-666666666666',
+              channel: 'whatsapp',
+              summary: 'Outreach [kajian_reminder]: Pengingat Kajian Akbar',
+            },
+          ]),
+        }),
+      }),
+    };
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      requestId: 'req_log_outreach_test',
+      method: 'POST',
+      path: '/api/automation/log-outreach',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        personId: '018f9999-0000-7000-8000-666666666666',
+        channel: 'whatsapp',
+        category: 'kajian_reminder',
+        summary: 'Pengingat Kajian Akbar Masjid Tarbiyah Sunnah',
+        outcome: 'Pesan dibuka oleh amil via WA Web',
+      },
+      user: adminUser,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.data).toBeDefined();
+    expect(body.data.personName).toBe('Ahmad Jamaah CRM');
+    expect(body.data.interactionId).toBe('018f9999-0000-7000-8000-777777777777');
+    expect(mockDb.insert).toHaveBeenCalled();
+  });
 });

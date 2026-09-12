@@ -58,10 +58,47 @@ export function AutomationPage() {
   // Copy and Toast State
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [loggedOutreachKeys, setLoggedOutreachKeys] = useState<Set<string>>(new Set());
 
   const showToast = (text: string) => {
     setToastMsg(text);
     setTimeout(() => setToastMsg(null), 4000);
+  };
+
+  const handleOpenAndLogOutreach = async (options: {
+    itemKey: string;
+    waUrl: string;
+    personId?: string;
+    category: 'kajian_reminder' | 'kajian_thanks' | 'donation_receipt' | 'waqf_update' | 'program_report' | 'other';
+    summary: string;
+    outcome?: string;
+    relatedEntityType?: 'event' | 'donation' | 'waqf_case' | 'donation_program';
+    relatedEntityId?: string;
+  }) => {
+    if (options.waUrl) {
+      window.open(options.waUrl, '_blank', 'noopener,noreferrer');
+    }
+    setLoggedOutreachKeys((prev) => new Set(prev).add(options.itemKey));
+
+    if (options.personId) {
+      try {
+        await apiClient('/automation/log-outreach', {
+          method: 'POST',
+          body: JSON.stringify({
+            personId: options.personId,
+            channel: 'whatsapp',
+            category: options.category,
+            summary: options.summary,
+            outcome: options.outcome || 'Pesan WhatsApp dibuka & dicatat ke timeline CRM',
+            relatedEntityType: options.relatedEntityType,
+            relatedEntityId: options.relatedEntityId,
+          }),
+        });
+        showToast('✓ Pesan WhatsApp dibuka & riwayat tercatat otomatis di CRM!');
+      } catch (err) {
+        console.warn('Failed to log outreach interaction:', err);
+      }
+    }
   };
 
   const loadTemplatesAndData = async () => {
@@ -484,15 +521,37 @@ export function AutomationPage() {
                         <span>{copiedKey === `k_${idx}` ? 'Tersalin' : 'Salin'}</span>
                       </button>
 
-                      <a
-                        href={item.waDirectUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-3 py-1.5 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-lg text-[11px] font-semibold shadow-2xs flex items-center gap-1.5 active:scale-98"
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleOpenAndLogOutreach({
+                            itemKey: `k_${kajianMode}_${item.personId || idx}`,
+                            waUrl: item.waDirectUrl,
+                            personId: item.personId,
+                            category: kajianMode === 'reminder' ? 'kajian_reminder' : 'kajian_thanks',
+                            summary: `${kajianMode === 'reminder' ? 'Pengingat Kajian' : 'Doa Pasca-Kajian'}: ${item.fullName} (${(kajianMode === 'reminder' ? reminderBatchResult : attendanceThanksResult)?.eventTitle || 'Kajian'})`,
+                            relatedEntityType: 'event',
+                            relatedEntityId: selectedEventId,
+                          })
+                        }
+                        className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold shadow-2xs flex items-center gap-1.5 active:scale-98 transition-all ${
+                          loggedOutreachKeys.has(`k_${kajianMode}_${item.personId || idx}`)
+                            ? 'bg-[#2F7D4F] text-white'
+                            : 'bg-[#1B4332] hover:bg-[#14352A] text-white'
+                        }`}
                       >
-                        <MessageSquare className="w-3.5 h-3.5 text-[#E0B970]" />
-                        <span>Kirim WA</span>
-                      </a>
+                        {loggedOutreachKeys.has(`k_${kajianMode}_${item.personId || idx}`) ? (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5 text-[#E0B970]" />
+                            <span>Tercatat CRM ✓</span>
+                          </>
+                        ) : (
+                          <>
+                            <MessageSquare className="w-3.5 h-3.5 text-[#E0B970]" />
+                            <span>Kirim WA &amp; Catat</span>
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -595,15 +654,37 @@ export function AutomationPage() {
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#1B4332]/8">
                 {donationThanksResult.waDirectUrl ? (
-                  <a
-                    href={donationThanksResult.waDirectUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-4 py-2 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-2 active:scale-98"
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleOpenAndLogOutreach({
+                        itemKey: `don_${donationThanksResult.donationId}`,
+                        waUrl: donationThanksResult.waDirectUrl,
+                        personId: donationsList.find((d) => d.id === donationThanksResult.donationId)?.person?.id,
+                        category: 'donation_receipt',
+                        summary: `E-Receipt Donasi Rp ${donationThanksResult.amountRupiah.toLocaleString('id-ID')} (${donationThanksResult.programName}) ke ${donationThanksResult.donorName}`,
+                        relatedEntityType: 'donation',
+                        relatedEntityId: donationThanksResult.donationId,
+                      })
+                    }
+                    className={`px-4 py-2 rounded-xl text-xs font-semibold shadow-xs flex items-center gap-2 active:scale-98 transition-all ${
+                      loggedOutreachKeys.has(`don_${donationThanksResult.donationId}`)
+                        ? 'bg-[#2F7D4F] text-white'
+                        : 'bg-[#1B4332] hover:bg-[#14352A] text-white'
+                    }`}
                   >
-                    <MessageSquare className="w-4 h-4 text-[#E0B970]" />
-                    <span>Kirim via WhatsApp ke {donationThanksResult.donorName}</span>
-                  </a>
+                    {loggedOutreachKeys.has(`don_${donationThanksResult.donationId}`) ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-[#E0B970]" />
+                        <span>E-Receipt Terbuka &amp; Dicatat di CRM ✓</span>
+                      </>
+                    ) : (
+                      <>
+                        <MessageSquare className="w-4 h-4 text-[#E0B970]" />
+                        <span>Kirim via WhatsApp &amp; Catat ke CRM</span>
+                      </>
+                    )}
+                  </button>
                 ) : (
                   <span className="text-xs text-[#C77A16] font-semibold">
                     Nomor WhatsApp donatur belum terdaftar di profil.
@@ -719,15 +800,37 @@ export function AutomationPage() {
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#1B4332]/8">
                 {waqfFollowupResult.waDirectUrl ? (
-                  <a
-                    href={waqfFollowupResult.waDirectUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-4 py-2 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-2 active:scale-98"
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleOpenAndLogOutreach({
+                        itemKey: `wqf_${waqfFollowupResult.waqfCaseId}`,
+                        waUrl: waqfFollowupResult.waDirectUrl,
+                        personId: waqfList.find((w) => w.id === waqfFollowupResult.waqfCaseId)?.person?.id,
+                        category: 'waqf_update',
+                        summary: `Update Tahapan Wakaf (${waqfFollowupResult.stageTitle}) ke ${waqfFollowupResult.waqifName}`,
+                        relatedEntityType: 'waqf_case',
+                        relatedEntityId: waqfFollowupResult.waqfCaseId,
+                      })
+                    }
+                    className={`px-4 py-2 rounded-xl text-xs font-semibold shadow-xs flex items-center gap-2 active:scale-98 transition-all ${
+                      loggedOutreachKeys.has(`wqf_${waqfFollowupResult.waqfCaseId}`)
+                        ? 'bg-[#2F7D4F] text-white'
+                        : 'bg-[#1B4332] hover:bg-[#14352A] text-white'
+                    }`}
                   >
-                    <MessageSquare className="w-4 h-4 text-[#E0B970]" />
-                    <span>Kirim via WhatsApp ke {waqfFollowupResult.waqifName}</span>
-                  </a>
+                    {loggedOutreachKeys.has(`wqf_${waqfFollowupResult.waqfCaseId}`) ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-[#E0B970]" />
+                        <span>Update Wakaf Terbuka &amp; Dicatat di CRM ✓</span>
+                      </>
+                    ) : (
+                      <>
+                        <MessageSquare className="w-4 h-4 text-[#E0B970]" />
+                        <span>Kirim via WhatsApp &amp; Catat ke CRM</span>
+                      </>
+                    )}
+                  </button>
                 ) : (
                   <span className="text-xs text-[#C77A16] font-semibold">
                     Nomor WhatsApp wakif belum terdaftar di profil.
@@ -867,15 +970,37 @@ export function AutomationPage() {
                         <span>{copiedKey === `imp_${idx}` ? 'Tersalin' : 'Salin'}</span>
                       </button>
 
-                      <a
-                        href={item.waDirectUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-3 py-1.5 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-lg text-[11px] font-semibold shadow-2xs flex items-center gap-1.5 active:scale-98"
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleOpenAndLogOutreach({
+                            itemKey: `imp_${item.personId || idx}`,
+                            waUrl: item.waDirectUrl,
+                            personId: item.personId,
+                            category: 'program_report',
+                            summary: `Laporan Penyaluran [${impactTitle}] (${impactResult.programName}) ke ${item.fullName}`,
+                            relatedEntityType: 'donation_program',
+                            relatedEntityId: selectedProgramId,
+                          })
+                        }
+                        className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold shadow-2xs flex items-center gap-1.5 active:scale-98 transition-all ${
+                          loggedOutreachKeys.has(`imp_${item.personId || idx}`)
+                            ? 'bg-[#2F7D4F] text-white'
+                            : 'bg-[#1B4332] hover:bg-[#14352A] text-white'
+                        }`}
                       >
-                        <MessageSquare className="w-3.5 h-3.5 text-[#E0B970]" />
-                        <span>Kirim WA</span>
-                      </a>
+                        {loggedOutreachKeys.has(`imp_${item.personId || idx}`) ? (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5 text-[#E0B970]" />
+                            <span>Tercatat CRM ✓</span>
+                          </>
+                        ) : (
+                          <>
+                            <MessageSquare className="w-3.5 h-3.5 text-[#E0B970]" />
+                            <span>Kirim WA &amp; Catat</span>
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
                 ))}
