@@ -74,6 +74,8 @@ interface ParticipantItem {
   referralCount?: number;
   vehicleType?: string;
   vehiclePlateNumber?: string | null;
+  registrationGroupId?: string | null;
+  familyRelationship?: string | null;
   agreedToRules?: boolean;
   registrationData?: Record<string, any> | null;
 }
@@ -221,6 +223,11 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   const [statusFilter, setStatusFilter] = useState<'all' | 'attended' | 'registered' | 'from_referral'>('all');
   const [genderFilter, setGenderFilter] = useState<'all' | 'ikhwan' | 'akhwat'>('all');
   const [vehicleFilter, setVehicleFilter] = useState<'all' | 'car' | 'motorcycle' | 'none'>('all');
+
+  // Participant Deletion State
+  const [deletingParticipant, setDeletingParticipant] = useState<ParticipantItem | null>(null);
+  const [deleteGroupCheckbox, setDeleteGroupCheckbox] = useState(false);
+  const [deleteParticipantLoading, setDeleteParticipantLoading] = useState(false);
 
   // Friendly Toast & Alert Dialog States
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -429,6 +436,27 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       showToast('Status presensi jamaah berhasil diperbarui');
     } catch (err: any) {
       showToast(err.message || 'Gagal mengubah status presensi', 'error');
+    }
+  };
+
+  const handleDeleteParticipant = async () => {
+    if (!deletingParticipant) return;
+    try {
+      setDeleteParticipantLoading(true);
+      const url = `/events/${eventId}/attendances/${deletingParticipant.id}?deleteGroup=${deleteGroupCheckbox}`;
+      const res = await apiClient<{ message: string; deletedCount: number; freedQuota: number }>(url, {
+        method: 'DELETE',
+      });
+
+      showToast(res.data?.message || 'Pendaftaran berhasil dihapus. Kuota kajian telah dikembalikan.');
+      setDeletingParticipant(null);
+      setDeleteGroupCheckbox(false);
+      await loadEventDetail();
+      onEventUpdated();
+    } catch (err: any) {
+      showToast(err.message || 'Gagal menghapus pendaftar', 'error');
+    } finally {
+      setDeleteParticipantLoading(false);
     }
   };
 
@@ -994,16 +1022,29 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                               )}
                             </td>
                             <td className="p-3.5 text-center">
-                              <button
-                                onClick={() => handleToggleAttendance(p.id)}
-                                className={`px-3 py-1 rounded-xl text-xs font-bold transition-all shadow-2xs ${
-                                  p.status === 'attended'
-                                    ? 'bg-emerald-100 text-emerald-900 border border-emerald-300 hover:bg-emerald-200'
-                                    : 'bg-slate-100 text-slate-700 border border-slate-300 hover:bg-teal-50 hover:text-teal-900'
-                                }`}
-                              >
-                                {p.status === 'attended' ? '✓ Hadir' : 'Tandai Hadir'}
-                              </button>
+                              <div className="flex items-center justify-center gap-1.5">
+                                <button
+                                  onClick={() => handleToggleAttendance(p.id)}
+                                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all shadow-2xs ${
+                                    p.status === 'attended'
+                                      ? 'bg-emerald-100 text-emerald-900 border border-emerald-300 hover:bg-emerald-200'
+                                      : 'bg-slate-100 text-slate-700 border border-slate-300 hover:bg-teal-50 hover:text-teal-900'
+                                  }`}
+                                >
+                                  {p.status === 'attended' ? '✓ Hadir' : 'Tandai Hadir'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setDeletingParticipant(p);
+                                    setDeleteGroupCheckbox(false);
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-transparent hover:border-rose-200 transition-all active:scale-95"
+                                  title="Hapus pendaftar kajian (mengembalikan kuota)"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))
@@ -2020,6 +2061,65 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
         onConfirm={() => setAlertDialog(null)}
         onClose={() => setAlertDialog(null)}
       />
+
+      {/* Delete Participant Confirm Dialog */}
+      {deletingParticipant && (
+        <ConfirmDialog
+          isOpen={true}
+          title="Hapus Pendaftar Kajian?"
+          message={
+            <div className="space-y-3 text-left">
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Apakah Anda yakin ingin menghapus pendaftaran atas nama{' '}
+                <strong className="text-slate-900 font-bold">{deletingParticipant.personName}</strong>{' '}
+                (Tiket: <span className="font-mono font-bold text-teal-800">{deletingParticipant.ticketCode || '-'}</span>)?
+              </p>
+
+              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-[11px] font-semibold flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>Kuota kajian akan otomatis bertambah kembali setelah pendaftar dihapus.</span>
+              </div>
+
+              {deletingParticipant.registrationGroupId && (() => {
+                const groupCount = (eventData?.participants || []).filter(
+                  (m) => m.registrationGroupId === deletingParticipant.registrationGroupId
+                ).length;
+
+                if (groupCount > 1) {
+                  return (
+                    <label className="flex items-start gap-2.5 p-2.5 bg-amber-50 border border-amber-200 rounded-xl cursor-pointer hover:bg-amber-100/60 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={deleteGroupCheckbox}
+                        onChange={(e) => setDeleteGroupCheckbox(e.target.checked)}
+                        className="rounded text-rose-600 focus:ring-rose-500 w-4 h-4 mt-0.5"
+                      />
+                      <div className="text-[11px] text-amber-950">
+                        <span className="font-bold block">Pendaftaran Rombongan / Keluarga</span>
+                        <span className="text-amber-800">
+                          Hapus seluruh anggota rombongan ini sekaligus (<strong>{groupCount} orang</strong>) untuk mengembalikan seluruh kuota rombongan.
+                        </span>
+                      </div>
+                    </label>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+          }
+          confirmLabel={deleteGroupCheckbox ? 'Ya, Hapus Seluruh Rombongan' : 'Ya, Hapus Pendaftar'}
+          cancelLabel="Batal"
+          variant="danger"
+          loading={deleteParticipantLoading}
+          onConfirm={handleDeleteParticipant}
+          onClose={() => {
+            if (!deleteParticipantLoading) {
+              setDeletingParticipant(null);
+              setDeleteGroupCheckbox(false);
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

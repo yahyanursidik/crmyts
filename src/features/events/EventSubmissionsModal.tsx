@@ -119,6 +119,11 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
 
+  // Single Delete State
+  const [deletingAttendance, setDeletingAttendance] = useState<ParticipantItem | null>(null);
+  const [deleteGroupCheckbox, setDeleteGroupCheckbox] = useState(false);
+  const [singleDeleteLoading, setSingleDeleteLoading] = useState(false);
+
   // Sub-modals
   const [showScannerModal, setShowScannerModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -206,12 +211,41 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
     }
   };
 
+  // Single Delete
+  const handleSingleDelete = async () => {
+    if (!deletingAttendance) return;
+    try {
+      setSingleDeleteLoading(true);
+      const url = `/events/${eventId}/attendances/${deletingAttendance.id}?deleteGroup=${deleteGroupCheckbox}`;
+      const res = await apiClient<{ message: string; deletedCount: number; freedQuota: number }>(url, {
+        method: 'DELETE',
+      });
+
+      if (res.data) {
+        showToast(res.data.message || `Pendaftaran berhasil dihapus. Kuota kajian telah dikembalikan.`);
+        if (selectedIds.has(deletingAttendance.id)) {
+          const next = new Set(selectedIds);
+          next.delete(deletingAttendance.id);
+          setSelectedIds(next);
+        }
+        setDeletingAttendance(null);
+        setDeleteGroupCheckbox(false);
+        await loadEventDetail();
+        if (onRefreshList) onRefreshList();
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Gagal menghapus pendaftaran peserta', 'error');
+    } finally {
+      setSingleDeleteLoading(false);
+    }
+  };
+
   // Bulk Delete
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return;
     try {
       setBulkActionLoading(true);
-      const res = await apiClient<{ message: string; deletedCount: number }>(`/events/${eventId}/attendances/bulk-delete`, {
+      const res = await apiClient<{ message: string; deletedCount: number; freedQuota?: number }>(`/events/${eventId}/attendances/bulk-delete`, {
         method: 'POST',
         body: JSON.stringify({
           attendanceIds: Array.from(selectedIds),
@@ -219,7 +253,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
       });
 
       if (res.data) {
-        showToast(res.data.message || `Berhasil menghapus ${res.data.deletedCount} peserta.`);
+        showToast(res.data.message || `Berhasil menghapus ${res.data.deletedCount} peserta. Kuota telah dikembalikan.`);
         setSelectedIds(new Set());
         setConfirmBulkDelete(false);
         await loadEventDetail();
@@ -853,6 +887,17 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                                   <Award className="w-3 h-3" />
                                   <span>Sertifikat</span>
                                 </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setDeletingAttendance(p);
+                                    setDeleteGroupCheckbox(false);
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-transparent hover:border-rose-200 transition-all active:scale-95"
+                                  title="Hapus pendaftaran peserta ini (mengembalikan kuota)"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
                               </div>
                             </td>
                           </tr>
@@ -956,6 +1001,18 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                             >
                               <Award className="w-3 h-3" />
                               <span>Sertifikat</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDeletingAttendance(p);
+                                setDeleteGroupCheckbox(false);
+                              }}
+                              className="px-2 py-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all"
+                              title="Hapus pendaftar"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>Hapus</span>
                             </button>
                           </div>
                         </div>
@@ -1105,12 +1162,81 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
         />
       )}
 
+      {/* Single Delete Confirm Dialog */}
+      {deletingAttendance && (
+        <ConfirmDialog
+          isOpen={true}
+          title="Hapus Pendaftar Kajian?"
+          message={
+            <div className="space-y-3 text-left">
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Apakah Anda yakin ingin menghapus pendaftaran atas nama{' '}
+                <strong className="text-slate-900 font-bold">{deletingAttendance.personName}</strong>{' '}
+                (Tiket: <span className="font-mono font-bold text-teal-800">{deletingAttendance.ticketCode || '-'}</span>)?
+              </p>
+
+              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-[11px] font-semibold flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>Kuota kajian akan otomatis bertambah kembali setelah pendaftar dihapus.</span>
+              </div>
+
+              {deletingAttendance.registrationGroupId && (() => {
+                const groupCount = (data?.participants || []).filter(
+                  (m) => m.registrationGroupId === deletingAttendance.registrationGroupId
+                ).length;
+
+                if (groupCount > 1) {
+                  return (
+                    <label className="flex items-start gap-2.5 p-2.5 bg-amber-50 border border-amber-200 rounded-xl cursor-pointer hover:bg-amber-100/60 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={deleteGroupCheckbox}
+                        onChange={(e) => setDeleteGroupCheckbox(e.target.checked)}
+                        className="rounded text-rose-600 focus:ring-rose-500 w-4 h-4 mt-0.5"
+                      />
+                      <div className="text-[11px] text-amber-950">
+                        <span className="font-bold block">Pendaftaran Rombongan / Keluarga</span>
+                        <span className="text-amber-800">
+                          Hapus seluruh anggota rombongan ini sekaligus (<strong>{groupCount} orang</strong>) untuk mengembalikan seluruh kuota rombongan.
+                        </span>
+                      </div>
+                    </label>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+          }
+          confirmLabel={deleteGroupCheckbox ? 'Ya, Hapus Seluruh Rombongan' : 'Ya, Hapus Pendaftar'}
+          cancelLabel="Batal"
+          variant="danger"
+          loading={singleDeleteLoading}
+          onConfirm={handleSingleDelete}
+          onClose={() => {
+            if (!singleDeleteLoading) {
+              setDeletingAttendance(null);
+              setDeleteGroupCheckbox(false);
+            }
+          }}
+        />
+      )}
+
       {/* Bulk Delete Confirm Dialog */}
       <ConfirmDialog
         isOpen={confirmBulkDelete}
         title="Hapus Peserta Terpilih?"
-        message={`Apakah Anda yakin ingin menghapus ${selectedIds.size} pendaftaran peserta terpilih? Data kehadiran dan tiket mereka akan dibatalkan.`}
-        confirmLabel="Ya, Hapus Sekarang"
+        message={
+          <div className="space-y-2.5 text-left">
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Apakah Anda yakin ingin menghapus <strong className="text-slate-900 font-bold">{selectedIds.size}</strong> pendaftaran peserta terpilih?
+            </p>
+            <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-[11px] font-semibold flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>Kuota kajian akan otomatis bertambah kembali sebanyak {selectedIds.size} kuota.</span>
+            </div>
+          </div>
+        }
+        confirmLabel={`Ya, Hapus ${selectedIds.size} Peserta`}
         cancelLabel="Batal"
         variant="danger"
         loading={bulkActionLoading}

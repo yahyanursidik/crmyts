@@ -8,6 +8,7 @@ import { desc, eq, and, inArray, sql, or, ilike } from 'drizzle-orm';
 import { normalizeIndonesianPhone } from '../../lib/phone';
 import { extractTicketCode } from '../../../src/lib/participantTicket';
 import { createMemorableTicketCode } from './participantCodes';
+import { logAuditEvent } from '../../audit/service';
 
 const createEventSchema = z.object({
   title: z.string().min(3, 'Judul kajian minimal 3 karakter'),
@@ -700,16 +701,137 @@ export function registerEventsRoutes(router: Router) {
     })
   );
 
-  // 7e. POST /api/events/:id/attendances/bulk-delete (Bulk Remove Attendances)
+  // 7e-1. DELETE /api/events/:id/attendances/:attendanceId (Remove Single Registrant & Restore Quota)
+  router.delete(
+    '/api/events/:id/attendances/:attendanceId',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const eventId = ctx.params.id;
+      const attendanceId = ctx.params.attendanceId;
+      const deleteGroup = ctx.query.deleteGroup === 'true' || (ctx.body as any)?.deleteGroup === true;
+
+      if (!eventId || !attendanceId) {
+        return errorResponse('VALIDATION_ERROR', 'Event ID dan Attendance ID diperlukan', 400, ctx.requestId);
+      }
+
+      const existing = await db.query.eventAttendance.findFirst({
+        where: and(
+          eq(eventAttendance.id, attendanceId),
+          eq(eventAttendance.eventId, eventId)
+        ),
+        with: {
+          person: true,
+        },
+      });
+
+      if (!existing) {
+        return errorResponse('NOT_FOUND', 'Data pendaftaran peserta tidak ditemukan', 404, ctx.requestId);
+      }
+
+      let deleted: any[] = [];
+      const hasGroup = Boolean(existing.registrationGroupId);
+
+      if (deleteGroup && existing.registrationGroupId) {
+        deleted = await db
+          .delete(eventAttendance)
+          .where(
+            and(
+              eq(eventAttendance.eventId, eventId),
+              eq(eventAttendance.registrationGroupId, existing.registrationGroupId)
+            )
+          )
+          .returning();
+      } else {
+        deleted = await db
+          .delete(eventAttendance)
+          .where(
+            and(
+              eq(eventAttendance.id, attendanceId),
+              eq(eventAttendance.eventId, eventId)
+            )
+          )
+          .returning();
+      }
+
+      try {
+        await logAuditEvent({
+          actorUserId: ctx.user?.id,
+          action: 'delete_event_attendance',
+          entityType: 'event_attendance',
+          entityId: attendanceId,
+          beforeJson: {
+            eventId,
+            personName: existing.person?.fullName,
+            ticketCode: existing.ticketCode,
+            registrationGroupId: existing.registrationGroupId,
+            deletedCount: deleted.length,
+            deleteGroupApplied: deleteGroup && hasGroup,
+          },
+          reason: 'Pembersihan data pendaftar/uji coba untuk mengembalikan kuota kajian',
+          requestId: ctx.requestId,
+        });
+      } catch (e) {
+        console.error('Gagal mencatat audit log delete_event_attendance:', e);
+      }
+
+      return successResponse(
+        {
+          message: `Berhasil menghapus ${deleted.length} pendaftaran peserta. Kuota kajian telah dikembalikan.`,
+          deletedCount: deleted.length,
+          freedQuota: deleted.length,
+          ticketCode: existing.ticketCode,
+          personName: existing.person?.fullName || 'Peserta',
+        },
+        { requestId: ctx.requestId }
+      );
+    })
+  );
+
+  // 7e-2. POST /api/events/:id/attendances/bulk-delete (Bulk Remove Attendances & Restore Quota)
   router.post(
     '/api/events/:id/attendances/bulk-delete',
     requireAuth(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
-      const { attendanceIds = [] } = (ctx.body as any) || {};
+      const { attendanceIds = [], deleteAssociatedGroups = false } = (ctx.body as any) || {};
 
       if (!eventId || !Array.isArray(attendanceIds) || attendanceIds.length === 0) {
         return errorResponse('VALIDATION_ERROR', 'Event ID dan daftar Attendance ID diperlukan', 400, ctx.requestId);
+      }
+
+      let targetIds = [...attendanceIds];
+
+      if (deleteAssociatedGroups) {
+        // Cari seluruh registrationGroupId dari attendanceIds yang dipilih
+        const selectedAtts = await db.query.eventAttendance.findMany({
+          where: and(
+            eq(eventAttendance.eventId, eventId),
+            inArray(eventAttendance.id, attendanceIds)
+          ),
+          columns: {
+            id: true,
+            registrationGroupId: true,
+          },
+        });
+
+        const groupIds = selectedAtts
+          .map((a) => a.registrationGroupId)
+          .filter((gid): gid is string => Boolean(gid));
+
+        if (groupIds.length > 0) {
+          const allGroupMembers = await db.query.eventAttendance.findMany({
+            where: and(
+              eq(eventAttendance.eventId, eventId),
+              inArray(eventAttendance.registrationGroupId, groupIds)
+            ),
+            columns: {
+              id: true,
+            },
+          });
+
+          const groupMemberIds = allGroupMembers.map((m) => m.id);
+          targetIds = Array.from(new Set([...targetIds, ...groupMemberIds]));
+        }
       }
 
       const deleted = await db
@@ -717,15 +839,34 @@ export function registerEventsRoutes(router: Router) {
         .where(
           and(
             eq(eventAttendance.eventId, eventId),
-            inArray(eventAttendance.id, attendanceIds)
+            inArray(eventAttendance.id, targetIds)
           )
         )
         .returning();
 
+      try {
+        await logAuditEvent({
+          actorUserId: ctx.user?.id,
+          action: 'bulk_delete_event_attendances',
+          entityType: 'event_attendance',
+          beforeJson: {
+            eventId,
+            deletedAttendanceIds: targetIds,
+            deletedCount: deleted.length,
+            deleteAssociatedGroups,
+          },
+          reason: 'Pembersihan massal pendaftar untuk mengembalikan kuota kajian',
+          requestId: ctx.requestId,
+        });
+      } catch (e) {
+        console.error('Gagal mencatat audit log bulk_delete_event_attendances:', e);
+      }
+
       return successResponse(
         {
-          message: `Berhasil menghapus ${deleted.length} pendaftaran peserta.`,
+          message: `Berhasil menghapus ${deleted.length} pendaftaran peserta. Kuota kajian telah dikembalikan.`,
           deletedCount: deleted.length,
+          freedQuota: deleted.length,
         },
         { requestId: ctx.requestId }
       );
