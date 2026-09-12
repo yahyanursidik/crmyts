@@ -72,8 +72,16 @@ function apiDevServerPlugin(): Plugin {
   };
 }
 
+import basicSsl from '@vitejs/plugin-basic-ssl';
+
+const isHttps = process.env.HTTPS === 'true' || process.argv.includes('--https');
+
 export default defineConfig({
-  plugins: [react(), apiDevServerPlugin()],
+  plugins: [
+    react(),
+    apiDevServerPlugin(),
+    ...(isHttps ? [basicSsl()] : []),
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -82,5 +90,6 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    host: true,
   },
 });
