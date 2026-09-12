@@ -290,6 +290,21 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
         return;
       }
 
+      // 3. Check Permissions-Policy in document
+      if (typeof document !== 'undefined') {
+        const policy = (document as any).permissionsPolicy || (document as any).featurePolicy;
+        if (policy && typeof policy.allowsFeature === 'function') {
+          try {
+            if (!policy.allowsFeature('camera')) {
+              setCameraState('unsupported');
+              setCameraErrorDetail('Akses kamera tidak diizinkan oleh Permissions-Policy dokumen.');
+              isStartingRef.current = false;
+              return;
+            }
+          } catch {}
+        }
+      }
+
       setCameraState('requesting');
       setCameraErrorDetail(null);
 
@@ -433,6 +448,9 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
           setCameraErrorDetail(
             `Kamera dibatasi karena halaman diakses melalui HTTP (${window.location.protocol}//${window.location.host}). Gunakan opsi Ambil Foto QR atau buka melalui HTTPS.`
           );
+        } else if (errStr.includes('permissions policy') || errStr.includes('not allowed in this document')) {
+          setCameraState('unsupported');
+          setCameraErrorDetail('Akses kamera tidak diizinkan oleh Permissions-Policy dokumen/server.');
         } else if (errStr.includes('notallowed') || errStr.includes('permission') || errStr.includes('denied')) {
           let isActuallyBlocked = true;
           if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
@@ -498,6 +516,11 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
         } catch (permErr: any) {
           console.warn('Native getUserMedia trigger error:', permErr);
           const pErrStr = String(permErr?.name || permErr?.message || permErr).toLowerCase();
+          if (pErrStr.includes('permissions policy') || pErrStr.includes('not allowed in this document')) {
+            setCameraState('unsupported');
+            setCameraErrorDetail('Akses kamera tidak diizinkan oleh Permissions-Policy dokumen/server.');
+            return;
+          }
           if (pErrStr.includes('notallowed') || pErrStr.includes('permission') || pErrStr.includes('denied')) {
             let isActuallyBlocked = true;
             if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
@@ -590,6 +613,20 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
           setCameraState('unsupported');
           setCameraErrorDetail('Browser atau perangkat ini tidak mendukung akses streaming kamera langsung (getUserMedia).');
           return;
+        }
+
+        // Check Permissions-Policy in document
+        if (typeof document !== 'undefined') {
+          const policy = (document as any).permissionsPolicy || (document as any).featurePolicy;
+          if (policy && typeof policy.allowsFeature === 'function') {
+            try {
+              if (!policy.allowsFeature('camera')) {
+                setCameraState('unsupported');
+                setCameraErrorDetail('Akses kamera tidak diizinkan oleh Permissions-Policy dokumen/server.');
+                return;
+              }
+            } catch {}
+          }
         }
 
         // 2. Check permissions API if available
