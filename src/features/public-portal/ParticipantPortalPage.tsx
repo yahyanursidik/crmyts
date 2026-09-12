@@ -18,6 +18,7 @@ import {
   Sparkles,
   Ticket,
   User,
+  Users,
   X,
   ScrollText,
 } from 'lucide-react';
@@ -27,6 +28,19 @@ import { ParticipantQrCode } from './ParticipantQrCode';
 import { ECertificateModal } from '../events/ECertificateModal';
 import './participant-portal.css';
 
+interface GroupMemberItem {
+  attendanceId: string;
+  name: string;
+  relationship: string;
+  gender: string;
+  age?: number | null;
+  ticketCode: string;
+  ticketNumber: string;
+  status: string;
+  isSelf?: boolean;
+  participantPortalPath: string;
+}
+
 interface ParticipantEventItem {
   attendanceId: string;
   ticketCode: string;
@@ -35,6 +49,8 @@ interface ParticipantEventItem {
   checkInAt: string;
   familyRelationship?: string | null;
   age?: number | null;
+  registrationGroupId?: string | null;
+  groupMembers?: GroupMemberItem[];
   paymentStatus: string;
   paymentProofUrl?: string | null;
   paymentAmountRupiah?: number | null;
@@ -118,6 +134,7 @@ export function ParticipantPortalPage() {
 
   // Interactive Modals
   const [fullscreenQr, setFullscreenQr] = useState<ParticipantEventItem | null>(null);
+  const [fullscreenMemberIdx, setFullscreenMemberIdx] = useState<number>(0);
   const [certEvent, setCertEvent] = useState<ParticipantEventItem | null>(null);
   const [copiedState, setCopiedState] = useState<string | null>(null);
 
@@ -586,14 +603,58 @@ export function ParticipantPortalPage() {
                             </span>
                           </div>
 
+                          {/* Tiket Anggota Rombongan / Keluarga */}
+                          {ticket.groupMembers && ticket.groupMembers.length > 1 && (
+                            <div className="p-3 bg-cream-50/90 rounded-2xl border border-cream-300/80 space-y-2.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-black text-brand-950 flex items-center gap-1.5 font-display">
+                                  <Users className="w-3.5 h-3.5 text-brand-700" />
+                                  E-Tiket Rombongan ({ticket.groupMembers.length} Jamaah):
+                                </span>
+                                <span className="text-[10px] text-surface-500 font-medium">Pilih nama untuk QR</span>
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {ticket.groupMembers.map((member, mIdx) => (
+                                  <button
+                                    key={member.ticketCode || mIdx}
+                                    type="button"
+                                    onClick={() => {
+                                      setFullscreenQr(ticket);
+                                      setFullscreenMemberIdx(mIdx);
+                                    }}
+                                    className="p-2.5 bg-white hover:bg-cream-100/90 rounded-xl border border-cream-300 text-left transition-all flex items-center justify-between gap-2 group/m cursor-pointer shadow-2xs active:scale-[0.98]"
+                                  >
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-xs font-bold text-slate-900 truncate">{member.name}</span>
+                                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-cream-200 text-brand-950 shrink-0">
+                                          {member.relationship}
+                                        </span>
+                                      </div>
+                                      <span className="text-[10px] font-mono text-brand-900 block font-bold mt-0.5">
+                                        {member.ticketCode}
+                                      </span>
+                                    </div>
+                                    <div className="w-7 h-7 rounded-lg bg-cream-100 group-hover/m:bg-brand-900 group-hover/m:text-emerald-300 text-brand-800 flex items-center justify-center shrink-0 transition-colors">
+                                      <QrCode className="w-4 h-4" />
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
                           {/* Quick Interactive Actions */}
                           <div className="space-y-2 pt-1 border-t border-cream-200">
                             <div className="grid grid-cols-2 gap-2">
                               {/* Fullscreen QR Code trigger */}
                               <button
                                 type="button"
-                                onClick={() => setFullscreenQr(ticket)}
-                                className="w-full py-2.5 px-3 rounded-xl bg-brand-900 hover:bg-brand-950 text-white font-bold text-xs shadow-2xs transition-all flex items-center justify-center gap-1.5 active:scale-95"
+                                onClick={() => {
+                                  setFullscreenQr(ticket);
+                                  setFullscreenMemberIdx(0);
+                                }}
+                                className="w-full py-2.5 px-3 rounded-xl bg-brand-900 hover:bg-brand-950 text-white font-bold text-xs shadow-2xs transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
                               >
                                 <QrCode className="w-4 h-4 text-emerald-400" />
                                 <span>Perbesar QR Presensi</span>
@@ -784,59 +845,145 @@ export function ParticipantPortalPage() {
       </div>
 
       {/* 3. MODAL: FULLSCREEN QR PRESENSI GERBANG */}
-      {fullscreenQr && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-cream-300 space-y-4 text-center my-auto">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-black uppercase tracking-wider text-brand-900">
-                QR Presensi Gerbang
-              </span>
-              <button
-                type="button"
-                onClick={() => setFullscreenQr(null)}
-                className="p-1 rounded-xl text-surface-400 hover:text-brand-950 hover:bg-cream-100"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {fullscreenQr && (() => {
+        const hasGroup = Boolean(fullscreenQr.groupMembers && fullscreenQr.groupMembers.length > 1);
+        const currentMember = hasGroup
+          ? fullscreenQr.groupMembers![fullscreenMemberIdx] || fullscreenQr.groupMembers![0]
+          : null;
+        const activeTicketCode = currentMember?.ticketCode || fullscreenQr.ticketCode;
+        const activePortalPath = currentMember?.participantPortalPath || fullscreenQr.participantPortalPath;
+        const activePortalUrl = `${window.location.origin}${activePortalPath}`;
+        const activeName = currentMember?.name || hubData?.person?.fullName || 'Peserta';
+        const activeRel = currentMember?.relationship || fullscreenQr.familyRelationship || 'Pendaftar Utama';
 
-            <div>
-              <h3 className="text-base font-black text-brand-950 font-display leading-tight">
-                {fullscreenQr.event.title}
-              </h3>
-              <p className="text-xs text-surface-500 mt-0.5">
-                {fullscreenQr.event.speaker}
-              </p>
-            </div>
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150 overflow-y-auto">
+            <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-cream-300 space-y-4 text-center my-auto">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black uppercase tracking-wider text-brand-900 flex items-center gap-1.5 font-display">
+                  <QrCode className="w-4 h-4 text-brand-700" />
+                  QR Presensi Gerbang
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setFullscreenQr(null)}
+                  className="p-1 rounded-xl text-surface-400 hover:text-brand-950 hover:bg-cream-100 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
 
-            {/* Large QR Code Display */}
-            <div className="p-4 bg-white rounded-2xl border-2 border-brand-800 shadow-inner inline-block mx-auto">
-              <ParticipantQrCode
-                value={`${window.location.origin}${fullscreenQr.participantPortalPath}`}
-                ticketCode={fullscreenQr.ticketCode}
-              />
-            </div>
+              <div>
+                <h3 className="text-base font-black text-brand-950 font-display leading-tight">
+                  {fullscreenQr.event.title}
+                </h3>
+                <p className="text-xs text-surface-500 mt-0.5">
+                  {fullscreenQr.event.speaker}
+                </p>
+              </div>
 
-            <div className="space-y-1">
-              <span className="text-[10px] font-bold uppercase text-surface-400 tracking-wider">Nomor Tiket Peserta</span>
-              <p className="font-mono text-2xl font-black text-brand-950">
-                {fullscreenQr.ticketCode}
-              </p>
-              <p className="text-[11px] text-surface-500 max-w-xs mx-auto leading-relaxed">
-                💡 <em>Tingkatkan kecerahan layar ponsel Anda saat mendekati gerbang pemindaian panitia.</em>
-              </p>
-            </div>
+              {/* Quick Multi-Member Switcher if Group */}
+              {hasGroup && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between bg-cream-100 p-1.5 rounded-2xl border border-cream-300">
+                    <button
+                      type="button"
+                      disabled={fullscreenMemberIdx === 0}
+                      onClick={() => setFullscreenMemberIdx((prev) => Math.max(0, prev - 1))}
+                      className="px-2.5 py-1 rounded-xl bg-white disabled:opacity-30 text-xs font-bold text-brand-950 border border-cream-300 transition-opacity cursor-pointer active:scale-95"
+                    >
+                      ← Prev
+                    </button>
+                    <div className="text-center min-w-0 px-2">
+                      <span className="text-[10px] text-surface-500 font-bold uppercase tracking-wider block">
+                        Peserta {fullscreenMemberIdx + 1} dari {fullscreenQr.groupMembers!.length}
+                      </span>
+                      <strong className="text-xs font-black text-brand-950 block truncate max-w-[140px]">
+                        {activeName}
+                      </strong>
+                      <span className="text-[9px] font-bold text-brand-800">
+                        {activeRel}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={fullscreenMemberIdx === fullscreenQr.groupMembers!.length - 1}
+                      onClick={() =>
+                        setFullscreenMemberIdx((prev) => Math.min(fullscreenQr.groupMembers!.length - 1, prev + 1))
+                      }
+                      className="px-2.5 py-1 rounded-xl bg-white disabled:opacity-30 text-xs font-bold text-brand-950 border border-cream-300 transition-opacity cursor-pointer active:scale-95"
+                    >
+                      Next →
+                    </button>
+                  </div>
 
-            <button
-              type="button"
-              onClick={() => setFullscreenQr(null)}
-              className="w-full py-2.5 bg-cream-100 hover:bg-cream-200 text-brand-950 rounded-xl font-bold text-xs border border-cream-300"
-            >
-              Tutup QR
-            </button>
+                  {/* Member Quick Tab Pills */}
+                  <div className="flex items-center gap-1 overflow-x-auto pb-1">
+                    {fullscreenQr.groupMembers!.map((m, idx) => (
+                      <button
+                        key={m.ticketCode || idx}
+                        type="button"
+                        onClick={() => setFullscreenMemberIdx(idx)}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-bold shrink-0 transition-all border cursor-pointer ${
+                          fullscreenMemberIdx === idx
+                            ? 'bg-brand-900 text-emerald-300 border-brand-950 shadow-xs'
+                            : 'bg-white hover:bg-cream-100 text-slate-700 border-cream-300'
+                        }`}
+                      >
+                        {m.name.split(' ')[0]} ({m.relationship})
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Large QR Code Display */}
+              <div className="p-4 bg-white rounded-2xl border-2 border-brand-800 shadow-inner inline-block mx-auto">
+                <ParticipantQrCode
+                  value={activePortalUrl}
+                  ticketCode={activeTicketCode}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold uppercase text-surface-400 tracking-wider">
+                  {hasGroup ? `Nomor Tiket: ${activeName}` : 'Nomor Tiket Peserta'}
+                </span>
+                <p className="font-mono text-2xl font-black text-brand-950">
+                  {activeTicketCode}
+                </p>
+                <p className="text-[11px] text-surface-500 max-w-xs mx-auto leading-relaxed">
+                  💡 <em>Tingkatkan kecerahan layar ponsel Anda saat mendekati gerbang pemindaian panitia.</em>
+                </p>
+              </div>
+
+              <div className="space-y-2 pt-1">
+                {hasGroup && (
+                  <a
+                    href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
+                      `Bismillah, ini e-tiket kajian "${fullscreenQr.event.title}" untuk ${activeName} (${activeRel}):\nNomor Tiket: ${activeTicketCode}\nTautan QR Presensi: ${activePortalUrl}\n\nJazakumullah khairan.`
+                    )}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs flex items-center justify-center gap-1.5 transition-all active:scale-95"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    <span>Bagikan Tiket WA ({activeName.split(' ')[0]})</span>
+                  </a>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setFullscreenQr(null)}
+                  className="w-full py-2.5 bg-cream-100 hover:bg-cream-200 text-brand-950 rounded-xl font-bold text-xs border border-cream-300 transition-colors cursor-pointer"
+                >
+                  Tutup QR
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* 4. MODAL: E-CERTIFICATE OFFICIAL PRINTABLE */}
       {certEvent && hubData && (

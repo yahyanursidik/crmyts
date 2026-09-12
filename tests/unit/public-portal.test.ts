@@ -1076,4 +1076,164 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
     expect(eventItem.formConfig.participantRequirements).toEqual(['Syarat 1', 'Syarat 2']);
     expect(eventItem.formConfig.whatsappGroupIkhwanUrl).toBeUndefined(); // private sanitized
   });
+
+  it('POST /api/public/participant/my-events returns groupMembers for group registrations', async () => {
+    const parentPerson = {
+      id: '018f3333-0000-7000-8000-111122223333',
+      fullName: 'Abu Fulan',
+      phoneE164: '+6281234567890',
+      gender: 'ikhwan',
+    };
+
+    const targetEvent = {
+      id: '018f3333-0000-7000-8000-444455556666',
+      title: 'Kajian Akbar Rombongan',
+      startAt: new Date(Date.now() + 86400000),
+      status: 'scheduled',
+      formConfig: {},
+    };
+
+    const parentAttendance = {
+      id: 'att_parent_01',
+      eventId: targetEvent.id,
+      personId: parentPerson.id,
+      ticketCode: 'YTS-ABU-1001',
+      registrationGroupId: 'GRP-202610-ABCD',
+      familyRelationship: 'Kepala Keluarga / Pendaftar Utama',
+      status: 'registered',
+      checkInAt: new Date(),
+      event: targetEvent,
+    };
+
+    const childAttendance = {
+      id: 'att_child_02',
+      eventId: targetEvent.id,
+      personId: '018f3333-0000-7000-8000-777788889999',
+      ticketCode: 'YTS-ANAK-1002',
+      registrationGroupId: 'GRP-202610-ABCD',
+      familyRelationship: 'Anak',
+      status: 'registered',
+      checkInAt: new Date(),
+      person: {
+        id: '018f3333-0000-7000-8000-777788889999',
+        fullName: 'Fulan Kecil',
+        gender: 'ikhwan',
+        phoneE164: '+6281234567890-fam-1',
+      },
+    };
+
+    const mockDb = {
+      query: {
+        persons: {
+          findFirst: vi.fn().mockResolvedValue(parentPerson),
+        },
+        eventAttendance: {
+          findMany: vi.fn().mockImplementation((opts) => {
+            if (opts?.where && String(opts?.where).includes('personId')) {
+              return Promise.resolve([parentAttendance]);
+            }
+            return Promise.resolve([
+              { ...parentAttendance, person: parentPerson },
+              childAttendance,
+            ]);
+          }),
+        },
+      },
+    };
+
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      path: '/api/public/participant/my-events',
+      method: 'POST',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        phone: '081234567890',
+      },
+      requestId: 'req_my_events_group',
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.data.upcoming).toHaveLength(1);
+    const upcomingTicket = body.data.upcoming[0];
+    expect(upcomingTicket.ticketCode).toBe('YTS-ABU-1001');
+    expect(upcomingTicket.registrationGroupId).toBe('GRP-202610-ABCD');
+    expect(upcomingTicket.groupMembers).toHaveLength(2);
+    expect(upcomingTicket.groupMembers[0].name).toBe('Abu Fulan');
+    expect(upcomingTicket.groupMembers[0].ticketCode).toBe('YTS-ABU-1001');
+    expect(upcomingTicket.groupMembers[1].name).toBe('Fulan Kecil');
+    expect(upcomingTicket.groupMembers[1].ticketCode).toBe('YTS-ANAK-1002');
+  });
+
+  it('POST /api/public/participant-ticket authorizes family member ticket using parent phone number', async () => {
+    const parentPhone = '+6281234567890';
+    const childTicketCode = 'YTS-ANAK-1002';
+    const groupId = 'GRP-202610-ABCD';
+
+    const childAttendance = {
+      id: 'att_child_02',
+      eventId: '018f3333-0000-7000-8000-444455556666',
+      personId: '018f3333-0000-7000-8000-777788889999',
+      ticketCode: childTicketCode,
+      registrationGroupId: groupId,
+      familyRelationship: 'Anak',
+      status: 'registered',
+      checkInAt: new Date(),
+      person: {
+        id: '018f3333-0000-7000-8000-777788889999',
+        fullName: 'Fulan Kecil',
+        gender: 'ikhwan',
+        phoneE164: `${parentPhone}-fam-1`,
+      },
+      event: {
+        id: '018f3333-0000-7000-8000-444455556666',
+        title: 'Kajian Akbar Rombongan',
+        startAt: new Date(Date.now() + 86400000),
+        status: 'scheduled',
+        formConfig: {},
+      },
+    };
+
+    const mockDb = {
+      query: {
+        eventAttendance: {
+          findFirst: vi.fn().mockResolvedValue(childAttendance),
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: 'att_parent_01',
+              ticketCode: 'YTS-ABU-1001',
+              familyRelationship: 'Kepala Keluarga',
+              person: { fullName: 'Abu Fulan', gender: 'ikhwan' },
+            },
+            childAttendance,
+          ]),
+        },
+      },
+    };
+
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      path: '/api/public/participant-ticket',
+      method: 'POST',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        ticketCode: childTicketCode,
+        phone: '081234567890',
+      },
+      requestId: 'req_child_ticket_check',
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.data.participant.name).toBe('Fulan Kecil');
+    expect(body.data.participant.ticketCode).toBe(childTicketCode);
+    expect(body.data.participant.familyRelationship).toBe('Anak');
+    expect(body.data.participant.groupMembers).toHaveLength(2);
+  });
 });

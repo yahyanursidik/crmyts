@@ -30,6 +30,8 @@ import {
   ExternalLink,
   ScrollText,
   AlertCircle,
+  QrCode,
+  Users,
   X,
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
@@ -173,6 +175,8 @@ export function EventsPortalPage() {
   const [customResponses, setCustomResponses] = useState<Record<string, any>>({});
   const [submittingEvent, setSubmittingEvent] = useState(false);
   const [eventSuccess, setEventSuccess] = useState<any | null>(null);
+  const [selectedGroupTicketIdx, setSelectedGroupTicketIdx] = useState<number>(0);
+  const [showAllGroupQrs, setShowAllGroupQrs] = useState(false);
 
   // Multi-participant / Family Group Registration States
   interface AdditionalMember {
@@ -1071,48 +1075,6 @@ export function EventsPortalPage() {
                         )}
                       </div>
                     )}
-                  </div>
-
-                  {/* Bazar & Stan UMKM Majelis */}
-                  <div className="event-info-panel bg-white p-6 border border-amber-200/70 rounded-3xl shadow-sm space-y-3 relative overflow-hidden">
-                    <div className="flex items-center justify-between pb-2 border-b border-amber-100">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center">
-                          <Store className="w-4 h-4 text-amber-700" />
-                        </div>
-                        <div>
-                          <h3 className="text-base font-bold text-slate-900 font-display">
-                            Bazar &amp; Stan UMKM Majelis Ilmu
-                          </h3>
-                          <p className="text-[11px] text-slate-500">Peluang perniagaan halal &amp; berkah bagi jamaah</p>
-                        </div>
-                      </div>
-                      <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-200">
-                        Pendaftaran Terbuka
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-slate-700 leading-relaxed">
-                      Bagi jamaah pelaku usaha UMKM (kuliner halal, busana syar'i, buku, herbal, dan produk sunnah) yang ingin membuka stan perniagaan selama kajian ini, panitia menyediakan fasilitas stan bazar resmi.
-                    </p>
-
-                    <div className="pt-2 flex flex-col sm:flex-row items-center gap-2.5">
-                      <Link
-                        to={`/bazar/${selectedEvent.id}`}
-                        className="w-full sm:w-auto px-4 py-2.5 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2"
-                      >
-                        <Store className="w-3.5 h-3.5 text-[#E0B970]" />
-                        <span>Daftar Stan Bazar UMKM</span>
-                      </Link>
-
-                      <Link
-                        to={`/bazar/${selectedEvent.id}?tab=status`}
-                        className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2"
-                      >
-                        <Search className="w-3.5 h-3.5" />
-                        <span>Cek Status &amp; Upload Bukti Bayar</span>
-                      </Link>
-                    </div>
                   </div>
 
                   {/* Tata Tertib & Batasan Majelis */}
@@ -2324,50 +2286,182 @@ export function EventsPortalPage() {
               </div>
             )}
 
-            {/* Individual vs Group E-Tickets List */}
+            {/* Individual vs Group E-Tickets & QR Management */}
             {eventSuccess.groupTickets && eventSuccess.groupTickets.length > 1 ? (
-              <div className="space-y-2 text-left">
-                <span className="text-xs font-black text-slate-900 block">
-                  Daftar E-Tiket Rombongan ({eventSuccess.groupTickets.length} Jamaah):
-                </span>
-                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                  {eventSuccess.groupTickets.map((t: any, idx: number) => (
-                    <div
-                      key={t.ticketCode || idx}
-                      className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs flex items-center justify-between gap-2"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-slate-900 truncate block">{t.name}</span>
-                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-teal-100 text-teal-800 shrink-0">
-                            {t.relationship}
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-slate-500 capitalize">
-                          {t.gender} {t.age ? `• ${t.age} thn` : ''}
-                        </span>
-                      </div>
-                      <span className="font-mono font-bold text-teal-950 bg-white px-2 py-1 rounded-lg border border-slate-200 text-[11px] shrink-0">
-                        {t.ticketCode}
-                      </span>
-                    </div>
-                  ))}
+              <div className="space-y-4 text-left">
+                <div className="flex items-center justify-between gap-2 border-b border-cream-300 pb-2 flex-wrap">
+                  <div>
+                    <span className="text-xs font-black text-brand-950 flex items-center gap-1.5 font-display">
+                      <Users className="w-4 h-4 text-brand-700" />
+                      E-Tiket Rombongan ({eventSuccess.groupTickets.length} Jamaah)
+                    </span>
+                    <p className="text-[11px] text-surface-500">
+                      Tiap peserta memiliki QR Code & nomor tiket tersendiri untuk presensi gerbang.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAllGroupQrs(!showAllGroupQrs)}
+                    className="text-[10px] font-bold px-2.5 py-1 rounded-xl bg-cream-100 hover:bg-cream-200 text-brand-900 border border-cream-300 transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <QrCode className="w-3 h-3 text-brand-700" />
+                    <span>{showAllGroupQrs ? 'Mode Tab Peserta' : 'Tampilkan Semua QR'}</span>
+                  </button>
                 </div>
+
+                {/* MODE A: Tab Selector + Single Active QR Display */}
+                {!showAllGroupQrs ? (
+                  <div className="space-y-3">
+                    {/* Selector Pills / Horizontal Scroll */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                      {eventSuccess.groupTickets.map((t: any, idx: number) => {
+                        const isSelected = selectedGroupTicketIdx === idx;
+                        return (
+                          <button
+                            key={t.ticketCode || idx}
+                            type="button"
+                            onClick={() => setSelectedGroupTicketIdx(idx)}
+                            className={`px-3 py-2 rounded-xl text-left shrink-0 transition-all border text-xs cursor-pointer ${
+                              isSelected
+                                ? 'bg-brand-900 text-white border-brand-950 shadow-xs'
+                                : 'bg-white hover:bg-cream-100 text-slate-700 border-cream-300'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-black truncate max-w-[120px]">{t.name}</span>
+                              <span
+                                className={`text-[9px] font-bold px-1.5 py-0.2 rounded shrink-0 ${
+                                  isSelected ? 'bg-brand-800 text-emerald-300' : 'bg-cream-200 text-brand-950'
+                                }`}
+                              >
+                                {t.relationship}
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-mono block mt-0.5 opacity-90">
+                              {t.ticketCode}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Active Member QR Card */}
+                    {(() => {
+                      const active =
+                        eventSuccess.groupTickets[selectedGroupTicketIdx] || eventSuccess.groupTickets[0];
+                      const activeTicketCode = active.ticketCode || eventSuccess.ticketCode;
+                      const activePortalPath = buildParticipantPortalPath(eventSuccess.event.id, activeTicketCode);
+                      const activePortalUrl = `${window.location.origin}${activePortalPath}`;
+
+                      return (
+                        <div className="p-4 bg-cream-50/70 border-2 border-brand-800/80 rounded-2xl space-y-3 text-center">
+                          <div className="flex items-center justify-between border-b border-cream-300/80 pb-2">
+                            <div className="text-left">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-surface-400 block">
+                                E-Tiket Peserta Ke-{selectedGroupTicketIdx + 1}:
+                              </span>
+                              <strong className="text-sm font-black text-brand-950 block">
+                                {active.name}
+                              </strong>
+                              <span className="text-[10px] text-surface-600">
+                                Hubungan: <b>{active.relationship}</b> {active.gender ? `• ${active.gender}` : ''}
+                              </span>
+                            </div>
+                            <span className="px-2.5 py-1 rounded-lg bg-brand-900 text-emerald-300 text-xs font-mono font-bold">
+                              {activeTicketCode}
+                            </span>
+                          </div>
+
+                          <ParticipantQrCode
+                            value={activePortalUrl}
+                            ticketCode={activeTicketCode}
+                            className="mx-auto max-w-[15rem]"
+                          />
+
+                          <div className="pt-1 flex flex-col sm:flex-row items-center gap-2">
+                            <a
+                              href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
+                                `Bismillah, ini e-tiket kajian "${eventSuccess.event.title}" untuk ${active.name} (${active.relationship}):\nNomor Tiket: ${activeTicketCode}\nTautan QR Presensi: ${activePortalUrl}\n\nJazakumullah khairan.`
+                              )}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] shadow-xs flex items-center justify-center gap-1.5 transition-all active:scale-95"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              <span>Bagikan Tiket WA ({active.name.split(' ')[0]})</span>
+                            </a>
+
+                            <Link
+                              to={activePortalPath}
+                              className="w-full sm:w-auto py-2 px-3 rounded-xl bg-white hover:bg-cream-100 text-brand-950 font-bold text-[11px] border border-cream-300 flex items-center justify-center gap-1.5 transition-all"
+                            >
+                              <Ticket className="w-3.5 h-3.5 text-brand-700" />
+                              <span>Buka Portal</span>
+                            </Link>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                ) : (
+                  /* MODE B: Grid Display of ALL Member QRs */
+                  <div className="space-y-4">
+                    <p className="text-[11px] text-surface-600">
+                      Berikut QR presensi untuk seluruh anggota rombongan. Anda dapat mengambil tangkapan layar kartu ini:
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-96 overflow-y-auto pr-1">
+                      {eventSuccess.groupTickets.map((t: any, idx: number) => {
+                        const memberTicketCode = t.ticketCode || eventSuccess.ticketCode;
+                        const memberPortalUrl = `${window.location.origin}${buildParticipantPortalPath(
+                          eventSuccess.event.id,
+                          memberTicketCode
+                        )}`;
+
+                        return (
+                          <div
+                            key={t.ticketCode || idx}
+                            className="p-3 bg-white rounded-2xl border border-cream-300 shadow-2xs space-y-2 text-center"
+                          >
+                            <div className="flex items-center justify-between text-left border-b border-cream-200 pb-1.5">
+                              <div>
+                                <span className="font-bold text-xs text-brand-950 block truncate max-w-[130px]">
+                                  {idx + 1}. {t.name}
+                                </span>
+                                <span className="text-[10px] text-surface-500">{t.relationship}</span>
+                              </div>
+                              <span className="font-mono font-bold text-[11px] text-brand-900 bg-cream-100 px-2 py-0.5 rounded">
+                                {memberTicketCode}
+                              </span>
+                            </div>
+
+                            <ParticipantQrCode
+                              value={memberPortalUrl}
+                              ticketCode={memberTicketCode}
+                              className="mx-auto max-w-[13rem]"
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
-              <div className="p-3.5 bg-brand-50/70 border border-brand-200 rounded-2xl text-center">
-                <span className="text-[11px] text-brand-700 block font-sans font-medium">Nomor E-Tiket Presensi Anda:</span>
-                <span className="font-extrabold text-brand-950 text-xl font-mono tracking-wider block mt-0.5">{eventSuccess.ticketCode}</span>
-                <span className="text-[10px] text-brand-600 font-sans block mt-1">Cukup sebutkan nomor ini atau tunjukkan QR di gerbang.</span>
-              </div>
-            )}
+              <>
+                <div className="p-3.5 bg-brand-50/70 border border-brand-200 rounded-2xl text-center">
+                  <span className="text-[11px] text-brand-700 block font-sans font-medium">Nomor E-Tiket Presensi Anda:</span>
+                  <span className="font-extrabold text-brand-950 text-xl font-mono tracking-wider block mt-0.5">{eventSuccess.ticketCode}</span>
+                  <span className="text-[10px] text-brand-600 font-sans block mt-1">Cukup sebutkan nomor ini atau tunjukkan QR di gerbang.</span>
+                </div>
 
-            {eventSuccess.ticketCode && (
-              <ParticipantQrCode
-                value={`${window.location.origin}${buildParticipantPortalPath(eventSuccess.event.id, eventSuccess.ticketCode)}`}
-                ticketCode={eventSuccess.ticketCode}
-                className="mx-auto max-w-[15rem]"
-              />
+                {eventSuccess.ticketCode && (
+                  <ParticipantQrCode
+                    value={`${window.location.origin}${buildParticipantPortalPath(eventSuccess.event.id, eventSuccess.ticketCode)}`}
+                    ticketCode={eventSuccess.ticketCode}
+                    className="mx-auto max-w-[15rem]"
+                  />
+                )}
+              </>
             )}
 
             <p className="text-[11px] text-slate-500 leading-relaxed">
@@ -2446,6 +2540,8 @@ export function EventsPortalPage() {
                   setRegVehicleType('none');
                   setRegVehiclePlate('');
                   setAgreedToRules(false);
+                  setSelectedGroupTicketIdx(0);
+                  setShowAllGroupQrs(false);
                 }}
                 className="w-full py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-xs active:scale-95"
               >

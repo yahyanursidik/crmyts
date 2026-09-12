@@ -192,10 +192,44 @@ export async function sendEventRegistrationTicketEmail(params: {
   ticketCode: string;
   gender: 'ikhwan' | 'akhwat' | null;
   familyCount?: number;
+  groupTickets?: Array<{ name: string; relationship: string; ticketCode: string }>;
   isPaid?: boolean;
   priceRupiah?: number;
   eventUrl: string;
 }) {
+  const groupSection =
+    params.groupTickets && params.groupTickets.length > 1
+      ? `
+      <div style="margin-top: 16px; padding-top: 14px; border-top: 1px dashed #cbd5e1;">
+        <span style="font-size: 11px; font-weight: 800; color: #1c321d; text-transform: uppercase; display: block; margin-bottom: 8px;">
+          Daftar E-Tiket Rombongan (${params.groupTickets.length} Jamaah):
+        </span>
+        <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+          <thead>
+            <tr style="background-color: #f8fafc; color: #475569; text-align: left;">
+              <th style="padding: 6px 8px; border: 1px solid #e2e8f0; font-size: 11px;">Nama Jamaah</th>
+              <th style="padding: 6px 8px; border: 1px solid #e2e8f0; font-size: 11px;">Hubungan</th>
+              <th style="padding: 6px 8px; border: 1px solid #e2e8f0; font-size: 11px;">Kode Tiket</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${params.groupTickets
+              .map(
+                (m) => `
+              <tr>
+                <td style="padding: 6px 8px; border: 1px solid #e2e8f0; font-weight: 600; color: #0f172a;">${m.name}</td>
+                <td style="padding: 6px 8px; border: 1px solid #e2e8f0; color: #64748b;">${m.relationship}</td>
+                <td style="padding: 6px 8px; border: 1px solid #e2e8f0; font-family: monospace; font-weight: 700; color: #1c321d;">${m.ticketCode}</td>
+              </tr>
+            `
+              )
+              .join('')}
+          </tbody>
+        </table>
+      </div>
+      `
+      : '';
+
   const content = `
     <div style="text-align: center; margin-bottom: 20px;">
       <span class="badge">E-TIKET RESMI TERKONFIRMASI</span>
@@ -247,6 +281,7 @@ export async function sendEventRegistrationTicketEmail(params: {
         `
             : ''
         }
+        ${groupSection}
       </div>
     </div>
 

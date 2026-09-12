@@ -15,7 +15,7 @@ import {
   eventAttendance,
   attachments,
 } from '../../db/schema';
-import { and, eq, sql, or, inArray, desc } from 'drizzle-orm';
+import { and, eq, sql, or, inArray, desc, asc } from 'drizzle-orm';
 import { normalizeIndonesianPhone } from '../../lib/phone';
 import { buildParticipantPortalPath, extractTicketCode } from '../../../src/lib/participantTicket';
 import { createMemorableTicketCode } from '../events/participantCodes';
@@ -997,6 +997,7 @@ export function registerPublicPortalRoutes(router: Router) {
           ticketCode,
           gender,
           familyCount: additionalList.length > 0 ? additionalList.length : undefined,
+          groupTickets: groupTickets.length > 1 ? groupTickets : undefined,
           isPaid: isPaidEvent,
           priceRupiah: totalGroupPrice,
           eventUrl: `https://yts.web.id/kajian/${targetEvent.id}`,
@@ -1051,14 +1052,56 @@ export function registerPublicPortalRoutes(router: Router) {
       });
 
       // Pesan dibuat generik supaya kode tiket tidak dapat dipakai untuk menebak data jamaah.
-      if (!attendance || attendance.person?.phoneE164 !== phoneE164) {
+      if (!attendance) {
+        return errorResponse('NOT_FOUND', 'Tiket atau nomor WhatsApp tidak sesuai.', 404, ctx.requestId);
+      }
+
+      // Validasi kepemilikan nomor telepon (mendukung nomor utama pendaftar rombongan):
+      let isPhoneAuthorized =
+        attendance.person?.phoneE164 === phoneE164 ||
+        Boolean(attendance.person?.phoneE164?.startsWith(`${phoneE164}-fam-`));
+
+      if (!isPhoneAuthorized && attendance.registrationGroupId) {
+        const groupParentAttendance = await db.query.eventAttendance.findFirst({
+          where: eq(eventAttendance.registrationGroupId, attendance.registrationGroupId),
+          with: { person: true },
+        });
+        if (
+          groupParentAttendance?.person?.phoneE164 === phoneE164 ||
+          Boolean(groupParentAttendance?.person?.phoneE164?.startsWith(`${phoneE164}-fam-`))
+        ) {
+          isPhoneAuthorized = true;
+        }
+      }
+
+      if (!isPhoneAuthorized) {
         return errorResponse('NOT_FOUND', 'Tiket atau nomor WhatsApp tidak sesuai.', 404, ctx.requestId);
       }
 
       const event = attendance.event || (await db.query.events.findFirst({ where: eq(events.id, attendance.eventId) }));
       if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan.', 404, ctx.requestId);
 
-      const groupUrl = attendance.person.gender
+      let groupMembers: any[] = [];
+      if (attendance.registrationGroupId) {
+        const allGroupAtts = await db.query.eventAttendance.findMany({
+          where: eq(eventAttendance.registrationGroupId, attendance.registrationGroupId),
+          with: { person: true },
+          orderBy: [asc(eventAttendance.checkInAt)],
+        });
+        groupMembers = allGroupAtts.map((ga) => ({
+          attendanceId: ga.id,
+          name: ga.person?.fullName || 'Peserta',
+          relationship: ga.familyRelationship || 'Keluarga',
+          gender: ga.person?.gender || 'tidak_ditentukan',
+          age: ga.age,
+          ticketCode: ga.ticketCode,
+          ticketNumber: extractTicketCode(ga.ticketCode || ''),
+          status: ga.status,
+          participantPortalPath: buildParticipantPortalPath(attendance.eventId, ga.ticketCode || ''),
+        }));
+      }
+
+      const groupUrl = attendance.person?.gender
         ? safeWhatsAppGroupUrl(
             attendance.person.gender === 'akhwat'
               ? event.formConfig?.whatsappGroupAkhwatUrl
@@ -1069,11 +1112,15 @@ export function registerPublicPortalRoutes(router: Router) {
       return successResponse(
         {
           participant: {
-            name: attendance.person.fullName,
-            gender: attendance.person.gender,
+            name: attendance.person?.fullName,
+            gender: attendance.person?.gender,
             ticketCode: attendance.ticketCode,
             status: attendance.status,
             checkInAt: attendance.checkInAt,
+            familyRelationship: attendance.familyRelationship,
+            age: attendance.age,
+            registrationGroupId: attendance.registrationGroupId,
+            groupMembers,
             isSpecialInvite:
               (attendance.registrationData as any)?.isSpecialInvite === true ||
               (attendance.registrationData as any)?.inviteSource === 'admin_invite' ||
@@ -1111,9 +1158,36 @@ export function registerPublicPortalRoutes(router: Router) {
       const phoneE164 = normalizeIndonesianPhone(body.phone);
 
       // 1. Cari data person berdasarkan nomor WhatsApp yang terdaftar
-      const person = await db.query.persons.findFirst({
+      let person = await db.query.persons.findFirst({
         where: eq(persons.phoneE164, phoneE164),
       });
+
+      // Jika tidak ditemukan dan ada ticketCode, cari attendance berdasarkan ticketCode
+      if (!person && body.ticketCode) {
+        const cleanTicket = extractTicketCode(body.ticketCode);
+        const rawCode = body.ticketCode.trim().toUpperCase();
+        const attByTicket = await db.query.eventAttendance.findFirst({
+          where: or(
+            eq(eventAttendance.ticketCode, cleanTicket),
+            eq(eventAttendance.ticketCode, rawCode)
+          ),
+          with: { person: true },
+        });
+        if (attByTicket?.person) {
+          const memberPhone = attByTicket.person.phoneE164 || '';
+          if (memberPhone === phoneE164 || memberPhone.startsWith(`${phoneE164}-fam-`)) {
+            person = attByTicket.person;
+          } else if (attByTicket.registrationGroupId) {
+            const parentAtt = await db.query.eventAttendance.findFirst({
+              where: eq(eventAttendance.registrationGroupId, attByTicket.registrationGroupId),
+              with: { person: true },
+            });
+            if (parentAtt?.person?.phoneE164 === phoneE164) {
+              person = parentAtt.person;
+            }
+          }
+        }
+      }
 
       if (!person) {
         return errorResponse(
@@ -1142,6 +1216,22 @@ export function registerPublicPortalRoutes(router: Router) {
         );
       }
 
+      // 3. Kumpulkan seluruh registrationGroupId dari pendaftaran person ini untuk memuat anggota rombongan/keluarga
+      const myGroupIds = attendances
+        .map((a) => a.registrationGroupId)
+        .filter((g): g is string => Boolean(g));
+
+      let allGroupAtts: any[] = [];
+      if (myGroupIds.length > 0) {
+        allGroupAtts = await db.query.eventAttendance.findMany({
+          where: inArray(eventAttendance.registrationGroupId, myGroupIds),
+          with: {
+            person: true,
+          },
+          orderBy: [asc(eventAttendance.checkInAt)],
+        });
+      }
+
       const upcoming: any[] = [];
       const history: any[] = [];
       const announcements: any[] = [];
@@ -1160,6 +1250,23 @@ export function registerPublicPortalRoutes(router: Router) {
             )
           : null;
 
+        const groupMembers = att.registrationGroupId
+          ? allGroupAtts
+              .filter((ga) => ga.registrationGroupId === att.registrationGroupId)
+              .map((ga) => ({
+                attendanceId: ga.id,
+                name: ga.person?.fullName || 'Peserta',
+                relationship: ga.familyRelationship || 'Keluarga',
+                gender: ga.person?.gender || 'tidak_ditentukan',
+                age: ga.age,
+                ticketCode: ga.ticketCode,
+                ticketNumber: extractTicketCode(ga.ticketCode || ''),
+                status: ga.status,
+                isSelf: ga.id === att.id,
+                participantPortalPath: buildParticipantPortalPath(ev.id, ga.ticketCode || ''),
+              }))
+          : [];
+
         const ticketItem = {
           attendanceId: att.id,
           ticketCode: att.ticketCode,
@@ -1168,6 +1275,8 @@ export function registerPublicPortalRoutes(router: Router) {
           checkInAt: att.checkInAt,
           familyRelationship: att.familyRelationship,
           age: att.age,
+          registrationGroupId: att.registrationGroupId,
+          groupMembers,
           paymentStatus: att.paymentStatus,
           paymentProofUrl: att.paymentProofUrl,
           paymentAmountRupiah: att.paymentAmountRupiah,
