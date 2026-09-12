@@ -642,6 +642,17 @@ export function registerPublicPortalRoutes(router: Router) {
         return errorResponse('VALIDATION_ERROR', 'Pendaftaran untuk kajian ini telah ditutup oleh pengurus', 400, ctx.requestId);
       }
 
+      // Validasi Persetujuan Tata Tertib & Syarat Kajian
+      const requireRules = targetEvent.formConfig?.requireRulesAgreement !== false;
+      if (requireRules && body.agreedToRules === false) {
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Anda wajib membaca dan menyetujui Tata Tertib Majelis Ilmu serta Syarat Kajian sebelum mendaftar.',
+          400,
+          ctx.requestId
+        );
+      }
+
       const fixedGender =
         targetEvent.targetAudience === 'akhwat_only'
           ? 'akhwat'

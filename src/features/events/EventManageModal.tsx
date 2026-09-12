@@ -21,6 +21,9 @@ import {
   CreditCard,
   AlertCircle,
   MessageSquare,
+  ScrollText,
+  Eye,
+  RotateCcw,
 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -52,6 +55,16 @@ export interface EventFormConfig {
   whatsappGroupIkhwanUrl?: string;
   whatsappGroupAkhwatUrl?: string;
   termsAndConditions?: string;
+  /** Tata Tertib & Adab Majelis Ilmu (Umum) */
+  adabRules?: string[];
+  /** Tata Tertib Khusus Tempat / Lokasi Tertentu (Venue Rules) */
+  venueRulesText?: string;
+  /** Syarat Mengikuti Kajian */
+  participantRequirements?: string[];
+  /** Wajib centang persetujuan tata tertib & syarat sebelum pendaftaran (default: true) */
+  requireRulesAgreement?: boolean;
+  /** Penjelasan detail adab penuntut ilmu (hadits & faedah) untuk modal edukasi */
+  rulesModalDetail?: string;
 }
 
 interface ParticipantItem {
@@ -145,6 +158,34 @@ const VENUE_RULES_PRESETS = [
   { id: 'no_street_parking', label: '🚗 Dilarang Parkir di Bahu Jalan Warga', desc: 'Wajib parkir di kantong parkir resmi yang disediakan panitia' },
 ];
 
+export const DEFAULT_ADAB_RULES = [
+  'Niat yang ikhlas semata-mata mengharap ridha Allah Subhanahu wa Ta\'ala.',
+  'Hadir tepat waktu sebelum kajian / adzan dimulai dan tidak terlambat.',
+  'Berpakaian syar\'i, sopan, longgar, dan menutup aurat secara sempurna (ikhwan rapi sopan, akhwat berhijab syar\'i & longgar).',
+  'Pemisahan area ikhwan dan akhwat terjaga dengan tertib, rapi, dan beradab.',
+  'Menonaktifkan / menyenyapkan (silent mode) nada dering ponsel selama kajian berlangsung.',
+  'Menjaga adab penuntut ilmu: fokus menyimak materi, mencatat faedah ilmu, dan tidak berbicara saat asatidzah menyampaikan materi.',
+  'Menjaga ketertiban, kebersihan lingkungan majelis, dan membuang sampah pada tempatnya.',
+  'Merapikan sandal / sepatu di rak atau tempat yang telah disediakan panitia.',
+  'Dilarang merekam audio/video atau menyiarkan live streaming tanpa izin tertulis dari panitia resmi YTS.',
+];
+
+export const DEFAULT_PARTICIPANT_REQUIREMENTS = [
+  'Wajib memiliki kode e-tiket pendaftaran resmi dari sistem CRM YTS.',
+  'Membawa mushaf Al-Qur\'an / kitab rujukan dan buku catatan faedah kajian.',
+  'Bagi yang membawa balita / anak-anak, wajib mendampingi di area keluarga/nursery demi menjaga kekhusyukan majelis.',
+  'Melakukan registrasi ulang / check-in di meja panitia minimal 15 menit sebelum acara dimulai.',
+  'Bersedia mematuhi seluruh arahan panitia, laskar keamanan, dan amil yayasan.',
+];
+
+export const DEFAULT_RULES_MODAL_DETAIL = `Panduan & Dalil Adab Penuntut Ilmu di Majelis Ilmu:
+1. Mengikhlaskan niat hanya karena Allah Ta'ala semata (HR. Bukhari & Muslim).
+2. Bersikap tenang, khusyuk, dan berwibawa (sakīnah) saat mendengarkan ilmu agama (Atsar Ibnu Sirin).
+3. Melapangkan tempat duduk bagi sesama saudara muslim yang baru tiba (QS. Al-Mujadilah: 11).
+4. Menjaga lisan dari perkataan sia-sia, bisik-bisik, dan candaan saat materi disampaikan.
+5. Mengikat ilmu dengan tulisan faedah ("Qayyidul 'ilma bil kitab").
+6. Bersegera hadir dan tidak melangkahi pundak jamaah lain.`;
+
 const DEFAULT_FORM_CONFIG: EventFormConfig = {
   collectEmail: false,
   collectCity: true,
@@ -156,6 +197,11 @@ const DEFAULT_FORM_CONFIG: EventFormConfig = {
   customFields: [],
   whatsappMessageTemplate:
     'Bismillah. Pendaftaran kajian Anda telah terkonfirmasi. Tiket: {{ticket_code}}. Mohon hadir 15 menit sebelum acara dimulai dan menaati tata tertib majelis. Barakallahu fiikum.',
+  adabRules: DEFAULT_ADAB_RULES,
+  venueRulesText: '',
+  participantRequirements: DEFAULT_PARTICIPANT_REQUIREMENTS,
+  requireRulesAgreement: true,
+  rulesModalDetail: DEFAULT_RULES_MODAL_DETAIL,
 };
 
 export const EventManageModal: React.FC<EventManageModalProps> = ({
@@ -165,10 +211,15 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
 }) => {
   const [eventData, setEventData] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'participants' | 'form_builder' | 'settings'>('participants');
+  const [activeTab, setActiveTab] = useState<'participants' | 'settings' | 'form_builder' | 'rules'>('participants');
   const [saving, setSaving] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+
+  // Tata Tertib & Syarat Kajian Editor State
+  const [newAdabRule, setNewAdabRule] = useState('');
+  const [newRequirement, setNewRequirement] = useState('');
+  const [showRulesPreview, setShowRulesPreview] = useState(false);
 
   // Settings State (Audience, Quotas, Rules & Parking)
   const [targetAudience, setTargetAudience] = useState<string>('umum');
@@ -279,6 +330,20 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
         customFields: savedFormConfig.customFields || [],
         whatsappGroupIkhwanUrl: savedFormConfig.whatsappGroupIkhwanUrl || '',
         whatsappGroupAkhwatUrl: savedFormConfig.whatsappGroupAkhwatUrl || '',
+        adabRules:
+          Array.isArray(savedFormConfig.adabRules) && savedFormConfig.adabRules.length > 0
+            ? savedFormConfig.adabRules
+            : DEFAULT_ADAB_RULES,
+        venueRulesText:
+          savedFormConfig.venueRulesText !== undefined
+            ? savedFormConfig.venueRulesText
+            : (res.data.customVenueRules || ''),
+        participantRequirements:
+          Array.isArray(savedFormConfig.participantRequirements) && savedFormConfig.participantRequirements.length > 0
+            ? savedFormConfig.participantRequirements
+            : DEFAULT_PARTICIPANT_REQUIREMENTS,
+        requireRulesAgreement: savedFormConfig.requireRulesAgreement !== false,
+        rulesModalDetail: savedFormConfig.rulesModalDetail || DEFAULT_RULES_MODAL_DETAIL,
       });
     } catch (err: any) {
       setAlertDialog({
@@ -366,6 +431,81 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleAddAdabRule = () => {
+    if (!newAdabRule.trim()) return;
+    setFormConfig((prev) => ({
+      ...prev,
+      adabRules: [...(prev.adabRules || []), newAdabRule.trim()],
+    }));
+    setNewAdabRule('');
+    showToast('Poin adab majelis ilmu ditambahkan');
+  };
+
+  const handleRemoveAdabRule = (idx: number) => {
+    setFormConfig((prev) => ({
+      ...prev,
+      adabRules: (prev.adabRules || []).filter((_, i) => i !== idx),
+    }));
+  };
+
+  const handleUpdateAdabRule = (idx: number, val: string) => {
+    setFormConfig((prev) => {
+      const copy = [...(prev.adabRules || [])];
+      copy[idx] = val;
+      return { ...prev, adabRules: copy };
+    });
+  };
+
+  const handleAddRequirement = () => {
+    if (!newRequirement.trim()) return;
+    setFormConfig((prev) => ({
+      ...prev,
+      participantRequirements: [...(prev.participantRequirements || []), newRequirement.trim()],
+    }));
+    setNewRequirement('');
+    showToast('Poin syarat kajian ditambahkan');
+  };
+
+  const handleRemoveRequirement = (idx: number) => {
+    setFormConfig((prev) => ({
+      ...prev,
+      participantRequirements: (prev.participantRequirements || []).filter((_, i) => i !== idx),
+    }));
+  };
+
+  const handleUpdateRequirement = (idx: number, val: string) => {
+    setFormConfig((prev) => {
+      const copy = [...(prev.participantRequirements || [])];
+      copy[idx] = val;
+      return { ...prev, participantRequirements: copy };
+    });
+  };
+
+  const handleResetRulesToDefault = () => {
+    setFormConfig((prev) => ({
+      ...prev,
+      adabRules: DEFAULT_ADAB_RULES,
+      participantRequirements: DEFAULT_PARTICIPANT_REQUIREMENTS,
+      rulesModalDetail: DEFAULT_RULES_MODAL_DETAIL,
+      requireRulesAgreement: true,
+    }));
+    showToast('Tata tertib & syarat berhasil dikembalikan ke standar preset YTS');
+  };
+
+  const handleApplyYtsVenuePreset = () => {
+    const ytsVenueText = `• Wajib menjaga batas suci masjid. Sandal & sepatu wajib diletakkan rapi pada loker/rak bernomor yang disediakan.
+• Parkir mobil & motor tertib hanya pada kantong parkir resmi yang diarahkan laskar (dilarang parkir di bahu jalan atau depan gerbang warga sekitar).
+• Dilarang membawa makanan berat atau minuman berwarna ke dalam karpet ruang shalat utama.
+• Jamaah yang membawa balita diarahkan ke area keluarga / nursery demi kenyamanan bersama.
+• Harap menjaga ketenangan lingkungan sekitar masjid saat hadir dan kepulangan.`;
+    setFormConfig((prev) => ({
+      ...prev,
+      venueRulesText: ytsVenueText,
+    }));
+    setCustomVenueRules(ytsVenueText);
+    showToast('Contoh aturan lokasi Masjid Tarbiyah Sunnah dimuat');
   };
 
   const handleSaveFormConfig = async () => {
@@ -714,6 +854,18 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
             <Sparkles className="w-4 h-4" />
             <span>Form Builder Pendaftaran</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab('rules')}
+            className={`py-3.5 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+              activeTab === 'rules'
+                ? 'border-teal-800 text-teal-900 bg-white shadow-2xs'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <ScrollText className="w-4 h-4 text-amber-600" />
+            <span>Tata Tertib & Syarat Kajian</span>
+          </button>
         </div>
 
         {/* Modal Body */}
@@ -789,13 +941,13 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                   <div>
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-900 text-emerald-300 border border-emerald-600">
-                      Khusus Panitia / Admin
+                      Khusus Panitia / Tamu VIP
                     </span>
                     <h4 className="text-sm font-bold text-slate-100 mt-1 flex items-center gap-1.5">
-                      <span>🎟️ Tautan & Kode Undangan Khusus Kajian</span>
+                      <span>🎟️ Tautan Khusus Jalur Undangan Resmi</span>
                     </h4>
-                    <p className="text-xs text-slate-300">
-                      Hanya dikeluarkan oleh panitia/admin untuk tamu VIP, asatidzah, tokoh, atau kuota khusus undangan.
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Sistem menggunakan <b>Tautan Khusus</b>. Formulir umum jamaah <b>tidak menampilkan</b> kotak input kode undangan agar jamaah biasa tidak bingung. Cukup bagikan Tautan Khusus ini kepada tamu VIP / undangan agar jalur khusus otomatis terverifikasi dan terkunci.
                     </p>
                   </div>
 
@@ -810,27 +962,14 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                     type="button"
                     onClick={() => {
                       const code = eventData.adminInviteCode || `UNDANGAN-${eventData.id.slice(0, 6).toUpperCase()}`;
-                      const url = `${window.location.origin}/events?event=${eventData.id}&invite=${code}`;
+                      const url = `${window.location.origin}/kajian/${eventData.id}?invite=${code}`;
                       navigator.clipboard.writeText(url);
-                      alert('Tautan undangan khusus panitia berhasil disalin ke clipboard!');
+                      showToast('Tautan pendaftaran khusus kajian (/kajian/:id?invite=...) berhasil disalin!');
                     }}
                     className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
                   >
                     <Copy className="w-3.5 h-3.5" />
-                    <span>Salin Tautan Undangan</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const code = eventData.adminInviteCode || `UNDANGAN-${eventData.id.slice(0, 6).toUpperCase()}`;
-                      navigator.clipboard.writeText(code);
-                      alert(`Kode undangan (${code}) berhasil disalin!`);
-                    }}
-                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-                  >
-                    <Ticket className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Salin Kode Saja</span>
+                    <span>Salin Tautan Khusus Kajian</span>
                   </button>
 
                   <button
@@ -838,9 +977,23 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                     onClick={() => {
                       const code = eventData.adminInviteCode || `UNDANGAN-${eventData.id.slice(0, 6).toUpperCase()}`;
                       const url = `${window.location.origin}/events?event=${eventData.id}&invite=${code}`;
-                      const waText = `Assalamu'alaikum Warahmatullahi Wabarakatuh.\n\nYth. Bapak/Ibu/Asatidzah Undangan Khusus,\nPanitia Yayasan Tarbiyah Sunnah mengundang antum untuk menghadiri:\n📌 *${eventData.title}*\n🎙️ Bersama: ${eventData.speaker}\n🗓️ Waktu: ${new Date(eventData.startAt).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}\n📍 Lokasi: ${eventData.locationName || 'Masjid Tarbiyah Sunnah'}\n\nKonfirmasi kehadiran melalui tautan undangan resmi panitia:\n🔗 ${url}\n(Atau gunakan Kode Undangan Khusus: *${code}*)\n\nJazakumullahu khairan wa barakallahu fiikum.\n- Panitia Yayasan Tarbiyah Sunnah`;
+                      navigator.clipboard.writeText(url);
+                      showToast('Tautan khusus katalog portal (/events?invite=...) disalin!');
+                    }}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                  >
+                    <Copy className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Salin Tautan Portal</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const code = eventData.adminInviteCode || `UNDANGAN-${eventData.id.slice(0, 6).toUpperCase()}`;
+                      const url = `${window.location.origin}/kajian/${eventData.id}?invite=${code}`;
+                      const waText = `Assalamu'alaikum Warahmatullahi Wabarakatuh.\n\nYth. Bapak/Ibu/Asatidzah Undangan Khusus,\nPanitia Yayasan Tarbiyah Sunnah mengundang antum untuk menghadiri:\n📌 *${eventData.title}*\n🎙️ Bersama: ${eventData.speaker}\n🗓️ Waktu: ${new Date(eventData.startAt).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}\n📍 Lokasi: ${eventData.locationName || 'Masjid Tarbiyah Sunnah'}\n\nKonfirmasi kehadiran melalui tautan undangan resmi panitia:\n🔗 ${url}\n(Jalur khusus undangan akan otomatis terverifikasi tanpa perlu mengetik kode manual)\n\nJazakumullahu khairan wa barakallahu fiikum.\n- Panitia Yayasan Tarbiyah Sunnah`;
                       navigator.clipboard.writeText(waText);
-                      alert('Format pesan WhatsApp resmi panitia berhasil disalin!');
+                      showToast('Format pesan WhatsApp resmi panitia berhasil disalin!');
                     }}
                     className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
                   >
@@ -1882,6 +2035,397 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                   className="px-6 py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50"
                 >
                   {saving ? 'Menyimpan...' : 'Simpan Seluruh Konfigurasi Form Builder'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: TATA TERTIB & SYARAT KAJIAN */}
+          {activeTab === 'rules' && (
+            <div className="space-y-6">
+              {/* Header Card with Toggle & Actions */}
+              <div className="p-5 bg-gradient-to-br from-amber-50/80 via-white to-orange-50/50 border border-amber-200 rounded-3xl shadow-2xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-200 text-amber-900 border border-amber-300">
+                        Aturan & Syarat Kajian
+                      </span>
+                      <span className="text-xs text-amber-800 font-semibold">
+                        Formulir Registrasi Online Jamaah
+                      </span>
+                    </div>
+                    <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                      <ScrollText className="w-5 h-5 text-amber-700" />
+                      <span>Tata Tertib Majelis Ilmu & Syarat Mengikuti Kajian</span>
+                    </h3>
+                    <p className="text-xs text-slate-600 max-w-2xl leading-relaxed">
+                      Atur tata tertib adab majelis ilmu, tata tertib khusus tempat/lokasi, serta syarat peserta. Jamaah wajib membaca dan menyetujui poin-poin ini di formulir pendaftaran sebelum dapat memperoleh e-tiket.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleResetRulesToDefault}
+                      className="px-3 py-2 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border border-amber-300 shadow-2xs active:scale-95"
+                      title="Kembalikan semua poin ke standar preset sunnah YTS"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-amber-800" />
+                      <span>Preset Standar YTS</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowRulesPreview(!showRulesPreview)}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-2xs active:scale-95 ${
+                        showRulesPreview
+                          ? 'bg-slate-800 text-white border-slate-700'
+                          : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                      }`}
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>{showRulesPreview ? 'Tutup Pratinjau' : 'Pratinjau Jamaah'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Mandatory Agreement Switch */}
+                <div className="pt-3 border-t border-amber-200/70 flex items-center justify-between">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formConfig.requireRulesAgreement !== false}
+                      onChange={(e) =>
+                        setFormConfig({ ...formConfig, requireRulesAgreement: e.target.checked })
+                      }
+                      className="w-4 h-4 rounded text-amber-700 focus:ring-amber-500 accent-amber-700"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-slate-900 block">
+                        Wajibkan Jamaah Membaca & Menyetujui Sebelum Mendaftar
+                      </span>
+                      <span className="text-[11px] text-slate-500 block">
+                        Jika diaktifkan, tombol pendaftaran online terkunci sampai jamaah mencentang kotak persetujuan.
+                      </span>
+                    </div>
+                  </label>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                      formConfig.requireRulesAgreement !== false
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : 'bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    {formConfig.requireRulesAgreement !== false ? 'Wajib (Aktif)' : 'Opsional'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Sub-fitur 1: Adab & Tata Tertib Majelis Ilmu (Umum) */}
+              <div className="p-5 bg-white border border-slate-200 rounded-3xl shadow-2xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center font-bold text-sm">
+                      📜
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900">
+                        1. Tata Tertib & Adab Majelis Ilmu (Umum)
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Poin-poin adab penuntut ilmu, kerapian pakaian syar'i, ketertiban, dan pemisahan shaf ikhwan/akhwat.
+                      </p>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-extrabold">
+                    {(formConfig.adabRules || []).length} Poin
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  {(formConfig.adabRules || []).map((rule, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-start gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100/60 transition-colors group"
+                    >
+                      <span className="w-5 h-5 rounded-full bg-teal-800 text-white text-[10px] font-black flex items-center justify-center shrink-0 mt-1">
+                        {idx + 1}
+                      </span>
+                      <input
+                        type="text"
+                        value={rule}
+                        onChange={(e) => handleUpdateAdabRule(idx, e.target.value)}
+                        className="flex-1 bg-transparent text-xs text-slate-800 font-medium focus:outline-none focus:bg-white focus:p-1.5 focus:border focus:border-teal-500 focus:rounded-lg"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAdabRule(idx)}
+                        className="p-1 text-slate-400 hover:text-rose-600 rounded-lg opacity-60 group-hover:opacity-100 transition-opacity"
+                        title="Hapus poin ini"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+
+                  {(!formConfig.adabRules || formConfig.adabRules.length === 0) && (
+                    <p className="text-xs text-slate-400 italic py-2">
+                      Belum ada poin tata tertib umum majelis. Klik tombol "Preset Standar YTS" di atas untuk memuat tata tertib sunnah.
+                    </p>
+                  )}
+                </div>
+
+                {/* Add New Adab Rule */}
+                <div className="flex gap-2 pt-2 border-t border-slate-100">
+                  <input
+                    type="text"
+                    placeholder="Tulis poin tata tertib adab majelis ilmu baru..."
+                    value={newAdabRule}
+                    onChange={(e) => setNewAdabRule(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddAdabRule();
+                      }
+                    }}
+                    className="flex-1 p-2.5 border border-slate-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddAdabRule}
+                    disabled={!newAdabRule.trim()}
+                    className="px-4 py-2 bg-teal-800 hover:bg-teal-900 disabled:opacity-40 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Tambah Poin</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Sub-fitur 2: Tata Tertib Khusus Tempat / Lokasi Tertentu (Venue Rules) */}
+              <div className="p-5 bg-white border border-slate-200 rounded-3xl shadow-2xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-sm">
+                      🕌
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900">
+                        2. Tata Tertib Khusus Tempat / Lokasi Tertentu (Venue Rules)
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Aturan spesifik terkait lokasi (parkir warga, batas suci, penitipan sandal, area nursery balita).
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleApplyYtsVenuePreset}
+                    className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded-lg text-[11px] font-bold transition-all active:scale-95 cursor-pointer"
+                  >
+                    Contoh Aturan Masjid YTS
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold text-slate-700">
+                    Catatan Aturan Khusus Tempat / Venue (Bisa Diedit Bebas):
+                  </label>
+                  <textarea
+                    rows={4}
+                    placeholder="Contoh: Wajib menjaga batas suci masjid. Parkir kendaraan tertib hanya pada kantong parkir resmi yang diarahkan laskar (dilarang parkir di bahu jalan warga)..."
+                    value={formConfig.venueRulesText || ''}
+                    onChange={(e) => {
+                      setFormConfig({ ...formConfig, venueRulesText: e.target.value });
+                      setCustomVenueRules(e.target.value);
+                    }}
+                    className="w-full p-3 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none font-sans leading-relaxed"
+                  />
+                  <p className="text-[11px] text-slate-500">
+                    Jika dikosongkan, bagian aturan khusus tempat tidak akan dimunculkan di formulir pendaftaran jamaah.
+                  </p>
+                </div>
+              </div>
+
+              {/* Sub-fitur 3: Syarat Mengikuti Kajian (Requirements) */}
+              <div className="p-5 bg-white border border-slate-200 rounded-3xl shadow-2xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-sm">
+                      📋
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900">
+                        3. Syarat Mengikuti Kajian (Requirements)
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Persyaratan wajib bagi peserta (kepemilikan e-tiket, mushaf/kitab catatan, kehadiran sebelum acara).
+                      </p>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-extrabold">
+                    {(formConfig.participantRequirements || []).length} Syarat
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  {(formConfig.participantRequirements || []).map((req, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-start gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100/60 transition-colors group"
+                    >
+                      <span className="w-5 h-5 rounded-full bg-emerald-700 text-white text-[10px] font-black flex items-center justify-center shrink-0 mt-1">
+                        ✓
+                      </span>
+                      <input
+                        type="text"
+                        value={req}
+                        onChange={(e) => handleUpdateRequirement(idx, e.target.value)}
+                        className="flex-1 bg-transparent text-xs text-slate-800 font-medium focus:outline-none focus:bg-white focus:p-1.5 focus:border focus:border-emerald-500 focus:rounded-lg"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveRequirement(idx)}
+                        className="p-1 text-slate-400 hover:text-rose-600 rounded-lg opacity-60 group-hover:opacity-100 transition-opacity"
+                        title="Hapus syarat ini"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+
+                  {(!formConfig.participantRequirements || formConfig.participantRequirements.length === 0) && (
+                    <p className="text-xs text-slate-400 italic py-2">
+                      Belum ada poin syarat kajian. Tambahkan di bawah atau gunakan preset YTS.
+                    </p>
+                  )}
+                </div>
+
+                {/* Add New Requirement */}
+                <div className="flex gap-2 pt-2 border-t border-slate-100">
+                  <input
+                    type="text"
+                    placeholder="Tulis syarat baru (misal: Membawa mushaf Al-Qur'an dan kitab rujukan)..."
+                    value={newRequirement}
+                    onChange={(e) => setNewRequirement(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddRequirement();
+                      }
+                    }}
+                    className="flex-1 p-2.5 border border-slate-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddRequirement}
+                    disabled={!newRequirement.trim()}
+                    className="px-4 py-2 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-40 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Tambah Syarat</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Sub-fitur 4: Edukasi Adab Penuntut Ilmu (Modal Guide) */}
+              <div className="p-5 bg-white border border-slate-200 rounded-3xl shadow-2xs space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center font-bold text-sm">
+                    📖
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900">
+                      4. Panduan & Dalil Adab Penuntut Ilmu (Edukasi Jamaah)
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Teks penjelasan ini akan muncul di jendela dialog saat jamaah mengklik tombol "Baca Penjelasan Lengkap Adab Majelis Ilmu" di formulir pendaftaran.
+                    </p>
+                  </div>
+                </div>
+
+                <textarea
+                  rows={5}
+                  value={formConfig.rulesModalDetail || ''}
+                  onChange={(e) => setFormConfig({ ...formConfig, rulesModalDetail: e.target.value })}
+                  className="w-full p-3 border border-slate-300 rounded-xl text-xs font-sans focus:ring-2 focus:ring-indigo-500 focus:outline-none leading-relaxed font-mono"
+                />
+              </div>
+
+              {/* Sub-fitur 5: Live Preview Box */}
+              {showRulesPreview && (
+                <div className="p-5 bg-amber-50/60 border-2 border-amber-300 rounded-3xl space-y-3 animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between border-b border-amber-200 pb-2">
+                    <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                      <Eye className="w-4 h-4 text-amber-800" /> Pratinjau Tampilan Jamaah di Formulir Pendaftaran:
+                    </span>
+                    <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">
+                      Live Preview
+                    </span>
+                  </div>
+
+                  {/* Card Preview */}
+                  <div className="p-4 bg-white rounded-2xl border border-amber-200 space-y-3 shadow-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm">📜</span>
+                      <span className="text-xs font-bold text-slate-900">Tata Tertib & Adab Majelis Ilmu</span>
+                    </div>
+                    <ul className="space-y-1 text-xs text-slate-700 list-disc list-inside">
+                      {(formConfig.adabRules || DEFAULT_ADAB_RULES).slice(0, 4).map((r, i) => (
+                        <li key={i}>{r}</li>
+                      ))}
+                      {(formConfig.adabRules || []).length > 4 && (
+                        <li className="text-amber-800 font-semibold list-none pl-4">
+                          + {(formConfig.adabRules || []).length - 4} poin tata tertib lainnya...
+                        </li>
+                      )}
+                    </ul>
+
+                    {formConfig.venueRulesText && (
+                      <div className="pt-2 border-t border-slate-100">
+                        <span className="text-xs font-bold text-amber-950 block mb-1">
+                          🕌 Aturan Khusus Lokasi / Tempat:
+                        </span>
+                        <p className="text-xs text-slate-600 whitespace-pre-line leading-relaxed">
+                          {formConfig.venueRulesText}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="pt-2 border-t border-slate-100">
+                      <span className="text-xs font-bold text-emerald-950 block mb-1">
+                        📋 Syarat Mengikuti Kajian:
+                      </span>
+                      <ul className="space-y-1 text-xs text-slate-700 list-disc list-inside">
+                        {(formConfig.participantRequirements || DEFAULT_PARTICIPANT_REQUIREMENTS).map((req, i) => (
+                          <li key={i}>{req}</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div className="pt-2 border-t border-amber-100">
+                      <label className="flex items-start gap-2 text-xs text-slate-800 font-semibold">
+                        <input type="checkbox" checked={true} readOnly className="mt-0.5 rounded text-amber-700" />
+                        <span>
+                          Saya telah membaca, memahami, dan berkomitmen mematuhi seluruh Tata Tertib Majelis Ilmu serta Syarat Kajian di atas. *
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Save Button for Rules Tab */}
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleSaveFormConfig}
+                  disabled={saving}
+                  className="px-6 py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{saving ? 'Menyimpan...' : 'Simpan Seluruh Tata Tertib & Syarat Kajian'}</span>
                 </button>
               </div>
             </div>

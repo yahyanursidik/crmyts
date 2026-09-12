@@ -28,12 +28,20 @@ import {
   Plus,
   Store,
   ExternalLink,
+  ScrollText,
+  AlertCircle,
+  X,
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { LoadingState } from '@/components/common/LoadingState';
 import { PortalBackground } from '@/components/common/PortalBackground';
 import { CitySuggestInput } from '@/components/common/CitySuggestInput';
-import { EventFormConfig } from '../events/EventManageModal';
+import {
+  EventFormConfig,
+  DEFAULT_ADAB_RULES,
+  DEFAULT_PARTICIPANT_REQUIREMENTS,
+  DEFAULT_RULES_MODAL_DETAIL,
+} from '../events/EventManageModal';
 import { ParticipantQrCode } from './ParticipantQrCode';
 import { buildParticipantPortalPath } from '@/lib/participantTicket';
 import './events-portal.css';
@@ -160,6 +168,8 @@ export function EventsPortalPage() {
   const [regVehicleType, setRegVehicleType] = useState<'none' | 'motorcycle' | 'car'>('none');
   const [regVehiclePlate, setRegVehiclePlate] = useState('');
   const [agreedToRules, setAgreedToRules] = useState(false);
+  const [showRulesDetailModal, setShowRulesDetailModal] = useState(false);
+  const [expandedRules, setExpandedRules] = useState(false);
   const [customResponses, setCustomResponses] = useState<Record<string, any>>({});
   const [submittingEvent, setSubmittingEvent] = useState(false);
   const [eventSuccess, setEventSuccess] = useState<any | null>(null);
@@ -300,6 +310,22 @@ export function EventsPortalPage() {
     selectedEvent?.formConfig?.requireGender !== false;
   // Form config kosong menandakan event lama, yang sebelumnya mendukung pendaftaran rombongan.
   const canRegisterFamily = selectedEvent?.formConfig?.allowMultiParticipant !== false;
+
+  const activeAdabRules =
+    Array.isArray(selectedEvent?.formConfig?.adabRules) && selectedEvent.formConfig.adabRules.length > 0
+      ? selectedEvent.formConfig.adabRules
+      : DEFAULT_ADAB_RULES;
+
+  const activeVenueRulesText =
+    selectedEvent?.formConfig?.venueRulesText || selectedEvent?.customVenueRules || '';
+
+  const activeRequirements =
+    Array.isArray(selectedEvent?.formConfig?.participantRequirements) && selectedEvent.formConfig.participantRequirements.length > 0
+      ? selectedEvent.formConfig.participantRequirements
+      : DEFAULT_PARTICIPANT_REQUIREMENTS;
+
+  const activeRulesDetail =
+    selectedEvent?.formConfig?.rulesModalDetail || DEFAULT_RULES_MODAL_DETAIL;
 
   const handleCopyShareLink = (evId?: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -1904,72 +1930,45 @@ export function EventsPortalPage() {
                     </div>
                   )}
 
-                  {/* 7a. Kode Undangan Khusus Panitia (Opsional) */}
-                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                        <span className="text-emerald-600">✨</span>
-                        <span>Punya Kode Undangan Khusus Panitia?</span>
-                        <span className="text-[10px] font-normal text-slate-500">(Opsional)</span>
-                      </label>
-                      {verifiedReferrer && (
-                        <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/80 px-2 py-0.5 rounded-md">
-                          ✓ Terverifikasi Panitia
+                  {/* 7a. Jalur Khusus Undangan Resmi (Hanya Muncul Bila Menggunakan Tautan Khusus) */}
+                  {verifiedReferrer && (
+                    <div className="p-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-white border-2 border-emerald-300 rounded-2xl space-y-2 shadow-2xs animate-in fade-in duration-200">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="w-7 h-7 rounded-xl bg-emerald-700 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+                            🎟️
+                          </span>
+                          <div>
+                            <span className="text-xs font-bold text-emerald-950 block">
+                              Jalur Undangan Khusus Panitia
+                            </span>
+                            <span className="text-[10px] text-emerald-800">
+                              Tautan khusus resmi dari Panitia Yayasan / Asatidzah
+                            </span>
+                          </div>
+                        </div>
+                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-200 text-emerald-900 text-[10px] font-black uppercase tracking-wider">
+                          Terverifikasi
                         </span>
-                      )}
+                      </div>
+                      <div className="p-2 bg-white/90 rounded-xl border border-emerald-200/80 text-[11px] text-emerald-900 font-mono flex items-center justify-between">
+                        <span>Kode: <b>{verifiedReferrer.referralCode}</b></span>
+                        <span className="text-emerald-700 font-sans text-[10px] font-bold">Kuota Khusus Undangan</span>
+                      </div>
                     </div>
+                  )}
 
-                    {verifiedReferrer ? (
-                      <div className="p-2.5 bg-emerald-50/80 border border-emerald-300 rounded-xl flex items-center justify-between gap-2 text-xs text-emerald-950">
-                        <div>
-                          <span className="font-bold block">✨ Jalur Undangan Khusus Panitia</span>
-                          <span className="text-[11px] font-mono text-emerald-800">Kode: {verifiedReferrer.referralCode}</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setVerifiedReferrer(null);
-                            setInputReferralCode('');
-                            setReferralStatusText(null);
-                          }}
-                          className="text-[11px] font-bold text-rose-700 hover:text-rose-900 underline px-1"
-                        >
-                          Hapus
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="space-y-1.5">
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            placeholder="Contoh: UNDANGAN-VIP atau Kode Panitia"
-                            value={inputReferralCode}
-                            onChange={(e) => {
-                              setInputReferralCode(e.target.value.toUpperCase());
-                              setReferralStatusText(null);
-                            }}
-                            className="flex-1 p-2 bg-white border border-slate-300 rounded-xl text-xs font-mono font-bold tracking-wide uppercase focus:ring-2 focus:ring-teal-500 focus:outline-none placeholder:font-sans placeholder:font-normal placeholder:tracking-normal"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleVerifyReferral(inputReferralCode)}
-                            disabled={!inputReferralCode.trim() || verifyingReferral}
-                            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 disabled:opacity-40 text-white text-xs font-bold rounded-xl transition-all active:scale-95 shrink-0"
-                          >
-                            {verifyingReferral ? 'Mengecek...' : 'Terapkan'}
-                          </button>
-                        </div>
-                        {referralStatusText && (
-                          <p className={`text-[11px] font-medium ${verifiedReferrer ? 'text-emerald-700' : 'text-amber-700'}`}>
-                            {referralStatusText}
-                          </p>
-                        )}
-                        <p className="text-[10px] text-slate-500 leading-relaxed">
-                          Masukkan Kode Undangan Khusus Resmi dari Panitia Yayasan jika Anda menerima undangan VIP/khusus.
-                        </p>
-                      </div>
-                    )}
-                  </div>
+                  {/* Jika membuka melalui tautan undangan tapi kodenya tidak valid / kedaluwarsa */}
+                  {!verifiedReferrer && urlReferral && !verifyingReferral && (
+                    <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl space-y-1 text-xs text-amber-900 animate-in fade-in duration-200">
+                      <span className="font-bold flex items-center gap-1.5 text-amber-950">
+                        <AlertCircle className="w-4 h-4 text-amber-700" /> Tautan Undangan Tidak Ditemukan / Telah Kedaluwarsa
+                      </span>
+                      <p className="text-[11px] text-amber-800 leading-relaxed">
+                        {referralStatusText ? `${referralStatusText} ` : `Kode undangan dari tautan Anda (${urlReferral}) tidak valid untuk kajian ini. `}Anda tetap dapat melanjutkan pendaftaran online sebagai jamaah umum.
+                      </p>
+                    </div>
+                  )}
 
                   {/* 7b. Paid Event & Bank Transfer Instructions */}
                   {selectedEvent?.isPaid && (
@@ -2115,40 +2114,113 @@ export function EventsPortalPage() {
                     </div>
                   )}
 
-                  {/* 8. Venue Rules & Agreement Box */}
-                  {selectedEvent?.venueRules && selectedEvent.venueRules.length > 0 && (
-                    <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-2xl space-y-2">
-                      <span className="text-xs font-bold text-amber-950 block flex items-center gap-1.5">
-                        <ShieldAlert className="w-3.5 h-3.5 text-amber-700" /> Tata Tertib & Batasan Majelis
-                      </span>
-                      <ul className="space-y-1 text-[11px] text-amber-900 list-disc list-inside">
-                        {selectedEvent.venueRules.map((rId) => {
-                          const rule = VENUE_RULES_MAP[rId];
-                          return rule ? <li key={rId}><b>{rule.label}</b> — {rule.desc}</li> : null;
-                        })}
-                      </ul>
-                      {selectedEvent.customVenueRules && (
-                        <p className="text-[11px] text-amber-800 pt-1 border-t border-amber-200/60">
-                          {selectedEvent.customVenueRules}
-                        </p>
-                      )}
-                    </div>
-                  )}
+                  {/* 8. Tata Tertib Majelis Ilmu, Khusus Tempat, & Syarat Kajian */}
+                  <div className="p-4 bg-gradient-to-br from-amber-50/80 via-white to-stone-50 border-2 border-amber-300/80 rounded-2xl space-y-3.5 shadow-xs">
+                    <div className="flex items-center justify-between border-b border-amber-200/70 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-xl bg-amber-200/80 text-amber-900 flex items-center justify-center font-bold text-sm shadow-2xs">
+                          <ScrollText className="w-4 h-4 text-amber-800" />
+                        </div>
+                        <div>
+                          <span className="text-xs font-black text-slate-900 block tracking-tight">
+                            Tata Tertib & Syarat Mengikuti Kajian
+                          </span>
+                          <span className="text-[10px] text-amber-800 font-medium">
+                            Wajib dibaca & dipatuhi oleh seluruh calon peserta majelis ilmu
+                          </span>
+                        </div>
+                      </div>
 
-                  {/* Mandatory Agreement Checkbox */}
-                  <div className="pt-2">
-                    <label className="flex items-start gap-2 text-xs text-slate-700 font-semibold cursor-pointer">
-                      <input
-                        type="checkbox"
-                        required
-                        checked={agreedToRules}
-                        onChange={(e) => setAgreedToRules(e.target.checked)}
-                        className="mt-0.5 rounded text-teal-700 focus:ring-teal-500"
-                      />
-                      <span>
-                        Saya telah membaca, memahami, dan berkomitmen menaati seluruh tata tertib majelis & batasan lokasi di atas. *
-                      </span>
-                    </label>
+                      <button
+                        type="button"
+                        onClick={() => setShowRulesDetailModal(true)}
+                        className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 shrink-0 border border-amber-300 active:scale-95 cursor-pointer"
+                        title="Baca penjelasan dalil & panduan lengkap adab penuntut ilmu"
+                      >
+                        <BookOpen className="w-3.5 h-3.5 text-amber-800" />
+                        <span>Adab Lengkap</span>
+                      </button>
+                    </div>
+
+                    {/* 8a. Tata Tertib & Adab Majelis Ilmu (Umum) */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-teal-900 flex items-center gap-1.5">
+                          <span>📜</span> Adab & Tata Tertib Majelis Ilmu
+                        </span>
+                        {activeAdabRules.length > 3 && (
+                          <button
+                            type="button"
+                            onClick={() => setExpandedRules(!expandedRules)}
+                            className="text-[11px] font-bold text-teal-800 hover:text-teal-950 underline cursor-pointer"
+                          >
+                            {expandedRules ? 'Ciutkan' : `Lihat Semua (${activeAdabRules.length} Poin)`}
+                          </button>
+                        )}
+                      </div>
+                      <ul className="space-y-1 text-xs text-slate-700 list-disc list-inside leading-relaxed bg-white/80 p-2.5 rounded-xl border border-slate-200/80">
+                        {(expandedRules ? activeAdabRules : activeAdabRules.slice(0, 3)).map((rule, idx) => (
+                          <li key={idx} className="pl-0.5">{rule}</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {/* 8b. Tata Tertib Khusus Tempat / Lokasi Tertentu (Jika ada) */}
+                    {(activeVenueRulesText || (selectedEvent?.venueRules && selectedEvent.venueRules.length > 0)) && (
+                      <div className="space-y-1.5 pt-1 border-t border-amber-200/60">
+                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-amber-950 flex items-center gap-1.5">
+                          <span>🕌</span> Tata Tertib Khusus Lokasi ({selectedEvent?.locationName || 'Tempat Kajian'})
+                        </span>
+
+                        {selectedEvent?.venueRules && selectedEvent.venueRules.length > 0 && (
+                          <ul className="space-y-1 text-[11px] text-amber-900 list-disc list-inside bg-amber-50/60 p-2.5 rounded-xl border border-amber-200">
+                            {selectedEvent.venueRules.map((rId) => {
+                              const rule = VENUE_RULES_MAP[rId];
+                              return rule ? <li key={rId}><b>{rule.label}</b> — {rule.desc}</li> : null;
+                            })}
+                          </ul>
+                        )}
+
+                        {activeVenueRulesText && (
+                          <p className="text-xs text-slate-700 bg-white/80 p-2.5 rounded-xl border border-slate-200/80 whitespace-pre-line leading-relaxed">
+                            {activeVenueRulesText}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* 8c. Syarat Mengikuti Kajian (Requirements) */}
+                    {activeRequirements.length > 0 && (
+                      <div className="space-y-1.5 pt-1 border-t border-amber-200/60">
+                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-950 flex items-center gap-1.5">
+                          <span>📋</span> Syarat Mengikuti Kajian
+                        </span>
+                        <ul className="space-y-1 text-xs text-slate-700 bg-white/80 p-2.5 rounded-xl border border-slate-200/80">
+                          {activeRequirements.map((req, idx) => (
+                            <li key={idx} className="flex items-start gap-1.5">
+                              <span className="text-emerald-700 font-bold text-xs">✓</span>
+                              <span>{req}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Mandatory Agreement Checkbox */}
+                    <div className="pt-2 p-3 bg-amber-100/50 rounded-xl border border-amber-300/80">
+                      <label className="flex items-start gap-2.5 text-xs text-slate-900 font-bold cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          required
+                          checked={agreedToRules}
+                          onChange={(e) => setAgreedToRules(e.target.checked)}
+                          className="mt-0.5 w-4 h-4 rounded text-teal-800 focus:ring-teal-600 accent-teal-800 shrink-0 cursor-pointer"
+                        />
+                        <span className="leading-relaxed">
+                          Saya telah membaca, memahami, dan berkomitmen mematuhi seluruh <u>Tata Tertib Majelis Ilmu</u> serta <u>Syarat Kajian</u> di atas demi menjaga kekhusyukan dan adab majelis. <span className="text-rose-600">*</span>
+                        </span>
+                      </label>
+                    </div>
                   </div>
 
                   <button
@@ -2443,6 +2515,65 @@ export function EventsPortalPage() {
             Daftar
           </button>
         </aside>
+      )}
+      {/* MODAL EDUKASI: PENJELASAN LENGKAP ADAB PENUNTUT ILMU */}
+      {showRulesDetailModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 my-auto animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-900 flex items-center justify-center font-bold text-lg">
+                  📖
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">
+                    Adab Penuntut Ilmu di Majelis
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Yayasan Tarbiyah Sunnah (YTS)
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRulesDetailModal(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-slate-700 leading-relaxed max-h-[60vh] overflow-y-auto pr-1">
+              <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-2xl space-y-1 text-emerald-950">
+                <span className="font-bold block">Rasulullah ﷺ bersabda:</span>
+                <p className="italic">
+                  "Barangsiapa menempuh jalan untuk menuntut ilmu agama, maka Allah akan mudahkan baginya jalan menuju surga." (HR. Muslim No. 2699)
+                </p>
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-2 font-sans">
+                <h4 className="font-bold text-slate-900 text-xs">Petunjuk & Faedah Adab Majelis:</h4>
+                <div className="whitespace-pre-line text-slate-600 leading-relaxed font-sans">
+                  {activeRulesDetail}
+                </div>
+              </div>
+
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-[11px] text-amber-900 leading-relaxed">
+                Mari bersama menjaga ketertiban, kebersihan, dan kekhusyukan majelis ilmu demi keberkahan majelis dan kelancaran dakwah sunnah bersama.
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowRulesDetailModal(false)}
+                className="px-5 py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer"
+              >
+                Saya Mengerti & Tutup
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       </div>
     </PortalBackground>

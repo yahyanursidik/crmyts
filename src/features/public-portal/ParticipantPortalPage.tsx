@@ -19,6 +19,7 @@ import {
   Ticket,
   User,
   X,
+  ScrollText,
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { extractTicketCode } from '@/lib/participantTicket';
@@ -575,6 +576,14 @@ export function ParticipantPortalPage() {
                                 {ticket.event.locationName || 'Masjid Tarbiyah Sunnah'}
                               </p>
                             </div>
+                          </div>
+
+                          {/* Pengingat Adab Majelis */}
+                          <div className="p-2.5 bg-amber-50/70 rounded-xl border border-amber-200/80 text-[11px] text-amber-900 flex items-start gap-2">
+                            <ScrollText className="w-3.5 h-3.5 text-amber-800 shrink-0 mt-0.5" />
+                            <span className="leading-snug">
+                              <b>Pengingat Adab:</b> Hadir tepat waktu, berpakaian syar'i & rapi, senyapkan ponsel, dan patuhi tata tertib lokasi majelis.
+                            </span>
                           </div>
 
                           {/* Quick Interactive Actions */}

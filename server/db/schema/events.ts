@@ -31,6 +31,16 @@ export interface EventFormConfig {
   whatsappGroupIkhwanUrl?: string;
   whatsappGroupAkhwatUrl?: string;
   termsAndConditions?: string;
+  /** Tata Tertib & Adab Majelis Ilmu (Umum) */
+  adabRules?: string[];
+  /** Tata Tertib Khusus Tempat / Lokasi Tertentu (Venue Rules) */
+  venueRulesText?: string;
+  /** Syarat Mengikuti Kajian */
+  participantRequirements?: string[];
+  /** Wajib centang persetujuan tata tertib & syarat sebelum pendaftaran (default: true) */
+  requireRulesAgreement?: boolean;
+  /** Penjelasan detail adab penuntut ilmu (hadits & faedah) untuk modal edukasi */
+  rulesModalDetail?: string;
   announcements?: Array<{
     id: string;
     title: string;

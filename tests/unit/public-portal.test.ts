@@ -971,4 +971,109 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
     expect(body.data.event.title).toBe('Kajian Fiqh Shalat');
     expect(body.data.participant.ticketCode).toBe('YTS-1048');
   });
+
+  it('rejects registration when agreedToRules is false', async () => {
+    const mockDb = {
+      query: {
+        events: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: '018f1111-0000-7000-8000-111122223333',
+            title: 'Kajian Adab Penuntut Ilmu',
+            isRegistrationOpen: true,
+            formConfig: {
+              requireRulesAgreement: true,
+              adabRules: ['Niat ikhlas', 'Hadir tepat waktu'],
+            },
+          }),
+        },
+      },
+    };
+
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      path: '/api/public/register-event',
+      method: 'POST',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        eventId: '018f1111-0000-7000-8000-111122223333',
+        fullName: 'Calon Jamaah',
+        phone: '081234567890',
+        agreedToRules: false,
+      },
+      requestId: 'req_reject_rules_test',
+    });
+
+    expect(res.statusCode).toBe(400);
+    const body = JSON.parse(res.body);
+    expect(body.error.message).toContain('menyetujui Tata Tertib');
+  });
+
+  it('delivers adabRules, venueRulesText, and participantRequirements in public portal-info', async () => {
+    const mockDb = {
+      query: {
+        donationPrograms: {
+          findMany: vi.fn().mockResolvedValue([]),
+        },
+        events: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: '018f2222-0000-7000-8000-111122223333',
+              title: 'Kajian Rutin Ahad Pagi',
+              category: 'Rutin',
+              speaker: 'Ustadz Abu Fulan',
+              description: 'Deskripsi',
+              startAt: new Date('2026-10-01T09:00:00Z'),
+              endAt: new Date('2026-10-01T11:00:00Z'),
+              deliveryMode: 'offline',
+              locationName: 'Masjid Tarbiyah Sunnah',
+              status: 'scheduled',
+              targetAudience: 'umum',
+              quota: 100,
+              isRegistrationOpen: true,
+              attendances: [],
+              formConfig: {
+                adabRules: ['Adab 1', 'Adab 2'],
+                venueRulesText: 'Aturan khusus lokasi parkir warga',
+                participantRequirements: ['Syarat 1', 'Syarat 2'],
+                requireRulesAgreement: true,
+                whatsappGroupIkhwanUrl: 'https://chat.whatsapp.com/secret-ikhwan',
+              },
+            },
+          ]),
+        },
+        waqfCases: {
+          findMany: vi.fn().mockResolvedValue([]),
+        },
+      },
+      select: vi.fn().mockImplementation(() => ({
+        from: vi.fn().mockImplementation(() => ({
+          where: vi.fn().mockResolvedValue([{ totalRupiah: '150000000', count: 120 }]),
+        })),
+      })),
+    };
+
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      path: '/api/public/portal-info',
+      method: 'GET',
+      headers: {},
+      query: {},
+      params: {},
+      body: null,
+      requestId: 'req_portal_rules_delivery',
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    const eventItem = body.data.events.find((e: any) => e.id === '018f2222-0000-7000-8000-111122223333');
+    expect(eventItem).toBeDefined();
+    expect(eventItem.formConfig.adabRules).toEqual(['Adab 1', 'Adab 2']);
+    expect(eventItem.formConfig.venueRulesText).toBe('Aturan khusus lokasi parkir warga');
+    expect(eventItem.formConfig.participantRequirements).toEqual(['Syarat 1', 'Syarat 2']);
+    expect(eventItem.formConfig.whatsappGroupIkhwanUrl).toBeUndefined(); // private sanitized
+  });
 });
