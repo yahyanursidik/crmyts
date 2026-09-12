@@ -15,10 +15,10 @@ import {
   eventAttendance,
   attachments,
 } from '../../db/schema';
-import { and, eq, sql, or } from 'drizzle-orm';
+import { and, eq, sql, or, inArray, desc } from 'drizzle-orm';
 import { normalizeIndonesianPhone } from '../../lib/phone';
 import { buildParticipantPortalPath, extractTicketCode } from '../../../src/lib/participantTicket';
-import { createMemorableTicketCode, createReferralCode } from '../events/participantCodes';
+import { createMemorableTicketCode } from '../events/participantCodes';
 import {
   sendEventRegistrationTicketEmail,
   sendDonationReceivedEmail,
@@ -72,7 +72,8 @@ const publicEventRegistrationSchema = z.object({
   agreedToRules: z.boolean().default(true),
   paymentProofUrl: z.string().optional().nullable(),
   paymentAmountRupiah: z.number().optional().nullable(),
-  referralCode: z.string().trim().min(4).max(80).optional().nullable(),
+  referralCode: z.string().trim().min(2).max(80).optional().nullable(),
+  inviteCode: z.string().trim().min(2).max(80).optional().nullable(),
   additionalParticipants: z.array(additionalParticipantSchema).optional().nullable(),
 });
 
@@ -559,6 +560,56 @@ export function registerPublicPortalRoutes(router: Router) {
     )
   );
 
+  // 3b. GET /api/public/events/:id/check-invitation & check-referral (Validasi Tautan / Kode Undangan Khusus Resmi dari Admin/Panitia)
+  const handleCheckInvitation = async (ctx: any) => {
+    const db = getDb();
+    const eventId = ctx.params.id;
+    const rawCode = String(ctx.query.code || '').trim().toUpperCase();
+
+    if (!eventId || !rawCode) {
+      return errorResponse('VALIDATION_ERROR', 'Event ID dan kode undangan diperlukan', 400, ctx.requestId);
+    }
+
+    const targetEvent = await db.query.events.findFirst({
+      where: eq(events.id, eventId),
+    });
+
+    if (!targetEvent) {
+      return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
+    }
+
+    const officialAdminCode =
+      targetEvent.formConfig?.adminInviteCode?.trim().toUpperCase() ||
+      `UNDANGAN-${targetEvent.id.slice(0, 6).toUpperCase()}`;
+
+    const validAdminCodes = [
+      officialAdminCode,
+      officialAdminCode.replace(/^UNDANGAN-/, ''),
+      `UNDANGAN-${targetEvent.id.slice(0, 6).toUpperCase()}`,
+      targetEvent.id.slice(0, 6).toUpperCase(),
+    ];
+
+    if (!validAdminCodes.includes(rawCode)) {
+      return errorResponse('NOT_FOUND', 'Kode undangan khusus panitia tidak ditemukan atau tidak valid untuk kajian ini.', 404, ctx.requestId);
+    }
+
+    return successResponse(
+      {
+        valid: true,
+        isAdminInvite: true,
+        inviteCode: officialAdminCode,
+        referralCode: officialAdminCode,
+        referrerDisplayName: 'Panitia Yayasan (Khusus)',
+        label: 'Jalur Undangan Khusus Panitia',
+        eventTitle: targetEvent.title,
+      },
+      { requestId: ctx.requestId }
+    );
+  };
+
+  router.get('/api/public/events/:id/check-invitation', handleCheckInvitation);
+  router.get('/api/public/events/:id/check-referral', handleCheckInvitation);
+
   // 4. POST /api/public/register-event (Online Registration for Kajian Rutin & Daurah Khusus)
   router.post(
     '/api/public/register-event',
@@ -669,22 +720,27 @@ export function registerPublicPortalRoutes(router: Router) {
         where: sql`${eventAttendance.eventId} = ${body.eventId} AND ${eventAttendance.personId} = ${person.id}`,
       });
 
-      const normalizedReferralCode = body.referralCode?.trim().toUpperCase() || null;
-      let referrerAttendance: { id: string; personId: string } | null = null;
-      if (normalizedReferralCode) {
-        referrerAttendance = (await db.query.eventAttendance.findFirst({
-          where: and(
-            eq(eventAttendance.eventId, targetEvent.id),
-            eq(eventAttendance.referralCode, normalizedReferralCode)
-          ),
-          columns: { id: true, personId: true },
-        })) || null;
+      const rawInvite = (body.inviteCode || body.referralCode)?.trim().toUpperCase() || null;
+      let isSpecialInvite = false;
+      let officialAdminInviteCode: string | null = null;
 
-        if (!referrerAttendance) {
-          return errorResponse('VALIDATION_ERROR', 'Kode undangan tidak ditemukan untuk kajian ini.', 400, ctx.requestId);
-        }
-        if (referrerAttendance.personId === person.id) {
-          return errorResponse('VALIDATION_ERROR', 'Kode undangan sendiri tidak dapat digunakan.', 400, ctx.requestId);
+      if (rawInvite) {
+        const officialCode =
+          targetEvent.formConfig?.adminInviteCode?.trim().toUpperCase() ||
+          `UNDANGAN-${targetEvent.id.slice(0, 6).toUpperCase()}`;
+
+        const validAdminCodes = [
+          officialCode,
+          officialCode.replace(/^UNDANGAN-/, ''),
+          `UNDANGAN-${targetEvent.id.slice(0, 6).toUpperCase()}`,
+          targetEvent.id.slice(0, 6).toUpperCase(),
+        ];
+
+        if (validAdminCodes.includes(rawInvite)) {
+          isSpecialInvite = true;
+          officialAdminInviteCode = officialCode;
+        } else {
+          return errorResponse('VALIDATION_ERROR', 'Kode undangan khusus panitia tidak valid untuk kajian ini.', 400, ctx.requestId);
         }
       }
 
@@ -703,7 +759,7 @@ export function registerPublicPortalRoutes(router: Router) {
       const groupPart = Math.random().toString(36).substring(2, 6).toUpperCase();
       const registrationGroupId = isGroup ? `GRP-${datePart}-${groupPart}` : null;
       const ticketCode = existingAttendance?.ticketCode || createMemorableTicketCode();
-      const referralCode = existingAttendance?.referralCode || createReferralCode();
+      const attendanceSource = 'form_registration';
 
       // Determine payment status
       const isPaidEvent = targetEvent.isPaid && (targetEvent.priceRupiah || 0) > 0;
@@ -725,11 +781,11 @@ export function registerPublicPortalRoutes(router: Router) {
         await db.insert(eventAttendance).values({
           eventId: targetEvent.id,
           personId: person.id,
-          source: 'form_registration',
+          source: attendanceSource,
           status: 'registered',
           ticketCode,
-          referralCode,
-          referredByAttendanceId: referrerAttendance?.id || null,
+          referralCode: null,
+          referredByAttendanceId: null,
           
           registrationGroupId,
           familyRelationship: isGroup ? 'Kepala Keluarga / Pendaftar Utama' : null,
@@ -742,20 +798,24 @@ export function registerPublicPortalRoutes(router: Router) {
           vehicleType,
           vehiclePlateNumber,
           agreedToRules: body.agreedToRules !== false,
-          registrationData:
-            body.customResponses || body.notes
-              ? {
-                  ...(body.customResponses || {}),
-                  ...(body.notes ? { _generalNotes: body.notes } : {}),
-                }
-              : null,
+          registrationData: {
+            ...(body.customResponses || {}),
+            ...(body.notes ? { _generalNotes: body.notes } : {}),
+            ...(isSpecialInvite ? { isSpecialInvite: true, adminInviteCode: officialAdminInviteCode, inviteSource: 'admin_invite' } : {}),
+          },
         });
       } else {
-        // Data lama tetap memperoleh kode undangan yang tersimpan, bukan tautan sementara.
-        if (!existingAttendance.referralCode) {
+        if (isSpecialInvite) {
           await db
             .update(eventAttendance)
-            .set({ referralCode })
+            .set({
+              registrationData: {
+                ...((existingAttendance.registrationData as any) || {}),
+                isSpecialInvite: true,
+                adminInviteCode: officialAdminInviteCode,
+                inviteSource: 'admin_invite',
+              },
+            })
             .where(eq(eventAttendance.id, existingAttendance.id));
         }
 
@@ -829,8 +889,8 @@ export function registerPublicPortalRoutes(router: Router) {
               source: 'form_registration',
               status: 'registered',
               ticketCode: memberTicketCode,
-              referralCode: createReferralCode(),
-              referredByAttendanceId: referrerAttendance?.id || null,
+              referralCode: null,
+              referredByAttendanceId: null,
               registrationGroupId,
               familyRelationship: member.relationship || 'Keluarga',
               age: member.age || null,
@@ -839,7 +899,10 @@ export function registerPublicPortalRoutes(router: Router) {
               paymentAmountRupiah: targetEvent.priceRupiah || 0,
               vehicleType: 'none',
               agreedToRules: true,
-              registrationData: member.notes ? { notes: member.notes } : null,
+              registrationData: {
+                ...(member.notes ? { notes: member.notes } : {}),
+                ...(isSpecialInvite ? { isSpecialInvite: true, adminInviteCode: officialAdminInviteCode, inviteSource: 'admin_invite' } : {}),
+              },
             });
           }
 
@@ -856,8 +919,8 @@ export function registerPublicPortalRoutes(router: Router) {
       const res = successResponse(
         {
           ticketCode,
-          referralCode,
-          referralLink: `/kajian/${targetEvent.id}?ref=${encodeURIComponent(referralCode)}`,
+          isSpecialInvite,
+          adminInviteCode: officialAdminInviteCode,
           participantPortalPath: buildParticipantPortalPath(targetEvent.id, ticketCode),
           registrationGroupId,
           isGroupRegistration: isGroup,
@@ -935,7 +998,7 @@ export function registerPublicPortalRoutes(router: Router) {
 
   // 5. POST /api/public/participant-ticket (Portal peserta; nomor WA menjadi verifikasi kepemilikan tiket)
   const participantTicketSchema = z.object({
-    eventId: z.string().uuid('Event tidak valid'),
+    eventId: z.string().uuid('Event tidak valid').optional().nullable(),
     ticketCode: z.string().min(4, 'Kode peserta wajib diisi'),
     phone: z.string().min(8, 'Nomor WhatsApp wajib diisi'),
   });
@@ -946,17 +1009,34 @@ export function registerPublicPortalRoutes(router: Router) {
       const db = getDb();
       const ticketCode = extractTicketCode(body.ticketCode);
       const phoneE164 = normalizeIndonesianPhone(body.phone);
-
       const rawCode = body.ticketCode.trim().toUpperCase();
-      const attendance = await db.query.eventAttendance.findFirst({
-        where: and(
-          eq(eventAttendance.eventId, body.eventId),
-          or(
+
+      const codeCandidates = [rawCode];
+      if (ticketCode && !codeCandidates.includes(ticketCode)) {
+        codeCandidates.push(ticketCode);
+      }
+      if (/^\d{4,6}$/.test(rawCode)) {
+        codeCandidates.push(`YTS-${rawCode}`, `TIKET-${rawCode}`);
+      }
+
+      const attendanceWhere = body.eventId
+        ? and(
+            eq(eventAttendance.eventId, body.eventId),
+            or(
+              inArray(eventAttendance.ticketCode, codeCandidates),
+              eq(eventAttendance.ticketCode, ticketCode),
+              eq(eventAttendance.ticketCode, rawCode)
+            )
+          )
+        : or(
+            inArray(eventAttendance.ticketCode, codeCandidates),
             eq(eventAttendance.ticketCode, ticketCode),
             eq(eventAttendance.ticketCode, rawCode)
-          )
-        ),
-        with: { person: true },
+          );
+
+      const attendance = await db.query.eventAttendance.findFirst({
+        where: attendanceWhere,
+        with: { person: true, event: true },
       });
 
       // Pesan dibuat generik supaya kode tiket tidak dapat dipakai untuk menebak data jamaah.
@@ -964,7 +1044,7 @@ export function registerPublicPortalRoutes(router: Router) {
         return errorResponse('NOT_FOUND', 'Tiket atau nomor WhatsApp tidak sesuai.', 404, ctx.requestId);
       }
 
-      const event = await db.query.events.findFirst({ where: eq(events.id, body.eventId) });
+      const event = attendance.event || (await db.query.events.findFirst({ where: eq(events.id, attendance.eventId) }));
       if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan.', 404, ctx.requestId);
 
       const groupUrl = attendance.person.gender
@@ -983,11 +1063,10 @@ export function registerPublicPortalRoutes(router: Router) {
             ticketCode: attendance.ticketCode,
             status: attendance.status,
             checkInAt: attendance.checkInAt,
-            paymentStatus: attendance.paymentStatus,
-            referralCode: attendance.referralCode,
-            referralLink: attendance.referralCode
-              ? `/kajian/${event.id}?ref=${encodeURIComponent(attendance.referralCode)}`
-              : null,
+            isSpecialInvite:
+              (attendance.registrationData as any)?.isSpecialInvite === true ||
+              (attendance.registrationData as any)?.inviteSource === 'admin_invite' ||
+              Boolean(attendance.referredByAttendanceId),
           },
           event: {
             id: event.id,
@@ -1002,6 +1081,176 @@ export function registerPublicPortalRoutes(router: Router) {
             whatsappGroupInviteUrl: groupUrl,
           },
           participantPortalPath: buildParticipantPortalPath(event.id, attendance.ticketCode || ticketCode),
+        },
+        { requestId: ctx.requestId }
+      );
+    })
+  );
+
+  // 5b. POST /api/public/participant/my-events (Smart Jamaah Hub: Memuat seluruh kajian aktif & riwayat jamaah secara mandiri tanpa password)
+  const participantMyEventsSchema = z.object({
+    phone: z.string().min(8, 'Nomor WhatsApp wajib diisi'),
+    ticketCode: z.string().optional().nullable(),
+  });
+
+  router.post(
+    '/api/public/participant/my-events',
+    validateBody(participantMyEventsSchema, async (ctx, body) => {
+      const db = getDb();
+      const phoneE164 = normalizeIndonesianPhone(body.phone);
+
+      // 1. Cari data person berdasarkan nomor WhatsApp yang terdaftar
+      const person = await db.query.persons.findFirst({
+        where: eq(persons.phoneE164, phoneE164),
+      });
+
+      if (!person) {
+        return errorResponse(
+          'NOT_FOUND',
+          'Data pendaftar dengan nomor WhatsApp tersebut tidak ditemukan. Pastikan nomor sesuai saat mendaftar kajian.',
+          404,
+          ctx.requestId
+        );
+      }
+
+      // 2. Ambil seluruh data pendaftaran / attendance milik person ini
+      const attendances = await db.query.eventAttendance.findMany({
+        where: eq(eventAttendance.personId, person.id),
+        with: {
+          event: true,
+        },
+        orderBy: [desc(eventAttendance.checkInAt)],
+      });
+
+      if (!attendances || attendances.length === 0) {
+        return errorResponse(
+          'NOT_FOUND',
+          'Belum ada tiket atau riwayat pendaftaran kajian yang terhubung dengan nomor WhatsApp ini.',
+          404,
+          ctx.requestId
+        );
+      }
+
+      const upcoming: any[] = [];
+      const history: any[] = [];
+      const announcements: any[] = [];
+
+      for (const att of attendances) {
+        const ev = att.event;
+        if (!ev) continue;
+
+        const eventStartDate = new Date(ev.startAt);
+
+        const groupUrl = person.gender
+          ? safeWhatsAppGroupUrl(
+              person.gender === 'akhwat'
+                ? ev.formConfig?.whatsappGroupAkhwatUrl
+                : ev.formConfig?.whatsappGroupIkhwanUrl
+            )
+          : null;
+
+        const ticketItem = {
+          attendanceId: att.id,
+          ticketCode: att.ticketCode,
+          ticketNumber: extractTicketCode(att.ticketCode || ''),
+          status: att.status,
+          checkInAt: att.checkInAt,
+          familyRelationship: att.familyRelationship,
+          age: att.age,
+          paymentStatus: att.paymentStatus,
+          paymentProofUrl: att.paymentProofUrl,
+          paymentAmountRupiah: att.paymentAmountRupiah,
+          vehicleType: att.vehicleType,
+          isSpecialInvite:
+            (att.registrationData as any)?.isSpecialInvite === true ||
+            (att.registrationData as any)?.inviteSource === 'admin_invite' ||
+            Boolean(att.referredByAttendanceId),
+          participantPortalPath: buildParticipantPortalPath(ev.id, att.ticketCode || ''),
+          event: {
+            id: ev.id,
+            title: ev.title,
+            speaker: ev.speaker,
+            category: ev.category,
+            startAt: ev.startAt,
+            endAt: ev.endAt,
+            deliveryMode: ev.deliveryMode,
+            locationName: ev.locationName || 'Masjid Tarbiyah Sunnah',
+            locationAddress: ev.locationAddress,
+            googleMapsUrl: ev.googleMapsUrl,
+            locationDirections: ev.locationDirections,
+            meetingUrl: ev.meetingUrl,
+            venueRules: ev.venueRules || [],
+            customVenueRules: ev.customVenueRules,
+            whatsappGroupInviteUrl: groupUrl,
+            isPaid: ev.isPaid,
+            priceRupiah: ev.priceRupiah,
+            bankName: ev.bankName,
+            bankAccountNumber: ev.bankAccountNumber,
+            bankAccountName: ev.bankAccountName,
+            paymentInstructions: ev.paymentInstructions,
+          },
+        };
+
+        // Kumpulkan pengumuman / materi dari event
+        if (ev.formConfig?.announcements && Array.isArray(ev.formConfig.announcements)) {
+          for (const ann of ev.formConfig.announcements) {
+            announcements.push({
+              ...ann,
+              eventId: ev.id,
+              eventTitle: ev.title,
+            });
+          }
+        }
+
+        if (ev.customVenueRules) {
+          announcements.push({
+            id: `notice-rules-${ev.id}`,
+            eventId: ev.id,
+            eventTitle: ev.title,
+            title: `Ketentuan Majelis: ${ev.title}`,
+            content: ev.customVenueRules,
+            createdAt: ev.createdAt,
+            isUrgent: false,
+          });
+        }
+
+        // Tentukan apakah masuk ke 'upcoming' atau 'history':
+        // Jika event belum lewat (startAt >= kemarin) atau status pendaftaran masih aktif
+        const yesterday = new Date(Date.now() - 24 * 3600 * 1000);
+        if (eventStartDate >= yesterday || ev.status === 'scheduled' || ev.status === 'ongoing') {
+          upcoming.push(ticketItem);
+        } else {
+          history.push({
+            ...ticketItem,
+            certificateAvailable: att.status === 'attended',
+          });
+        }
+      }
+
+      // Urutkan upcoming: yang terdekat pelaksanaannya berada di paling atas
+      upcoming.sort((a, b) => new Date(a.event.startAt).getTime() - new Date(b.event.startAt).getTime());
+
+      // Masked phone: e.g. "0812 •••• 7890"
+      const rawPhone = body.phone.trim();
+      const maskedPhone =
+        rawPhone.length > 7
+          ? `${rawPhone.slice(0, 4)} •••• ${rawPhone.slice(-4)}`
+          : rawPhone;
+
+      return successResponse(
+        {
+          person: {
+            id: person.id,
+            fullName: person.fullName,
+            gender: person.gender,
+            phoneMasked: maskedPhone,
+            cityRegency: person.cityRegency,
+          },
+          upcomingCount: upcoming.length,
+          historyCount: history.length,
+          upcoming,
+          history,
+          announcements,
         },
         { requestId: ctx.requestId }
       );

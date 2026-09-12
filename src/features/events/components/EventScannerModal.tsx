@@ -14,7 +14,9 @@ import {
   VolumeX,
   Maximize2,
   Minimize2,
+  Zap,
 } from 'lucide-react';
+import { Html5Qrcode, CameraDevice } from 'html5-qrcode';
 import { apiClient } from '@/lib/apiClient';
 import { extractTicketCode } from '@/lib/participantTicket';
 
@@ -63,7 +65,14 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [cameraHint, setCameraHint] = useState<string | null>(null);
+
+  // Camera State Management
+  const [cameraState, setCameraState] = useState<'idle' | 'requesting' | 'active' | 'denied' | 'insecure' | 'not_found' | 'unsupported' | 'error'>('idle');
+  const [cameraErrorDetail, setCameraErrorDetail] = useState<string | null>(null);
+  const [availableCameras, setAvailableCameras] = useState<CameraDevice[]>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
+  const [hasTorch, setHasTorch] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
 
   // Status feedback
   const [scanStatus, setScanStatus] = useState<{
@@ -86,11 +95,10 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
   const [manualSearchQuery, setManualSearchQuery] = useState('');
   const [checkingInId, setCheckingInId] = useState<string | null>(null);
 
-  // Camera stream refs
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  // Scanner refs
+  const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
+  const isStartingRef = useRef(false);
   const inputFocusRef = useRef<HTMLInputElement>(null);
-  const scanIntervalRef = useRef<any>(null);
   const scanInFlightRef = useRef(false);
 
   // Web Audio Tone Synthesis
@@ -101,6 +109,9 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
         const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
         if (!AudioContextClass) return;
         const ctx = new AudioContextClass();
+        if (ctx.state === 'suspended') {
+          ctx.resume().catch(() => {});
+        }
 
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
@@ -145,85 +156,204 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
   );
 
   // Stop camera helper
-  const stopCamera = () => {
-    if (scanIntervalRef.current) {
-      clearInterval(scanIntervalRef.current);
-      scanIntervalRef.current = null;
+  const stopCameraScanner = useCallback(async () => {
+    if (html5QrCodeRef.current) {
+      try {
+        if (html5QrCodeRef.current.isScanning) {
+          await html5QrCodeRef.current.stop();
+        }
+        html5QrCodeRef.current.clear();
+      } catch (e) {
+        console.warn('Gagal menghentikan scanner:', e);
+      }
+      html5QrCodeRef.current = null;
     }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-  };
+    setCameraState('idle');
+    setTorchOn(false);
+    setHasTorch(false);
+  }, []);
 
-  // Start camera stream
-  const startCamera = async () => {
-    stopCamera();
-    setCameraHint(null);
-    try {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setCameraHint('Kamera tidak didukung pada perangkat ini. Gunakan barcode gun atau masukkan kode peserta secara manual.');
+  // Start camera stream & scanner
+  const startCameraScanner = useCallback(
+    async (overrideTarget?: any) => {
+      if (isStartingRef.current) return;
+      isStartingRef.current = true;
+
+      // 1. Check secure context
+      const isLocalhost =
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+      if (typeof window !== 'undefined' && !window.isSecureContext && !isLocalhost) {
+        setCameraState('insecure');
+        setCameraErrorDetail(
+          `Browser membatasi akses kamera hanya untuk koneksi HTTPS atau localhost. Halaman ini diakses melalui ${window.location.protocol}//${window.location.host}`
+        );
+        isStartingRef.current = false;
         return;
       }
 
-      const constraints: MediaStreamConstraints = {
-        video: {
-          facingMode: { ideal: facingMode },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-      };
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.setAttribute('playsinline', 'true');
-        await videoRef.current.play();
+      // 2. Check getUserMedia support
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+        setCameraState('unsupported');
+        setCameraErrorDetail('Browser atau perangkat ini belum mendukung akses kamera langsung (getUserMedia).');
+        isStartingRef.current = false;
+        return;
       }
 
-      // Check if native BarcodeDetector is available
-      if ('BarcodeDetector' in window) {
-        const barcodeDetector = new (window as any).BarcodeDetector({
-          formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'data_matrix'],
-        });
+      setCameraState('requesting');
+      setCameraErrorDetail(null);
 
-        scanIntervalRef.current = setInterval(async () => {
-          if (videoRef.current && videoRef.current.readyState >= 2 && !loading) {
-            try {
-              const barcodes = await barcodeDetector.detect(videoRef.current);
-              if (barcodes.length > 0) {
-                const rawValue = barcodes[0].rawValue;
-                if (rawValue && rawValue.trim()) {
-                  handleExecuteScan({ ticketCode: extractTicketCode(rawValue) });
-                }
-              }
-            } catch (e) {
-              // Ignore frame detection errors
+      try {
+        // Stop any running instance
+        if (html5QrCodeRef.current) {
+          try {
+            if (html5QrCodeRef.current.isScanning) {
+              await html5QrCodeRef.current.stop();
             }
+            html5QrCodeRef.current.clear();
+          } catch {
+            // ignore
           }
-        }, 500);
-      } else {
-        setCameraHint('Tampilan kamera aktif, tetapi browser ini belum mendukung pembacaan QR otomatis. Gunakan barcode gun atau masukkan kode peserta.');
+          html5QrCodeRef.current = null;
+        }
+
+        // Check DOM container exists
+        const container = document.getElementById('gate-qr-reader-container');
+        if (!container) {
+          console.warn('Container #gate-qr-reader-container belum siap di DOM');
+          isStartingRef.current = false;
+          setCameraState('idle');
+          return;
+        }
+
+        // Query available camera devices if permitted
+        try {
+          const devices = await Html5Qrcode.getCameras();
+          if (devices && devices.length > 0) {
+            setAvailableCameras(devices);
+          }
+        } catch {
+          // getCameras can fail before permission is granted; ignore
+        }
+
+        const qrScanner = new Html5Qrcode('gate-qr-reader-container');
+        html5QrCodeRef.current = qrScanner;
+
+        const qrSuccessCallback = (decodedText: string) => {
+          if (scanInFlightRef.current || !decodedText) return;
+          const code = extractTicketCode(decodedText);
+          if (code) {
+            handleExecuteScan({ ticketCode: code });
+          }
+        };
+
+        const qrErrorCallback = () => {
+          // Ignore normal frame scan misses
+        };
+
+        const targetCamera =
+          overrideTarget ||
+          (selectedCameraId ? { deviceId: { exact: selectedCameraId } } : { facingMode });
+
+        await qrScanner.start(
+          targetCamera,
+          {
+            fps: 15,
+            qrbox: (w, h) => {
+              const minEdge = Math.min(w, h);
+              const size = Math.floor(minEdge * 0.72);
+              return { width: size, height: size };
+            },
+            aspectRatio: 1.333334,
+          },
+          qrSuccessCallback,
+          qrErrorCallback
+        );
+
+        setCameraState('active');
+
+        // Check torch capabilities
+        try {
+          const capabilities = qrScanner.getRunningTrackCapabilities() as any;
+          if (capabilities && 'torch' in capabilities) {
+            setHasTorch(true);
+          }
+        } catch {
+          setHasTorch(false);
+        }
+      } catch (err: any) {
+        console.warn('Camera scanner initialization error:', err);
+        const errStr = String(err?.message || err?.name || err).toLowerCase();
+
+        if (errStr.includes('notallowed') || errStr.includes('permission') || errStr.includes('denied')) {
+          setCameraState('denied');
+          setCameraErrorDetail('Izin kamera ditolak oleh pengguna atau diblokir oleh setelan browser.');
+        } else if (errStr.includes('notfound') || errStr.includes('devicesnotfound') || errStr.includes('no camera')) {
+          setCameraState('not_found');
+          setCameraErrorDetail('Tidak ada kamera yang terhubung pada perangkat ini.');
+        } else {
+          setCameraState('error');
+          setCameraErrorDetail(err?.message || 'Gagal menyalakan kamera scanner.');
+        }
+      } finally {
+        isStartingRef.current = false;
       }
-    } catch (err) {
-      console.warn('Camera access not granted or unavailable:', err);
-      setCameraHint('Izin kamera belum tersedia. Periksa izin browser, atau gunakan barcode gun / input kode peserta.');
+    },
+    [facingMode, selectedCameraId]
+  );
+
+  // Switch between front and back camera
+  const handleToggleFacingMode = async () => {
+    const nextFacing = facingMode === 'environment' ? 'user' : 'environment';
+    setFacingMode(nextFacing);
+    setSelectedCameraId(null);
+    await startCameraScanner({ facingMode: nextFacing });
+  };
+
+  // Toggle flashlight / torch if supported
+  const handleToggleTorch = async () => {
+    if (!html5QrCodeRef.current || !hasTorch) return;
+    try {
+      const nextTorch = !torchOn;
+      await html5QrCodeRef.current.applyVideoConstraints({
+        advanced: [{ torch: nextTorch }] as any,
+      });
+      setTorchOn(nextTorch);
+    } catch (e) {
+      console.warn('Gagal mengubah torch / senter:', e);
     }
   };
 
   useEffect(() => {
     if (isOpen && activeTab === 'camera') {
-      startCamera();
+      // Auto-start camera if permissions already granted, or prompt smoothly
+      if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
+        navigator.permissions
+          .query({ name: 'camera' as any })
+          .then((res) => {
+            if (res.state === 'granted') {
+              startCameraScanner();
+            } else if (res.state === 'denied') {
+              setCameraState('denied');
+            } else {
+              // 'prompt' - attempt start, or user can click explicit permission button
+              startCameraScanner();
+            }
+          })
+          .catch(() => {
+            startCameraScanner();
+          });
+      } else {
+        startCameraScanner();
+      }
     } else {
-      stopCamera();
+      stopCameraScanner();
     }
 
     return () => {
-      stopCamera();
+      stopCameraScanner();
     };
-  }, [isOpen, activeTab, facingMode]);
+  }, [isOpen, activeTab]);
 
   // Load Event & Participants for Realtime Gate Presence & Search
   const loadEventData = useCallback(async () => {
@@ -591,39 +721,198 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
             {/* Left Column: Camera Viewfinder */}
             <div className="lg:col-span-7 bg-slate-950 rounded-2xl border border-slate-800 p-3 flex flex-col items-center justify-center relative overflow-hidden min-h-[260px] sm:min-h-[320px]">
               {activeTab === 'camera' ? (
-                <div className="relative w-full h-full flex items-center justify-center">
-                  <video
-                    ref={videoRef}
-                    className="w-full h-full max-h-[300px] object-cover rounded-xl border border-slate-800"
+                <div className="relative w-full h-full min-h-[260px] sm:min-h-[320px] flex items-center justify-center bg-slate-950 rounded-xl overflow-hidden">
+                  {/* Style override for html5-qrcode video element */}
+                  <style>{`
+                    #gate-qr-reader-container video {
+                      width: 100% !important;
+                      height: 100% !important;
+                      max-height: 320px !important;
+                      object-fit: cover !important;
+                      border-radius: 0.75rem;
+                    }
+                    #gate-qr-reader-container img {
+                      display: none !important;
+                    }
+                    #gate-qr-reader-container #qr-shaded-region {
+                      border-color: rgba(16, 185, 129, 0.4) !important;
+                    }
+                  `}</style>
+
+                  {/* DOM Container required by Html5Qrcode */}
+                  <div
+                    id="gate-qr-reader-container"
+                    className={`w-full h-full min-h-[260px] sm:min-h-[320px] ${cameraState === 'active' ? 'block' : 'hidden'}`}
                   />
 
-                  {cameraHint && (
-                    <p className="absolute top-3 inset-x-3 rounded-xl border border-amber-500/40 bg-amber-950/90 px-3 py-2 text-center text-[11px] font-medium leading-relaxed text-amber-100">
-                      {cameraHint}
-                    </p>
+                  {/* Overlay Laser Target when active */}
+                  {cameraState === 'active' && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                      <div className="w-48 h-48 sm:w-56 sm:h-56 border-2 border-emerald-400/70 rounded-2xl relative shadow-2xl">
+                        <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-emerald-400 -mt-1 -ml-1 rounded-tl" />
+                        <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-emerald-400 -mt-1 -mr-1 rounded-tr" />
+                        <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-emerald-400 -mb-1 -ml-1 rounded-bl" />
+                        <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-emerald-400 -mb-1 -mr-1 rounded-br" />
+                        <div className="w-full h-0.5 bg-emerald-400/90 absolute top-1/2 -translate-y-1/2 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+                      </div>
+                    </div>
                   )}
 
-                  {/* Scanning Target Overlay Box */}
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="w-48 h-48 sm:w-56 sm:h-56 border-2 border-emerald-400/70 rounded-2xl relative shadow-2xl">
-                      <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-emerald-400 -mt-1 -ml-1 rounded-tl" />
-                      <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-emerald-400 -mt-1 -mr-1 rounded-tr" />
-                      <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-emerald-400 -mb-1 -ml-1 rounded-bl" />
-                      <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-emerald-400 -mb-1 -mr-1 rounded-br" />
+                  {/* Active Camera Action Controls (Torch & Switch) */}
+                  {cameraState === 'active' && (
+                    <div className="absolute bottom-3 right-3 flex items-center gap-2 z-20">
+                      {hasTorch && (
+                        <button
+                          type="button"
+                          onClick={handleToggleTorch}
+                          className={`p-2 backdrop-blur-md rounded-xl text-xs font-bold border transition-all shadow-sm flex items-center gap-1 cursor-pointer ${
+                            torchOn
+                              ? 'bg-amber-500 text-black border-amber-400'
+                              : 'bg-black/60 hover:bg-black/80 text-slate-200 border-white/20'
+                          }`}
+                          title={torchOn ? 'Matikan Senter' : 'Nyalakan Senter'}
+                        >
+                          <Zap className="w-3.5 h-3.5" />
+                        </button>
+                      )}
 
-                      {/* Moving laser scan line */}
-                      <div className="w-full h-0.5 bg-emerald-400/90 absolute top-1/2 -translate-y-1/2 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+                      {availableCameras.length > 1 && (
+                        <select
+                          value={selectedCameraId || ''}
+                          onChange={async (e) => {
+                            const newCamId = e.target.value || null;
+                            setSelectedCameraId(newCamId);
+                            if (newCamId) {
+                              await startCameraScanner({ deviceId: newCamId });
+                            } else {
+                              await startCameraScanner({ facingMode });
+                            }
+                          }}
+                          className="px-2.5 py-1.5 bg-black/60 hover:bg-black/80 text-slate-200 text-xs font-bold rounded-xl border border-white/20 outline-none backdrop-blur-md cursor-pointer max-w-[130px] truncate"
+                          title="Pilih perangkat kamera"
+                        >
+                          {availableCameras.map((cam, idx) => (
+                            <option key={cam.id} value={cam.id} className="bg-slate-900 text-white">
+                              {cam.label || `Kamera ${idx + 1}`}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={handleToggleFacingMode}
+                        className="px-3 py-1.5 bg-black/60 hover:bg-black/80 backdrop-blur-md rounded-xl text-xs font-bold text-slate-200 border border-white/20 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>{facingMode === 'environment' ? 'Kamera Depan' : 'Kamera Belakang'}</span>
+                      </button>
                     </div>
-                  </div>
+                  )}
 
-                  {/* Switch Camera Button */}
-                  <button
-                    onClick={() => setFacingMode(facingMode === 'environment' ? 'user' : 'environment')}
-                    className="absolute bottom-3 right-3 px-3 py-1.5 bg-black/60 hover:bg-black/80 backdrop-blur-md rounded-xl text-xs font-bold text-slate-200 border border-white/20 flex items-center gap-1.5 transition-all shadow-sm"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span>Ganti Kamera</span>
-                  </button>
+                  {/* UI: Requesting Permission / Starting */}
+                  {cameraState === 'requesting' && (
+                    <div className="flex flex-col items-center justify-center p-6 space-y-3 text-center">
+                      <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-bold text-slate-200">Menghubungkan Kamera...</h4>
+                        <p className="text-xs text-slate-400 max-w-xs">
+                          Jika jendela izin browser muncul, klik <strong>"Izinkan" (Allow)</strong> untuk melanjutkan.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* UI: Idle / Needs Permission Prompt (EXPLICIT USER GESTURE TRIGGER) */}
+                  {cameraState === 'idle' && (
+                    <div className="flex flex-col items-center justify-center p-6 space-y-3.5 text-center max-w-sm animate-in fade-in">
+                      <div className="w-16 h-16 rounded-2xl bg-emerald-950/90 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-950/50">
+                        <Camera className="w-8 h-8" />
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-bold text-slate-100">Kamera Gate Belum Aktif</h4>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          Klik tombol di bawah ini untuk memicu izin akses kamera dari browser Anda.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => startCameraScanner()}
+                        className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-black text-xs sm:text-sm rounded-xl transition-all shadow-lg flex items-center gap-2 cursor-pointer shadow-emerald-900/50 hover:shadow-emerald-700/50"
+                      >
+                        <Camera className="w-4 h-4" />
+                        <span>📸 Izinkan & Aktifkan Kamera</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* UI: Permission Denied */}
+                  {cameraState === 'denied' && (
+                    <div className="flex flex-col items-center justify-center p-5 space-y-3 text-center max-w-sm bg-rose-950/40 border border-rose-800/80 rounded-2xl m-3">
+                      <div className="w-12 h-12 rounded-xl bg-rose-900/70 text-rose-300 flex items-center justify-center">
+                        <AlertTriangle className="w-6 h-6" />
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="font-bold text-rose-200 text-sm">🔒 Izin Kamera Ditolak / Diblokir</h4>
+                        <p className="text-[11px] text-rose-300/90 leading-relaxed text-left">
+                          Browser memblokir kamera. Langkah mengizinkan:
+                          <br />1. Klik ikon 🔒 (gembok) atau 📷 di sebelah kiri URL browser.
+                          <br />2. Ubah izin Kamera menjadi <strong>"Izinkan" (Allow)</strong>.
+                          <br />3. Klik tombol di bawah untuk mencoba kembali.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => startCameraScanner()}
+                        className="px-4 py-2 bg-rose-700 hover:bg-rose-600 active:scale-95 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>🔄 Coba Minta Izin Lagi</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* UI: Insecure Context (HTTP IP) */}
+                  {cameraState === 'insecure' && (
+                    <div className="flex flex-col items-center justify-center p-5 space-y-3 text-center max-w-sm bg-amber-950/40 border border-amber-800/80 rounded-2xl m-3">
+                      <div className="w-12 h-12 rounded-xl bg-amber-900/70 text-amber-300 flex items-center justify-center">
+                        <AlertCircle className="w-6 h-6" />
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="font-bold text-amber-200 text-sm">⚠️ Butuh Koneksi HTTPS atau Localhost</h4>
+                        <p className="text-[11px] text-amber-300/90 leading-relaxed text-left">
+                          Browser membatasi kamera hanya pada domain HTTPS atau localhost. Halaman ini diakses melalui HTTP IP ({typeof window !== 'undefined' ? window.location.host : ''}).
+                          <br /><br />
+                          <strong>Solusi Panitia:</strong>
+                          <br />• Buka melalui <code>localhost</code> pada komputer gate.
+                          <br />• Atau gunakan Barcode Scanner USB & tab Pencarian Manual di samping.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* UI: Camera Not Found or Unsupported or General Error */}
+                  {(cameraState === 'not_found' || cameraState === 'unsupported' || cameraState === 'error') && (
+                    <div className="flex flex-col items-center justify-center p-5 space-y-3 text-center max-w-sm bg-slate-900/80 border border-slate-700 rounded-2xl m-3">
+                      <AlertCircle className="w-8 h-8 text-amber-400" />
+                      <div className="space-y-1">
+                        <h4 className="font-bold text-slate-200 text-sm">
+                          {cameraState === 'not_found' ? 'Kamera Tidak Ditemukan' : 'Kendala Akses Kamera'}
+                        </h4>
+                        <p className="text-xs text-slate-400">
+                          {cameraErrorDetail || 'Kamera tidak terdeteksi. Gunakan barcode scanner gun atau pencarian manual.'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => startCameraScanner()}
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl border border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Coba Hubungkan Kembali</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="w-full flex flex-col h-full space-y-2.5">

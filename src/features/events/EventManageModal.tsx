@@ -20,6 +20,7 @@ import {
   FileSpreadsheet,
   CreditCard,
   AlertCircle,
+  MessageSquare,
 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -66,7 +67,11 @@ interface ParticipantItem {
   checkInAt: string;
   ticketCode?: string;
   referralCode?: string | null;
+  isSpecialInvite?: boolean;
   referredByAttendanceId?: string | null;
+  referrerName?: string | null;
+  referrerCode?: string | null;
+  referralCount?: number;
   vehicleType?: string;
   vehiclePlateNumber?: string | null;
   agreedToRules?: boolean;
@@ -118,6 +123,8 @@ interface EventDetail {
   carsCount?: number;
   motorcyclesCount?: number;
   referralSignups?: number;
+  specialInviteCount?: number;
+  adminInviteCode?: string;
 }
 
 interface EventManageModalProps {
@@ -211,7 +218,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
 
   // Participant Filter & Search
   const [participantSearch, setParticipantSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'attended' | 'registered'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'attended' | 'registered' | 'from_referral'>('all');
   const [genderFilter, setGenderFilter] = useState<'all' | 'ikhwan' | 'akhwat'>('all');
   const [vehicleFilter, setVehicleFilter] = useState<'all' | 'car' | 'motorcycle' | 'none'>('all');
 
@@ -491,6 +498,10 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       'Gender',
       'No. WhatsApp',
       'Kota/Domisili',
+      'Kode Undangan Sendiri',
+      'Diundang Oleh (Nama)',
+      'Kode Pengundang',
+      'Jumlah Mengajak',
       'Kendaraan',
       'Plat Nomor',
       'Status Presensi',
@@ -504,6 +515,10 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       `"${p.personGender === 'ikhwan' ? 'Ikhwan' : 'Akhwat'}"`,
       `"${p.personPhone}"`,
       `"${p.personCity || '-'}"`,
+      `"${p.referralCode || '-'}"`,
+      `"${(p.referrerName || '-').replace(/"/g, '""')}"`,
+      `"${p.referrerCode || '-'}"`,
+      `"${p.referralCount || 0}"`,
       `"${p.vehicleType || 'none'}"`,
       `"${p.vehiclePlateNumber || '-'}"`,
       `"${p.status === 'attended' ? 'Hadir' : 'Terdaftar'}"`,
@@ -527,9 +542,17 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       p.personName.toLowerCase().includes(participantSearch.toLowerCase()) ||
       p.personPhone.includes(participantSearch) ||
       (p.ticketCode && p.ticketCode.toLowerCase().includes(participantSearch.toLowerCase())) ||
+      (p.referrerName && p.referrerName.toLowerCase().includes(participantSearch.toLowerCase())) ||
+      (p.referrerCode && p.referrerCode.toLowerCase().includes(participantSearch.toLowerCase())) ||
+      (p.referralCode && p.referralCode.toLowerCase().includes(participantSearch.toLowerCase())) ||
       (p.vehiclePlateNumber && p.vehiclePlateNumber.toLowerCase().includes(participantSearch.toLowerCase()));
 
-    const matchStatus = statusFilter === 'all' || p.status === statusFilter;
+    const matchStatus =
+      statusFilter === 'all'
+        ? true
+        : statusFilter === 'from_referral'
+        ? Boolean(p.isSpecialInvite || p.source === 'admin_invite' || p.referredByAttendanceId || p.referrerCode)
+        : p.status === statusFilter;
     const matchGender = genderFilter === 'all' || p.personGender === genderFilter;
     const matchVehicle = vehicleFilter === 'all' || (p.vehicleType || 'none') === vehicleFilter;
 
@@ -725,11 +748,77 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                 </div>
 
                 <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs col-span-2 sm:col-span-1">
-                  <span className="text-[10px] font-bold uppercase text-amber-800 block">🤝 Dari Undangan</span>
+                  <span className="text-[10px] font-bold uppercase text-emerald-800 block">✨ Undangan Panitia</span>
                   <div className="flex items-baseline gap-1 mt-1">
-                    <span className="text-xl font-black text-amber-950">{eventData.referralSignups || 0}</span>
-                    <span className="text-xs text-slate-400 font-semibold">pendaftar</span>
+                    <span className="text-xl font-black text-emerald-950">{eventData.specialInviteCount || eventData.referralSignups || 0}</span>
+                    <span className="text-xs text-slate-400 font-semibold">tamu</span>
                   </div>
+                </div>
+              </div>
+
+              {/* Admin Special Invitation Panel */}
+              <div className="p-4 bg-gradient-to-r from-emerald-950 to-slate-900 text-white rounded-2xl border border-emerald-700/60 shadow-md space-y-3">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                  <div>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-900 text-emerald-300 border border-emerald-600">
+                      Khusus Panitia / Admin
+                    </span>
+                    <h4 className="text-sm font-bold text-slate-100 mt-1 flex items-center gap-1.5">
+                      <span>🎟️ Tautan & Kode Undangan Khusus Kajian</span>
+                    </h4>
+                    <p className="text-xs text-slate-300">
+                      Hanya dikeluarkan oleh panitia/admin untuk tamu VIP, asatidzah, tokoh, atau kuota khusus undangan.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 font-mono text-xs bg-black/40 px-3 py-1.5 rounded-xl border border-emerald-500/30">
+                    <span className="text-slate-400">Kode:</span>
+                    <span className="font-black text-emerald-400">{eventData.adminInviteCode || `UNDANGAN-${eventData.id.slice(0, 6).toUpperCase()}`}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-slate-800/80">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const code = eventData.adminInviteCode || `UNDANGAN-${eventData.id.slice(0, 6).toUpperCase()}`;
+                      const url = `${window.location.origin}/events?event=${eventData.id}&invite=${code}`;
+                      navigator.clipboard.writeText(url);
+                      alert('Tautan undangan khusus panitia berhasil disalin ke clipboard!');
+                    }}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Salin Tautan Undangan</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const code = eventData.adminInviteCode || `UNDANGAN-${eventData.id.slice(0, 6).toUpperCase()}`;
+                      navigator.clipboard.writeText(code);
+                      alert(`Kode undangan (${code}) berhasil disalin!`);
+                    }}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                  >
+                    <Ticket className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Salin Kode Saja</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const code = eventData.adminInviteCode || `UNDANGAN-${eventData.id.slice(0, 6).toUpperCase()}`;
+                      const url = `${window.location.origin}/events?event=${eventData.id}&invite=${code}`;
+                      const waText = `Assalamu'alaikum Warahmatullahi Wabarakatuh.\n\nYth. Bapak/Ibu/Asatidzah Undangan Khusus,\nPanitia Yayasan Tarbiyah Sunnah mengundang antum untuk menghadiri:\n📌 *${eventData.title}*\n🎙️ Bersama: ${eventData.speaker}\n🗓️ Waktu: ${new Date(eventData.startAt).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}\n📍 Lokasi: ${eventData.locationName || 'Masjid Tarbiyah Sunnah'}\n\nKonfirmasi kehadiran melalui tautan undangan resmi panitia:\n🔗 ${url}\n(Atau gunakan Kode Undangan Khusus: *${code}*)\n\nJazakumullahu khairan wa barakallahu fiikum.\n- Panitia Yayasan Tarbiyah Sunnah`;
+                      navigator.clipboard.writeText(waText);
+                      alert('Format pesan WhatsApp resmi panitia berhasil disalin!');
+                    }}
+                    className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span>Salin Format Undangan WhatsApp</span>
+                  </button>
                 </div>
               </div>
 
@@ -740,14 +829,14 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                     <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Scanner & Presensi Cepat di Lokasi
                   </h4>
                   <p className="text-xs text-teal-200">
-                    Ketik atau scan QR tiket jamaah (contoh: `YTS-ILMU-NUR-4827`) untuk langsung mencatat kehadiran.
+                    Ketik 4-digit nomor tiket (misal: `1048` atau `YTS-1048`) atau scan QR tiket jamaah untuk langsung check-in.
                   </p>
                 </div>
 
                 <form onSubmit={handleCheckInByTicket} className="flex items-center gap-2 w-full sm:w-auto">
                   <input
                     type="text"
-                    placeholder="Contoh: YTS-ILMU-NUR-4827"
+                    placeholder="Contoh: 1048 atau YTS-1048"
                     value={ticketInput}
                     onChange={(e) => setTicketInput(e.target.value)}
                     className="px-3.5 py-2 rounded-xl bg-teal-950/80 border border-teal-700 text-xs text-white placeholder:text-teal-400/80 focus:ring-2 focus:ring-emerald-400 focus:outline-none uppercase font-mono w-full sm:w-56"
@@ -780,6 +869,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                     <option value="all">Semua Status</option>
                     <option value="attended">Hadir (Checked-In)</option>
                     <option value="registered">Terdaftar (Belum Hadir)</option>
+                    <option value="from_referral">✨ Undangan Panitia</option>
                   </select>
 
                   <select
@@ -868,7 +958,11 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                             </td>
                             <td className="p-3.5 font-mono text-[11px] font-semibold text-slate-700">
                               <span className="block">{p.ticketCode || '-'}</span>
-                              {p.referredByAttendanceId && <span className="mt-1 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-sans font-bold text-amber-800">Dari undangan</span>}
+                              {(p.isSpecialInvite || p.source === 'admin_invite' || p.referredByAttendanceId) && (
+                                <span className="mt-1 inline-block rounded bg-emerald-50 border border-emerald-300 px-1.5 py-0.5 text-[9px] font-sans font-bold text-emerald-800">
+                                  ✨ Undangan Panitia
+                                </span>
+                              )}
                             </td>
                             <td className="p-3.5">
                               {p.vehicleType === 'car' && (

@@ -683,4 +683,292 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
     expect(updatedSetVal.paymentProofUrl).toMatch(/contabostorage\.com|event-proofs/);
     expect(updatedSetVal.paymentAmountRupiah).toBe(75000);
   });
+
+  it('GET /api/public/events/:id/check-invitation validates admin-exclusive invitation code', async () => {
+    const mockDb = {
+      query: {
+        events: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'ev_123',
+            title: 'Kajian Kitab Tauhid',
+            formConfig: {
+              adminInviteCode: 'UNDANGAN-VIP',
+            },
+          }),
+        },
+      },
+    };
+
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    // Test with full admin invite code
+    const res1 = await router.handle({
+      path: '/api/public/events/ev_123/check-invitation',
+      method: 'GET',
+      headers: {},
+      query: { code: 'UNDANGAN-VIP' },
+      params: { id: 'ev_123' },
+      body: null,
+      requestId: 'req_check_inv_1',
+    });
+
+    expect(res1.statusCode).toBe(200);
+    const body1 = JSON.parse(res1.body);
+    expect(body1.data.valid).toBe(true);
+    expect(body1.data.isAdminInvite).toBe(true);
+    expect(body1.data.inviteCode).toBe('UNDANGAN-VIP');
+
+    // Test with suffix VIP
+    const res2 = await router.handle({
+      path: '/api/public/events/ev_123/check-referral',
+      method: 'GET',
+      headers: {},
+      query: { code: 'VIP' },
+      params: { id: 'ev_123' },
+      body: null,
+      requestId: 'req_check_inv_2',
+    });
+    expect(res2.statusCode).toBe(200);
+    const body2 = JSON.parse(res2.body);
+    expect(body2.data.valid).toBe(true);
+
+    // Test not found / invalid invite code
+    const res3 = await router.handle({
+      path: '/api/public/events/ev_123/check-invitation',
+      method: 'GET',
+      headers: {},
+      query: { code: 'NOTEXIST' },
+      params: { id: 'ev_123' },
+      body: null,
+      requestId: 'req_check_inv_3',
+    });
+    expect(res3.statusCode).toBe(404);
+  });
+
+  it('POST /api/public/register-event resolves admin invite code and marks attendance as admin_invite', async () => {
+    let insertedAttendance: any = null;
+    const mockDb = {
+      query: {
+        events: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: '018f0000-0000-0000-0000-000000000099',
+            title: 'Kajian Akbar Tauhid',
+            category: 'Tabligh Akbar',
+            speaker: 'Ustadz Fulan',
+            startAt: new Date('2026-08-20T09:00:00Z'),
+            targetAudience: 'umum',
+            isRegistrationOpen: true,
+            attendances: [],
+            formConfig: {
+              adminInviteCode: 'UNDANGAN-018F00',
+            },
+          }),
+        },
+        persons: {
+          findFirst: vi.fn().mockResolvedValue(null),
+        },
+        eventAttendance: {
+          findFirst: vi.fn().mockResolvedValue(null),
+        },
+      },
+      insert: vi.fn().mockImplementation((table) => {
+        if (table === persons) {
+          return {
+            values: vi.fn().mockImplementation((val) => ({
+              returning: vi.fn().mockResolvedValue([{ ...val, id: 'person_new_reg_1' }]),
+            })),
+          };
+        }
+        if (table === eventAttendance) {
+          return {
+            values: vi.fn().mockImplementation((val) => {
+              insertedAttendance = val;
+              return Promise.resolve();
+            }),
+          };
+        }
+        return { values: vi.fn().mockResolvedValue([]) };
+      }),
+    };
+
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      path: '/api/public/register-event',
+      method: 'POST',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        eventId: '018f0000-0000-0000-0000-000000000099',
+        fullName: 'Zaid bin Tsabit',
+        phone: '081299998888',
+        gender: 'ikhwan',
+        inviteCode: 'UNDANGAN-018F00',
+      },
+      requestId: 'req_invite_reg_1',
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.data.ticketCode).toMatch(/^YTS-\d{4,5}$/);
+    expect(body.data.isSpecialInvite).toBe(true);
+    expect(body.data.referralCode).toBeUndefined();
+    expect(insertedAttendance).not.toBeNull();
+    expect(insertedAttendance.source).toBe('form_registration');
+    expect(insertedAttendance.registrationData.inviteSource).toBe('admin_invite');
+    expect(insertedAttendance.registrationData.isSpecialInvite).toBe(true);
+  });
+
+  it('POST /api/public/participant/my-events retrieves upcoming & history events by WhatsApp number', async () => {
+    const mockDb = {
+      query: {
+        persons: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'p_jamaah_hub_1',
+            fullName: 'Fulan bin Fulan',
+            phoneE164: '+6281234567890',
+            gender: 'ikhwan',
+            cityRegency: 'Kota Bandung',
+          }),
+        },
+        eventAttendance: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: 'att_upcoming_1',
+              ticketCode: 'YTS-1048',
+              status: 'registered',
+              checkInAt: new Date(),
+              paymentStatus: 'free',
+              referralCode: 'AJAK-1048',
+              event: {
+                id: 'ev_future_1',
+                title: 'Kajian Akbar Tauhid Akhir Zaman',
+                speaker: 'Ustadz Fulan, Lc.',
+                category: 'Tabligh Akbar',
+                startAt: new Date(Date.now() + 7 * 24 * 3600 * 1000), // 7 days later
+                status: 'scheduled',
+                deliveryMode: 'offline',
+                locationName: 'Masjid Tarbiyah Sunnah',
+                venueRules: ['modest_dress'],
+                formConfig: {
+                  announcements: [
+                    {
+                      id: 'ann_1',
+                      title: 'Panduan Parkir Mobil',
+                      content: 'Gunakan kantong parkir resmi di area barat.',
+                      createdAt: new Date().toISOString(),
+                    },
+                  ],
+                },
+              },
+            },
+            {
+              id: 'att_past_1',
+              ticketCode: 'YTS-0901',
+              status: 'attended',
+              checkInAt: new Date('2026-07-01T08:00:00Z'),
+              paymentStatus: 'free',
+              referralCode: 'AJAK-0901',
+              event: {
+                id: 'ev_past_1',
+                title: 'Daurah Ushul Tsalatsah Seri 1',
+                speaker: 'Ustadz Fulan, Lc.',
+                category: 'Daurah',
+                startAt: new Date('2026-07-01T09:00:00Z'),
+                status: 'completed',
+                deliveryMode: 'offline',
+                locationName: 'Masjid Tarbiyah Sunnah',
+              },
+            },
+          ]),
+        },
+      },
+    };
+
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      path: '/api/public/participant/my-events',
+      method: 'POST',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        phone: '081234567890',
+      },
+      requestId: 'req_hub_my_events_1',
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.data.person.fullName).toBe('Fulan bin Fulan');
+    expect(body.data.upcomingCount).toBe(1);
+    expect(body.data.historyCount).toBe(1);
+    expect(body.data.upcoming[0].ticketCode).toBe('YTS-1048');
+    expect(body.data.history[0].ticketCode).toBe('YTS-0901');
+    expect(body.data.history[0].certificateAvailable).toBe(true);
+    expect(body.data.announcements.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('POST /api/public/participant-ticket allows looking up ticket without eventId', async () => {
+    const mockDb = {
+      query: {
+        eventAttendance: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'att_standalone_ticket',
+            eventId: 'ev_global_1',
+            ticketCode: 'YTS-1048',
+            status: 'registered',
+            checkInAt: new Date(),
+            paymentStatus: 'free',
+            person: {
+              fullName: 'Ahmad Abdullah',
+              gender: 'ikhwan',
+              phoneE164: '+6281234567890',
+            },
+            event: {
+              id: 'ev_global_1',
+              title: 'Kajian Fiqh Shalat',
+              speaker: 'Ustadz Fulan',
+              startAt: new Date('2026-10-01T09:00:00Z'),
+              deliveryMode: 'offline',
+              locationName: 'Masjid Tarbiyah Sunnah',
+            },
+          }),
+        },
+        events: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'ev_global_1',
+            title: 'Kajian Fiqh Shalat',
+            speaker: 'Ustadz Fulan',
+            startAt: new Date('2026-10-01T09:00:00Z'),
+            deliveryMode: 'offline',
+            locationName: 'Masjid Tarbiyah Sunnah',
+          }),
+        },
+      },
+    };
+
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      path: '/api/public/participant-ticket',
+      method: 'POST',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        ticketCode: '1048', // 4 digits without eventId
+        phone: '081234567890',
+      },
+      requestId: 'req_standalone_ticket_1',
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.data.participant.name).toBe('Ahmad Abdullah');
+    expect(body.data.event.title).toBe('Kajian Fiqh Shalat');
+    expect(body.data.participant.ticketCode).toBe('YTS-1048');
+  });
 });

@@ -24,12 +24,21 @@ export interface EventFormConfig {
   collectVehicle?: boolean;
   allowMultiParticipant?: boolean;
   maxMultiParticipants?: number;
+  adminInviteCode?: string;
   customFields?: EventFormField[];
   whatsappMessageTemplate?: string;
   /** Tautan grup hanya ditampilkan kepada peserta dengan gender yang sesuai. */
   whatsappGroupIkhwanUrl?: string;
   whatsappGroupAkhwatUrl?: string;
   termsAndConditions?: string;
+  announcements?: Array<{
+    id: string;
+    title: string;
+    content: string;
+    createdAt: string;
+    isUrgent?: boolean;
+    attachmentUrl?: string;
+  }>;
 }
 
 /**

@@ -88,7 +88,7 @@ describe('Participant ticket portal and memorable participant codes', () => {
     const body = JSON.parse(response.body);
     expect(body.data.participant.ticketCode).toBe('YTS-ILMU-NUR-482');
     expect(body.data.event.whatsappGroupInviteUrl).toBe(event.formConfig.whatsappGroupIkhwanUrl);
-    expect(body.data.participant.referralLink).toContain('AJAK-SALAM-UMAT-321');
+    expect(body.data.participant.isSpecialInvite).toBe(false);
 
     mockDb.query.eventAttendance.findFirst.mockResolvedValueOnce({
       ...attendance,

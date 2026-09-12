@@ -16,6 +16,7 @@ import {
   ShieldAlert,
   Copy,
   Check,
+  CheckCircle2,
   Share2,
   MessageSquare,
   CreditCard,
@@ -183,6 +184,58 @@ export function EventsPortalPage() {
     totalKajian?: number;
     pastFamilyMembers?: any[];
   } | null>(null);
+
+  // Referral / Invitation States (Jalur Undangan Khusus Resmi Panitia)
+  const urlReferral = (searchParams.get('invite') || searchParams.get('ref') || '').trim().toUpperCase();
+  const [inputReferralCode, setInputReferralCode] = useState(urlReferral);
+  const [verifiedReferrer, setVerifiedReferrer] = useState<{
+    valid: boolean;
+    isAdminInvite?: boolean;
+    referrerDisplayName?: string;
+    referralCode?: string;
+    label?: string;
+  } | null>(null);
+  const [verifyingReferral, setVerifyingReferral] = useState(false);
+  const [referralStatusText, setReferralStatusText] = useState<string | null>(null);
+
+  const handleVerifyReferral = async (codeToCheck?: string, eventIdTarget?: string) => {
+    const raw = (codeToCheck !== undefined ? codeToCheck : inputReferralCode).trim().toUpperCase();
+    const evId = eventIdTarget || selectedEventId || targetId;
+    if (!raw || !evId) return;
+
+    try {
+      setVerifyingReferral(true);
+      setReferralStatusText(null);
+      const res = await fetch(`/api/public/events/${evId}/check-invitation?code=${encodeURIComponent(raw)}`);
+      const json = await res.json();
+      if (res.ok && json.data?.valid) {
+        setVerifiedReferrer({
+          valid: true,
+          isAdminInvite: true,
+          referrerDisplayName: json.data.referrerDisplayName || 'Panitia Yayasan (Khusus)',
+          referralCode: json.data.inviteCode || json.data.referralCode,
+          label: json.data.label || 'Jalur Undangan Khusus Panitia',
+        });
+        setInputReferralCode(json.data.inviteCode || json.data.referralCode);
+        setReferralStatusText('✓ Terverifikasi: Pendaftaran melalui Jalur Undangan Khusus Panitia.');
+      } else {
+        setVerifiedReferrer(null);
+        setReferralStatusText(json.error?.message || 'Kode undangan khusus tidak valid untuk kajian ini.');
+      }
+    } catch {
+      setVerifiedReferrer(null);
+      setReferralStatusText('Gagal memverifikasi kode undangan khusus.');
+    } finally {
+      setVerifyingReferral(false);
+    }
+  };
+
+  useEffect(() => {
+    const activeEvId = selectedEventId || targetId;
+    if (urlReferral && activeEvId) {
+      handleVerifyReferral(urlReferral, activeEvId);
+    }
+  }, [urlReferral, selectedEventId, targetId]);
 
   // Paid event states
   const [paymentProofUrl, setPaymentProofUrl] = useState<string | null>(null);
@@ -452,7 +505,7 @@ export function EventsPortalPage() {
           agreedToRules: true,
           paymentProofUrl: paymentProofUrl || null,
           paymentAmountRupiah: calculatedTotalAmount,
-          referralCode,
+          referralCode: verifiedReferrer?.referralCode || inputReferralCode.trim().toUpperCase() || referralCode || null,
           additionalParticipants:
             registeredFamilyMembers.length > 0
               ? registeredFamilyMembers.map((m) => ({
@@ -565,6 +618,15 @@ export function EventsPortalPage() {
             >
               <Store className="w-3.5 h-3.5 text-amber-600" />
               <span className="hidden sm:inline">Bazar UMKM</span>
+            </Link>
+
+            <Link
+              to="/peserta"
+              className="px-3 py-2 rounded-xl text-xs font-bold text-slate-700 hover:text-emerald-950 hover:bg-emerald-50 items-center gap-1.5 transition-all flex border border-slate-200/80 shadow-2xs bg-white"
+              title="Cek e-tiket, kode presensi, atau riwayat kajian yang pernah Anda ikuti"
+            >
+              <Ticket className="w-3.5 h-3.5 text-teal-700" />
+              <span>Cek E-Tiket</span>
             </Link>
 
             <Link
@@ -1353,6 +1415,36 @@ export function EventsPortalPage() {
                     )}
                   </div>
 
+                  {/* Banner Undangan Terdeteksi */}
+                  {verifiedReferrer && (
+                    <div className="p-3.5 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-300 rounded-2xl flex items-center justify-between gap-3 text-xs text-emerald-950 shadow-2xs animate-in fade-in duration-200">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="w-8 h-8 rounded-xl bg-emerald-200/80 text-emerald-900 flex items-center justify-center font-bold text-sm shrink-0">
+                          ✨
+                        </span>
+                        <div className="min-w-0">
+                          <span className="font-bold text-emerald-950 block truncate">
+                            Jalur Undangan Khusus Panitia
+                          </span>
+                          <span className="text-[10px] text-emerald-800 font-mono block mt-0.5">
+                            Kode Undangan Resmi: {verifiedReferrer.referralCode}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVerifiedReferrer(null);
+                          setInputReferralCode('');
+                          setReferralStatusText(null);
+                        }}
+                        className="text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline shrink-0 px-1"
+                      >
+                        Batal
+                      </button>
+                    </div>
+                  )}
+
                   {/* 1. Full Name */}
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">Nama Lengkap Jamaah *</label>
@@ -1812,6 +1904,73 @@ export function EventsPortalPage() {
                     </div>
                   )}
 
+                  {/* 7a. Kode Undangan Khusus Panitia (Opsional) */}
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <span className="text-emerald-600">✨</span>
+                        <span>Punya Kode Undangan Khusus Panitia?</span>
+                        <span className="text-[10px] font-normal text-slate-500">(Opsional)</span>
+                      </label>
+                      {verifiedReferrer && (
+                        <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/80 px-2 py-0.5 rounded-md">
+                          ✓ Terverifikasi Panitia
+                        </span>
+                      )}
+                    </div>
+
+                    {verifiedReferrer ? (
+                      <div className="p-2.5 bg-emerald-50/80 border border-emerald-300 rounded-xl flex items-center justify-between gap-2 text-xs text-emerald-950">
+                        <div>
+                          <span className="font-bold block">✨ Jalur Undangan Khusus Panitia</span>
+                          <span className="text-[11px] font-mono text-emerald-800">Kode: {verifiedReferrer.referralCode}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setVerifiedReferrer(null);
+                            setInputReferralCode('');
+                            setReferralStatusText(null);
+                          }}
+                          className="text-[11px] font-bold text-rose-700 hover:text-rose-900 underline px-1"
+                        >
+                          Hapus
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            placeholder="Contoh: UNDANGAN-VIP atau Kode Panitia"
+                            value={inputReferralCode}
+                            onChange={(e) => {
+                              setInputReferralCode(e.target.value.toUpperCase());
+                              setReferralStatusText(null);
+                            }}
+                            className="flex-1 p-2 bg-white border border-slate-300 rounded-xl text-xs font-mono font-bold tracking-wide uppercase focus:ring-2 focus:ring-teal-500 focus:outline-none placeholder:font-sans placeholder:font-normal placeholder:tracking-normal"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleVerifyReferral(inputReferralCode)}
+                            disabled={!inputReferralCode.trim() || verifyingReferral}
+                            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 disabled:opacity-40 text-white text-xs font-bold rounded-xl transition-all active:scale-95 shrink-0"
+                          >
+                            {verifyingReferral ? 'Mengecek...' : 'Terapkan'}
+                          </button>
+                        </div>
+                        {referralStatusText && (
+                          <p className={`text-[11px] font-medium ${verifiedReferrer ? 'text-emerald-700' : 'text-amber-700'}`}>
+                            {referralStatusText}
+                          </p>
+                        )}
+                        <p className="text-[10px] text-slate-500 leading-relaxed">
+                          Masukkan Kode Undangan Khusus Resmi dari Panitia Yayasan jika Anda menerima undangan VIP/khusus.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
                   {/* 7b. Paid Event & Bank Transfer Instructions */}
                   {selectedEvent?.isPaid && (
                     <div className="p-4 bg-amber-50/90 border-2 border-amber-300 rounded-2xl space-y-3.5 animate-in fade-in duration-200">
@@ -2164,19 +2323,20 @@ export function EventsPortalPage() {
                 </a>
               )}
 
-              {eventSuccess.referralLink && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(`${window.location.origin}${eventSuccess.referralLink}`);
-                    setCopiedShareLink(true);
-                    setTimeout(() => setCopiedShareLink(false), 2500);
-                  }}
-                  className="w-full py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-950 font-bold text-xs rounded-xl border border-amber-300 transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95"
-                >
-                  {copiedShareLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Share2 className="w-3.5 h-3.5 text-amber-700" />}
-                  <span>{copiedShareLink ? 'Tautan Undangan Tersalin!' : 'Salin Tautan Undangan Pribadi'}</span>
-                </button>
+              {eventSuccess.isSpecialInvite && (
+                <div className="p-3.5 bg-emerald-50 border border-emerald-300 rounded-2xl text-left flex items-start gap-2.5">
+                  <div className="p-1 bg-emerald-200 text-emerald-800 rounded-lg shrink-0 mt-0.5">
+                    <CheckCircle2 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-emerald-950 block">
+                      ✨ Jalur Undangan Khusus Panitia
+                    </span>
+                    <p className="text-[11px] text-emerald-800/90 mt-0.5 leading-relaxed">
+                      Pendaftaran Anda telah tercatat melalui Jalur Undangan Khusus Resmi dari Panitia Yayasan Tarbiyah Sunnah.
+                    </p>
+                  </div>
+                </div>
               )}
 
               <button

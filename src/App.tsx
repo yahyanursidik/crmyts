@@ -146,7 +146,10 @@ export function App() {
               <Route path="/daurah/:id/bazar" element={<BazaarPortalPage />} />
               <Route path="/daurah/:id/bazar/survey" element={<BazaarSurveyPortalPage />} />
               <Route path="/public/events/:id" element={<EventsPortalPage />} />
+              <Route path="/peserta" element={<ParticipantPortalPage />} />
               <Route path="/peserta/:eventId" element={<ParticipantPortalPage />} />
+              <Route path="/tiket" element={<ParticipantPortalPage />} />
+              <Route path="/cek-tiket" element={<ParticipantPortalPage />} />
 
               <Route
                 path="/login"

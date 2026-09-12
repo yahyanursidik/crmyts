@@ -53,6 +53,14 @@ interface ParticipantItem {
   vehicleType: string; // 'none' | 'motorcycle' | 'car'
   vehiclePlateNumber?: string | null;
   registrationData?: Record<string, any> | null;
+
+  // Invitation tracking
+  referralCode?: string | null;
+  isSpecialInvite?: boolean;
+  referredByAttendanceId?: string | null;
+  referrerName?: string | null;
+  referrerCode?: string | null;
+  referralCount?: number;
 }
 
 interface EventDetailData {
@@ -82,6 +90,9 @@ interface EventDetailData {
   waitingVerificationCount?: number;
   verifiedPaymentCount?: number;
   pendingPaymentCount?: number;
+  specialInviteCount?: number;
+  referralSignups?: number;
+  adminInviteCode?: string;
 }
 
 interface EventSubmissionsModalProps {
@@ -100,7 +111,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   const [data, setData] = useState<EventDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'all' | 'attended' | 'registered' | 'waiting_verification' | 'ikhwan' | 'akhwat'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'attended' | 'registered' | 'waiting_verification' | 'ikhwan' | 'akhwat' | 'from_referral'>('all');
   const [vehicleFilter, setVehicleFilter] = useState<'all' | 'car' | 'motorcycle' | 'none'>('all');
 
   // Selected for Bulk Actions
@@ -249,6 +260,9 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
       p.personName.toLowerCase().includes(q) ||
       p.personPhone.toLowerCase().includes(q) ||
       (p.ticketCode && p.ticketCode.toLowerCase().includes(q)) ||
+      (p.referralCode && p.referralCode.toLowerCase().includes(q)) ||
+      (p.referrerName && p.referrerName.toLowerCase().includes(q)) ||
+      (p.referrerCode && p.referrerCode.toLowerCase().includes(q)) ||
       (p.personCity && p.personCity.toLowerCase().includes(q)) ||
       (p.vehiclePlateNumber && p.vehiclePlateNumber.toLowerCase().includes(q));
 
@@ -258,6 +272,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
     else if (activeTab === 'waiting_verification') matchTab = p.paymentStatus === 'waiting_verification';
     else if (activeTab === 'ikhwan') matchTab = p.personGender === 'ikhwan';
     else if (activeTab === 'akhwat') matchTab = p.personGender === 'akhwat';
+    else if (activeTab === 'from_referral') matchTab = Boolean(p.isSpecialInvite || p.source === 'admin_invite' || p.referredByAttendanceId);
 
     const matchVehicle =
       vehicleFilter === 'all'
@@ -306,6 +321,10 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
       'No. WhatsApp',
       'Email',
       'Kota / Domisili',
+      'Kode Undangan Milik Sendiri',
+      'Diundang Oleh (Nama)',
+      'Kode Pengundang',
+      'Jumlah Mengajak',
       ...(data.isPaid ? ['Status Pembayaran', 'Nominal (Rp)', 'Bukti URL'] : []),
       'Status Presensi',
       'Kendaraan',
@@ -321,6 +340,10 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
       `"${p.personPhone}"`,
       `"${p.personEmail || '-'}"`,
       `"${p.personCity || '-'}"`,
+      `"${p.referralCode || '-'}"`,
+      `"${(p.referrerName || '-').replace(/"/g, '""')}"`,
+      `"${p.referrerCode || '-'}"`,
+      `"${p.referralCount || 0}"`,
       ...(data.isPaid
         ? [
             `"${
@@ -575,6 +598,17 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                 >
                   🌸 Akhwat ({data?.akhwatCount || 0})
                 </button>
+
+                <button
+                  onClick={() => setActiveTab('from_referral')}
+                  className={`px-3 py-1.5 rounded-xl transition-all shrink-0 flex items-center gap-1.5 ${
+                    activeTab === 'from_referral'
+                      ? 'bg-amber-700 text-white shadow-2xs font-black'
+                      : 'text-amber-900 hover:bg-amber-100/70'
+                  }`}
+                >
+                  <span>✨ Undangan Panitia ({data?.specialInviteCount || data?.referralSignups || 0})</span>
+                </button>
               </div>
 
               {/* Vehicle Filter Selector */}
@@ -672,13 +706,20 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                                       </span>
                                     )}
                                   </div>
-                                  <span
-                                    className={`text-[10px] font-bold ${
-                                      p.personGender === 'ikhwan' ? 'text-sky-700' : 'text-rose-700'
-                                    }`}
-                                  >
-                                    {p.personGender === 'ikhwan' ? '🕌 Ikhwan' : '🌸 Akhwat'}
-                                  </span>
+                                  <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                                    <span
+                                      className={`text-[10px] font-bold ${
+                                        p.personGender === 'ikhwan' ? 'text-sky-700' : 'text-rose-700'
+                                      }`}
+                                    >
+                                      {p.personGender === 'ikhwan' ? '🕌 Ikhwan' : '🌸 Akhwat'}
+                                    </span>
+                                    {(p.isSpecialInvite || p.source === 'admin_invite' || p.referredByAttendanceId) && (
+                                      <span className="text-[9px] font-bold text-emerald-900 bg-emerald-50 border border-emerald-300 px-1.5 py-0.2 rounded">
+                                        ✨ Undangan Panitia
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             </td>
@@ -861,6 +902,11 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                               <span className="font-mono text-[10px] font-bold text-brand-900 block mt-0.5">
                                 Tiket: {p.ticketCode || '-'}
                               </span>
+                              {(p.isSpecialInvite || p.source === 'admin_invite' || p.referredByAttendanceId) && (
+                                <span className="inline-block mt-1 text-[9px] font-bold text-emerald-900 bg-emerald-50 border border-emerald-300 px-1.5 py-0.2 rounded">
+                                  ✨ Undangan Panitia
+                                </span>
+                              )}
                             </div>
                           </div>
 

@@ -188,38 +188,50 @@ export function registerEventsRoutes(router: Router) {
         return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
       }
 
-      const participants = eventItem.attendances.map((att) => ({
-        id: att.id,
-        personId: att.personId,
-        personName: att.person?.fullName || 'Anonim',
-        personPhone: att.person?.phoneE164 || '-',
-        personGender: att.person?.gender || 'ikhwan',
-        personEmail: att.person?.email || null,
-        personCity: att.person?.cityRegency || null,
-        status: att.status,
-        source: att.source,
-        checkInAt: att.checkInAt,
-        ticketCode: att.ticketCode,
-        referralCode: att.referralCode,
-        referredByAttendanceId: att.referredByAttendanceId,
-        
-        // Payment Information
-        paymentStatus: att.paymentStatus || (eventItem.isPaid ? 'pending_payment' : 'free'),
-        paymentProofUrl: att.paymentProofUrl || null,
-        paymentAmountRupiah: att.paymentAmountRupiah || (eventItem.isPaid ? eventItem.priceRupiah : 0),
-        paymentVerifiedAt: att.paymentVerifiedAt || null,
-        paymentRejectionReason: att.paymentRejectionReason || null,
+      const adminInviteCode =
+        eventItem.formConfig?.adminInviteCode?.trim().toUpperCase() ||
+        `UNDANGAN-${eventItem.id.slice(0, 6).toUpperCase()}`;
 
-        // Group / Family Registration
-        registrationGroupId: att.registrationGroupId || null,
-        familyRelationship: att.familyRelationship || null,
-        age: att.age || null,
+      const participants = eventItem.attendances.map((att) => {
+        const isSpecialInvite =
+          (att.registrationData as any)?.isSpecialInvite === true ||
+          (att.registrationData as any)?.inviteSource === 'admin_invite' ||
+          Boolean(att.referredByAttendanceId);
 
-        vehicleType: att.vehicleType,
-        vehiclePlateNumber: att.vehiclePlateNumber,
-        agreedToRules: att.agreedToRules,
-        registrationData: att.registrationData || null,
-      }));
+        return {
+          id: att.id,
+          personId: att.personId,
+          personName: att.person?.fullName || 'Anonim',
+          personPhone: att.person?.phoneE164 || '-',
+          personGender: att.person?.gender || 'ikhwan',
+          personEmail: att.person?.email || null,
+          personCity: att.person?.cityRegency || null,
+          status: att.status,
+          source: att.source,
+          checkInAt: att.checkInAt,
+          ticketCode: att.ticketCode,
+          referralCode: att.referralCode,
+          isSpecialInvite,
+          referredByAttendanceId: att.referredByAttendanceId,
+          
+          // Payment Information
+          paymentStatus: att.paymentStatus || (eventItem.isPaid ? 'pending_payment' : 'free'),
+          paymentProofUrl: att.paymentProofUrl || null,
+          paymentAmountRupiah: att.paymentAmountRupiah || (eventItem.isPaid ? eventItem.priceRupiah : 0),
+          paymentVerifiedAt: att.paymentVerifiedAt || null,
+          paymentRejectionReason: att.paymentRejectionReason || null,
+
+          // Group / Family Registration
+          registrationGroupId: att.registrationGroupId || null,
+          familyRelationship: att.familyRelationship || null,
+          age: att.age || null,
+
+          vehicleType: att.vehicleType,
+          vehiclePlateNumber: att.vehiclePlateNumber,
+          agreedToRules: att.agreedToRules,
+          registrationData: att.registrationData || null,
+        };
+      });
 
       const ikhwanCount = participants.filter((p) => p.personGender === 'ikhwan').length;
       const akhwatCount = participants.filter((p) => p.personGender === 'akhwat').length;
@@ -228,11 +240,12 @@ export function registerEventsRoutes(router: Router) {
       const waitingVerificationCount = participants.filter((p) => p.paymentStatus === 'waiting_verification').length;
       const verifiedPaymentCount = participants.filter((p) => p.paymentStatus === 'verified').length;
       const pendingPaymentCount = participants.filter((p) => p.paymentStatus === 'pending_payment').length;
-      const referralSignups = participants.filter((p) => Boolean(p.referredByAttendanceId)).length;
+      const specialInviteCount = participants.filter((p) => p.isSpecialInvite).length;
 
       return successResponse(
         {
           ...eventItem,
+          adminInviteCode,
           participants,
           totalParticipants: participants.length,
           attendedCount: participants.filter((p) => p.status === 'attended').length,
@@ -243,7 +256,8 @@ export function registerEventsRoutes(router: Router) {
           waitingVerificationCount,
           verifiedPaymentCount,
           pendingPaymentCount,
-          referralSignups,
+          specialInviteCount,
+          referralSignups: specialInviteCount,
         },
         { requestId: ctx.requestId }
       );
