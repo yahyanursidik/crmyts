@@ -43,6 +43,7 @@ describe('Official Email Service (Mailketing)', () => {
   it('renders official Islamic email layout with brand headers and footers', () => {
     const html = renderEmailLayout('Judul Pengujian', '<p>Isi Pesan Uji</p>');
     expect(html).toContain('Yayasan Tarbiyah Sunnah');
+    expect(html).toContain('Bersama Sunnah, Menebar Manfaat');
     expect(html).toContain('no-reply@yts.web.id');
     expect(html).toContain('Isi Pesan Uji');
     expect(html).toContain('Jl. Jurang No.64, Pasteur');

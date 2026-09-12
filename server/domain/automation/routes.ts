@@ -14,10 +14,11 @@ import {
   interactions,
   tasks,
   emailCampaigns,
+  emailBlacklist,
   DripRecipient,
   DripCampaignStats,
 } from '../../db/schema';
-import { eq, and, desc, isNotNull, ne, sql } from 'drizzle-orm';
+import { eq, and, desc, isNotNull, ne, sql, or } from 'drizzle-orm';
 import { logAuditEvent } from '../../audit/service';
 import { sendEmail, renderEmailLayout } from '../../email/service';
 import { getBroadcastDailyQuota, reserveBroadcastEmailSlot } from '../../email/broadcastQuota';
@@ -49,7 +50,129 @@ export const DEFAULT_CAMPAIGN_ID = '00000000-0000-7000-8000-000000000001';
  */
 const memoryFallbackCampaigns = new Map<string, DripEmailCampaign>();
 
+/**
+ * In-memory fallback and helper utilities for Global Email Blacklist & Suppression Registry.
+ */
+const memoryFallbackBlacklist = new Map<string, {
+  id: string;
+  email: string;
+  reason: string;
+  notes?: string | null;
+  sourceCampaignId?: string | null;
+  personId?: string | null;
+  createdAt: string;
+}>();
+
+export async function ensureEmailBlacklistTable(db: any): Promise<void> {
+  try {
+    if (typeof db.execute === 'function') {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS email_blacklist (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          email text NOT NULL,
+          reason text DEFAULT 'already_sent' NOT NULL,
+          notes text,
+          source_campaign_id uuid,
+          person_id uuid,
+          created_at timestamp with time zone DEFAULT now() NOT NULL,
+          created_by uuid REFERENCES app_users(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_email_blacklist_email ON email_blacklist(email);
+        CREATE INDEX IF NOT EXISTS idx_email_blacklist_reason ON email_blacklist(reason);
+        CREATE INDEX IF NOT EXISTS idx_email_blacklist_created_at ON email_blacklist(created_at);
+      `);
+    }
+  } catch {
+    // Soft fail for unit test mocks
+  }
+}
+
+export async function getBlacklistedEmailsSet(db: any): Promise<Set<string>> {
+  const set = new Set<string>();
+  for (const email of memoryFallbackBlacklist.keys()) {
+    set.add(email.toLowerCase().trim());
+  }
+
+  if (db.query?.emailBlacklist?.findMany) {
+    try {
+      const rows = await db.query.emailBlacklist.findMany({
+        columns: { email: true },
+      });
+      for (const r of rows) {
+        if (r.email) set.add(r.email.toLowerCase().trim());
+      }
+    } catch {
+      // Soft fail
+    }
+  }
+  return set;
+}
+
+export async function addEmailToBlacklist(
+  db: any,
+  params: {
+    email: string;
+    reason?: string;
+    notes?: string | null;
+    sourceCampaignId?: string | null;
+    personId?: string | null;
+    userId?: string | null;
+  }
+): Promise<any> {
+  const cleanEmail = params.email.toLowerCase().trim();
+  const newId = crypto.randomUUID();
+  const nowIso = new Date().toISOString();
+
+  const entry = {
+    id: newId,
+    email: cleanEmail,
+    reason: params.reason || 'already_sent',
+    notes: params.notes || null,
+    sourceCampaignId: params.sourceCampaignId || null,
+    personId: params.personId || null,
+    createdAt: nowIso,
+  };
+
+  memoryFallbackBlacklist.set(cleanEmail, entry);
+
+  if (db.insert && db.query?.emailBlacklist) {
+    try {
+      await db.insert(emailBlacklist).values({
+        ...entry,
+        createdAt: new Date(),
+        createdBy: params.userId || null,
+      });
+    } catch (err) {
+      console.warn('[Add Email Blacklist Warn]:', err);
+    }
+  }
+  return entry;
+}
+
+export async function removeEmailFromBlacklist(db: any, idOrEmail: string): Promise<boolean> {
+  const clean = idOrEmail.toLowerCase().trim();
+  memoryFallbackBlacklist.delete(clean);
+  for (const [k, v] of memoryFallbackBlacklist.entries()) {
+    if (v.id === idOrEmail) {
+      memoryFallbackBlacklist.delete(k);
+    }
+  }
+
+  if (db.delete && db.query?.emailBlacklist) {
+    try {
+      await db.delete(emailBlacklist).where(
+        or(eq(emailBlacklist.id, idOrEmail), eq(emailBlacklist.email, clean))
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
 export async function ensureEmailCampaignsTableAndSeed(db: any): Promise<void> {
+  await ensureEmailBlacklistTable(db);
   // 1. Ensure table exists (safeguard for serverless or fresh DB instances)
   try {
     if (typeof db.execute === 'function') {
@@ -100,19 +223,24 @@ export async function ensureEmailCampaignsTableAndSeed(db: any): Promise<void> {
         })
       : [];
 
+    const blacklistedSet = await getBlacklistedEmailsSet(db);
     const seedRecipients: DripRecipient[] = eligiblePersons
       .filter((p: any) => Boolean(p.email && p.email.trim().includes('@')))
-      .map((p: any) => ({
-        personId: p.id,
-        fullName: p.fullName,
-        email: p.email!.trim(),
-        gender: p.gender,
-        cityRegency: p.cityRegency || 'Kota Bandung',
-        status: 'pending' as const,
-        sentAt: null,
-        dayNumber: null,
-        error: null,
-      }));
+      .map((p: any) => {
+        const cleanEmail = p.email!.trim().toLowerCase();
+        const isBlacklisted = blacklistedSet.has(cleanEmail);
+        return {
+          personId: p.id,
+          fullName: p.fullName,
+          email: p.email!.trim(),
+          gender: p.gender,
+          cityRegency: p.cityRegency || 'Kota Bandung',
+          status: isBlacklisted ? ('blacklisted' as const) : ('pending' as const),
+          sentAt: null,
+          dayNumber: null,
+          error: isBlacklisted ? 'Dilewati: Terdaftar di Blacklist / Sudah pernah terkirim' : null,
+        };
+      });
 
     const nowIso = new Date().toISOString();
     const defaultCampaign: DripEmailCampaign = {
@@ -147,7 +275,8 @@ export async function ensureEmailCampaignsTableAndSeed(db: any): Promise<void> {
         totalRecipients: seedRecipients.length,
         totalSent: 0,
         totalFailed: 0,
-        remaining: seedRecipients.length,
+        totalBlacklisted: seedRecipients.filter((r) => r.status === 'blacklisted').length,
+        remaining: seedRecipients.filter((r) => r.status === 'pending').length,
         dailySentToday: 0,
       },
       recipients: seedRecipients,
@@ -274,6 +403,13 @@ const createEmailCampaignSchema = z.object({
   totalDays: z.coerce.number().int().min(1).max(60).default(14),
   filterGender: z.enum(['all', 'ikhwan', 'akhwat']).default('all'),
   targetScope: z.enum(['all_jamaah', 'email_only']).default('all_jamaah'),
+  excludeBlacklisted: z.boolean().default(true),
+});
+
+const createEmailBlacklistSchema = z.object({
+  email: z.string().email('Format email tidak valid'),
+  reason: z.enum(['already_sent', 'manual_blacklist', 'bounced', 'unsubscribed', 'complaint']).default('manual_blacklist'),
+  notes: z.string().max(500).optional(),
 });
 
 const updateEmailCampaignSchema = z.object({
@@ -1154,19 +1290,24 @@ export function registerAutomationRoutes(router: Router) {
           orderBy: [desc(persons.createdAt)],
         });
 
+        const blacklistedSet = await getBlacklistedEmailsSet(db);
         const recipients: DripRecipient[] = eligiblePersons
           .filter((p) => Boolean(p.email && p.email.trim().includes('@')))
-          .map((p) => ({
-            personId: p.id,
-            fullName: p.fullName,
-            email: p.email!.trim(),
-            gender: p.gender ?? null,
-            cityRegency: p.cityRegency || 'Kota Bandung',
-            status: 'pending' as const,
-            sentAt: null,
-            dayNumber: null,
-            error: null,
-          }));
+          .map((p) => {
+            const cleanEmail = p.email!.trim().toLowerCase();
+            const isBlacklisted = blacklistedSet.has(cleanEmail);
+            return {
+              personId: p.id,
+              fullName: p.fullName,
+              email: p.email!.trim(),
+              gender: p.gender ?? null,
+              cityRegency: p.cityRegency || 'Kota Bandung',
+              status: isBlacklisted ? ('blacklisted' as const) : ('pending' as const),
+              sentAt: null,
+              dayNumber: null,
+              error: isBlacklisted ? 'Dilewati: Terdaftar di Blacklist / Sudah pernah terkirim' : null,
+            };
+          });
 
         if (recipients.length === 0) {
           return errorResponse(
@@ -1196,7 +1337,8 @@ export function registerAutomationRoutes(router: Router) {
             totalRecipients: recipients.length,
             totalSent: 0,
             totalFailed: 0,
-            remaining: recipients.length,
+            totalBlacklisted: recipients.filter((r) => r.status === 'blacklisted').length,
+            remaining: recipients.filter((r) => r.status === 'pending').length,
             dailySentToday: 0,
           },
           recipients,
@@ -1244,7 +1386,7 @@ export function registerAutomationRoutes(router: Router) {
     )
   );
 
-  // 14. POST /api/automation/email-campaigns/:id/dispatch-today (Dispatch Today's Batch)
+  // 14. POST /api/automation/email-campaigns/:id/dispatch-today (Dispatch Today's Batch with Concurrency & Blacklist Skip)
   router.post(
     '/api/automation/email-campaigns/:id/dispatch-today',
     requireAuth(async (ctx) => {
@@ -1259,6 +1401,17 @@ export function registerAutomationRoutes(router: Router) {
 
       const user = ctx.user;
       if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+
+      // Auto-skip any pending recipients that are already registered in global email blacklist
+      const blacklistedSet = await getBlacklistedEmailsSet(db);
+      let newlyBlacklistedCount = 0;
+      for (const r of campaign.recipients) {
+        if (r.status === 'pending' && blacklistedSet.has(r.email.toLowerCase().trim())) {
+          r.status = 'blacklisted';
+          r.error = 'Dilewati: Terdaftar di Blacklist / Sudah pernah terkirim';
+          newlyBlacklistedCount++;
+        }
+      }
 
       let dailyBroadcastQuota = await getBroadcastDailyQuota(db);
       if (dailyBroadcastQuota.remainingToday === 0) {
@@ -1275,77 +1428,141 @@ export function registerAutomationRoutes(router: Router) {
       const pendingRecipients = campaign.recipients.filter((r) => r.status === 'pending').slice(0, dispatchAllowance);
 
       if (pendingRecipients.length === 0) {
-        campaign.status = 'completed';
+        const hasAnyPending = campaign.recipients.some((r) => r.status === 'pending');
+        if (!hasAnyPending) {
+          campaign.status = 'completed';
+        }
+        campaign.stats.totalSent = campaign.recipients.filter((r) => r.status === 'sent').length;
+        campaign.stats.totalFailed = campaign.recipients.filter((r) => r.status === 'failed').length;
+        campaign.stats.totalBlacklisted = campaign.recipients.filter((r) => r.status === 'blacklisted').length;
+        campaign.stats.remaining = campaign.recipients.filter((r) => r.status === 'pending').length;
         campaign.updatedAt = new Date().toISOString();
         await saveCampaign(db, campaign);
-        return successResponse({ message: 'Semua antrean email telah selesai terkirim', dispatchedCount: 0, campaign }, { requestId: ctx.requestId });
+        return successResponse({
+          message: hasAnyPending ? 'Batas pengiriman hari ini telah tercapai' : 'Semua antrean email telah selesai diproses',
+          dispatchedCount: 0,
+          skippedBlacklisted: campaign.stats.totalBlacklisted,
+          campaign,
+        }, { requestId: ctx.requestId });
       }
+
+      // Time budget (8.5s) to guarantee serverless response before Netlify 10s timeout
+      const startTime = Date.now();
+      const TIME_BUDGET_MS = 8500;
+      const CHUNK_SIZE = 5;
 
       let successCount = 0;
       let failedCount = 0;
-      const dispatchResults = [];
+      const dispatchResults: any[] = [];
 
-      for (const r of pendingRecipients) {
-        const reservedQuota = await reserveBroadcastEmailSlot(db);
-        if (!reservedQuota) break;
-        dailyBroadcastQuota = reservedQuota;
-
-        const genderTitle = r.gender === 'akhwat' ? 'Ukhti' : r.gender === 'ikhwan' ? 'Akhi' : 'Bapak/Ibu';
-        const renderedHtml = campaign.bodyHtml
-          .replace(/\{\{fullName\}\}/g, r.fullName)
-          .replace(/\{\{city\}\}/g, r.cityRegency || 'Kota Bandung')
-          .replace(/\{\{genderTitle\}\}/g, genderTitle)
-          .replace(/\{\{email\}\}/g, r.email);
-
-        const fullLayoutHtml = renderEmailLayout(campaign.subject, renderedHtml);
-
-        const sendRes = await sendEmail({
-          to: r.email,
-          subject: campaign.subject,
-          html: fullLayoutHtml,
-        });
-
-        if (sendRes.success) {
-          r.status = 'sent';
-          r.sentAt = new Date().toISOString();
-          r.dayNumber = campaign.currentDay;
-          successCount++;
-
-          // Log CRM interaction
-          try {
-            await db.insert(interactions).values({
-              personId: r.personId,
-              channel: 'email',
-              summary: `Drip Broadcast: ${campaign.title} (Hari ${campaign.currentDay})`,
-              outcome: `Email sapaan terkirim ke ${r.email}`,
-              sensitivityLevel: 'standard',
-              ownerUserId: user.id,
-              createdBy: user.id,
-            });
-          } catch (err) {
-            console.warn('[CRM Drip Interaction Log Warn]:', err);
-          }
-        } else {
-          r.status = 'failed';
-          r.error = sendRes.error || 'Mailketing API Error';
-          failedCount++;
+      for (let i = 0; i < pendingRecipients.length; i += CHUNK_SIZE) {
+        if (Date.now() - startTime > TIME_BUDGET_MS) {
+          console.log(`[Drip Dispatch Budget]: Reached ${Date.now() - startTime}ms, yielding response gracefully.`);
+          break;
         }
 
-        dispatchResults.push({
-          fullName: r.fullName,
-          email: r.email,
-          status: r.status,
-          error: r.error,
-        });
+        const chunk = pendingRecipients.slice(i, i + CHUNK_SIZE);
+        const validBatch: DripRecipient[] = [];
+
+        for (const r of chunk) {
+          const reservedQuota = await reserveBroadcastEmailSlot(db);
+          if (!reservedQuota) break;
+          dailyBroadcastQuota = reservedQuota;
+          validBatch.push(r);
+        }
+
+        if (validBatch.length === 0) break;
+
+        const results = await Promise.allSettled(
+          validBatch.map(async (r) => {
+            const genderTitle = r.gender === 'akhwat' ? 'Ukhti' : r.gender === 'ikhwan' ? 'Akhi' : 'Bapak/Ibu';
+            const renderedHtml = campaign.bodyHtml
+              .replace(/\{\{fullName\}\}/g, r.fullName)
+              .replace(/\{\{city\}\}/g, r.cityRegency || 'Kota Bandung')
+              .replace(/\{\{genderTitle\}\}/g, genderTitle)
+              .replace(/\{\{email\}\}/g, r.email);
+
+            const fullLayoutHtml = renderEmailLayout(campaign.subject, renderedHtml);
+
+            const sendRes = await sendEmail({
+              to: r.email,
+              subject: campaign.subject,
+              html: fullLayoutHtml,
+            });
+
+            if (sendRes.success) {
+              r.status = 'sent';
+              r.sentAt = new Date().toISOString();
+              r.dayNumber = campaign.currentDay;
+              r.error = null;
+
+              // Log CRM interaction
+              try {
+                await db.insert(interactions).values({
+                  personId: r.personId,
+                  channel: 'email',
+                  summary: `Drip Broadcast: ${campaign.title} (Hari ${campaign.currentDay})`,
+                  outcome: `Email sapaan terkirim ke ${r.email}`,
+                  sensitivityLevel: 'standard',
+                  ownerUserId: user.id,
+                  createdBy: user.id,
+                });
+              } catch (err) {
+                console.warn('[CRM Drip Interaction Log Warn]:', err);
+              }
+
+              // Auto-add to email blacklist so future sends skip this email
+              try {
+                await addEmailToBlacklist(db, {
+                  email: r.email,
+                  reason: 'already_sent',
+                  sourceCampaignId: campaign.id,
+                  personId: r.personId,
+                  userId: user.id,
+                  notes: `Terkirim via kampanye ${campaign.title} (Hari ${campaign.currentDay})`,
+                });
+              } catch (err) {
+                console.warn('[Auto Blacklist On Send Warn]:', err);
+              }
+
+              return { success: true, recipient: r };
+            } else {
+              r.status = 'failed';
+              r.error = sendRes.error || 'Mailketing API Error';
+              return { success: false, recipient: r, error: r.error };
+            }
+          })
+        );
+
+        for (const res of results) {
+          if (res.status === 'fulfilled') {
+            const val = res.value;
+            if (val.success) {
+              successCount++;
+            } else {
+              failedCount++;
+            }
+            dispatchResults.push({
+              fullName: val.recipient.fullName,
+              email: val.recipient.email,
+              status: val.recipient.status,
+              error: val.recipient.error,
+            });
+          } else {
+            failedCount++;
+          }
+        }
       }
 
       // Update campaign stats
       const totalSent = campaign.recipients.filter((r) => r.status === 'sent').length;
       const totalFailed = campaign.recipients.filter((r) => r.status === 'failed').length;
+      const totalBlacklisted = campaign.recipients.filter((r) => r.status === 'blacklisted').length;
       const remaining = campaign.recipients.filter((r) => r.status === 'pending').length;
 
       campaign.stats.totalSent = totalSent;
       campaign.stats.totalFailed = totalFailed;
+      campaign.stats.totalBlacklisted = totalBlacklisted;
       campaign.stats.remaining = remaining;
       campaign.stats.dailySentToday = successCount;
       campaign.lastDispatchedAt = new Date().toISOString();
@@ -1368,10 +1585,12 @@ export function registerAutomationRoutes(router: Router) {
           dayNumber: campaign.currentDay - 1,
           successCount,
           failedCount,
+          totalBlacklisted,
+          newlyBlacklistedCount,
           remaining,
           dailyBroadcastQuota,
         },
-        reason: `Pengiriman email harian kuota warm-up (${successCount} sukses, ${failedCount} gagal)`,
+        reason: `Pengiriman email harian kuota warm-up (${successCount} sukses, ${failedCount} gagal, ${totalBlacklisted} blacklist)`,
         requestId: ctx.requestId,
       });
 
@@ -1382,6 +1601,7 @@ export function registerAutomationRoutes(router: Router) {
           dayDispatched: campaign.currentDay - 1,
           successCount,
           failedCount,
+          skippedBlacklisted: totalBlacklisted,
           remaining,
           dailyBroadcastQuota,
           campaign,
@@ -1501,20 +1721,25 @@ export function registerAutomationRoutes(router: Router) {
       const campaign = await findCampaign(db, campaignId);
       if (!campaign) return errorResponse('NOT_FOUND', 'Campaign tidak ditemukan', 404, ctx.requestId);
 
+      const blacklistedSet = await getBlacklistedEmailsSet(db);
       campaign.currentDay = 1;
       campaign.status = 'running';
       campaign.stats.totalSent = 0;
       campaign.stats.totalFailed = 0;
-      campaign.stats.remaining = campaign.recipients.length;
       campaign.stats.dailySentToday = 0;
       campaign.lastDispatchedAt = null;
-      campaign.recipients = campaign.recipients.map((r) => ({
-        ...r,
-        status: 'pending',
-        sentAt: null,
-        dayNumber: null,
-        error: null,
-      }));
+      campaign.recipients = campaign.recipients.map((r) => {
+        const isBlacklisted = blacklistedSet.has(r.email.toLowerCase().trim());
+        return {
+          ...r,
+          status: isBlacklisted ? ('blacklisted' as const) : ('pending' as const),
+          sentAt: null,
+          dayNumber: null,
+          error: isBlacklisted ? 'Dilewati: Terdaftar di Blacklist / Sudah pernah terkirim' : null,
+        };
+      });
+      campaign.stats.totalBlacklisted = campaign.recipients.filter((r) => r.status === 'blacklisted').length;
+      campaign.stats.remaining = campaign.recipients.filter((r) => r.status === 'pending').length;
       campaign.updatedAt = new Date().toISOString();
       await saveCampaign(db, campaign);
 
@@ -1556,9 +1781,214 @@ export function registerAutomationRoutes(router: Router) {
         },
       });
 
-      const count = eligiblePersons.filter((p) => Boolean(p.email && p.email.trim().includes('@'))).length;
+      const blacklistedSet = await getBlacklistedEmailsSet(db);
+      const allValid = eligiblePersons.filter((p) => Boolean(p.email && p.email.trim().includes('@')));
+      const cleanCount = allValid.filter((p) => !blacklistedSet.has(p.email!.trim().toLowerCase())).length;
+      const blacklistedCount = allValid.length - cleanCount;
 
-      return successResponse({ count, gender: gender || 'all' }, { requestId: ctx.requestId });
+      return successResponse({ count: cleanCount, totalEligible: allValid.length, blacklistedCount, gender: gender || 'all' }, { requestId: ctx.requestId });
+    })
+  );
+
+  // 21. GET /api/automation/email-blacklist (List & Stats of Email Blacklist)
+  router.get(
+    '/api/automation/email-blacklist',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      await ensureEmailBlacklistTable(db);
+
+      const search = (ctx.query?.search as string)?.toLowerCase().trim() || '';
+      const reasonFilter = (ctx.query?.reason as string) || 'all';
+      const page = Math.max(1, parseInt((ctx.query?.page as string) || '1', 10));
+      const limit = Math.min(100, Math.max(5, parseInt((ctx.query?.limit as string) || '20', 10)));
+
+      let allEntries: any[] = [];
+      if (db.query?.emailBlacklist?.findMany) {
+        try {
+          const dbRows = await db.query.emailBlacklist.findMany({
+            orderBy: [desc(emailBlacklist.createdAt)],
+          });
+          allEntries = dbRows.map((r: any) => ({
+            ...r,
+            createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt,
+          }));
+        } catch {
+          // Soft fail
+        }
+      }
+
+      if (allEntries.length === 0 && memoryFallbackBlacklist.size > 0) {
+        allEntries = Array.from(memoryFallbackBlacklist.values()).sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+      }
+
+      // Compute statistics
+      const stats = {
+        total: allEntries.length,
+        alreadySent: allEntries.filter((e) => e.reason === 'already_sent').length,
+        manualBlacklist: allEntries.filter((e) => e.reason === 'manual_blacklist').length,
+        bounced: allEntries.filter((e) => e.reason === 'bounced').length,
+        unsubscribed: allEntries.filter((e) => e.reason === 'unsubscribed').length,
+      };
+
+      // Filter
+      const filtered = allEntries.filter((e) => {
+        const matchSearch =
+          !search ||
+          e.email.toLowerCase().includes(search) ||
+          (e.notes && e.notes.toLowerCase().includes(search));
+        const matchReason = reasonFilter === 'all' || e.reason === reasonFilter;
+        return matchSearch && matchReason;
+      });
+
+      const total = filtered.length;
+      const totalPages = Math.max(1, Math.ceil(total / limit));
+      const items = filtered.slice((page - 1) * limit, page * limit);
+
+      return successResponse(
+        {
+          items,
+          stats,
+          pagination: { page, limit, total, totalPages },
+        },
+        { requestId: ctx.requestId }
+      );
+    })
+  );
+
+  // 22. POST /api/automation/email-blacklist (Add Email to Blacklist)
+  router.post(
+    '/api/automation/email-blacklist',
+    requireAuth(
+      validateBody(createEmailBlacklistSchema, async (ctx, body) => {
+        const db = getDb();
+        const user = ctx.user;
+        if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+
+        const entry = await addEmailToBlacklist(db, {
+          email: body.email,
+          reason: body.reason,
+          notes: body.notes,
+          userId: user.id,
+        });
+
+        // Update recipients across any fallback or loaded campaigns
+        const cleanEmail = body.email.toLowerCase().trim();
+        for (const c of memoryFallbackCampaigns.values()) {
+          for (const r of c.recipients) {
+            if (r.email.toLowerCase().trim() === cleanEmail && r.status !== 'sent') {
+              r.status = 'blacklisted';
+              r.error = `Dilewati: Terdaftar di Blacklist (${body.reason})`;
+            }
+          }
+          c.stats.totalBlacklisted = c.recipients.filter((r) => r.status === 'blacklisted').length;
+          c.stats.remaining = c.recipients.filter((r) => r.status === 'pending').length;
+        }
+
+        await logAuditEvent({
+          actorUserId: user.id,
+          action: 'add_email_to_blacklist',
+          entityType: 'email_blacklist',
+          entityId: entry.id,
+          afterJson: { email: body.email, reason: body.reason, notes: body.notes },
+          reason: `Pendaftaran email ke daftar blokir / suppression (${body.email})`,
+          requestId: ctx.requestId,
+        });
+
+        return successResponse(entry, { requestId: ctx.requestId }, 201);
+      })
+    )
+  );
+
+  // 23. DELETE /api/automation/email-blacklist/:id (Remove from Blacklist)
+  router.delete(
+    '/api/automation/email-blacklist/:id',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const idOrEmail = ctx.params?.id || '';
+      const user = ctx.user;
+      if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+
+      await removeEmailFromBlacklist(db, idOrEmail);
+
+      await logAuditEvent({
+        actorUserId: user.id,
+        action: 'remove_email_from_blacklist',
+        entityType: 'email_blacklist',
+        entityId: idOrEmail,
+        reason: `Penghapusan email dari daftar blacklist (${idOrEmail})`,
+        requestId: ctx.requestId,
+      });
+
+      return successResponse({ deleted: true, idOrEmail }, { requestId: ctx.requestId });
+    })
+  );
+
+  // 24. POST /api/automation/email-campaigns/:id/recipients/:recipientEmail/blacklist
+  router.post(
+    '/api/automation/email-campaigns/:id/recipients/:recipientEmail/blacklist',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const campaignId = ctx.params?.id || '';
+      const recipientEmail = decodeURIComponent(ctx.params?.recipientEmail || '').toLowerCase().trim();
+      const user = ctx.user;
+      if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+
+      const campaign = await findCampaign(db, campaignId);
+      if (!campaign) return errorResponse('NOT_FOUND', 'Program email campaign tidak ditemukan', 404, ctx.requestId);
+
+      const target = campaign.recipients.find((r) => r.email.toLowerCase().trim() === recipientEmail);
+      if (!target) return errorResponse('NOT_FOUND', 'Penerima tidak ditemukan pada kampanye ini', 404, ctx.requestId);
+
+      target.status = 'blacklisted';
+      target.error = 'Dilewati: Ditambahkan manual ke Blacklist oleh amil';
+
+      await addEmailToBlacklist(db, {
+        email: recipientEmail,
+        reason: 'manual_blacklist',
+        sourceCampaignId: campaign.id,
+        personId: target.personId,
+        userId: user.id,
+        notes: `Blacklist manual dari antrean ${campaign.title}`,
+      });
+
+      campaign.stats.totalBlacklisted = campaign.recipients.filter((r) => r.status === 'blacklisted').length;
+      campaign.stats.remaining = campaign.recipients.filter((r) => r.status === 'pending').length;
+      campaign.updatedAt = new Date().toISOString();
+      await saveCampaign(db, campaign);
+
+      return successResponse({ success: true, recipient: target, campaign }, { requestId: ctx.requestId });
+    })
+  );
+
+  // 25. POST /api/automation/email-campaigns/:id/recipients/:recipientEmail/unblacklist
+  router.post(
+    '/api/automation/email-campaigns/:id/recipients/:recipientEmail/unblacklist',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const campaignId = ctx.params?.id || '';
+      const recipientEmail = decodeURIComponent(ctx.params?.recipientEmail || '').toLowerCase().trim();
+      const user = ctx.user;
+      if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+
+      const campaign = await findCampaign(db, campaignId);
+      if (!campaign) return errorResponse('NOT_FOUND', 'Program email campaign tidak ditemukan', 404, ctx.requestId);
+
+      const target = campaign.recipients.find((r) => r.email.toLowerCase().trim() === recipientEmail);
+      if (!target) return errorResponse('NOT_FOUND', 'Penerima tidak ditemukan pada kampanye ini', 404, ctx.requestId);
+
+      target.status = 'pending';
+      target.error = null;
+
+      await removeEmailFromBlacklist(db, recipientEmail);
+
+      campaign.stats.totalBlacklisted = campaign.recipients.filter((r) => r.status === 'blacklisted').length;
+      campaign.stats.remaining = campaign.recipients.filter((r) => r.status === 'pending').length;
+      campaign.updatedAt = new Date().toISOString();
+      await saveCampaign(db, campaign);
+
+      return successResponse({ success: true, recipient: target, campaign }, { requestId: ctx.requestId });
     })
   );
 }

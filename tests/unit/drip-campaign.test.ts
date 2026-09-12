@@ -365,4 +365,314 @@ describe('Drip Email Campaign Endpoints', () => {
     expect(body.data.interactionId).toBe('018f9999-0000-7000-8000-777777777777');
     expect(mockDb.insert).toHaveBeenCalled();
   });
+
+  it('handles global email blacklist CRUD and auto-skips blacklisted emails on campaign creation', async () => {
+    const router = new Router();
+    registerAutomationRoutes(router);
+
+    const mockDb = {
+      query: {
+        persons: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: '018f9999-0000-7000-8000-888888888888',
+              fullName: 'Jamaah Ter-Blacklist',
+              email: 'blacklist-test@example.com',
+              gender: 'ikhwan',
+              cityRegency: 'Kota Bandung',
+              createdAt: new Date(),
+              isActive: true,
+            },
+            {
+              id: '018f9999-0000-7000-8000-999999999999',
+              fullName: 'Jamaah Normal',
+              email: 'normal-test@example.com',
+              gender: 'akhwat',
+              cityRegency: 'Kota Cimahi',
+              createdAt: new Date(),
+              isActive: true,
+            },
+          ]),
+        },
+      },
+      insert: vi.fn().mockReturnValue({
+        values: vi.fn().mockResolvedValue([]),
+      }),
+      delete: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue([]),
+      }),
+    };
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    // 1. Add email to blacklist
+    const addBlacklistRes = await router.handle({
+      requestId: 'req_add_blacklist',
+      method: 'POST',
+      path: '/api/automation/email-blacklist',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        email: 'blacklist-test@example.com',
+        reason: 'manual_blacklist',
+        notes: 'Permintaan tidak ingin menerima email',
+      },
+      user: adminUser,
+    });
+    expect(addBlacklistRes.statusCode).toBe(201);
+    const addedEntry = JSON.parse(addBlacklistRes.body).data;
+    expect(addedEntry.email).toBe('blacklist-test@example.com');
+
+    // 2. Fetch blacklist entries
+    const listRes = await router.handle({
+      requestId: 'req_list_blacklist',
+      method: 'GET',
+      path: '/api/automation/email-blacklist',
+      headers: {},
+      query: { search: 'blacklist-test' },
+      params: {},
+      body: {},
+      user: adminUser,
+    });
+    expect(listRes.statusCode).toBe(200);
+    const listData = JSON.parse(listRes.body).data;
+    expect(listData.items.some((e: any) => e.email === 'blacklist-test@example.com')).toBe(true);
+    expect(listData.stats.total).toBeGreaterThanOrEqual(1);
+
+    // 3. Create campaign and verify the blacklisted recipient is marked as blacklisted
+    const createRes = await router.handle({
+      requestId: 'req_create_with_blacklist',
+      method: 'POST',
+      path: '/api/automation/email-campaigns',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        title: 'Kampanye dengan Blacklist Filter',
+        subject: 'Uji Coba Filter Blacklist',
+        bodyHtml: '<p>Halo {{fullName}}</p>',
+        dailyQuota: 50,
+        totalDays: 14,
+      },
+      user: adminUser,
+    });
+    expect(createRes.statusCode).toBe(201);
+    const campaign = JSON.parse(createRes.body).data;
+    const blacklistedRecip = campaign.recipients.find((r: any) => r.email === 'blacklist-test@example.com');
+    const normalRecip = campaign.recipients.find((r: any) => r.email === 'normal-test@example.com');
+
+    expect(blacklistedRecip).toBeDefined();
+    expect(blacklistedRecip.status).toBe('blacklisted');
+    expect(blacklistedRecip.error).toContain('Blacklist');
+
+    expect(normalRecip).toBeDefined();
+    expect(normalRecip.status).toBe('pending');
+
+    expect(campaign.stats.totalBlacklisted).toBe(1);
+    expect(campaign.stats.remaining).toBe(1);
+
+    // 4. Delete from blacklist
+    const deleteRes = await router.handle({
+      requestId: 'req_delete_blacklist',
+      method: 'DELETE',
+      path: `/api/automation/email-blacklist/${addedEntry.id}`,
+      headers: {},
+      query: {},
+      params: { id: addedEntry.id },
+      body: {},
+      user: adminUser,
+    });
+    expect(deleteRes.statusCode).toBe(200);
+  });
+
+  it('allows manual blacklisting and unblacklisting recipient directly within campaign', async () => {
+    const router = new Router();
+    registerAutomationRoutes(router);
+
+    const mockDb = {
+      query: {
+        persons: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: '018f9999-0000-7000-8000-aaaa11112222',
+              fullName: 'Jamaah Manual Toggle',
+              email: 'toggle@example.com',
+              gender: 'ikhwan',
+              cityRegency: 'Kota Bandung',
+              createdAt: new Date(),
+              isActive: true,
+            },
+          ]),
+        },
+      },
+      insert: vi.fn().mockReturnValue({
+        values: vi.fn().mockResolvedValue([]),
+      }),
+      delete: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue([]),
+      }),
+    };
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    // Create campaign
+    const createRes = await router.handle({
+      requestId: 'req_create_for_toggle',
+      method: 'POST',
+      path: '/api/automation/email-campaigns',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        title: 'Campaign Toggle Test',
+        subject: 'Subjek',
+        bodyHtml: '<p>Isi</p>',
+        dailyQuota: 20,
+        totalDays: 5,
+      },
+      user: adminUser,
+    });
+    const campaignId = JSON.parse(createRes.body).data.id;
+
+    // Blacklist recipient
+    const blRes = await router.handle({
+      requestId: 'req_blacklist_recip',
+      method: 'POST',
+      path: `/api/automation/email-campaigns/${campaignId}/recipients/toggle%40example.com/blacklist`,
+      headers: {},
+      query: {},
+      params: { id: campaignId, recipientEmail: 'toggle@example.com' },
+      body: {},
+      user: adminUser,
+    });
+    expect(blRes.statusCode).toBe(200);
+    const blData = JSON.parse(blRes.body).data;
+    expect(blData.recipient.status).toBe('blacklisted');
+    expect(blData.campaign.stats.totalBlacklisted).toBe(1);
+
+    // Unblacklist recipient
+    const unblRes = await router.handle({
+      requestId: 'req_unblacklist_recip',
+      method: 'POST',
+      path: `/api/automation/email-campaigns/${campaignId}/recipients/toggle%40example.com/unblacklist`,
+      headers: {},
+      query: {},
+      params: { id: campaignId, recipientEmail: 'toggle@example.com' },
+      body: {},
+      user: adminUser,
+    });
+    expect(unblRes.statusCode).toBe(200);
+    const unblData = JSON.parse(unblRes.body).data;
+    expect(unblData.recipient.status).toBe('pending');
+    expect(unblData.campaign.stats.totalBlacklisted).toBe(0);
+  });
+
+  it('auto-adds successfully dispatched recipients to blacklist with reason already_sent', async () => {
+    const router = new Router();
+    registerAutomationRoutes(router);
+
+    const mockDb = {
+      query: {
+        persons: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: '018f9999-0000-7000-8000-bbbb11112222',
+              fullName: 'Jamaah Terkirim Auto Blacklist',
+              email: 'autoblacklist@example.com',
+              gender: 'ikhwan',
+              cityRegency: 'Kota Bandung',
+              createdAt: new Date(),
+              isActive: true,
+            },
+          ]),
+        },
+        dailyBroadcastQuotaUsage: {
+          findFirst: vi.fn().mockResolvedValue(null),
+        },
+      },
+      insert: vi.fn().mockReturnValue({
+        values: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([
+            {
+              id: '018f9999-0000-7000-8000-cccc11112222',
+              usageDate: '2026-09-12',
+              dispatchedCount: 1,
+            },
+          ]),
+        }),
+      }),
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([
+              {
+                id: '018f9999-0000-7000-8000-cccc11112222',
+                usageDate: '2026-09-12',
+                dispatchedCount: 1,
+              },
+            ]),
+          }),
+        }),
+      }),
+      execute: vi.fn().mockResolvedValue([{ dispatch_count: 1 }]),
+    };
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    // Mock email send
+    const emailService = await import('../../server/email/service');
+    vi.spyOn(emailService, 'sendEmail').mockResolvedValue({
+      success: true,
+      messageId: 'msg-auto-bl-1',
+    });
+
+    // Create campaign
+    const createRes = await router.handle({
+      requestId: 'req_create_for_auto_bl',
+      method: 'POST',
+      path: '/api/automation/email-campaigns',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        title: 'Campaign Auto Blacklist Test',
+        subject: 'Subjek',
+        bodyHtml: '<p>Isi</p>',
+        dailyQuota: 10,
+        totalDays: 5,
+      },
+      user: adminUser,
+    });
+    const campaignId = JSON.parse(createRes.body).data.id;
+
+    // Dispatch today
+    const dispatchRes = await router.handle({
+      requestId: 'req_dispatch_auto_bl',
+      method: 'POST',
+      path: `/api/automation/email-campaigns/${campaignId}/dispatch-today`,
+      headers: {},
+      query: {},
+      params: { id: campaignId },
+      body: {},
+      user: adminUser,
+    });
+    expect(dispatchRes.statusCode).toBe(200);
+    const dispatchBody = JSON.parse(dispatchRes.body).data;
+    expect(dispatchBody.successCount).toBe(1);
+
+    // Check that autoblacklist@example.com is now in global blacklist
+    const blListRes = await router.handle({
+      requestId: 'req_check_auto_bl',
+      method: 'GET',
+      path: '/api/automation/email-blacklist',
+      headers: {},
+      query: { search: 'autoblacklist@example.com' },
+      params: {},
+      body: {},
+      user: adminUser,
+    });
+    expect(blListRes.statusCode).toBe(200);
+    const blListData = JSON.parse(blListRes.body).data;
+    const entry = blListData.items.find((i: any) => i.email === 'autoblacklist@example.com');
+    expect(entry).toBeDefined();
+    expect(entry.reason).toBe('already_sent');
+  });
 });

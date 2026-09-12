@@ -55,6 +55,22 @@ export function registerWebhookRoutes(router: Router) {
     }
 
     const payload = parsed.data;
+
+    if (payload.type === 'bounce' || payload.type === 'unsubscribe') {
+      try {
+        const { getDb } = await import('../../db/client');
+        const { addEmailToBlacklist } = await import('../automation/routes');
+        const db = getDb();
+        await addEmailToBlacklist(db, {
+          email: payload.email,
+          reason: payload.type === 'bounce' ? 'bounced' : 'unsubscribed',
+          notes: payload.reason || `Auto-suppressed via Mailketing Webhook (${payload.type})`,
+        });
+      } catch (err) {
+        console.warn('[Mailketing Webhook Blacklist Err]:', err);
+      }
+    }
+
     await logAuditEvent({
       action: `mailketing_webhook_${payload.type}`,
       entityType: 'mailketing_webhook',

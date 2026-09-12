@@ -18,7 +18,7 @@ export interface DripRecipient {
   email: string;
   gender: 'ikhwan' | 'akhwat' | null;
   cityRegency: string;
-  status: 'pending' | 'sent' | 'failed';
+  status: 'pending' | 'sent' | 'failed' | 'blacklisted';
   sentAt?: string | null;
   dayNumber?: number | null;
   error?: string | null;
@@ -28,6 +28,7 @@ export interface DripCampaignStats {
   totalRecipients: number;
   totalSent: number;
   totalFailed: number;
+  totalBlacklisted?: number;
   remaining: number;
   dailySentToday: number;
 }
@@ -60,3 +61,29 @@ export const emailCampaigns = pgTable(
     createdAtIdx: index('idx_email_campaigns_created_at').on(t.createdAt),
   })
 );
+
+/**
+ * Global Email Blacklist & Suppression Registry.
+ * Used to skip recipients who have already received emails, bounced, unsubscribed, or were blacklisted by amil.
+ */
+export const emailBlacklist = pgTable(
+  'email_blacklist',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    email: text('email').notNull(),
+    reason: text('reason').default('already_sent').notNull(), // 'already_sent' | 'manual_blacklist' | 'bounced' | 'unsubscribed' | 'complaint'
+    notes: text('notes'),
+    sourceCampaignId: uuid('source_campaign_id'),
+    personId: uuid('person_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    createdBy: uuid('created_by').references(() => appUsers.id),
+  },
+  (t) => ({
+    emailIdx: index('idx_email_blacklist_email').on(t.email),
+    reasonIdx: index('idx_email_blacklist_reason').on(t.reason),
+    createdAtIdx: index('idx_email_blacklist_created_at').on(t.createdAt),
+  })
+);
+
+export type EmailBlacklistEntry = typeof emailBlacklist.$inferSelect;
+export type NewEmailBlacklistEntry = typeof emailBlacklist.$inferInsert;

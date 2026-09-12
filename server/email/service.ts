@@ -108,7 +108,7 @@ export function renderEmailLayout(title: string, contentHtml: string): string {
     <div class="top-bar"></div>
     <div class="header">
       <h1 style="color: #1c321d; margin-top: 4px;">Yayasan Tarbiyah Sunnah</h1>
-      <p>Pusat Dakwah Sunnah, Majelis Ilmu & Pengelolaan Amanah Umat</p>
+      <p>Bersama Sunnah, Menebar Manfaat</p>
     </div>
     <div class="content">
       ${contentHtml}
