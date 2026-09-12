@@ -372,15 +372,18 @@ export const GateScannerPage: React.FC = () => {
   // Stop camera helper
   const stopCameraScanner = useCallback(async () => {
     if (html5QrCodeRef.current) {
-      try {
-        if (html5QrCodeRef.current.isScanning) {
-          await html5QrCodeRef.current.stop();
-        }
-        html5QrCodeRef.current.clear();
-      } catch (e) {
-        console.warn('Gagal menghentikan scanner:', e);
-      }
+      const scanner = html5QrCodeRef.current;
       html5QrCodeRef.current = null;
+      try {
+        if (scanner.isScanning) {
+          await scanner.stop();
+        }
+      } catch (e) {
+        console.warn('Gagal menghentikan streaming scanner:', e);
+      }
+      try {
+        scanner.clear();
+      } catch {}
     }
     setCameraState('idle');
     setTorchOn(false);
@@ -588,24 +591,26 @@ export const GateScannerPage: React.FC = () => {
 
       try {
         if (html5QrCodeRef.current) {
-          try {
-            if (html5QrCodeRef.current.isScanning) {
-              await html5QrCodeRef.current.stop();
-            }
-            html5QrCodeRef.current.clear();
-          } catch {}
+          const prevScanner = html5QrCodeRef.current;
           html5QrCodeRef.current = null;
+          try {
+            if (prevScanner.isScanning) {
+              await prevScanner.stop();
+            }
+          } catch {}
+          try {
+            prevScanner.clear();
+          } catch {}
         }
 
-        const container = document.getElementById('gate-page-qr-container');
+        const container = document.getElementById('gate-page-qr-reader');
         if (!container) {
           isStartingRef.current = false;
           setCameraState('idle');
           return;
         }
-        container.innerHTML = '';
 
-        const qrScanner = new Html5Qrcode('gate-page-qr-container');
+        const qrScanner = new Html5Qrcode('gate-page-qr-reader');
         html5QrCodeRef.current = qrScanner;
 
         const qrSuccessCallback = (decodedText: string) => {
@@ -732,16 +737,19 @@ export const GateScannerPage: React.FC = () => {
 
     try {
       if (html5QrCodeRef.current) {
-        try {
-          if (html5QrCodeRef.current.isScanning) {
-            await html5QrCodeRef.current.stop();
-          }
-          html5QrCodeRef.current.clear();
-        } catch {}
+        const prevScanner = html5QrCodeRef.current;
         html5QrCodeRef.current = null;
+        try {
+          if (prevScanner.isScanning) {
+            await prevScanner.stop();
+          }
+        } catch {}
+        try {
+          prevScanner.clear();
+        } catch {}
       }
 
-      const tempScanner = new Html5Qrcode('gate-page-qr-container');
+      const tempScanner = new Html5Qrcode('gate-page-qr-reader');
       try {
         const decodedText = await tempScanner.scanFile(file, false);
         const code = extractTicketCode(decodedText);
@@ -758,7 +766,9 @@ export const GateScannerPage: React.FC = () => {
           triggerHaptic('error');
         }
       } finally {
-        tempScanner.clear();
+        try {
+          tempScanner.clear();
+        } catch {}
       }
     } catch (err) {
       setScanStatus({
@@ -1430,13 +1440,46 @@ export const GateScannerPage: React.FC = () => {
               {/* Tab 1: Live Camera Scanner */}
               {activeTab === 'camera' && (
                 <div className="w-full flex flex-col items-center">
-                  {/* Container for html5-qrcode */}
-                  <div
-                    id="gate-page-qr-container"
-                    className="w-full max-w-sm aspect-square rounded-2xl overflow-hidden bg-black relative border-2 border-slate-700 shadow-inner flex items-center justify-center"
-                  >
+                  {/* Style override for html5-qrcode video element */}
+                  <style>{`
+                    #gate-page-qr-reader video {
+                      width: 100% !important;
+                      height: 100% !important;
+                      object-fit: cover !important;
+                      border-radius: 1rem;
+                    }
+                    #gate-page-qr-reader img {
+                      display: none !important;
+                    }
+                    #gate-page-qr-reader #qr-shaded-region {
+                      border-color: rgba(16, 185, 129, 0.5) !important;
+                    }
+                  `}</style>
+
+                  {/* Viewport Frame */}
+                  <div className="w-full max-w-sm aspect-square rounded-2xl overflow-hidden bg-black relative border-2 border-slate-700 shadow-inner flex items-center justify-center">
+                    {/* DOM Container dedicated strictly for Html5Qrcode (MUST have no React children) */}
+                    <div
+                      id="gate-page-qr-reader"
+                      className="w-full h-full"
+                    />
+
+                    {/* Laser Target Guide when Camera is Active */}
+                    {cameraState === 'active' && (
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                        <div className="w-48 h-48 sm:w-56 sm:h-56 border-2 border-emerald-400/70 rounded-2xl relative shadow-2xl">
+                          <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-emerald-400 -mt-1 -ml-1 rounded-tl" />
+                          <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-emerald-400 -mt-1 -mr-1 rounded-tr" />
+                          <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-emerald-400 -mb-1 -ml-1 rounded-bl" />
+                          <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-emerald-400 -mb-1 -mr-1 rounded-br" />
+                          <div className="w-full h-0.5 bg-emerald-400/90 absolute top-1/2 -translate-y-1/2 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Sibling Inactive Overlay (Safe from React removeChild collision) */}
                     {cameraState !== 'active' && (
-                      <div className="p-4 text-center">
+                      <div className="absolute inset-0 z-20 bg-slate-950/95 p-4 flex flex-col items-center justify-center text-center">
                         {cameraState === 'requesting' ? (
                           <div className="flex flex-col items-center">
                             <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin mb-2" />
@@ -1472,7 +1515,7 @@ export const GateScannerPage: React.FC = () => {
                             <p className="text-xs text-slate-400 mb-3">Kamera belum aktif</p>
                             <button
                               onClick={() => startCameraScanner()}
-                              className="px-4 py-2 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white"
+                              className="px-4 py-2 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-950/40"
                             >
                               Aktifkan Kamera
                             </button>
