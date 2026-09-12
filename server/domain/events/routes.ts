@@ -274,7 +274,8 @@ export function registerEventsRoutes(router: Router) {
         if (!ctx.user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
 
         const defaultFormConfig = body.formConfig || {
-          collectEmail: false,
+          collectEmail: true,
+          requireEmail: false,
           collectCity: true,
           collectNotes: true,
           requireGender: true,

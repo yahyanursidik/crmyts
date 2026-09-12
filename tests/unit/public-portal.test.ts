@@ -1236,4 +1236,239 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
     expect(body.data.participant.familyRelationship).toBe('Anak');
     expect(body.data.participant.groupMembers).toHaveLength(2);
   });
+
+  it('POST /api/public/register-event saves email to person and returns email in participant response', async () => {
+    let insertedPerson: any = null;
+    let insertedAttendance: any = null;
+    const mockDb = {
+      query: {
+        events: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: '018f0000-0000-0000-0000-000000000091',
+            title: 'Kajian Tauhid & Sunnah',
+            speaker: 'Ustadz Fulan, Lc.',
+            startAt: new Date('2026-09-20T09:00:00Z'),
+            targetAudience: 'umum',
+            isRegistrationOpen: true,
+            formConfig: {
+              collectEmail: true,
+            },
+            attendances: [],
+          }),
+        },
+        persons: {
+          findFirst: vi.fn().mockResolvedValue(null),
+        },
+        eventAttendance: { findFirst: vi.fn().mockResolvedValue(null) },
+      },
+      insert: vi.fn().mockImplementation((table) => {
+        if (table === persons) {
+          return {
+            values: vi.fn().mockImplementation((value) => {
+              insertedPerson = value;
+              return {
+                returning: vi.fn().mockResolvedValue([{ ...value, id: 'person_email_1' }]),
+              };
+            }),
+          };
+        }
+        if (table === eventAttendance) {
+          return {
+            values: vi.fn().mockImplementation((value) => {
+              insertedAttendance = value;
+              return { returning: vi.fn().mockResolvedValue([{ ...value, id: 'att_email_1' }]) };
+            }),
+          };
+        }
+        return { values: vi.fn().mockResolvedValue([]) };
+      }),
+    };
+
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      path: '/api/public/register-event',
+      method: 'POST',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        eventId: '018f0000-0000-0000-0000-000000000091',
+        fullName: 'Ahmad Abdullah',
+        phone: '081299998888',
+        email: 'Ahmad.Abdullah@Example.com',
+      },
+      requestId: 'req_pub_reg_with_email',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(insertedPerson.email).toBe('ahmad.abdullah@example.com');
+    expect(insertedAttendance).not.toBeNull();
+    const body = JSON.parse(res.body);
+    expect(body.data.participant.email).toBe('ahmad.abdullah@example.com');
+  });
+
+  it('POST /api/public/register-event rejects registration when requireEmail is true and email is missing', async () => {
+    const mockDb = {
+      query: {
+        events: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: '018f0000-0000-0000-0000-000000000092',
+            title: 'Daurah Khusus Bersertifikat',
+            speaker: 'Ustadz Fulan, Lc.',
+            startAt: new Date('2026-09-20T09:00:00Z'),
+            targetAudience: 'umum',
+            isRegistrationOpen: true,
+            formConfig: {
+              collectEmail: true,
+              requireEmail: true,
+            },
+            attendances: [],
+          }),
+        },
+      },
+    };
+
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      path: '/api/public/register-event',
+      method: 'POST',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        eventId: '018f0000-0000-0000-0000-000000000092',
+        fullName: 'Fulan bin Fulan',
+        phone: '081277776666',
+        email: '',
+      },
+      requestId: 'req_pub_reg_require_email_fail',
+    });
+
+    expect(res.statusCode).toBe(400);
+    const body = JSON.parse(res.body);
+    expect(body.error.message).toContain('Alamat email wajib diisi');
+  });
+
+  it('POST /api/public/register-event updates email for existing person if new email is provided', async () => {
+    let updatedPerson: any = null;
+    const existingPerson = {
+      id: '018f0000-0000-0000-0000-000000000099',
+      fullName: 'Budi Santoso',
+      phoneE164: '+6281233334444',
+      email: null,
+    };
+
+    const mockDb = {
+      query: {
+        events: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: '018f0000-0000-0000-0000-000000000093',
+            title: 'Kajian Rutin Sabtu',
+            speaker: 'Ustadz Fulan, Lc.',
+            startAt: new Date('2026-09-20T09:00:00Z'),
+            targetAudience: 'umum',
+            isRegistrationOpen: true,
+            formConfig: {
+              collectEmail: true,
+            },
+            attendances: [],
+          }),
+        },
+        persons: {
+          findFirst: vi.fn().mockResolvedValue(existingPerson),
+        },
+        eventAttendance: { findFirst: vi.fn().mockResolvedValue(null) },
+      },
+      update: vi.fn().mockImplementation((table) => {
+        if (table === persons) {
+          return {
+            set: vi.fn().mockImplementation((val) => {
+              updatedPerson = val;
+              return { where: vi.fn().mockResolvedValue([{ ...existingPerson, ...val }]) };
+            }),
+          };
+        }
+        return { set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }) };
+      }),
+      insert: vi.fn().mockImplementation(() => ({
+        values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([]) }),
+      })),
+    };
+
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      path: '/api/public/register-event',
+      method: 'POST',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        eventId: '018f0000-0000-0000-0000-000000000093',
+        fullName: 'Budi Santoso',
+        phone: '081233334444',
+        email: 'budi.santoso@example.com',
+      },
+      requestId: 'req_pub_reg_sync_email',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(updatedPerson).not.toBeNull();
+    expect(updatedPerson.email).toBe('budi.santoso@example.com');
+  });
+
+  it('POST /api/public/participant/my-events includes person email in response', async () => {
+    const mockDb = {
+      query: {
+        persons: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'person_my_events_01',
+            fullName: 'Hendro Siswanto',
+            phoneE164: '+6281255556666',
+            email: 'hendro@example.com',
+            gender: 'ikhwan',
+            cityRegency: 'Bandung',
+          }),
+        },
+        eventAttendance: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: 'att_hendro_01',
+              ticketCode: 'YTS-HND-01',
+              status: 'registered',
+              checkInAt: new Date().toISOString(),
+              registrationGroupId: null,
+              event: {
+                id: 'ev_01',
+                title: 'Kajian Perdana',
+                speaker: 'Ustadz Fulan, Lc.',
+                startAt: new Date(Date.now() + 86400000).toISOString(),
+                status: 'scheduled',
+              },
+            },
+          ]),
+        },
+      },
+    };
+
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      path: '/api/public/participant/my-events',
+      method: 'POST',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        phone: '081255556666',
+      },
+      requestId: 'req_my_events_email_test',
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.data.person.email).toBe('hendro@example.com');
+  });
 });

@@ -26,10 +26,17 @@ import {
 } from '../../email/service';
 import { ensureS3StorageUrl, uploadPublicProofFile } from '../../storage/providers/s3';
 
+const optionalEmailSchema = z
+  .string()
+  .email('Format email tidak valid')
+  .optional()
+  .nullable()
+  .or(z.literal(''));
+
 const publicDonationSchema = z.object({
   fullName: z.string().min(2, 'Nama lengkap minimal 2 karakter'),
   phone: z.string().min(8, 'Nomor WhatsApp wajib diisi'),
-  email: z.string().email('Format email tidak valid').optional().nullable(),
+  email: optionalEmailSchema,
   programId: z.string().uuid('Program infaq wajib dipilih'),
   amountRupiah: z.number().min(10000, 'Nominal minimal donasi adalah Rp 10.000'),
   paymentMethod: z.enum(['bank_transfer', 'qris', 'cash', 'other']).default('bank_transfer'),
@@ -42,7 +49,7 @@ const publicDonationSchema = z.object({
 const publicWaqfInquirySchema = z.object({
   fullName: z.string().min(2, 'Nama lengkap minimal 2 karakter'),
   phone: z.string().min(8, 'Nomor WhatsApp wajib diisi'),
-  email: z.string().email('Format email tidak valid').optional().nullable(),
+  email: optionalEmailSchema,
   cityRegency: z.string().optional().nullable(),
   waqfType: z.enum(['tanah', 'bangunan', 'uang', 'kendaraan', 'logistik_dakwah', 'sarana_air', 'lainnya']),
   estimatedValueRupiah: z.number().min(100000, 'Estimasi nilai wakaf minimal Rp 100.000').optional().nullable(),
@@ -63,7 +70,7 @@ const publicEventRegistrationSchema = z.object({
   fullName: z.string().min(2, 'Nama lengkap minimal 2 karakter'),
   phone: z.string().min(8, 'Nomor WhatsApp wajib diisi'),
   gender: z.enum(['ikhwan', 'akhwat']).nullable().optional(),
-  email: z.string().email('Format email tidak valid').optional().nullable(),
+  email: optionalEmailSchema,
   cityRegency: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   customResponses: z.record(z.any()).optional().nullable(),
@@ -661,7 +668,20 @@ export function registerPublicPortalRoutes(router: Router) {
             : null;
       // Untuk kajian umum, gender hanya dikumpulkan bila Form Builder mengaktifkannya.
       const gender = fixedGender || (targetEvent.formConfig?.requireGender === false ? null : body.gender || null);
-      const email = targetEvent.formConfig?.collectEmail === true ? body.email || null : null;
+      const shouldCollectEmail = targetEvent.formConfig?.collectEmail !== false;
+      const isEmailRequired = targetEvent.formConfig?.requireEmail === true;
+      const rawEmail = typeof body.email === 'string' && body.email.trim() !== '' ? body.email.trim().toLowerCase() : null;
+      const email = shouldCollectEmail ? rawEmail : null;
+
+      if (shouldCollectEmail && isEmailRequired && !email) {
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Alamat email wajib diisi untuk pendaftaran kajian ini.',
+          400,
+          ctx.requestId
+        );
+      }
+
       const cityRegency = targetEvent.formConfig?.collectCity !== false ? body.cityRegency || null : null;
 
       // 1. Audience Target Validation
@@ -720,6 +740,15 @@ export function registerPublicPortalRoutes(router: Router) {
           })
           .returning();
         person = newPerson;
+      } else if (email && (!person.email || person.email !== email)) {
+        await db
+          .update(persons)
+          .set({
+            email,
+            updatedAt: new Date(),
+          })
+          .where(eq(persons.id, person.id));
+        person.email = email;
       }
 
       if (!person) {
@@ -967,6 +996,7 @@ export function registerPublicPortalRoutes(router: Router) {
             name: body.fullName,
             gender,
             phone: phoneNorm,
+            email: person.email || email || null,
             vehicleType,
             vehiclePlateNumber,
             paymentStatus: initialPaymentStatus,
@@ -1364,6 +1394,7 @@ export function registerPublicPortalRoutes(router: Router) {
             fullName: person.fullName,
             gender: person.gender,
             phoneMasked: maskedPhone,
+            email: person.email || null,
             cityRegency: person.cityRegency,
           },
           upcomingCount: upcoming.length,

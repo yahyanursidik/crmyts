@@ -32,6 +32,7 @@ import {
   AlertCircle,
   QrCode,
   Users,
+  Mail,
   X,
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
@@ -306,7 +307,8 @@ export function EventsPortalPage() {
     ? `https://www.google.com/maps?q=${encodeURIComponent(locationQuery)}&z=16&output=embed`
     : null;
   const shouldCollectVehicle = selectedEvent?.formConfig?.collectVehicle !== false;
-  const shouldCollectEmail = selectedEvent?.formConfig?.collectEmail === true;
+  const shouldCollectEmail = selectedEvent?.formConfig?.collectEmail !== false;
+  const isEmailRequired = selectedEvent?.formConfig?.requireEmail === true;
   const shouldCollectCity = selectedEvent?.formConfig?.collectCity !== false;
   const shouldCollectGender =
     selectedEvent?.targetAudience !== 'akhwat_only' &&
@@ -513,6 +515,16 @@ export function EventsPortalPage() {
       }
     }
 
+    const cleanEmail = regEmail.trim().toLowerCase();
+    if (shouldCollectEmail && isEmailRequired && !cleanEmail) {
+      alert('Alamat email wajib diisi untuk pendaftaran kajian ini.');
+      return;
+    }
+    if (shouldCollectEmail && cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      alert('Format alamat email tidak valid.');
+      return;
+    }
+
     try {
       setSubmittingEvent(true);
       const registeredFamilyMembers = canRegisterFamily ? familyMembers : [];
@@ -527,7 +539,7 @@ export function EventsPortalPage() {
           fullName: regFullName,
           phone: regPhone,
           gender: shouldCollectGender ? regGender : null,
-          email: shouldCollectEmail ? regEmail || null : null,
+          email: shouldCollectEmail ? (cleanEmail || null) : null,
           cityRegency: shouldCollectCity ? regCity || null : null,
           notes: regNotes || null,
           vehicleType: shouldCollectVehicle ? regVehicleType : 'none',
@@ -1673,23 +1685,58 @@ export function EventsPortalPage() {
                     </div>
                   )}
 
-                  {/* 5. Email (Optional) */}
+                  {/* 5. Email Address */}
                   {shouldCollectEmail && (
-                    <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Alamat Email (Opsional)</label>
-                    <input
-                      type="email"
-                      autoComplete="email"
-                      placeholder="nama@email.com"
-                      value={regEmail}
-                      onChange={(e) => setRegEmail(e.target.value)}
-                      onBlur={() => {
-                        if (regEmail.includes('@') && !lookupSuccess?.found) {
-                          handleLookupParticipant(regEmail);
-                        }
-                      }}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                    />
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-xs font-bold text-slate-700">
+                          Alamat Email{' '}
+                          {isEmailRequired ? (
+                            <span className="text-red-500 font-semibold">*</span>
+                          ) : (
+                            <span className="text-slate-400 font-normal">(Disarankan)</span>
+                          )}
+                        </label>
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                            isEmailRequired
+                              ? 'bg-rose-50 text-rose-700 border border-rose-200 font-bold'
+                              : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {isEmailRequired ? 'Wajib Diisi' : 'Kirim E-Tiket'}
+                        </span>
+                      </div>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                          <Mail className="w-4 h-4" />
+                        </div>
+                        <input
+                          type="email"
+                          autoComplete="email"
+                          required={isEmailRequired}
+                          placeholder="nama@email.com"
+                          value={regEmail}
+                          onChange={(e) => setRegEmail(e.target.value.toLowerCase().trimStart())}
+                          onBlur={() => {
+                            const trimmed = regEmail.trim();
+                            setRegEmail(trimmed);
+                            if (trimmed.includes('@') && !lookupSuccess?.found) {
+                              handleLookupParticipant(trimmed);
+                            }
+                          }}
+                          className={`w-full pl-9 pr-3 py-2.5 border rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none transition-colors ${
+                            isEmailRequired && !regEmail.trim()
+                              ? 'border-amber-300 bg-amber-50/20'
+                              : 'border-slate-300 bg-white'
+                          }`}
+                        />
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        {isEmailRequired
+                          ? 'Wajib diisi. E-Tiket kajian dan bukti registrasi resmi akan otomatis dikirimkan ke alamat email ini.'
+                          : 'E-Tiket & bukti registrasi kajian akan otomatis dikirimkan ke email ini agar mudah disimpan di perangkat Anda.'}
+                      </p>
                     </div>
                   )}
 
@@ -2232,6 +2279,21 @@ export function EventsPortalPage() {
                   Slot Parkir Disetujui
                 </span>
                 <span className="font-mono font-bold">{eventSuccess.participant.vehiclePlateNumber || 'Slot Ok'}</span>
+              </div>
+            )}
+
+            {/* E-Ticket Email Delivery Confirmation */}
+            {eventSuccess.participant.email && (
+              <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-left text-xs text-emerald-950 flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
+                  <Mail className="w-4 h-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <span className="font-bold block text-emerald-900">E-Tiket Terkirim ke Email</span>
+                  <span className="text-[11px] text-emerald-700 truncate block">
+                    Salinan tiket resmi telah dikirim ke <b>{eventSuccess.participant.email}</b>
+                  </span>
+                </div>
               </div>
             )}
 

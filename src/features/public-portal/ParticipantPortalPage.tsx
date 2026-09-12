@@ -19,6 +19,7 @@ import {
   Ticket,
   User,
   Users,
+  Mail,
   X,
   ScrollText,
 } from 'lucide-react';
@@ -101,6 +102,7 @@ interface MyEventsResponse {
     fullName: string;
     gender: 'ikhwan' | 'akhwat' | string;
     phoneMasked: string;
+    email?: string | null;
     cityRegency?: string | null;
   };
   upcomingCount: number;
@@ -403,9 +405,15 @@ export function ParticipantPortalPage() {
                       {hubData.person.gender === 'akhwat' ? '🌸 Jamaah Akhwat' : '🕌 Jamaah Ikhwan'}
                     </span>
                   </div>
-                  <p className="text-xs text-surface-600 mt-0.5 font-medium">
-                    No. WhatsApp: <span className="font-mono font-bold text-brand-950">{hubData.person.phoneMasked}</span>
-                    {hubData.person.cityRegency && ` • Domisili: ${hubData.person.cityRegency}`}
+                  <p className="text-xs text-surface-600 mt-0.5 font-medium flex items-center gap-2 flex-wrap">
+                    <span>No. WhatsApp: <strong className="font-mono text-brand-950">{hubData.person.phoneMasked}</strong></span>
+                    {hubData.person.email && (
+                      <span className="inline-flex items-center gap-1 text-slate-600">
+                        • <Mail className="w-3 h-3 text-teal-700 shrink-0" />
+                        <span className="font-medium">{hubData.person.email}</span>
+                      </span>
+                    )}
+                    {hubData.person.cityRegency && <span>• Domisili: {hubData.person.cityRegency}</span>}
                   </p>
                 </div>
               </div>

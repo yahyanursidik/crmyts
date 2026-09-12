@@ -18,6 +18,7 @@ export interface EventFormConfig {
   headerTitle?: string;
   description?: string;
   collectEmail?: boolean;
+  requireEmail?: boolean;
   collectCity?: boolean;
   collectNotes?: boolean;
   requireGender?: boolean;

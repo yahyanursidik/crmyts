@@ -44,6 +44,7 @@ export interface EventFormConfig {
   headerTitle?: string;
   description?: string;
   collectEmail?: boolean;
+  requireEmail?: boolean;
   collectCity?: boolean;
   collectNotes?: boolean;
   requireGender?: boolean;
@@ -187,7 +188,8 @@ export const DEFAULT_RULES_MODAL_DETAIL = `Panduan & Dalil Adab Penuntut Ilmu di
 6. Bersegera hadir dan tidak melangkahi pundak jamaah lain.`;
 
 const DEFAULT_FORM_CONFIG: EventFormConfig = {
-  collectEmail: false,
+  collectEmail: true,
+  requireEmail: false,
   collectCity: true,
   collectNotes: true,
   requireGender: true,
@@ -665,6 +667,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       'Nama Jamaah',
       'Gender',
       'No. WhatsApp',
+      'Email',
       'Kota/Domisili',
       'Kode Undangan Sendiri',
       'Diundang Oleh (Nama)',
@@ -682,6 +685,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       `"${p.personName}"`,
       `"${p.personGender === 'ikhwan' ? 'Ikhwan' : 'Akhwat'}"`,
       `"${p.personPhone}"`,
+      `"${p.personEmail || '-'}"`,
       `"${p.personCity || '-'}"`,
       `"${p.referralCode || '-'}"`,
       `"${(p.referrerName || '-').replace(/"/g, '""')}"`,
@@ -709,6 +713,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       participantSearch.trim() === '' ||
       p.personName.toLowerCase().includes(participantSearch.toLowerCase()) ||
       p.personPhone.includes(participantSearch) ||
+      (p.personEmail && p.personEmail.toLowerCase().includes(participantSearch.toLowerCase())) ||
       (p.ticketCode && p.ticketCode.toLowerCase().includes(participantSearch.toLowerCase())) ||
       (p.referrerName && p.referrerName.toLowerCase().includes(participantSearch.toLowerCase())) ||
       (p.referrerCode && p.referrerCode.toLowerCase().includes(participantSearch.toLowerCase())) ||
@@ -1124,6 +1129,11 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                             <td className="p-3.5">
                               <span className="font-bold text-slate-900 block">{p.personName}</span>
                               <span className="text-[11px] text-slate-500 font-mono block">{p.personPhone}</span>
+                              {p.personEmail && (
+                                <span className="text-[10px] text-teal-700 font-medium block truncate max-w-[180px]" title={p.personEmail}>
+                                  ✉ {p.personEmail}
+                                </span>
+                              )}
                               {p.personCity && <span className="text-[10px] text-slate-400 block">{p.personCity}</span>}
                             </td>
                             <td className="p-3.5">
@@ -1756,22 +1766,53 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                     </button>
                   </div>
 
-                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
-                    <div>
-                      <span className="text-xs font-bold text-slate-800 block">Alamat Email</span>
-                      <span className="text-[11px] text-slate-500">Untuk pengiriman materi atau e-sertifikat</span>
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 block">Alamat Email Jamaah</span>
+                        <span className="text-[11px] text-slate-500">Kirim otomatis E-Tiket kajian &amp; materi ilmu ke email pendaftar</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextCollect = formConfig.collectEmail === false;
+                          setFormConfig({
+                            ...formConfig,
+                            collectEmail: nextCollect,
+                            requireEmail: nextCollect ? formConfig.requireEmail : false,
+                          });
+                        }}
+                        className="text-teal-800"
+                      >
+                        {formConfig.collectEmail !== false ? (
+                          <ToggleRight className="w-7 h-7 text-teal-700" />
+                        ) : (
+                          <ToggleLeft className="w-7 h-7 text-slate-400" />
+                        )}
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setFormConfig({ ...formConfig, collectEmail: !formConfig.collectEmail })}
-                      className="text-teal-800"
-                    >
-                      {formConfig.collectEmail ? (
-                        <ToggleRight className="w-7 h-7 text-teal-700" />
-                      ) : (
-                        <ToggleLeft className="w-7 h-7 text-slate-400" />
-                      )}
-                    </button>
+
+                    {formConfig.collectEmail !== false && (
+                      <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between">
+                        <label className="text-xs text-slate-600 flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={formConfig.requireEmail === true}
+                            onChange={(e) =>
+                              setFormConfig({
+                                ...formConfig,
+                                requireEmail: e.target.checked,
+                              })
+                            }
+                            className="rounded border-slate-300 text-teal-700 focus:ring-teal-500 w-3.5 h-3.5"
+                          />
+                          <span className="text-[11px] font-medium text-slate-700">Wajibkan email diisi oleh pendaftar</span>
+                        </label>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold ${formConfig.requireEmail ? 'bg-rose-100 text-rose-800 border border-rose-200' : 'bg-slate-200 text-slate-600'}`}>
+                          {formConfig.requireEmail ? 'Wajib Diisi' : 'Opsional'}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="p-3.5 bg-amber-50/70 rounded-xl border border-amber-200 sm:col-span-2 space-y-2">
