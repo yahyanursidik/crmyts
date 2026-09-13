@@ -24,6 +24,14 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { Html5Qrcode, CameraDevice } from 'html5-qrcode';
+import {
+  categorizeCameras,
+  resolveCameraStartCandidates,
+  sleep,
+  isMobileDevice,
+  isRearCameraLabel,
+  isFrontCameraLabel,
+} from '@/lib/cameraScannerUtils';
 import { apiClient } from '@/lib/apiClient';
 import { extractTicketCode } from '@/lib/participantTicket';
 
@@ -320,7 +328,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
       setCameraErrorDetail(null);
 
       try {
-        // Stop any running instance cleanly
+        // 1. Stop any running instance cleanly with hardware release delay
         if (html5QrCodeRef.current) {
           try {
             if (html5QrCodeRef.current.isScanning) {
@@ -331,6 +339,8 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
             // ignore cleanup errors
           }
           html5QrCodeRef.current = null;
+          // Hardware release grace period for Android HAL and iOS WebKit camera daemon
+          await sleep(150);
         }
 
         // Check DOM container exists
@@ -358,23 +368,32 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
           // Ignore normal frame scan misses
         };
 
-        const isMobileDevice =
-          typeof navigator !== 'undefined' &&
-          /android|iphone|ipad|ipod/i.test(navigator.userAgent);
-
-        // Determine best target camera config
-        let targetCamera: any = overrideTarget;
-        if (!targetCamera) {
-          if (selectedCameraId) {
-            targetCamera = { deviceId: { exact: selectedCameraId } };
-          } else if (facingMode) {
-            targetCamera = { facingMode };
-          } else {
-            targetCamera = isMobileDevice
-              ? { facingMode: 'environment' }
-              : { facingMode: 'user' };
+        // 2. Discover available cameras
+        let devices = availableCameras;
+        if (!devices || devices.length === 0) {
+          try {
+            devices = await Html5Qrcode.getCameras();
+            if (devices && devices.length > 0) {
+              setAvailableCameras(devices);
+            }
+          } catch {
+            devices = [];
           }
         }
+
+        // 3. Determine requested facing and device ID
+        const requestedMode: 'environment' | 'user' =
+          overrideTarget?.facingMode ||
+          facingMode ||
+          (isMobileDevice() ? 'environment' : 'user');
+
+        const requestedDeviceId =
+          overrideTarget?.deviceId !== undefined
+            ? overrideTarget.deviceId
+            : selectedCameraId;
+
+        // 4. Resolve candidate targets (exact physical deviceId strings prioritized for iOS Safari & Android)
+        const resolution = resolveCameraStartCandidates(requestedMode, requestedDeviceId, devices);
 
         const scanConfig = {
           fps: 15,
@@ -385,64 +404,51 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
           },
         };
 
-        // Multi-tier cascade for start()
         let started = false;
-        try {
-          await qrScanner.start(targetCamera, scanConfig, qrSuccessCallback, qrErrorCallback);
-          started = true;
-        } catch (tier1Err: any) {
-          console.warn('Tier 1 camera start failed, attempting cascade:', tier1Err);
+        let lastErr: any = null;
 
-          // Tier 2: Try environment facingMode
+        // Try candidate targets in prioritized order
+        for (const candidate of resolution.candidates) {
           try {
-            await qrScanner.start({ facingMode: 'environment' }, scanConfig, qrSuccessCallback, qrErrorCallback);
+            await qrScanner.start(candidate, scanConfig, qrSuccessCallback, qrErrorCallback);
             started = true;
-          } catch (tier2Err: any) {
-            console.warn('Tier 2 failed, trying user camera:', tier2Err);
-
-            // Tier 3: Try user facingMode
-            try {
-              await qrScanner.start({ facingMode: 'user' }, scanConfig, qrSuccessCallback, qrErrorCallback);
-              started = true;
-            } catch (tier3Err: any) {
-              console.warn('Tier 3 failed, trying generic device query:', tier3Err);
-
-              // Tier 4: Query cameras and try first device ID
-              try {
-                const freshDevices = await Html5Qrcode.getCameras();
-                if (freshDevices && freshDevices.length > 0 && freshDevices[0]?.id) {
-                  await qrScanner.start({ deviceId: { exact: freshDevices[0].id } }, scanConfig, qrSuccessCallback, qrErrorCallback);
-                  started = true;
-                } else {
-                  throw tier3Err;
-                }
-              } catch (tier4Err: any) {
-                throw tier4Err;
-              }
-            }
+            break;
+          } catch (err: any) {
+            lastErr = err;
+            console.warn(`Camera candidate attempt failed (${JSON.stringify(candidate)}):`, err);
+            await sleep(60);
           }
         }
 
-        if (started) {
-          setCameraState('active');
+        if (!started) {
+          throw lastErr || new Error('Tidak dapat menginisialisasi kamera yang sesuai.');
+        }
 
-          // Refresh device list with labels now that permission is granted
-          try {
-            const refreshedDevices = await Html5Qrcode.getCameras();
-            if (refreshedDevices && refreshedDevices.length > 0) {
-              setAvailableCameras(refreshedDevices);
-            }
-          } catch {}
+        // Camera successfully started!
+        setCameraState('active');
+        setFacingMode(resolution.expectedFacing);
+        if (resolution.suggestedDeviceId) {
+          setSelectedCameraId(resolution.suggestedDeviceId);
+        }
 
-          // Check torch capabilities
-          try {
-            const capabilities = qrScanner.getRunningTrackCapabilities() as any;
-            if (capabilities && 'torch' in capabilities) {
-              setHasTorch(true);
-            }
-          } catch {
+        // Refresh device list with labels now that permission is granted
+        try {
+          const refreshedDevices = await Html5Qrcode.getCameras();
+          if (refreshedDevices && refreshedDevices.length > 0) {
+            setAvailableCameras(refreshedDevices);
+          }
+        } catch {}
+
+        // Check torch capabilities
+        try {
+          const capabilities = qrScanner.getRunningTrackCapabilities() as any;
+          if (capabilities && 'torch' in capabilities) {
+            setHasTorch(true);
+          } else {
             setHasTorch(false);
           }
+        } catch {
+          setHasTorch(false);
         }
       } catch (err: any) {
         console.warn('Camera scanner initialization error:', err);
@@ -522,8 +528,11 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
       // Explicit user gesture: request simple video permission to force native browser permission prompt
       if (navigator.mediaDevices?.getUserMedia) {
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          const videoConstraint = facingMode === 'environment' ? { facingMode: 'environment' } : true;
+          const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraint });
           stream.getTracks().forEach((t) => t.stop());
+          // Wait briefly for Safari WebKit release
+          await sleep(100);
         } catch (permErr: any) {
           console.warn('Native getUserMedia trigger error:', permErr);
           const pErrStr = String(permErr?.name || permErr?.message || permErr).toLowerCase();
@@ -566,13 +575,22 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
     }
   };
 
-  // Switch between front and back camera
+  // Switch between front and back camera with explicit device ID resolution
   const handleToggleFacingMode = async () => {
-    const nextFacing = facingMode === 'environment' ? 'user' : 'environment';
+    const nextFacing: 'environment' | 'user' = facingMode === 'environment' ? 'user' : 'environment';
+    const { primaryRearCamera, primaryFrontCamera } = categorizeCameras(availableCameras);
+
+    let nextDeviceId: string | undefined = undefined;
+    if (nextFacing === 'environment' && primaryRearCamera) {
+      nextDeviceId = primaryRearCamera.id;
+    } else if (nextFacing === 'user' && primaryFrontCamera) {
+      nextDeviceId = primaryFrontCamera.id;
+    }
+
     setFacingMode(nextFacing);
-    setSelectedCameraId(null);
+    setSelectedCameraId(nextDeviceId || null);
     isStartingRef.current = false;
-    await startCameraScanner({ facingMode: nextFacing });
+    await startCameraScanner({ facingMode: nextFacing, deviceId: nextDeviceId });
   };
 
   // Switch camera device by ID
@@ -580,9 +598,14 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
     setSelectedCameraId(newCamId);
     isStartingRef.current = false;
     if (newCamId) {
-      await startCameraScanner({ deviceId: { exact: newCamId } });
+      const found = availableCameras.find((c) => c.id === newCamId);
+      if (found) {
+        if (isRearCameraLabel(found.label)) setFacingMode('environment');
+        else if (isFrontCameraLabel(found.label)) setFacingMode('user');
+      }
+      await startCameraScanner({ deviceId: newCamId });
     } else {
-      await startCameraScanner({ facingMode });
+      await startCameraScanner();
     }
   };
 
@@ -1203,13 +1226,19 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
                         </select>
                       )}
 
+                      {/* Active Camera Mode Badge */}
+                      <span className="px-2 py-1 bg-black/70 backdrop-blur-md rounded-xl text-[10px] font-bold text-emerald-400 border border-emerald-500/30">
+                        {facingMode === 'environment' ? 'Belakang (1x)' : 'Depan (Selfie)'}
+                      </span>
+
                       <button
                         type="button"
                         onClick={handleToggleFacingMode}
                         className="px-2.5 py-1.5 bg-black/70 hover:bg-black/90 backdrop-blur-md rounded-xl text-xs font-bold text-slate-200 border border-white/20 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                        title={facingMode === 'environment' ? 'Ganti ke Kamera Depan' : 'Ganti ke Kamera Belakang'}
                       >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">{facingMode === 'environment' ? 'Kamera Depan' : 'Kamera Belakang'}</span>
+                        <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="hidden sm:inline">{facingMode === 'environment' ? 'Ganti Depan' : 'Ganti Belakang'}</span>
                       </button>
                     </div>
                   )}

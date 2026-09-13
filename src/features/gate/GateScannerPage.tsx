@@ -14,7 +14,6 @@ import {
   Minimize2,
   Zap,
   Lock,
-  Smartphone,
   Image as ImageIcon,
   Copy,
   Check,
@@ -40,6 +39,14 @@ import {
   Award,
 } from 'lucide-react';
 import { Html5Qrcode, CameraDevice } from 'html5-qrcode';
+import {
+  categorizeCameras,
+  resolveCameraStartCandidates,
+  sleep,
+  isMobileDevice,
+  isRearCameraLabel,
+  isFrontCameraLabel,
+} from '@/lib/cameraScannerUtils';
 import { apiClient } from '@/lib/apiClient';
 import { extractTicketCode } from '@/lib/participantTicket';
 
@@ -604,7 +611,7 @@ export const GateScannerPage: React.FC = () => {
 
   // Start Camera Stream
   const startCameraScanner = useCallback(
-    async (overrideTarget?: any) => {
+    async (overrideTarget?: { deviceId?: string; facingMode?: 'environment' | 'user' }) => {
       if (isStartingRef.current) return;
       isStartingRef.current = true;
 
@@ -635,6 +642,7 @@ export const GateScannerPage: React.FC = () => {
       setCameraErrorDetail(null);
 
       try {
+        // 1. Clean up any existing scanner instance cleanly with hardware release delay
         if (html5QrCodeRef.current) {
           const prevScanner = html5QrCodeRef.current;
           html5QrCodeRef.current = null;
@@ -646,6 +654,8 @@ export const GateScannerPage: React.FC = () => {
           try {
             prevScanner.clear();
           } catch {}
+          // Hardware release grace period for Android HAL and iOS WebKit camera daemon
+          await sleep(150);
         }
 
         const container = document.getElementById('gate-page-qr-reader');
@@ -666,19 +676,32 @@ export const GateScannerPage: React.FC = () => {
           }
         };
 
-        const isMobileDevice =
-          typeof navigator !== 'undefined' && /android|iphone|ipad|ipod/i.test(navigator.userAgent);
-
-        let targetCamera: any = overrideTarget;
-        if (!targetCamera) {
-          if (selectedCameraId) {
-            targetCamera = { deviceId: { exact: selectedCameraId } };
-          } else if (facingMode) {
-            targetCamera = { facingMode };
-          } else {
-            targetCamera = isMobileDevice ? { facingMode: 'environment' } : { facingMode: 'user' };
+        // 2. Discover available cameras (using cached or fresh enumerate)
+        let devices = availableCameras;
+        if (!devices || devices.length === 0) {
+          try {
+            devices = await Html5Qrcode.getCameras();
+            if (devices && devices.length > 0) {
+              setAvailableCameras(devices);
+            }
+          } catch {
+            devices = [];
           }
         }
+
+        // 3. Determine requested facing and device ID
+        const requestedMode: 'environment' | 'user' =
+          overrideTarget?.facingMode ||
+          facingMode ||
+          (isMobileDevice() ? 'environment' : 'user');
+
+        const requestedDeviceId =
+          overrideTarget?.deviceId !== undefined
+            ? overrideTarget.deviceId
+            : selectedCameraId;
+
+        // 4. Resolve candidate targets (exact physical deviceId strings prioritized for iOS Safari & Android)
+        const resolution = resolveCameraStartCandidates(requestedMode, requestedDeviceId, devices);
 
         const scanConfig = {
           fps: 15,
@@ -690,46 +713,51 @@ export const GateScannerPage: React.FC = () => {
         };
 
         let started = false;
-        try {
-          await qrScanner.start(targetCamera, scanConfig, qrSuccessCallback, () => {});
-          started = true;
-        } catch (tier1Err) {
-          console.warn('Tier 1 camera start failed, cascading to environment:', tier1Err);
+        let lastErr: any = null;
+
+        // Try candidate targets in prioritized order
+        for (const candidate of resolution.candidates) {
           try {
-            await qrScanner.start({ facingMode: 'environment' }, scanConfig, qrSuccessCallback, () => {});
+            await qrScanner.start(candidate, scanConfig, qrSuccessCallback, () => {});
             started = true;
-          } catch (tier2Err) {
-            console.warn('Tier 2 failed, trying user camera:', tier2Err);
-            try {
-              await qrScanner.start({ facingMode: 'user' }, scanConfig, qrSuccessCallback, () => {});
-              started = true;
-            } catch (tier3Err) {
-              const freshDevices = await Html5Qrcode.getCameras().catch(() => []);
-              if (freshDevices && freshDevices.length > 0 && freshDevices[0]?.id) {
-                await qrScanner.start({ deviceId: { exact: freshDevices[0].id } }, scanConfig, qrSuccessCallback, () => {});
-                started = true;
-              } else {
-                throw tier3Err;
-              }
-            }
+            break;
+          } catch (err) {
+            lastErr = err;
+            console.warn(`Camera candidate attempt failed (${JSON.stringify(candidate)}):`, err);
+            // Brief pause before trying next candidate track
+            await sleep(60);
           }
         }
 
-        if (started) {
-          setCameraState('active');
-          try {
-            const refreshed = await Html5Qrcode.getCameras();
-            if (refreshed?.length) setAvailableCameras(refreshed);
-          } catch {}
+        if (!started) {
+          throw lastErr || new Error('Tidak dapat menginisialisasi kamera yang sesuai.');
+        }
 
-          try {
-            const capabilities = qrScanner.getRunningTrackCapabilities() as any;
-            if (capabilities && 'torch' in capabilities) {
-              setHasTorch(true);
-            }
-          } catch {
+        // Camera successfully started!
+        setCameraState('active');
+        setFacingMode(resolution.expectedFacing);
+        if (resolution.suggestedDeviceId) {
+          setSelectedCameraId(resolution.suggestedDeviceId);
+        }
+
+        // Refresh devices list with freshly populated labels (post-permission)
+        try {
+          const refreshed = await Html5Qrcode.getCameras();
+          if (refreshed?.length) {
+            setAvailableCameras(refreshed);
+          }
+        } catch {}
+
+        // Check torch capabilities
+        try {
+          const capabilities = qrScanner.getRunningTrackCapabilities() as any;
+          if (capabilities && 'torch' in capabilities) {
+            setHasTorch(true);
+          } else {
             setHasTorch(false);
           }
+        } catch {
+          setHasTorch(false);
         }
       } catch (err: any) {
         console.warn('Camera start error:', err);
@@ -748,16 +776,25 @@ export const GateScannerPage: React.FC = () => {
         isStartingRef.current = false;
       }
     },
-    [facingMode, selectedCameraId, handleExecuteScan]
+    [availableCameras, facingMode, selectedCameraId, handleExecuteScan]
   );
 
-  // Switch front/back
+  // Switch front/back with explicit deviceId resolution for iOS Safari & Android
   const handleToggleFacingMode = async () => {
-    const nextFacing = facingMode === 'environment' ? 'user' : 'environment';
+    const nextFacing: 'environment' | 'user' = facingMode === 'environment' ? 'user' : 'environment';
+    const { primaryRearCamera, primaryFrontCamera } = categorizeCameras(availableCameras);
+
+    let nextDeviceId: string | undefined = undefined;
+    if (nextFacing === 'environment' && primaryRearCamera) {
+      nextDeviceId = primaryRearCamera.id;
+    } else if (nextFacing === 'user' && primaryFrontCamera) {
+      nextDeviceId = primaryFrontCamera.id;
+    }
+
     setFacingMode(nextFacing);
-    setSelectedCameraId(null);
+    setSelectedCameraId(nextDeviceId || null);
     isStartingRef.current = false;
-    await startCameraScanner({ facingMode: nextFacing });
+    await startCameraScanner({ facingMode: nextFacing, deviceId: nextDeviceId });
   };
 
   // Toggle Torch
@@ -1624,50 +1661,68 @@ export const GateScannerPage: React.FC = () => {
                   </div>
 
                   {/* Camera Controls Bar */}
-                  <div className="w-full flex items-center justify-between gap-2 mt-3 pt-3 border-t border-slate-800/80">
-                    {/* Switch Front/Back */}
-                    <button
-                      onClick={handleToggleFacingMode}
-                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs flex items-center gap-1.5 transition-colors"
-                    >
-                      <Smartphone className="w-3.5 h-3.5" />
-                      <span>{facingMode === 'environment' ? 'Kamera Belakang' : 'Kamera Depan'}</span>
-                    </button>
-
-                    {/* Flashlight / Torch if available */}
-                    {hasTorch && (
+                  <div className="w-full flex items-center justify-between gap-2 mt-3 pt-3 border-t border-slate-800/80 flex-wrap">
+                    {/* Active Mode Badge & Switch Front/Back */}
+                    <div className="flex items-center gap-1.5">
+                      <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 text-[10px] font-semibold border border-emerald-500/20">
+                        {facingMode === 'environment' ? 'Belakang (1x)' : 'Depan (Selfie)'}
+                      </span>
                       <button
-                        onClick={handleToggleTorch}
-                        className={`px-3 py-1.5 rounded-xl border text-xs flex items-center gap-1.5 transition-colors ${
-                          torchOn
-                            ? 'bg-amber-500/20 border-amber-500 text-amber-300 font-semibold'
-                            : 'bg-slate-800 border-slate-700 text-slate-400'
-                        }`}
+                        onClick={handleToggleFacingMode}
+                        className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                        title={facingMode === 'environment' ? 'Ganti ke Kamera Depan' : 'Ganti ke Kamera Belakang'}
                       >
-                        <Zap className="w-3.5 h-3.5" />
-                        <span>{torchOn ? 'Senter Nyala' : 'Senter Mati'}</span>
+                        <RefreshCw className="w-3 h-3 text-emerald-400" />
+                        <span>{facingMode === 'environment' ? 'Ganti Depan' : 'Ganti Belakang'}</span>
                       </button>
-                    )}
+                    </div>
 
-                    {/* Direct Camera Device Selector */}
-                    {availableCameras.length > 1 && (
-                      <select
-                        value={selectedCameraId || ''}
-                        onChange={(e) => {
-                          const val = e.target.value || null;
-                          setSelectedCameraId(val);
-                          startCameraScanner(val ? { deviceId: { exact: val } } : undefined);
-                        }}
-                        className="bg-slate-800 border border-slate-700 text-slate-300 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none max-w-[140px] truncate"
-                      >
-                        <option value="">Default Kamera</option>
-                        {availableCameras.map((cam, idx) => (
-                          <option key={cam.id} value={cam.id}>
-                            {cam.label || `Kamera ${idx + 1}`}
-                          </option>
-                        ))}
-                      </select>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                      {/* Flashlight / Torch if available */}
+                      {hasTorch && (
+                        <button
+                          onClick={handleToggleTorch}
+                          className={`px-2.5 py-1 rounded-xl border text-xs flex items-center gap-1.5 transition-colors cursor-pointer ${
+                            torchOn
+                              ? 'bg-amber-500/20 border-amber-500 text-amber-300 font-semibold'
+                              : 'bg-slate-800 border-slate-700 text-slate-400'
+                          }`}
+                        >
+                          <Zap className="w-3.5 h-3.5" />
+                          <span>{torchOn ? 'Senter Nyala' : 'Senter'}</span>
+                        </button>
+                      )}
+
+                      {/* Direct Camera Device Selector */}
+                      {availableCameras.length > 1 && (
+                        <select
+                          value={selectedCameraId || ''}
+                          onChange={(e) => {
+                            const val = e.target.value || null;
+                            setSelectedCameraId(val);
+                            if (val) {
+                              const found = availableCameras.find((c) => c.id === val);
+                              if (found) {
+                                if (isRearCameraLabel(found.label)) setFacingMode('environment');
+                                else if (isFrontCameraLabel(found.label)) setFacingMode('user');
+                              }
+                              startCameraScanner({ deviceId: val });
+                            } else {
+                              startCameraScanner();
+                            }
+                          }}
+                          className="bg-slate-800 border border-slate-700 text-slate-300 rounded-xl px-2 py-1 text-xs focus:outline-none max-w-[140px] truncate cursor-pointer"
+                          title="Pilih sensor kamera fisik"
+                        >
+                          <option value="">Pilih Lensa Kamera</option>
+                          {availableCameras.map((cam, idx) => (
+                            <option key={cam.id} value={cam.id}>
+                              {cam.label || `Kamera ${idx + 1}`}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
