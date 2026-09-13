@@ -31,6 +31,7 @@ import {
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { LoadingState } from '@/components/common/LoadingState';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
+import { BazaarTenantShowcase, ShowcaseTenant } from './components/BazaarTenantShowcase';
 
 export const BAZAAR_CATEGORIES = [
   { value: 'kuliner', label: '🍲 Kuliner Halal & Minuman', desc: 'Makanan siap saji, aneka minuman segar, snack halal' },
@@ -85,6 +86,7 @@ export interface PublicBazaarResponse {
     categoryQuotas?: Array<{ category: string; maxQuota: number }> | null;
     booths: BoothItem[];
     registeredTenants?: any[];
+    showcaseTenants?: ShowcaseTenant[];
   };
 }
 
@@ -158,8 +160,8 @@ export const BazaarPortalPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Active Main Tab
-  const [activeTab, setActiveTab] = useState<'form' | 'status'>('form');
+  // Active Main Tab: 'katalog' (showcase) | 'form' (pendaftaran) | 'status' (cek status)
+  const [activeTab, setActiveTab] = useState<'katalog' | 'form' | 'status'>('katalog');
 
   // Application Form State
   const [formData, setFormData] = useState({
@@ -223,6 +225,10 @@ export const BazaarPortalPage: React.FC = () => {
     const tabParam = searchParams.get('tab');
     if (tabParam === 'status') {
       setActiveTab('status');
+    } else if (tabParam === 'daftar' || tabParam === 'form') {
+      setActiveTab('form');
+    } else if (tabParam === 'katalog' || tabParam === 'showcase' || tabParam === 'stand') {
+      setActiveTab('katalog');
     }
     const phoneParam = searchParams.get('phone');
     if (phoneParam) {
@@ -809,32 +815,45 @@ export const BazaarPortalPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Tab Switcher: Pendaftaran Baru vs Cek Status */}
-        <div className="flex rounded-2xl bg-[#F2EEE4] p-1.5 border border-[#1B4332]/12 shadow-2xs">
+        {/* Tab Switcher: Katalog Stand vs Pendaftaran Baru vs Cek Status */}
+        <div className="flex rounded-2xl bg-[#F2EEE4] p-1.5 border border-[#1B4332]/12 shadow-2xs gap-1">
+          <button
+            type="button"
+            onClick={() => setActiveTab('katalog')}
+            className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeTab === 'katalog'
+                ? 'bg-[#1B4332] text-white shadow-sm'
+                : 'text-[#6B7A72] hover:text-[#1C2321]'
+            }`}
+          >
+            <Store className="w-4 h-4 text-[#E0B970]" />
+            <span className="truncate">Katalog Stand</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setActiveTab('form')}
-            className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-2 ${
+            className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               activeTab === 'form'
                 ? 'bg-[#1B4332] text-white shadow-sm'
                 : 'text-[#6B7A72] hover:text-[#1C2321]'
             }`}
           >
             <FileText className="w-4 h-4 text-[#E0B970]" />
-            <span>Formulir Pendaftaran Stan</span>
+            <span className="truncate">Daftar Stand</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('status')}
-            className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-2 ${
+            className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               activeTab === 'status'
                 ? 'bg-[#1B4332] text-white shadow-sm'
                 : 'text-[#6B7A72] hover:text-[#1C2321]'
             }`}
           >
             <Search className="w-4 h-4 text-[#E0B970]" />
-            <span>Cek Status &amp; Upload Bukti</span>
+            <span className="truncate">Cek Status</span>
           </button>
         </div>
 
@@ -861,6 +880,17 @@ export const BazaarPortalPage: React.FC = () => {
               <ArrowRight className="w-3.5 h-3.5 text-[#E0B970]" />
             </Link>
           </div>
+        )}
+
+        {/* ========================================================= */}
+        {/* TAB 0: SHOWCASE STAND & TENANT BAZAR (LANDING PAGE)       */}
+        {/* ========================================================= */}
+        {activeTab === 'katalog' && (
+          <BazaarTenantShowcase
+            event={event}
+            bazaar={bazaar}
+            onSwitchTab={(tab) => setActiveTab(tab)}
+          />
         )}
 
         {/* ========================================================= */}

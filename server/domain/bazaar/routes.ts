@@ -60,6 +60,10 @@ export async function ensureBazaarTablesExist(db: any) {
           pic_email text,
           pic_ktp_number text,
           instagram text,
+          threads text,
+          website_url text,
+          logo_url text,
+          google_drive_catalog_url text,
           address text,
           product_description text,
           catalog_urls jsonb,
@@ -180,6 +184,10 @@ export async function ensureBazaarTablesExist(db: any) {
         ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS pic_email text;
         ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS pic_ktp_number text;
         ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS instagram text;
+        ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS threads text;
+        ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS website_url text;
+        ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS logo_url text;
+        ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS google_drive_catalog_url text;
         ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS address text;
         ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS product_description text;
         ALTER TABLE bazaar_tenants ADD COLUMN IF NOT EXISTS catalog_urls jsonb;
@@ -389,6 +397,10 @@ const publicApplySchema = z.object({
   picEmail: z.string().email('Format email tidak valid').optional().nullable().or(z.literal('')),
   picKtpNumber: z.string().optional().nullable(),
   instagram: z.string().optional().nullable(),
+  threads: z.string().optional().nullable(),
+  websiteUrl: z.string().optional().nullable(),
+  logoUrl: z.string().optional().nullable(),
+  googleDriveCatalogUrl: z.string().optional().nullable(),
   address: z.string().optional().nullable(),
   productDescription: z.string().min(3, 'Deskripsi produk diperlukan'),
   catalogUrl: z.string().optional().nullable(),
@@ -927,7 +939,13 @@ export function registerBazaarRoutes(router: Router) {
           picPhone: body.picPhone ? normalizeIndonesianPhone(body.picPhone) : existing.picPhone,
           picEmail: body.picEmail ?? existing.picEmail,
           picKtpNumber: body.picKtpNumber ?? existing.picKtpNumber,
-          instagram: body.instagram ?? existing.instagram,
+          instagram: body.instagram !== undefined ? body.instagram : existing.instagram,
+          threads: body.threads !== undefined ? body.threads : existing.threads,
+          websiteUrl: body.websiteUrl !== undefined ? body.websiteUrl : existing.websiteUrl,
+          logoUrl: body.logoUrl !== undefined ? body.logoUrl : existing.logoUrl,
+          googleDriveCatalogUrl:
+            body.googleDriveCatalogUrl !== undefined ? body.googleDriveCatalogUrl : existing.googleDriveCatalogUrl,
+          catalogUrls: body.catalogUrls !== undefined ? body.catalogUrls : existing.catalogUrls,
           address: body.address ?? existing.address,
           businessCategory: body.businessCategory ?? existing.businessCategory,
           productDescription: body.productDescription ?? existing.productDescription,
@@ -1642,16 +1660,50 @@ export function registerBazaarRoutes(router: Router) {
       status: b.status,
     }));
 
-    const registeredTenants = (bazaar.applications || [])
+    const showcaseTenants = (bazaar.applications || [])
       .filter((a: any) => a.status !== 'rejected' && a.status !== 'cancelled')
-      .map((a: any) => ({
-        id: a.id,
-        brandName: a.tenant?.brandName || 'Tenant',
-        picName: a.tenant?.picName || '',
-        category: a.tenant?.businessCategory || '',
-        boothCode: a.assignedBooth?.code || null,
-        status: a.status,
-      }));
+      .map((a: any) => {
+        const tenant = a.tenant;
+        const booth = a.assignedBooth;
+        return {
+          id: a.id,
+          tenantId: tenant?.id || a.tenantId,
+          brandName: tenant?.brandName || 'Tenant UMKM',
+          businessCategory: tenant?.businessCategory || 'kuliner',
+          logoUrl: tenant?.logoUrl || null,
+          productDescription: tenant?.productDescription || null,
+          picName: tenant?.picName || '',
+          picPhone: tenant?.picPhone || '',
+          picEmail: tenant?.picEmail || null,
+          instagram: tenant?.instagram || null,
+          threads: tenant?.threads || null,
+          websiteUrl: tenant?.websiteUrl || null,
+          googleDriveCatalogUrl: tenant?.googleDriveCatalogUrl || null,
+          catalogUrls: tenant?.catalogUrls || [],
+          booth: booth
+            ? {
+                id: booth.id,
+                code: booth.code,
+                name: booth.name,
+                zone: booth.zone,
+                size: booth.size,
+                facilities: booth.facilities,
+              }
+            : null,
+          boothCode: booth?.code || null,
+          status: a.status,
+          isPublished: a.isPublished ?? true,
+        };
+      });
+
+    const registeredTenants = showcaseTenants.map((st: any) => ({
+      id: st.id,
+      brandName: st.brandName,
+      picName: st.picName,
+      category: st.businessCategory,
+      boothCode: st.boothCode,
+      status: st.status,
+    }));
 
     return successResponse(
       {
@@ -1682,6 +1734,7 @@ export function registerBazaarRoutes(router: Router) {
           categoryQuotas: bazaar.categoryQuotas || null,
           booths: sanitizedBooths,
           registeredTenants,
+          showcaseTenants,
         },
       },
       { requestId: ctx.requestId }
@@ -1750,6 +1803,10 @@ export function registerBazaarRoutes(router: Router) {
             picEmail: body.picEmail || null,
             picKtpNumber: body.picKtpNumber || null,
             instagram: body.instagram || null,
+            threads: body.threads || null,
+            websiteUrl: body.websiteUrl || null,
+            logoUrl: body.logoUrl || null,
+            googleDriveCatalogUrl: body.googleDriveCatalogUrl || null,
             address: body.address || null,
             productDescription: body.productDescription,
             catalogUrls: body.catalogUrl ? [body.catalogUrl] : [],
@@ -1768,6 +1825,10 @@ export function registerBazaarRoutes(router: Router) {
             picName: body.picName,
             picEmail: body.picEmail || masterTenant.picEmail,
             instagram: body.instagram || masterTenant.instagram,
+            threads: body.threads || masterTenant.threads,
+            websiteUrl: body.websiteUrl || masterTenant.websiteUrl,
+            logoUrl: body.logoUrl || masterTenant.logoUrl,
+            googleDriveCatalogUrl: body.googleDriveCatalogUrl || masterTenant.googleDriveCatalogUrl,
             address: body.address || masterTenant.address,
             productDescription: body.productDescription,
             internalTags: tags,

@@ -13,6 +13,7 @@ import {
   Calendar,
   Coins,
   IdCard,
+  ExternalLink,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
 import { EventBazaarManageModal } from '../events/components/EventBazaarManageModal';
@@ -26,6 +27,12 @@ interface MasterTenantItem {
   picPhone: string;
   picEmail?: string | null;
   instagram?: string | null;
+  threads?: string | null;
+  websiteUrl?: string | null;
+  logoUrl?: string | null;
+  googleDriveCatalogUrl?: string | null;
+  catalogUrls?: string[] | null;
+  productDescription?: string | null;
   address?: string | null;
   internalTags?: string[] | null;
   internalFlag: 'normal' | 'review_next_event' | 'do_not_auto_accept';
@@ -543,6 +550,17 @@ export const BazaarHubPage: React.FC = () => {
                           <span>Link Survei</span>
                         </button>
                       </div>
+
+                      <a
+                        href={`/bazar/${ev.id}?tab=katalog`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="w-full py-1.5 px-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-950 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-2xs"
+                        title="Buka Landing Page Publik Katalog Bazar Kajian Ini"
+                      >
+                        <ExternalLink className="w-3 h-3 text-emerald-700" />
+                        <span>🌐 Landing Page Publik</span>
+                      </a>
                     </div>
                   </div>
                 );
@@ -855,6 +873,50 @@ export const BazaarHubPage: React.FC = () => {
                   <span className="font-bold text-[#1C2321]">{selectedTenantDetail.picEmail || '-'}</span>
                 </div>
               </div>
+
+              {/* Digital Showcase Channels */}
+              {(selectedTenantDetail.threads || selectedTenantDetail.websiteUrl || selectedTenantDetail.googleDriveCatalogUrl) && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {selectedTenantDetail.threads && (
+                    <a
+                      href={`https://threads.net/@${selectedTenantDetail.threads.replace(/^@/, '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-[11px] font-bold border border-slate-300 flex items-center gap-1"
+                    >
+                      🧵 @{selectedTenantDetail.threads.replace(/^@/, '')}
+                    </a>
+                  )}
+                  {selectedTenantDetail.websiteUrl && (
+                    <a
+                      href={selectedTenantDetail.websiteUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-800 rounded-lg text-[11px] font-bold border border-blue-200 flex items-center gap-1"
+                    >
+                      <ExternalLink className="w-3 h-3" /> Website
+                    </a>
+                  )}
+                  {selectedTenantDetail.googleDriveCatalogUrl && (
+                    <a
+                      href={selectedTenantDetail.googleDriveCatalogUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-lg text-[11px] font-bold border border-amber-300 flex items-center gap-1"
+                    >
+                      📁 Katalog GDrive PDF
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {/* Product Description */}
+              {selectedTenantDetail.productDescription && (
+                <div className="p-3 bg-white rounded-xl border border-[#1B4332]/10">
+                  <span className="text-[10.5px] font-bold text-[#6B7A72] block mb-0.5">Deskripsi Produk:</span>
+                  <p className="text-xs text-[#1C2321]">{selectedTenantDetail.productDescription}</p>
+                </div>
+              )}
 
               <div>
                 <h4 className="font-bold text-[#1C2321] mb-1.5">Riwayat Partisipasi Event</h4>

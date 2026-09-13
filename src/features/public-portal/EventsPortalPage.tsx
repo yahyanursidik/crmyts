@@ -89,6 +89,13 @@ interface EventItem {
   akhwatCount?: number;
   carsCount?: number;
   motorcyclesCount?: number;
+  bazaarInfo?: {
+    id: string;
+    isOpen: boolean;
+    totalTenantsCount: number;
+    publishedTenantsCount: number;
+    boothsCount: number;
+  } | null;
 }
 
 interface PortalInfoResponse {
@@ -854,6 +861,40 @@ export function EventsPortalPage() {
                   </span>
                 </div>
               </div>
+
+              {/* Bazaar UMKM Presence Banner if available */}
+              {selectedEvent.bazaarInfo && (
+                <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-900 to-teal-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm border border-emerald-700/50">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-white/10 text-[#E0B970] flex items-center justify-center shrink-0 border border-white/20">
+                      <Store className="w-5 h-5 text-amber-300" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono font-bold text-amber-300 uppercase tracking-wider">
+                          Bazar Resmi Majelis
+                        </span>
+                        {selectedEvent.bazaarInfo.totalTenantsCount > 0 && (
+                          <span className="px-2 py-0.2 rounded-full bg-white/20 text-white text-[10px] font-bold">
+                            {selectedEvent.bazaarInfo.totalTenantsCount} Stand Hadir
+                          </span>
+                        )}
+                      </div>
+                      <h4 className="text-xs sm:text-sm font-bold text-white font-display">
+                        Stand Kuliner Halal, Busana Muslim &amp; Buku Hadir di Kajian Ini
+                      </h4>
+                    </div>
+                  </div>
+
+                  <Link
+                    to={`/bazar/${selectedEvent.id}?tab=katalog`}
+                    className="py-2 px-3.5 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 shrink-0 active:scale-95"
+                  >
+                    <Store className="w-3.5 h-3.5 text-slate-950" />
+                    <span>Lihat Katalog Stand Bazar</span>
+                  </Link>
+                </div>
+              )}
             </div>
 
             <aside className="event-path" aria-label="Alur pendaftaran kajian">
@@ -1178,6 +1219,17 @@ export function EventsPortalPage() {
                                     🌙 10 Hari Ramadan
                                   </span>
                                 )}
+                                {ev.bazaarInfo && (
+                                  <Link
+                                    to={`/bazar/${ev.id}?tab=katalog`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center gap-1 transition-colors shadow-2xs"
+                                    title="Kajian ini memiliki stan bazar UMKM jamaah"
+                                  >
+                                    <Store className="w-3 h-3 text-emerald-700" />
+                                    <span>Bazar ({ev.bazaarInfo.totalTenantsCount || ev.bazaarInfo.boothsCount} Stand)</span>
+                                  </Link>
+                                )}
                               </div>
 
                               <div className="flex items-center gap-2">
@@ -1253,6 +1305,18 @@ export function EventsPortalPage() {
                                 </>
                               )}
                             </button>
+
+                            {ev.bazaarInfo && (
+                              <Link
+                                to={`/bazar/${ev.id}?tab=katalog`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="px-2.5 py-1 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 text-[11px] font-bold flex items-center gap-1 transition-all shadow-2xs shrink-0"
+                                title="Buka katalog stand bazar kajian ini"
+                              >
+                                <Store className="w-3 h-3 text-emerald-700" />
+                                <span>Stand Bazar</span>
+                              </Link>
+                            )}
 
                             <span
                               className={`text-xs font-bold px-3 py-1.5 rounded-xl transition-all ${
@@ -2359,6 +2423,40 @@ export function EventsPortalPage() {
                     </strong>
                   </div>
                 </div>
+
+                {/* Bazaar UMKM Presence Banner if available */}
+                {(selectedEvent?.bazaarInfo || (eventSuccess?.event as any)?.bazaarInfo) && (
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-900 to-teal-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm border border-emerald-700/50">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-white/10 text-[#E0B970] flex items-center justify-center shrink-0 border border-white/20">
+                        <Store className="w-5 h-5 text-amber-300" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono font-bold text-amber-300 uppercase tracking-wider">
+                            Bazar Resmi Majelis
+                          </span>
+                          {((selectedEvent?.bazaarInfo?.totalTenantsCount ?? (eventSuccess?.event as any)?.bazaarInfo?.totalTenantsCount) ?? 0) > 0 && (
+                            <span className="px-2 py-0.2 rounded-full bg-white/20 text-white text-[10px] font-bold">
+                              {(selectedEvent?.bazaarInfo?.totalTenantsCount ?? (eventSuccess?.event as any)?.bazaarInfo?.totalTenantsCount)} Stand Hadir
+                            </span>
+                          )}
+                        </div>
+                        <h4 className="text-xs sm:text-sm font-bold text-white font-display">
+                          Stand Kuliner Halal, Busana Muslim &amp; Buku Hadir di Kajian Ini
+                        </h4>
+                      </div>
+                    </div>
+
+                    <Link
+                      to={`/bazar/${selectedEvent?.id || eventSuccess.event.id}?tab=katalog`}
+                      className="py-2 px-3.5 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 shrink-0 active:scale-95"
+                    >
+                      <Store className="w-3.5 h-3.5 text-slate-950" />
+                      <span>Lihat Katalog Stand Bazar</span>
+                    </Link>
+                  </div>
+                )}
               </div>
             )}
 

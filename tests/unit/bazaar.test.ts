@@ -675,5 +675,101 @@ describe('PRD Web App YTS Bazar – Tenant & Event Management System', () => {
     expect(json.data[0].priceRupiah).toBe(200000);
     expect(json.meta.total).toBe(2);
   });
+
+  it('15. GET /api/public/events/:id/bazaar returns showcaseTenants with logo, social links, and booth data', async () => {
+    mockDb.query.events.findFirst.mockResolvedValue({
+      id: sampleEventId,
+      title: 'Kajian Akbar Ustadz Sunnah',
+      speaker: 'Ustadz Dr. Fulan',
+      startAt: new Date().toISOString(),
+      endAt: new Date().toISOString(),
+      locationName: 'Masjid Tarbiyah Sunnah',
+    });
+
+    mockDb.query.bazaarEvents.findFirst.mockResolvedValue({
+      id: sampleBazaarId,
+      eventId: sampleEventId,
+      title: 'Bazar Akbar Sunnah',
+      description: 'Bazar stand kuliner dan busana muslim',
+      isOpen: true,
+      rulesAndTerms: 'Kepatuhan syariah terjaga.',
+      defaultFeeRupiah: 150000,
+      booths: [
+        {
+          id: sampleBoothId,
+          code: 'K-01',
+          name: 'Stand Kuliner 01',
+          zone: 'Area Kuliner & Minuman',
+          size: '2x2 meter',
+          facilities: ['1 Meja', '2 Kursi'],
+          priceRupiah: 150000,
+          allowedCategory: 'kuliner',
+          status: 'assigned',
+        },
+      ],
+      applications: [
+        {
+          id: sampleAppId,
+          tenantId: sampleTenantId,
+          status: 'booth_assigned',
+          isPublished: true,
+          tenant: {
+            id: sampleTenantId,
+            brandName: 'Kopi Herbal Al-Barakah',
+            businessCategory: 'kuliner',
+            logoUrl: 'https://images.unsplash.com/photo-kopi.jpg',
+            productDescription: 'Kopi biji salak & herbal habbatussauda murni.',
+            picName: 'Akhi Fulan',
+            picPhone: '081234567890',
+            picEmail: 'kopibarokah@example.com',
+            instagram: 'kopialbarakah',
+            threads: 'kopialbarakah',
+            websiteUrl: 'https://kopialbarakah.com',
+            googleDriveCatalogUrl: 'https://drive.google.com/file/d/catalog-pdf/view',
+            catalogUrls: [],
+          },
+          assignedBooth: {
+            id: sampleBoothId,
+            code: 'K-01',
+            name: 'Stand Kuliner 01',
+            zone: 'Area Kuliner & Minuman',
+            size: '2x2 meter',
+            facilities: ['1 Meja', '2 Kursi'],
+          },
+        },
+      ],
+    });
+
+    const res = await router.handle({
+      requestId: 'req_bazaar_15',
+      method: 'GET',
+      path: `/api/public/events/${sampleEventId}/bazaar`,
+      headers: {},
+      query: {},
+      params: { id: sampleEventId },
+      body: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.data.event.id).toBe(sampleEventId);
+    expect(json.data.bazaar.id).toBe(sampleBazaarId);
+    expect(json.data.bazaar.showcaseTenants).toHaveLength(1);
+
+    const showcase = json.data.bazaar.showcaseTenants[0];
+    expect(showcase.brandName).toBe('Kopi Herbal Al-Barakah');
+    expect(showcase.logoUrl).toBe('https://images.unsplash.com/photo-kopi.jpg');
+    expect(showcase.instagram).toBe('kopialbarakah');
+    expect(showcase.threads).toBe('kopialbarakah');
+    expect(showcase.websiteUrl).toBe('https://kopialbarakah.com');
+    expect(showcase.googleDriveCatalogUrl).toBe('https://drive.google.com/file/d/catalog-pdf/view');
+    expect(showcase.boothCode).toBe('K-01');
+    expect(showcase.booth.zone).toBe('Area Kuliner & Minuman');
+
+    // Also verify backward compatible registeredTenants
+    expect(json.data.bazaar.registeredTenants).toHaveLength(1);
+    expect(json.data.bazaar.registeredTenants[0].brandName).toBe('Kopi Herbal Al-Barakah');
+    expect(json.data.bazaar.registeredTenants[0].boothCode).toBe('K-01');
+  });
 });
 

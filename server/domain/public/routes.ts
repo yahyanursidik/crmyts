@@ -14,6 +14,7 @@ import {
   events,
   eventAttendance,
   attachments,
+  bazaarEvents,
 } from '../../db/schema';
 import { and, eq, sql, or, inArray, desc, asc, ilike } from 'drizzle-orm';
 import { normalizeIndonesianPhone } from '../../lib/phone';
@@ -168,6 +169,38 @@ export function registerPublicPortalRoutes(router: Router) {
       }),
     ]);
 
+    const upcomingEventIds = upcomingEvents.map((ev) => ev.id);
+    const portalBazaarMap = new Map<string, any>();
+    if (upcomingEventIds.length > 0) {
+      try {
+        const bazaars = await db.query.bazaarEvents.findMany({
+          where: inArray(bazaarEvents.eventId, upcomingEventIds),
+          with: {
+            applications: {
+              columns: { id: true, status: true, isPublished: true },
+            },
+            booths: {
+              columns: { id: true, status: true },
+            },
+          },
+        });
+        for (const b of bazaars) {
+          const activeApps = (b.applications || []).filter(
+            (a: any) => a.status !== 'rejected' && a.status !== 'cancelled'
+          );
+          portalBazaarMap.set(b.eventId, {
+            id: b.id,
+            isOpen: b.isOpen,
+            totalTenantsCount: activeApps.length,
+            publishedTenantsCount: activeApps.filter((a: any) => a.isPublished ?? true).length,
+            boothsCount: (b.booths || []).length,
+          });
+        }
+      } catch (err) {
+        console.warn('[portal-info] Bazaar query warning:', err);
+      }
+    }
+
     // Aggregate Public Metrics (Safe aggregates, no PII)
     const [donationTotalRes, donorCountRes, waqfCountRes] = await Promise.all([
       db
@@ -294,6 +327,7 @@ export function registerPublicPortalRoutes(router: Router) {
             akhwatCount,
             carsCount,
             motorcyclesCount,
+            bazaarInfo: portalBazaarMap.get(ev.id) || null,
           };
         }),
         bankAccounts,
@@ -1272,6 +1306,40 @@ export function registerPublicPortalRoutes(router: Router) {
       const history: any[] = [];
       const announcements: any[] = [];
 
+      const allAttEventIds = Array.from(
+        new Set(attendances.map((a) => a.event?.id).filter((id): id is string => Boolean(id)))
+      );
+      const myEventsBazaarMap = new Map<string, any>();
+      if (allAttEventIds.length > 0) {
+        try {
+          const bazaars = await db.query.bazaarEvents.findMany({
+            where: inArray(bazaarEvents.eventId, allAttEventIds),
+            with: {
+              applications: {
+                columns: { id: true, status: true, isPublished: true },
+              },
+              booths: {
+                columns: { id: true, status: true },
+              },
+            },
+          });
+          for (const b of bazaars) {
+            const activeApps = (b.applications || []).filter(
+              (a: any) => a.status !== 'rejected' && a.status !== 'cancelled'
+            );
+            myEventsBazaarMap.set(b.eventId, {
+              id: b.id,
+              isOpen: b.isOpen,
+              totalTenantsCount: activeApps.length,
+              publishedTenantsCount: activeApps.filter((a: any) => a.isPublished ?? true).length,
+              boothsCount: (b.booths || []).length,
+            });
+          }
+        } catch (err) {
+          console.warn('[my-events] Bazaar query warning:', err);
+        }
+      }
+
       for (const att of attendances) {
         const ev = att.event;
         if (!ev) continue;
@@ -1302,6 +1370,8 @@ export function registerPublicPortalRoutes(router: Router) {
                 participantPortalPath: buildParticipantPortalPath(ev.id, ga.ticketCode || ''),
               }))
           : [];
+
+        const bInfo = myEventsBazaarMap.get(ev.id) || null;
 
         const ticketItem = {
           attendanceId: att.id,
@@ -1344,6 +1414,9 @@ export function registerPublicPortalRoutes(router: Router) {
             bankAccountNumber: ev.bankAccountNumber,
             bankAccountName: ev.bankAccountName,
             paymentInstructions: ev.paymentInstructions,
+            hasBazaar: Boolean(bInfo),
+            bazaarId: bInfo?.id || null,
+            bazaarInfo: bInfo,
           },
         };
 

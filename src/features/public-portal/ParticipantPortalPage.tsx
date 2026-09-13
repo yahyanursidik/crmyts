@@ -22,6 +22,7 @@ import {
   Mail,
   X,
   ScrollText,
+  Store,
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { extractTicketCode } from '@/lib/participantTicket';
@@ -82,6 +83,9 @@ interface ParticipantEventItem {
     bankAccountNumber?: string | null;
     bankAccountName?: string | null;
     paymentInstructions?: string | null;
+    hasBazaar?: boolean;
+    bazaarId?: string | null;
+    bazaarInfo?: any;
   };
 }
 
@@ -767,6 +771,19 @@ export function ParticipantPortalPage() {
                                 </button>
                               )}
                             </div>
+
+                            {/* Link Stand Bazar if available */}
+                            {ticket.event.hasBazaar && (
+                              <Link
+                                to={`/bazar/${ticket.event.id}?tab=katalog`}
+                                className="w-full py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-950 font-bold text-xs border border-emerald-300 transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-2xs"
+                              >
+                                <Store className="w-3.5 h-3.5 text-emerald-700" />
+                                <span>
+                                  Katalog Stand Bazar ({ticket.event.bazaarInfo?.totalTenantsCount || ticket.event.bazaarInfo?.boothsCount || 'Tersedia'} Stand)
+                                </span>
+                              </Link>
+                            )}
 
                             {/* Special Invite Badge */}
                             {ticket.isSpecialInvite && (

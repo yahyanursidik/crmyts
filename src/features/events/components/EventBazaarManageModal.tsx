@@ -59,6 +59,11 @@ interface MasterTenant {
   picEmail?: string | null;
   picKtpNumber?: string | null;
   instagram?: string | null;
+  threads?: string | null;
+  websiteUrl?: string | null;
+  logoUrl?: string | null;
+  googleDriveCatalogUrl?: string | null;
+  catalogUrls?: string[] | null;
   address?: string | null;
   productDescription?: string | null;
   internalTags?: string[] | null;
@@ -240,6 +245,27 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
     status: 'available' as 'available' | 'assigned' | 'reserved' | 'blocked',
     reservedReason: '',
     reservedForPartnerName: '',
+  });
+
+  // Individual Tenant Edit Modal
+  const [isEditTenantModalOpen, setIsEditTenantModalOpen] = useState(false);
+  const [editingTenant, setEditingTenant] = useState<MasterTenant | null>(null);
+  const [editTenantForm, setEditTenantForm] = useState({
+    brandName: '',
+    businessCategory: 'kuliner',
+    picName: '',
+    picPhone: '',
+    picEmail: '',
+    picKtpNumber: '',
+    logoUrl: '',
+    instagram: '',
+    threads: '',
+    websiteUrl: '',
+    googleDriveCatalogUrl: '',
+    productDescription: '',
+    address: '',
+    internalFlag: 'normal' as 'normal' | 'review_next_event' | 'do_not_auto_accept',
+    internalNotes: '',
   });
 
   // Forms
@@ -784,11 +810,63 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
     }
   };
 
+  const handleOpenEditTenant = (tenant: MasterTenant) => {
+    setEditingTenant(tenant);
+    setEditTenantForm({
+      brandName: tenant.brandName || '',
+      businessCategory: tenant.businessCategory || 'kuliner',
+      picName: tenant.picName || '',
+      picPhone: tenant.picPhone || '',
+      picEmail: tenant.picEmail || '',
+      picKtpNumber: tenant.picKtpNumber || '',
+      logoUrl: tenant.logoUrl || '',
+      instagram: tenant.instagram || '',
+      threads: tenant.threads || '',
+      websiteUrl: tenant.websiteUrl || '',
+      googleDriveCatalogUrl: tenant.googleDriveCatalogUrl || '',
+      productDescription: tenant.productDescription || '',
+      address: tenant.address || '',
+      internalFlag: tenant.internalFlag || 'normal',
+      internalNotes: tenant.internalNotes || '',
+    });
+    setIsEditTenantModalOpen(true);
+  };
+
+  const handleSaveTenant = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTenant) return;
+    try {
+      setActionLoading(true);
+      await apiClient(`/bazaar/tenants/${editingTenant.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(editTenantForm),
+      });
+      showToast('Data tenant & showcase publik berhasil diperbarui!');
+      setIsEditTenantModalOpen(false);
+      setEditingTenant(null);
+      await loadBazaarData();
+      if (selectedApp && selectedApp.tenant?.id === editingTenant.id) {
+        setSelectedApp({
+          ...selectedApp,
+          tenant: {
+            ...selectedApp.tenant,
+            ...editTenantForm,
+          } as any,
+        });
+      }
+    } catch (err: any) {
+      console.error('Failed to update tenant:', err);
+      showToast(err.message || 'Gagal memperbarui data tenant');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const copyPublicLink = () => {
-    const url = `${window.location.origin}/bazar/${eventId}`;
+    const url = `${window.location.origin}/bazar/${eventId}?tab=katalog`;
     navigator.clipboard.writeText(url);
     setCopiedLink(true);
-    showToast('Tautan pendaftaran tenant publik berhasil disalin!');
+    showToast('Tautan landing page katalog bazar publik berhasil disalin!');
     setTimeout(() => setCopiedLink(false), 2500);
   };
 
@@ -938,16 +1016,28 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 self-end sm:self-auto">
+          <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
             {bazaarData && (
-              <button
-                onClick={copyPublicLink}
-                className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs active:scale-95"
-                title="Salin Tautan Pendaftaran Calon Tenant"
-              >
-                {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-200" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedLink ? 'Tersalin!' : 'Salin Form Pendaftaran'}</span>
-              </button>
+              <>
+                <a
+                  href={`/bazar/${eventId}?tab=katalog`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3.5 py-2 bg-cream-100 hover:bg-cream-200 text-brand-900 border border-brand-300/60 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs active:scale-95"
+                  title="Buka Landing Page Katalog Stand Bazar Publik di Tab Baru"
+                >
+                  <ExternalLink className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>🌐 Landing Page Publik</span>
+                </a>
+                <button
+                  onClick={copyPublicLink}
+                  className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs active:scale-95"
+                  title="Salin Tautan Landing Page & Pendaftaran Tenant"
+                >
+                  {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-200" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedLink ? 'Tersalin!' : 'Salin Link'}</span>
+                </button>
+              </>
             )}
             <button
               onClick={onClose}
@@ -1668,6 +1758,17 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                                     </button>
                                     <button
                                       onClick={() => {
+                                        if (app.tenant) {
+                                          handleOpenEditTenant(app.tenant);
+                                        }
+                                      }}
+                                      className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-lg text-xs font-bold"
+                                      title="Edit Data & Showcase Publik Tenant"
+                                    >
+                                      <Edit className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => {
                                         setFeeModalApp(app);
                                         setFeeForm({
                                           infaqAmountRupiah: app.infaqAmountRupiah || 0,
@@ -2353,12 +2454,41 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
             <div className="bg-white rounded-3xl max-w-lg w-full p-6 border border-cream-300 shadow-2xl space-y-4">
               <div className="flex items-center justify-between">
                 <h4 className="text-sm font-black text-brand-950">Detail Profil & Seleksi Tenant</h4>
-                <button onClick={() => setIsDetailModalOpen(false)} className="p-1 text-surface-400 hover:text-surface-600">
-                  <X className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedApp.tenant) {
+                        handleOpenEditTenant(selectedApp.tenant);
+                      }
+                    }}
+                    className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg font-bold text-[11px] flex items-center gap-1 transition-colors"
+                    title="Edit Data & Showcase Publik Tenant"
+                  >
+                    <Edit className="w-3 h-3 text-emerald-700" /> Edit Showcase & Profil
+                  </button>
+                  <button onClick={() => setIsDetailModalOpen(false)} className="p-1 text-surface-400 hover:text-surface-600">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
               <div className="p-3.5 bg-cream-50/60 rounded-2xl border border-cream-200 text-xs space-y-2.5">
+                {/* Showcase & Logo Info */}
+                {selectedApp.tenant?.logoUrl && (
+                  <div className="flex items-center gap-3 p-2 bg-white rounded-xl border border-cream-200">
+                    <img
+                      src={selectedApp.tenant.logoUrl}
+                      alt={selectedApp.tenant.brandName}
+                      className="w-11 h-11 rounded-lg object-contain bg-cream-50 border p-1 shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <span className="text-[10px] font-bold text-surface-500 uppercase tracking-wider block">Logo Stand / Tenant</span>
+                      <span className="text-xs font-bold text-surface-800 truncate block">{selectedApp.tenant.brandName}</span>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-brand-950 text-sm">{selectedApp.tenant?.brandName || 'Tanpa Nama Brand'}</span>
                   <span className="text-[10px] font-bold px-2 py-0.5 bg-brand-100 text-brand-900 rounded-full">
@@ -2381,6 +2511,50 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                       className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-bold text-[10px] flex items-center gap-1 transition-colors"
                     >
                       <MessageSquare className="w-3 h-3" /> Chat WhatsApp
+                    </a>
+                  )}
+                </div>
+
+                {/* Social & Digital Showcase Links */}
+                <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                  {selectedApp.tenant?.instagram && (
+                    <a
+                      href={`https://instagram.com/${selectedApp.tenant.instagram.replace(/^@/, '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2 py-0.5 rounded-md bg-pink-50 text-pink-700 border border-pink-200 font-bold text-[10px] flex items-center gap-1 hover:bg-pink-100"
+                    >
+                      📷 @{selectedApp.tenant.instagram.replace(/^@/, '')}
+                    </a>
+                  )}
+                  {selectedApp.tenant?.threads && (
+                    <a
+                      href={`https://threads.net/@${selectedApp.tenant.threads.replace(/^@/, '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 border border-slate-300 font-bold text-[10px] flex items-center gap-1 hover:bg-slate-200"
+                    >
+                      🧵 @{selectedApp.tenant.threads.replace(/^@/, '')}
+                    </a>
+                  )}
+                  {selectedApp.tenant?.websiteUrl && (
+                    <a
+                      href={selectedApp.tenant.websiteUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 font-bold text-[10px] flex items-center gap-1 hover:bg-blue-100"
+                    >
+                      <ExternalLink className="w-2.5 h-2.5" /> Website
+                    </a>
+                  )}
+                  {selectedApp.tenant?.googleDriveCatalogUrl && (
+                    <a
+                      href={selectedApp.tenant.googleDriveCatalogUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-300 font-bold text-[10px] flex items-center gap-1 hover:bg-amber-100"
+                    >
+                      📁 Katalog Drive PDF
                     </a>
                   )}
                 </div>
@@ -2501,6 +2675,249 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
                   Tolak
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: EDIT TENANT & SHOWCASE */}
+        {isEditTenantModalOpen && editingTenant && (
+          <div className="fixed inset-0 z-70 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-xl w-full p-6 border border-cream-300 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between border-b border-cream-200 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-emerald-100 text-emerald-800 rounded-xl">
+                    <Store className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-brand-950">Edit Informasi & Showcase Stand Tenant</h4>
+                    <p className="text-[11px] text-surface-500">Tampil di katalog landing page publik dan CRM</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditTenantModalOpen(false);
+                    setEditingTenant(null);
+                  }}
+                  className="p-1.5 text-surface-400 hover:text-surface-600 rounded-lg hover:bg-cream-100"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveTenant} className="overflow-y-auto space-y-3.5 pr-1 text-xs">
+                {/* Brand & Kategori */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-surface-700 font-bold mb-1">Nama Usaha / Brand *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editTenantForm.brandName}
+                      onChange={(e) => setEditTenantForm({ ...editTenantForm, brandName: e.target.value })}
+                      className="w-full px-3 py-2 border border-cream-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-hidden"
+                      placeholder="Contoh: Kopi Sunnah"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-surface-700 font-bold mb-1">Kategori Usaha *</label>
+                    <select
+                      value={editTenantForm.businessCategory}
+                      onChange={(e) => setEditTenantForm({ ...editTenantForm, businessCategory: e.target.value })}
+                      className="w-full px-3 py-2 border border-cream-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-hidden"
+                    >
+                      <option value="kuliner">Kuliner & Minuman</option>
+                      <option value="busana_muslim">Busana & Fashion Muslim</option>
+                      <option value="herbal_kesehatan">Herbal & Thibbun Nabawi</option>
+                      <option value="buku_media">Buku & Media Dakwah</option>
+                      <option value="jasa_edukasi">Jasa & Edukasi</option>
+                      <option value="aksesoris_lain">Aksesoris & Perlengkapan</option>
+                      <option value="lainnya">Lain-lain</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Logo & Deskripsi Singkat */}
+                <div>
+                  <label className="block text-surface-700 font-bold mb-1">URL Logo / Foto Produk Stand</label>
+                  <input
+                    type="url"
+                    value={editTenantForm.logoUrl}
+                    onChange={(e) => setEditTenantForm({ ...editTenantForm, logoUrl: e.target.value })}
+                    className="w-full px-3 py-2 border border-cream-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-hidden"
+                    placeholder="https://images.unsplash.com/... atau link gambar direct"
+                  />
+                  <span className="text-[10px] text-surface-500 mt-0.5 block">Tampil sebagai logo/avatar di kartu katalog landing page</span>
+                </div>
+
+                <div>
+                  <label className="block text-surface-700 font-bold mb-1">Deskripsi Singkat Produk / Stand *</label>
+                  <textarea
+                    rows={2}
+                    required
+                    value={editTenantForm.productDescription}
+                    onChange={(e) => setEditTenantForm({ ...editTenantForm, productDescription: e.target.value })}
+                    className="w-full px-3 py-2 border border-cream-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-hidden"
+                    placeholder="Penjelasan produk atau menu unggulan..."
+                  />
+                </div>
+
+                {/* PIC Info */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-surface-700 font-bold mb-1">Nama PIC *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editTenantForm.picName}
+                      onChange={(e) => setEditTenantForm({ ...editTenantForm, picName: e.target.value })}
+                      className="w-full px-3 py-2 border border-cream-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-hidden"
+                      placeholder="Nama penanggung jawab"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-surface-700 font-bold mb-1">No. WhatsApp PIC *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editTenantForm.picPhone}
+                      onChange={(e) => setEditTenantForm({ ...editTenantForm, picPhone: e.target.value })}
+                      className="w-full px-3 py-2 border border-cream-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-hidden font-mono"
+                      placeholder="08xxxxxxxxxx"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-surface-700 font-bold mb-1">Email PIC</label>
+                    <input
+                      type="email"
+                      value={editTenantForm.picEmail}
+                      onChange={(e) => setEditTenantForm({ ...editTenantForm, picEmail: e.target.value })}
+                      className="w-full px-3 py-2 border border-cream-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-hidden"
+                      placeholder="email@domain.com"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-surface-700 font-bold mb-1">Nomor NIK / KTP</label>
+                    <input
+                      type="text"
+                      value={editTenantForm.picKtpNumber}
+                      onChange={(e) => setEditTenantForm({ ...editTenantForm, picKtpNumber: e.target.value })}
+                      className="w-full px-3 py-2 border border-cream-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-hidden font-mono"
+                      placeholder="16 digit NIK"
+                    />
+                  </div>
+                </div>
+
+                {/* Media Sosial & Showcase Links */}
+                <div className="p-3 bg-cream-50 rounded-2xl border border-cream-200 space-y-3">
+                  <span className="font-bold text-brand-950 text-xs block">Kanal Digital & Katalog Produk (Publik)</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-surface-700 font-bold mb-1 text-[11px]">Instagram Stand</label>
+                      <input
+                        type="text"
+                        value={editTenantForm.instagram}
+                        onChange={(e) => setEditTenantForm({ ...editTenantForm, instagram: e.target.value })}
+                        className="w-full px-3 py-1.5 border border-cream-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-hidden text-xs"
+                        placeholder="@nama_toko"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-surface-700 font-bold mb-1 text-[11px]">Threads Stand</label>
+                      <input
+                        type="text"
+                        value={editTenantForm.threads}
+                        onChange={(e) => setEditTenantForm({ ...editTenantForm, threads: e.target.value })}
+                        className="w-full px-3 py-1.5 border border-cream-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-hidden text-xs"
+                        placeholder="@nama_threads"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-surface-700 font-bold mb-1 text-[11px]">Link Website / Toko Online</label>
+                      <input
+                        type="url"
+                        value={editTenantForm.websiteUrl}
+                        onChange={(e) => setEditTenantForm({ ...editTenantForm, websiteUrl: e.target.value })}
+                        className="w-full px-3 py-1.5 border border-cream-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-hidden text-xs"
+                        placeholder="https://namatoko.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-surface-700 font-bold mb-1 text-[11px]">Link Google Drive Katalog / Pricelist PDF</label>
+                      <input
+                        type="url"
+                        value={editTenantForm.googleDriveCatalogUrl}
+                        onChange={(e) => setEditTenantForm({ ...editTenantForm, googleDriveCatalogUrl: e.target.value })}
+                        className="w-full px-3 py-1.5 border border-cream-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-hidden text-xs"
+                        placeholder="https://drive.google.com/..."
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Internal Flag & Notes */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-surface-700 font-bold mb-1 text-[11px]">Status Rekam Jejak Internal</label>
+                    <select
+                      value={editTenantForm.internalFlag}
+                      onChange={(e) => setEditTenantForm({ ...editTenantForm, internalFlag: e.target.value as any })}
+                      className="w-full px-3 py-2 border border-cream-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-hidden text-xs"
+                    >
+                      <option value="normal">Normal / Rekomendasi Baik</option>
+                      <option value="review_next_event">Perlu Review di Daurah Berikutnya</option>
+                      <option value="do_not_auto_accept">Peringatan: Jangan Terima Otomatis</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-surface-700 font-bold mb-1 text-[11px]">Alamat / Lokasi Operasional</label>
+                    <input
+                      type="text"
+                      value={editTenantForm.address}
+                      onChange={(e) => setEditTenantForm({ ...editTenantForm, address: e.target.value })}
+                      className="w-full px-3 py-2 border border-cream-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-hidden text-xs"
+                      placeholder="Bandung, Jawa Barat..."
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-surface-700 font-bold mb-1 text-[11px]">Catatan Internal Panitia</label>
+                  <textarea
+                    rows={2}
+                    value={editTenantForm.internalNotes}
+                    onChange={(e) => setEditTenantForm({ ...editTenantForm, internalNotes: e.target.value })}
+                    className="w-full px-3 py-2 border border-cream-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-hidden text-xs"
+                    placeholder="Catatan khusus panitia seputar kepatuhan syariah, ketertiban booth..."
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-cream-200">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditTenantModalOpen(false);
+                      setEditingTenant(null);
+                    }}
+                    className="px-4 py-2 border border-cream-300 hover:bg-cream-100 rounded-xl font-bold text-surface-700 text-xs"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={actionLoading}
+                    className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs shadow-md transition-all disabled:opacity-50"
+                  >
+                    {actionLoading ? 'Menyimpan...' : 'Simpan Data Tenant'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
