@@ -863,10 +863,10 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
   };
 
   const copyPublicLink = () => {
-    const url = `${window.location.origin}/bazar/${eventId}?tab=katalog`;
+    const url = `${window.location.origin}/bazar/${eventId}/daftar`;
     navigator.clipboard.writeText(url);
     setCopiedLink(true);
-    showToast('Tautan landing page katalog bazar publik berhasil disalin!');
+    showToast('Tautan formulir pendaftaran stand tenant berhasil disalin!');
     setTimeout(() => setCopiedLink(false), 2500);
   };
 
@@ -1020,22 +1020,22 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
             {bazaarData && (
               <>
                 <a
-                  href={`/bazar/${eventId}?tab=katalog`}
+                  href={`/bazar/${eventId}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-3.5 py-2 bg-cream-100 hover:bg-cream-200 text-brand-900 border border-brand-300/60 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs active:scale-95"
-                  title="Buka Landing Page Katalog Stand Bazar Publik di Tab Baru"
+                  title="Buka Halaman Katalog Stand Bazar Publik di Tab Baru"
                 >
                   <ExternalLink className="w-3.5 h-3.5 text-emerald-700" />
-                  <span>🌐 Landing Page Publik</span>
+                  <span>🌐 Katalog Stand Publik</span>
                 </a>
                 <button
                   onClick={copyPublicLink}
                   className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs active:scale-95"
-                  title="Salin Tautan Landing Page & Pendaftaran Tenant"
+                  title="Salin Tautan Formulir Pendaftaran Stand Tenant"
                 >
                   {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-200" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedLink ? 'Tersalin!' : 'Salin Link'}</span>
+                  <span>{copiedLink ? 'Tersalin!' : 'Salin Form Pendaftaran'}</span>
                 </button>
               </>
             )}

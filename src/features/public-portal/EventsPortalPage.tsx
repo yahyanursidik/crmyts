@@ -887,7 +887,7 @@ export function EventsPortalPage() {
                   </div>
 
                   <Link
-                    to={`/bazar/${selectedEvent.id}?tab=katalog`}
+                    to={`/bazar/${selectedEvent.id}`}
                     className="py-2 px-3.5 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 shrink-0 active:scale-95"
                   >
                     <Store className="w-3.5 h-3.5 text-slate-950" />
@@ -1221,7 +1221,7 @@ export function EventsPortalPage() {
                                 )}
                                 {ev.bazaarInfo && (
                                   <Link
-                                    to={`/bazar/${ev.id}?tab=katalog`}
+                                    to={`/bazar/${ev.id}`}
                                     onClick={(e) => e.stopPropagation()}
                                     className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center gap-1 transition-colors shadow-2xs"
                                     title="Kajian ini memiliki stan bazar UMKM jamaah"
@@ -1308,7 +1308,7 @@ export function EventsPortalPage() {
 
                             {ev.bazaarInfo && (
                               <Link
-                                to={`/bazar/${ev.id}?tab=katalog`}
+                                to={`/bazar/${ev.id}`}
                                 onClick={(e) => e.stopPropagation()}
                                 className="px-2.5 py-1 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 text-[11px] font-bold flex items-center gap-1 transition-all shadow-2xs shrink-0"
                                 title="Buka katalog stand bazar kajian ini"
@@ -2449,7 +2449,7 @@ export function EventsPortalPage() {
                     </div>
 
                     <Link
-                      to={`/bazar/${selectedEvent?.id || eventSuccess.event.id}?tab=katalog`}
+                      to={`/bazar/${selectedEvent?.id || eventSuccess.event.id}`}
                       className="py-2 px-3.5 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 shrink-0 active:scale-95"
                     >
                       <Store className="w-3.5 h-3.5 text-slate-950" />

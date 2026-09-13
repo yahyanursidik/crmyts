@@ -31,7 +31,7 @@ import {
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { LoadingState } from '@/components/common/LoadingState';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
-import { BazaarTenantShowcase, ShowcaseTenant } from './components/BazaarTenantShowcase';
+import type { ShowcaseTenant } from './components/BazaarTenantShowcase';
 
 export const BAZAAR_CATEGORIES = [
   { value: 'kuliner', label: '🍲 Kuliner Halal & Minuman', desc: 'Makanan siap saji, aneka minuman segar, snack halal' },
@@ -160,8 +160,8 @@ export const BazaarPortalPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Active Main Tab: 'katalog' (showcase) | 'form' (pendaftaran) | 'status' (cek status)
-  const [activeTab, setActiveTab] = useState<'katalog' | 'form' | 'status'>('katalog');
+  // Active Main Tab: 'form' (pendaftaran) | 'status' (cek status)
+  const [activeTab, setActiveTab] = useState<'form' | 'status'>('form');
 
   // Application Form State
   const [formData, setFormData] = useState({
@@ -225,10 +225,8 @@ export const BazaarPortalPage: React.FC = () => {
     const tabParam = searchParams.get('tab');
     if (tabParam === 'status') {
       setActiveTab('status');
-    } else if (tabParam === 'daftar' || tabParam === 'form') {
+    } else {
       setActiveTab('form');
-    } else if (tabParam === 'katalog' || tabParam === 'showcase' || tabParam === 'stand') {
-      setActiveTab('katalog');
     }
     const phoneParam = searchParams.get('phone');
     if (phoneParam) {
@@ -734,13 +732,24 @@ export const BazaarPortalPage: React.FC = () => {
             </div>
           </div>
 
-          <Link
-            to="/portal"
-            className="text-xs font-semibold text-[#6B7A72] hover:text-[#1B4332] flex items-center gap-1.5 transition-colors"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Portal Utama YTS</span>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              to={`/bazar/${id}`}
+              className="px-3 py-1.5 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#1B4332] rounded-xl text-xs font-bold transition-all border border-[#1B4332]/15 flex items-center gap-1.5 active:scale-95"
+              title="Buka Halaman Katalog Stand Bazar Terkonfirmasi"
+            >
+              <Store className="w-3.5 h-3.5 text-[#B58B3C]" />
+              <span className="hidden sm:inline">Katalog Stand</span>
+            </Link>
+
+            <Link
+              to="/kajian"
+              className="text-xs font-semibold text-[#6B7A72] hover:text-[#1B4332] flex items-center gap-1.5 transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Jadwal Kajian</span>
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -815,21 +824,31 @@ export const BazaarPortalPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Tab Switcher: Katalog Stand vs Pendaftaran Baru vs Cek Status */}
-        <div className="flex rounded-2xl bg-[#F2EEE4] p-1.5 border border-[#1B4332]/12 shadow-2xs gap-1">
-          <button
-            type="button"
-            onClick={() => setActiveTab('katalog')}
-            className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-              activeTab === 'katalog'
-                ? 'bg-[#1B4332] text-white shadow-sm'
-                : 'text-[#6B7A72] hover:text-[#1C2321]'
-            }`}
-          >
-            <Store className="w-4 h-4 text-[#E0B970]" />
-            <span className="truncate">Katalog Stand</span>
-          </button>
+        {/* Banner: Tautan ke Halaman Katalog Stand Mandiri */}
+        <div className="bg-[#FBF9F4] p-4 rounded-2xl border border-[#1B4332]/15 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-[#1B4332]/10 text-[#14352A] rounded-xl flex items-center justify-center shrink-0 border border-[#1B4332]/20">
+              <Store className="w-5 h-5 text-[#1B4332]" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-[#1C2321] font-display">Katalog Stand Bazar Kajian</h4>
+              <p className="text-[11px] text-[#6B7A72]">
+                Ingin melihat stand &amp; tenant yang telah terdaftar serta denah lokasi bazar?
+              </p>
+            </div>
+          </div>
 
+          <Link
+            to={`/bazar/${id}`}
+            className="px-4 py-2 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-bold transition-all shadow-xs shrink-0 flex items-center gap-1.5 active:scale-98"
+          >
+            <Store className="w-3.5 h-3.5 text-[#E0B970]" />
+            <span>Buka Halaman Katalog Stand</span>
+          </Link>
+        </div>
+
+        {/* Tab Switcher: Pendaftaran Baru vs Cek Status */}
+        <div className="flex rounded-2xl bg-[#F2EEE4] p-1.5 border border-[#1B4332]/12 shadow-2xs gap-1">
           <button
             type="button"
             onClick={() => setActiveTab('form')}
@@ -840,7 +859,7 @@ export const BazaarPortalPage: React.FC = () => {
             }`}
           >
             <FileText className="w-4 h-4 text-[#E0B970]" />
-            <span className="truncate">Daftar Stand</span>
+            <span className="truncate">Form Pendaftaran Stand Baru</span>
           </button>
 
           <button
@@ -853,7 +872,7 @@ export const BazaarPortalPage: React.FC = () => {
             }`}
           >
             <Search className="w-4 h-4 text-[#E0B970]" />
-            <span className="truncate">Cek Status</span>
+            <span className="truncate">Cek Status Pendaftaran Mandiri</span>
           </button>
         </div>
 
@@ -880,17 +899,6 @@ export const BazaarPortalPage: React.FC = () => {
               <ArrowRight className="w-3.5 h-3.5 text-[#E0B970]" />
             </Link>
           </div>
-        )}
-
-        {/* ========================================================= */}
-        {/* TAB 0: SHOWCASE STAND & TENANT BAZAR (LANDING PAGE)       */}
-        {/* ========================================================= */}
-        {activeTab === 'katalog' && (
-          <BazaarTenantShowcase
-            event={event}
-            bazaar={bazaar}
-            onSwitchTab={(tab) => setActiveTab(tab)}
-          />
         )}
 
         {/* ========================================================= */}

@@ -22,6 +22,7 @@ import { AutomationPage } from './features/automation/AutomationPage';
 import { DonorPipelinePage } from './features/donors/DonorPipelinePage';
 import { DonationsPortalPage } from './features/public-portal/DonationsPortalPage';
 import { EventsPortalPage } from './features/public-portal/EventsPortalPage';
+import { BazaarCatalogPortalPage } from './features/public-portal/BazaarCatalogPortalPage';
 import { BazaarPortalPage } from './features/public-portal/BazaarPortalPage';
 import { BazaarSurveyPortalPage } from './features/public-portal/BazaarSurveyPortalPage';
 import { BazaarHubPage } from './features/bazaar/BazaarHubPage';
@@ -131,20 +132,31 @@ export function App() {
               <Route path="/berbagi" element={<DonationsPortalPage />} />
               <Route path="/kajian" element={<EventsPortalPage />} />
               <Route path="/kajian/:id" element={<EventsPortalPage />} />
-              <Route path="/kajian/:id/bazar" element={<BazaarPortalPage />} />
+              {/* Standalone Public Catalog Pages */}
+              <Route path="/bazar" element={<BazaarCatalogPortalPage />} />
+              <Route path="/bazar/:id" element={<BazaarCatalogPortalPage />} />
+              <Route path="/bazar/:id/katalog" element={<BazaarCatalogPortalPage />} />
+              <Route path="/kajian/:id/bazar" element={<BazaarCatalogPortalPage />} />
+              <Route path="/kajian/:id/bazar/katalog" element={<BazaarCatalogPortalPage />} />
+              <Route path="/event/:id/bazar" element={<BazaarCatalogPortalPage />} />
+              <Route path="/daurah/:id/bazar" element={<BazaarCatalogPortalPage />} />
+
+              {/* Standalone Registration & Status Check Pages */}
+              <Route path="/bazar/:id/daftar" element={<BazaarPortalPage />} />
+              <Route path="/bazar/:id/registrasi" element={<BazaarPortalPage />} />
+              <Route path="/bazar/:id/form" element={<BazaarPortalPage />} />
+              <Route path="/bazar/:id/status" element={<BazaarPortalPage />} />
+              <Route path="/kajian/:id/bazar/daftar" element={<BazaarPortalPage />} />
+              <Route path="/kajian/:id/bazar/status" element={<BazaarPortalPage />} />
+              <Route path="/event/:id/bazar/daftar" element={<BazaarPortalPage />} />
+              <Route path="/daurah/:id/bazar/daftar" element={<BazaarPortalPage />} />
+
+              {/* Post-Event Survey Pages */}
               <Route path="/kajian/:id/bazar/survey" element={<BazaarSurveyPortalPage />} />
               <Route path="/kajian/:id/bazar/survei" element={<BazaarSurveyPortalPage />} />
-              <Route path="/bazar" element={<BazaarPortalPage />} />
-              <Route path="/bazar/:id" element={<BazaarPortalPage />} />
               <Route path="/bazar/:id/survey" element={<BazaarSurveyPortalPage />} />
               <Route path="/bazar/:id/survei" element={<BazaarSurveyPortalPage />} />
-              <Route path="/event" element={<EventsPortalPage />} />
-              <Route path="/event/:id" element={<EventsPortalPage />} />
-              <Route path="/event/:id/bazar" element={<BazaarPortalPage />} />
               <Route path="/event/:id/bazar/survey" element={<BazaarSurveyPortalPage />} />
-              <Route path="/daurah" element={<EventsPortalPage />} />
-              <Route path="/daurah/:id" element={<EventsPortalPage />} />
-              <Route path="/daurah/:id/bazar" element={<BazaarPortalPage />} />
               <Route path="/daurah/:id/bazar/survey" element={<BazaarSurveyPortalPage />} />
               <Route path="/public/events/:id" element={<EventsPortalPage />} />
               <Route path="/peserta" element={<ParticipantPortalPage />} />

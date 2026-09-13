@@ -136,10 +136,10 @@ export const BazaarHubPage: React.FC = () => {
   }, []);
 
   const handleCopyLink = (eventId: string) => {
-    const url = `${window.location.origin}/bazar/${eventId}`;
+    const url = `${window.location.origin}/bazar/${eventId}/daftar`;
     navigator.clipboard.writeText(url);
     setCopiedId(eventId);
-    showToast('Tautan pendaftaran tenant bazar berhasil disalin!');
+    showToast('Tautan formulir pendaftaran tenant bazar berhasil disalin!');
     setTimeout(() => setCopiedId(null), 2500);
   };
 
@@ -552,14 +552,14 @@ export const BazaarHubPage: React.FC = () => {
                       </div>
 
                       <a
-                        href={`/bazar/${ev.id}?tab=katalog`}
+                        href={`/bazar/${ev.id}`}
                         target="_blank"
                         rel="noreferrer"
                         className="w-full py-1.5 px-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-950 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-2xs"
-                        title="Buka Landing Page Publik Katalog Bazar Kajian Ini"
+                        title="Buka Halaman Katalog Stand Bazar Kajian Ini"
                       >
                         <ExternalLink className="w-3 h-3 text-emerald-700" />
-                        <span>🌐 Landing Page Publik</span>
+                        <span>🌐 Buka Katalog Stand Publik</span>
                       </a>
                     </div>
                   </div>

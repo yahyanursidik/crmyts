@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { Link } from 'react-router';
 import {
   Store,
   Search,
@@ -69,12 +70,14 @@ interface BazaarTenantShowcaseProps {
     showcaseTenants?: ShowcaseTenant[];
     registeredTenants?: any[];
   };
+  registrationUrl?: string;
   onSwitchTab?: (tab: 'form' | 'status') => void;
 }
 
 export const BazaarTenantShowcase: React.FC<BazaarTenantShowcaseProps> = ({
   event,
   bazaar,
+  registrationUrl,
   onSwitchTab,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -306,7 +309,7 @@ export const BazaarTenantShowcase: React.FC<BazaarTenantShowcaseProps> = ({
         </div>
 
         {/* CTA for Tenants if Bazaar isOpen */}
-        {bazaar.isOpen && onSwitchTab && (
+        {bazaar.isOpen && (registrationUrl || onSwitchTab) && (
           <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 bg-[#F2EEE4]/80 p-3.5 rounded-2xl border border-[#1B4332]/12">
             <div className="flex items-center gap-2.5">
               <Store className="w-4 h-4 text-[#B58B3C] shrink-0" />
@@ -314,14 +317,24 @@ export const BazaarTenantShowcase: React.FC<BazaarTenantShowcaseProps> = ({
                 Anda memiliki usaha produk halal &amp; ingin membuka stand di kajian ini?
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => onSwitchTab('form')}
-              className="py-1.5 px-3.5 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-bold shadow-xs transition-all shrink-0 flex items-center gap-1 active:scale-95 cursor-pointer"
-            >
-              <span>Daftar Sebagai Stand Bazar</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
+            {registrationUrl ? (
+              <Link
+                to={registrationUrl}
+                className="py-1.5 px-3.5 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-bold shadow-xs transition-all shrink-0 flex items-center gap-1 active:scale-95"
+              >
+                <span>Daftar Sebagai Stand Bazar</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            ) : onSwitchTab ? (
+              <button
+                type="button"
+                onClick={() => onSwitchTab('form')}
+                className="py-1.5 px-3.5 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-bold shadow-xs transition-all shrink-0 flex items-center gap-1 active:scale-95 cursor-pointer"
+              >
+                <span>Daftar Sebagai Stand Bazar</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            ) : null}
           </div>
         )}
       </div>
@@ -443,14 +456,24 @@ export const BazaarTenantShowcase: React.FC<BazaarTenantShowcaseProps> = ({
             </button>
           )}
 
-          {!searchQuery && selectedCategory === 'ALL' && selectedZone === 'ALL' && bazaar.isOpen && onSwitchTab && (
-            <button
-              type="button"
-              onClick={() => onSwitchTab('form')}
-              className="py-2 px-4 bg-[#1B4332] text-white text-xs font-bold rounded-xl shadow-2xs hover:bg-[#14352A] transition-all cursor-pointer"
-            >
-              Daftarkan Stand Usaha Anda
-            </button>
+          {!searchQuery && selectedCategory === 'ALL' && selectedZone === 'ALL' && bazaar.isOpen && (registrationUrl || onSwitchTab) && (
+            registrationUrl ? (
+              <Link
+                to={registrationUrl}
+                className="py-2 px-4 bg-[#1B4332] text-white text-xs font-bold rounded-xl shadow-2xs hover:bg-[#14352A] transition-all inline-flex items-center gap-1.5"
+              >
+                <span>Daftarkan Stand Usaha Anda</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            ) : onSwitchTab ? (
+              <button
+                type="button"
+                onClick={() => onSwitchTab('form')}
+                className="py-2 px-4 bg-[#1B4332] text-white text-xs font-bold rounded-xl shadow-2xs hover:bg-[#14352A] transition-all cursor-pointer"
+              >
+                Daftarkan Stand Usaha Anda
+              </button>
+            ) : null
           )}
         </div>
       ) : (
