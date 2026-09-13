@@ -52,6 +52,7 @@ interface EventItem {
   priceRupiah?: number | null;
 
   targetAudience?: string;
+  minAge?: number | null;
   quota?: number | null;
   quotaIkhwan?: number | null;
   quotaAkhwat?: number | null;
@@ -126,6 +127,7 @@ export const EventsListPage: React.FC = () => {
     showGoogleMaps: true,
     meetingUrl: '',
     targetAudience: 'umum',
+    minAge: '',
     quota: '',
     quotaIkhwan: '',
     quotaAkhwat: '',
@@ -158,6 +160,7 @@ export const EventsListPage: React.FC = () => {
     try {
       const payload: any = {
         ...newEvent,
+        minAge: newEvent.minAge ? parseInt(newEvent.minAge) : null,
         quota: newEvent.quota ? parseInt(newEvent.quota) : null,
         quotaIkhwan: newEvent.quotaIkhwan ? parseInt(newEvent.quotaIkhwan) : null,
         quotaAkhwat: newEvent.quotaAkhwat ? parseInt(newEvent.quotaAkhwat) : null,
@@ -186,6 +189,7 @@ export const EventsListPage: React.FC = () => {
         showGoogleMaps: true,
         meetingUrl: '',
         targetAudience: 'umum',
+        minAge: '',
         quota: '',
         quotaIkhwan: '',
         quotaAkhwat: '',
@@ -633,6 +637,12 @@ export const EventsListPage: React.FC = () => {
                           Rp {(ev.priceRupiah || 0).toLocaleString('id-ID')}
                         </span>
                       )}
+
+                      {ev.minAge && ev.minAge > 0 && (
+                        <span className="text-[9.5px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-300">
+                          ⏳ Min. {ev.minAge} Thn
+                        </span>
+                      )}
                     </div>
 
                     <span
@@ -844,6 +854,7 @@ export const EventsListPage: React.FC = () => {
                     </span>
                     <p className="text-[11px] text-[#6B7A72] mt-0.5">
                       {ev.quota ? `Kuota ${ev.attendanceCount} / ${ev.quota}` : 'Tanpa Batas Kuota'}
+                      {ev.minAge && ev.minAge > 0 ? ` • Min. ${ev.minAge} thn` : ''}
                     </p>
                   </td>
 
@@ -1073,6 +1084,22 @@ export const EventsListPage: React.FC = () => {
                     <option value="itikaf_ramadan">🌙 10 Hari Terakhir Ramadan</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-[#1C2321] mb-1">Batasan Usia Minimal Peserta (Opsional)</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="1"
+                    max="120"
+                    placeholder="Bebas usia (misal: isi 15 untuk minimal 15 tahun)"
+                    value={newEvent.minAge}
+                    onChange={(e) => setNewEvent({ ...newEvent, minAge: e.target.value })}
+                    className="w-full p-2.5 bg-[#F2EEE4] border border-[#1B4332]/14 rounded-lg focus:ring-2 focus:ring-[#1B4332] outline-none font-medium text-sm"
+                  />
+                </div>
+                <p className="text-[11px] text-[#6B7A72] mt-0.5">Kosongkan jika terbuka untuk semua usia. Jika diisi, formulir pendaftaran mewajibkan usia &ge; batas ini.</p>
               </div>
 
               <div>

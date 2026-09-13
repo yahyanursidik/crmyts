@@ -77,6 +77,7 @@ const publicEventRegistrationSchema = z.object({
   fullName: z.string().min(2, 'Nama lengkap minimal 2 karakter'),
   phone: z.string().min(8, 'Nomor WhatsApp wajib diisi'),
   gender: z.enum(['ikhwan', 'akhwat']).nullable().optional(),
+  age: z.number().int().min(1, 'Usia minimal 1 tahun').max(120, 'Usia tidak valid').optional().nullable(),
   email: optionalEmailSchema,
   cityRegency: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
@@ -313,6 +314,7 @@ export function registerPublicPortalRoutes(router: Router) {
             locationName: ev.locationName || 'Masjid Tarbiyah Sunnah',
             meetingUrl: ev.meetingUrl,
             targetAudience: ev.targetAudience || 'umum',
+            minAge: ev.minAge || null,
             quota: ev.quota,
             quotaIkhwan: ev.quotaIkhwan,
             quotaAkhwat: ev.quotaAkhwat,
@@ -732,6 +734,26 @@ export function registerPublicPortalRoutes(router: Router) {
         return errorResponse('VALIDATION_ERROR', 'Mohon maaf, kajian ini dikhususkan hanya untuk Jamaah Ikhwan (Laki-laki)', 400, ctx.requestId);
       }
 
+      // 1b. Minimum Age Requirement Validation
+      if (targetEvent.minAge && targetEvent.minAge > 0) {
+        if (!body.age) {
+          return errorResponse(
+            'VALIDATION_ERROR',
+            `Usia wajib diisi untuk pendaftaran kajian ini (minimal ${targetEvent.minAge} tahun).`,
+            400,
+            ctx.requestId
+          );
+        }
+        if (body.age < targetEvent.minAge) {
+          return errorResponse(
+            'VALIDATION_ERROR',
+            `Mohon maaf, pendaftaran kajian ini dikhususkan untuk peserta berusia minimal ${targetEvent.minAge} tahun. Usia Anda (${body.age} tahun) belum mencukupi.`,
+            400,
+            ctx.requestId
+          );
+        }
+      }
+
       // 2. Segmented Quota Validations
       const atts = targetEvent.attendances || [];
       const currentIkhwan = atts.filter((a) => a.person?.gender === 'ikhwan').length;
@@ -831,6 +853,29 @@ export function registerPublicPortalRoutes(router: Router) {
       const additionalList = targetEvent.formConfig?.allowMultiParticipant !== false
         ? (body.additionalParticipants || []).slice(0, maxMultiParticipants)
         : [];
+
+      // Companion Minimum Age Validation
+      if (targetEvent.minAge && targetEvent.minAge > 0 && additionalList.length > 0) {
+        for (const member of additionalList) {
+          if (!member.age) {
+            return errorResponse(
+              'VALIDATION_ERROR',
+              `Usia peserta rombongan (${member.fullName}) wajib diisi untuk kajian ini (minimal ${targetEvent.minAge} tahun).`,
+              400,
+              ctx.requestId
+            );
+          }
+          if (member.age < targetEvent.minAge) {
+            return errorResponse(
+              'VALIDATION_ERROR',
+              `Mohon maaf, peserta rombongan "${member.fullName}" berusia ${member.age} tahun belum memenuhi syarat minimal usia (${targetEvent.minAge} tahun).`,
+              400,
+              ctx.requestId
+            );
+          }
+        }
+      }
+
       const isGroup = additionalList.length > 0;
       const totalParticipantsCount = 1 + additionalList.length;
 
@@ -869,7 +914,7 @@ export function registerPublicPortalRoutes(router: Router) {
           
           registrationGroupId,
           familyRelationship: isGroup ? 'Kepala Keluarga / Pendaftar Utama' : null,
-          age: null,
+          age: body.age || null,
 
           paymentStatus: initialPaymentStatus,
           paymentProofUrl: storedProofUrl || null,
@@ -925,7 +970,7 @@ export function registerPublicPortalRoutes(router: Router) {
           name: body.fullName,
           gender: gender || 'tidak_ditentukan',
           relationship: isGroup ? 'Kepala Keluarga / Pendaftar Utama' : 'Pendaftar Utama',
-          age: null,
+          age: body.age || null,
           ticketCode,
         },
       ];
@@ -1012,6 +1057,7 @@ export function registerPublicPortalRoutes(router: Router) {
             category: targetEvent.category,
             speaker: targetEvent.speaker,
             targetAudience: targetEvent.targetAudience,
+            minAge: targetEvent.minAge || null,
             startAt: targetEvent.startAt,
             deliveryMode: targetEvent.deliveryMode,
             locationName: targetEvent.locationName || 'Masjid / Studio Tarbiyah Sunnah',
@@ -1655,6 +1701,7 @@ export function registerPublicPortalRoutes(router: Router) {
         endAt: ev.endAt ? ev.endAt.toISOString() : null,
         locationName: ev.locationName || 'Masjid Tarbiyah Sunnah',
         targetAudience: ev.targetAudience || 'umum',
+        minAge: ev.minAge || null,
         quota: ev.quota,
         status: ev.status,
         attendanceCount: atts.length,
@@ -1788,6 +1835,7 @@ export function registerPublicPortalRoutes(router: Router) {
           endAt: targetEvent.endAt ? targetEvent.endAt.toISOString() : null,
           locationName: targetEvent.locationName || 'Masjid Tarbiyah Sunnah',
           targetAudience: targetEvent.targetAudience || 'umum',
+          minAge: targetEvent.minAge || null,
           quota: targetEvent.quota,
           quotaIkhwan: targetEvent.quotaIkhwan,
           quotaAkhwat: targetEvent.quotaAkhwat,

@@ -67,6 +67,7 @@ interface EventItem {
   
   isRegistrationOpen: boolean;
   targetAudience?: string;
+  minAge?: number | null;
   quota?: number | null;
   quotaIkhwan?: number | null;
   quotaAkhwat?: number | null;
@@ -170,6 +171,7 @@ export function EventsPortalPage() {
   // Kajian Registration Form State
   const [selectedEventId, setSelectedEventId] = useState<string>('');
   const [regFullName, setRegFullName] = useState('');
+  const [regAge, setRegAge] = useState<string>('');
   const [regPhone, setRegPhone] = useState('');
   const [regGender, setRegGender] = useState<'ikhwan' | 'akhwat'>('ikhwan');
   const [regEmail, setRegEmail] = useState('');
@@ -335,10 +337,15 @@ export function EventsPortalPage() {
   const activeVenueRulesText =
     selectedEvent?.formConfig?.venueRulesText || selectedEvent?.customVenueRules || '';
 
-  const activeRequirements =
+  const rawRequirements =
     Array.isArray(selectedEvent?.formConfig?.participantRequirements) && selectedEvent.formConfig.participantRequirements.length > 0
       ? selectedEvent.formConfig.participantRequirements
       : DEFAULT_PARTICIPANT_REQUIREMENTS;
+
+  const activeRequirements =
+    selectedEvent?.minAge && selectedEvent.minAge > 0
+      ? [`Peserta dan rombongan wajib berusia minimal ${selectedEvent.minAge} tahun.`, ...rawRequirements]
+      : rawRequirements;
 
   const activeRulesDetail =
     selectedEvent?.formConfig?.rulesModalDetail || DEFAULT_RULES_MODAL_DETAIL;
@@ -538,6 +545,33 @@ export function EventsPortalPage() {
       return;
     }
 
+    // Validate minimum age requirement
+    if (selectedEvent?.minAge && selectedEvent.minAge > 0) {
+      if (!regAge || isNaN(Number(regAge)) || Number(regAge) <= 0) {
+        alert(`Harap isi usia Anda. Kajian ini memiliki syarat minimal usia ${selectedEvent.minAge} tahun.`);
+        return;
+      }
+      if (Number(regAge) < selectedEvent.minAge) {
+        alert(`Mohon maaf, pendaftaran kajian ini dikhususkan untuk peserta berusia minimal ${selectedEvent.minAge} tahun. Usia Anda (${regAge} tahun) belum mencukupi.`);
+        return;
+      }
+
+      if (canRegisterFamily && familyMembers.length > 0) {
+        for (let i = 0; i < familyMembers.length; i++) {
+          const mem = familyMembers[i];
+          if (!mem) continue;
+          if (!mem.age || isNaN(Number(mem.age)) || Number(mem.age) <= 0) {
+            alert(`Harap isi usia untuk anggota keluarga ke-${i + 1} (${mem.fullName}). Kajian ini mensyaratkan usia minimal ${selectedEvent.minAge} tahun.`);
+            return;
+          }
+          if (Number(mem.age) < selectedEvent.minAge) {
+            alert(`Mohon maaf, anggota keluarga "${mem.fullName}" berusia ${mem.age} tahun belum memenuhi syarat minimal usia (${selectedEvent.minAge} tahun).`);
+            return;
+          }
+        }
+      }
+    }
+
     try {
       setSubmittingEvent(true);
       const registeredFamilyMembers = canRegisterFamily ? familyMembers : [];
@@ -552,6 +586,7 @@ export function EventsPortalPage() {
           fullName: regFullName,
           phone: regPhone,
           gender: shouldCollectGender ? regGender : null,
+          age: regAge ? Number(regAge) : null,
           email: shouldCollectEmail ? (cleanEmail || null) : null,
           cityRegency: shouldCollectCity ? regCity || null : null,
           notes: regNotes || null,
@@ -808,6 +843,11 @@ export function EventsPortalPage() {
                 {selectedEvent.targetAudience === 'itikaf_ramadan' && (
                   <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-purple-100 text-purple-800 border border-purple-200">
                     🌙 10 Hari Ramadan
+                  </span>
+                )}
+                {selectedEvent.minAge && selectedEvent.minAge > 0 && (
+                  <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
+                    ⏳ Usia Min. {selectedEvent.minAge} Tahun
                   </span>
                 )}
                 <span
@@ -1219,6 +1259,11 @@ export function EventsPortalPage() {
                                     🌙 10 Hari Ramadan
                                   </span>
                                 )}
+                                {ev.minAge && ev.minAge > 0 && (
+                                  <span className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-300">
+                                    ⏳ Min. {ev.minAge} Thn
+                                  </span>
+                                )}
                                 {ev.bazaarInfo && (
                                   <Link
                                     to={`/bazar/${ev.id}`}
@@ -1537,6 +1582,48 @@ export function EventsPortalPage() {
                     />
                   </div>
 
+                  {/* 1b. Usia / Umur Pendaftar Utama */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-slate-700">
+                        Usia / Umur (Tahun){' '}
+                        {selectedEvent?.minAge && selectedEvent.minAge > 0 ? (
+                          <span className="text-rose-600 font-bold">* (Wajib &ge; {selectedEvent.minAge} thn)</span>
+                        ) : (
+                          <span className="text-slate-400 font-normal">(Opsional)</span>
+                        )}
+                      </label>
+                      {selectedEvent?.minAge && selectedEvent.minAge > 0 && (
+                        <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                          Syarat: Min. {selectedEvent.minAge} Tahun
+                        </span>
+                      )}
+                    </div>
+                    <input
+                      type="number"
+                      min={1}
+                      max={120}
+                      required={Boolean(selectedEvent?.minAge && selectedEvent.minAge > 0)}
+                      placeholder={
+                        selectedEvent?.minAge && selectedEvent.minAge > 0
+                          ? `Wajib diisi, minimal ${selectedEvent.minAge} tahun`
+                          : 'Contoh: 25'
+                      }
+                      value={regAge}
+                      onChange={(e) => setRegAge(e.target.value)}
+                      className={`w-full p-2.5 border rounded-xl text-xs focus:ring-2 focus:outline-none transition-colors ${
+                        selectedEvent?.minAge && regAge && Number(regAge) < selectedEvent.minAge
+                          ? 'border-rose-300 bg-rose-50/50 text-rose-900 focus:ring-rose-500'
+                          : 'border-slate-300 focus:ring-teal-500'
+                      }`}
+                    />
+                    {selectedEvent?.minAge && regAge && Number(regAge) < selectedEvent.minAge && (
+                      <p className="text-[11px] text-rose-600 font-semibold mt-1 flex items-center gap-1">
+                        ⚠️ Usia Anda ({regAge} tahun) belum mencukupi batas minimal kegiatan ini ({selectedEvent.minAge} tahun).
+                      </p>
+                    )}
+                  </div>
+
                   {/* 2. Gender Selector (Locked if event is single gender) */}
                   {selectedEvent?.targetAudience === 'akhwat_only' ? (
                     <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-900 space-y-0.5">
@@ -1734,17 +1821,36 @@ export function EventsPortalPage() {
 
                                 <div>
                                   <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
-                                    Usia / Umur <span className="font-normal text-slate-400">(Tahun)</span>
+                                    Usia / Umur{' '}
+                                    {selectedEvent?.minAge && selectedEvent.minAge > 0 ? (
+                                      <span className="text-rose-600 font-bold">* (Min. {selectedEvent.minAge} thn)</span>
+                                    ) : (
+                                      <span className="font-normal text-slate-400">(Tahun)</span>
+                                    )}
                                   </label>
                                   <input
                                     type="number"
                                     min={1}
                                     max={120}
-                                    placeholder="Cth: 12"
+                                    required={Boolean(selectedEvent?.minAge && selectedEvent.minAge > 0)}
+                                    placeholder={
+                                      selectedEvent?.minAge && selectedEvent.minAge > 0
+                                        ? `Min. ${selectedEvent.minAge}`
+                                        : 'Cth: 12'
+                                    }
                                     value={member.age}
                                     onChange={(e) => handleUpdateFamilyMember(member.id, 'age', e.target.value)}
-                                    className="w-full p-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                                    className={`w-full p-2 border rounded-lg text-xs focus:ring-2 focus:outline-none transition-colors ${
+                                      selectedEvent?.minAge && member.age && Number(member.age) < selectedEvent.minAge
+                                        ? 'border-rose-300 bg-rose-50/50 text-rose-900 focus:ring-rose-500'
+                                        : 'border-slate-200 focus:ring-teal-500'
+                                    }`}
                                   />
+                                  {selectedEvent?.minAge && member.age && Number(member.age) < selectedEvent.minAge && (
+                                    <p className="text-[9.5px] text-rose-600 font-medium mt-0.5">
+                                      ⚠️ Di bawah {selectedEvent.minAge} thn
+                                    </p>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -2703,6 +2809,7 @@ export function EventsPortalPage() {
                   setLookupInput('');
                   setLookupSuccess(null);
                   setRegFullName('');
+                  setRegAge('');
                   setRegPhone('');
                   setRegEmail('');
                   setRegCity('');

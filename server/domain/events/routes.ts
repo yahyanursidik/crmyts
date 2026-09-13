@@ -39,6 +39,7 @@ const createEventSchema = z.object({
   
   // Segmentation & Quota
   targetAudience: z.enum(['umum', 'ikhwan_only', 'akhwat_only', 'anak', 'itikaf_ramadan']).default('umum'),
+  minAge: z.number().int().min(1, 'Usia minimal setidaknya 1 tahun').max(120, 'Usia minimal tidak valid').optional().nullable(),
   quota: z.number().int().positive().optional().nullable(),
   quotaIkhwan: z.number().int().positive().optional().nullable(),
   quotaAkhwat: z.number().int().positive().optional().nullable(),
@@ -334,6 +335,7 @@ export function registerEventsRoutes(router: Router) {
             paymentInstructions: body.paymentInstructions || null,
 
             targetAudience: body.targetAudience || 'umum',
+            minAge: body.minAge !== undefined ? body.minAge : null,
             quota: body.quota || null,
             quotaIkhwan: body.quotaIkhwan || null,
             quotaAkhwat: body.quotaAkhwat || null,
@@ -400,6 +402,7 @@ export function registerEventsRoutes(router: Router) {
         if (body.paymentInstructions !== undefined) updatePayload.paymentInstructions = body.paymentInstructions;
 
         if (body.targetAudience !== undefined) updatePayload.targetAudience = body.targetAudience;
+        if (body.minAge !== undefined) updatePayload.minAge = body.minAge;
         if (body.quota !== undefined) updatePayload.quota = body.quota;
         if (body.quotaIkhwan !== undefined) updatePayload.quotaIkhwan = body.quotaIkhwan;
         if (body.quotaAkhwat !== undefined) updatePayload.quotaAkhwat = body.quotaAkhwat;

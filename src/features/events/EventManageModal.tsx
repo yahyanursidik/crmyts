@@ -120,6 +120,7 @@ interface EventDetail {
   paymentInstructions?: string | null;
 
   targetAudience?: string;
+  minAge?: number | null;
   quota?: number | null;
   quotaIkhwan?: number | null;
   quotaAkhwat?: number | null;
@@ -225,6 +226,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
 
   // Settings State (Audience, Quotas, Rules & Parking)
   const [targetAudience, setTargetAudience] = useState<string>('umum');
+  const [minAge, setMinAge] = useState<number | ''>('');
   const [quota, setQuota] = useState<number | ''>('');
   const [quotaIkhwan, setQuotaIkhwan] = useState<number | ''>('');
   const [quotaAkhwat, setQuotaAkhwat] = useState<number | ''>('');
@@ -302,6 +304,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       setEventData(res.data);
 
       setTargetAudience(res.data.targetAudience || 'umum');
+      setMinAge(res.data.minAge !== null && res.data.minAge !== undefined ? res.data.minAge : '');
       setQuota(res.data.quota || '');
       setQuotaIkhwan(res.data.quotaIkhwan || '');
       setQuotaAkhwat(res.data.quotaAkhwat || '');
@@ -401,6 +404,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
         method: 'PUT',
         body: JSON.stringify({
           targetAudience,
+          minAge: minAge !== '' ? Number(minAge) : null,
           quota: quota ? Number(quota) : null,
           quotaIkhwan: quotaIkhwan ? Number(quotaIkhwan) : null,
           quotaAkhwat: quotaAkhwat ? Number(quotaAkhwat) : null,
@@ -1424,6 +1428,43 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                       </p>
                     </div>
                   </label>
+                </div>
+
+                {/* Batasan Usia Minimal Peserta */}
+                <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/60 p-3.5 rounded-xl border">
+                  <div>
+                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <span>⏳ Batasan Usia Minimal Peserta (Opsional)</span>
+                      {minAge && Number(minAge) > 0 ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-bold border border-amber-300">
+                          Aktif (Min. {minAge} Tahun)
+                        </span>
+                      ) : (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
+                          Bebas Usia
+                        </span>
+                      )}
+                    </label>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Contoh: Isi <strong>15</strong> jika pendaftar dan rombongan minimal berusia 15 tahun. Kosongkan jika majelis ini bebas untuk segala rentang usia.
+                    </p>
+                  </div>
+                  <div className="w-full sm:w-48 shrink-0">
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="1"
+                        max="120"
+                        placeholder="Bebas usia"
+                        value={minAge}
+                        onChange={(e) => setMinAge(e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value) || 0))}
+                        className="w-full pl-3 pr-14 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono font-bold focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
+                        Tahun
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
 

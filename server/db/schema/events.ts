@@ -76,6 +76,7 @@ export const events = pgTable(
     
     // Segmentation & Audience Targeting
     targetAudience: text('target_audience').default('umum').notNull(), // 'umum' | 'ikhwan_only' | 'akhwat_only' | 'anak' | 'itikaf_ramadan'
+    minAge: integer('min_age'), // Optional minimum age requirement (e.g. 15 for 15+ years old)
     
     // Quota Management
     quota: integer('quota'),
