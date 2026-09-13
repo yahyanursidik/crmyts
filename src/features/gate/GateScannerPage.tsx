@@ -45,6 +45,9 @@ import {
   areEqualDevices,
   sleep,
   isMobileDevice,
+  isIOSDevice,
+  isSafariBrowser,
+  ensureVideoPlaysInline,
   isRearCameraLabel,
   isFrontCameraLabel,
 } from '@/lib/cameraScannerUtils';
@@ -280,6 +283,7 @@ export const GateScannerPage: React.FC = () => {
   const handleExecuteScanRef = useRef<((params: { ticketCode?: string; attendanceId?: string; query?: string }) => Promise<void>) | null>(null);
   const cameraStateRef = useRef(cameraState);
   cameraStateRef.current = cameraState;
+  const videoObserverCleanupRef = useRef<(() => void) | null>(null);
 
   // Save station settings
   const handleSaveSettings = (e: React.FormEvent) => {
@@ -435,6 +439,10 @@ export const GateScannerPage: React.FC = () => {
 
   // Stop camera helper
   const stopCameraScanner = useCallback(async () => {
+    if (videoObserverCleanupRef.current) {
+      videoObserverCleanupRef.current();
+      videoObserverCleanupRef.current = null;
+    }
     if (html5QrCodeRef.current) {
       const scanner = html5QrCodeRef.current;
       html5QrCodeRef.current = null;
@@ -683,6 +691,12 @@ export const GateScannerPage: React.FC = () => {
           return;
         }
 
+        // Attach video attribute observer for iOS Safari playsinline & autoplay
+        if (videoObserverCleanupRef.current) {
+          videoObserverCleanupRef.current();
+        }
+        videoObserverCleanupRef.current = ensureVideoPlaysInline('gate-page-qr-reader');
+
         const qrScanner = new Html5Qrcode('gate-page-qr-reader');
         html5QrCodeRef.current = qrScanner;
 
@@ -694,9 +708,9 @@ export const GateScannerPage: React.FC = () => {
           }
         };
 
-        // 2. Discover available cameras (using cached or fresh enumerate)
+        // 2. Discover available cameras (using cached devices; avoid pre-start getCameras on iOS Safari to prevent stream contention AbortError)
         let devices = availableCamerasRef.current;
-        if (!devices || devices.length === 0) {
+        if ((!devices || devices.length === 0) && !isIOSDevice() && !isSafariBrowser()) {
           try {
             devices = await Html5Qrcode.getCameras();
             if (devices && devices.length > 0) {
@@ -718,14 +732,15 @@ export const GateScannerPage: React.FC = () => {
             ? overrideTarget.deviceId
             : selectedCameraIdRef.current;
 
-        // 4. Resolve candidate targets (exact physical deviceId strings prioritized for iOS Safari & Android)
+        // 4. Resolve candidate targets (exact physical deviceId strings for Android, native facingMode for iOS Safari)
         const resolution = resolveCameraStartCandidates(requestedMode, requestedDeviceId, devices);
 
         const scanConfig = {
           fps: 15,
           qrbox: (w: number, h: number) => {
             const minEdge = Math.min(w, h);
-            const size = Math.max(80, Math.floor(minEdge * 0.72));
+            if (minEdge <= 0) return { width: 150, height: 150 };
+            const size = Math.min(minEdge, Math.max(50, Math.floor(minEdge * 0.72)));
             return { width: size, height: size };
           },
         };
@@ -783,11 +798,21 @@ export const GateScannerPage: React.FC = () => {
         console.warn('Camera start error:', err);
         const errStr = String(err?.name || err?.message || err).toLowerCase();
         if (errStr.includes('notallowed') || errStr.includes('permission') || errStr.includes('denied')) {
-          setCameraState('denied');
-          setCameraErrorDetail('Izin akses kamera ditolak. Silakan izinkan kamera di setelan browser atau gunakan mode Foto / Scanner Gun.');
-        } else if (errStr.includes('notfound') || errStr.includes('devicesnotfound')) {
+          // On iOS Safari, calling getUserMedia without a direct user tap throws NotAllowedError.
+          // Keep camera state as 'idle' so user can tap "Aktifkan Kamera" directly (User Gesture).
+          if (isIOSDevice() || isSafariBrowser()) {
+            setCameraState('idle');
+            setCameraErrorDetail('Ketuk tombol "Aktifkan Kamera" di bawah untuk mengizinkan akses kamera di Safari iOS.');
+          } else {
+            setCameraState('denied');
+            setCameraErrorDetail('Izin akses kamera ditolak. Silakan izinkan kamera di setelan browser atau gunakan mode Foto / Scanner Gun.');
+          }
+        } else if (errStr.includes('notfound') || errStr.includes('devicesnotfound') || errStr.includes('no camera')) {
           setCameraState('not_found');
           setCameraErrorDetail('Tidak ada perangkat kamera yang terdeteksi di perangkat ini.');
+        } else if (errStr.includes('abort') || errStr.includes('notreadable') || errStr.includes('trackstart')) {
+          setCameraState('idle');
+          setCameraErrorDetail('Sensor kamera sedang dilepaskan sistem. Ketuk tombol "Aktifkan Kamera" di bawah.');
         } else {
           setCameraState('error');
           setCameraErrorDetail(err.message || 'Gagal menyalakan streaming video kamera.');
@@ -1656,22 +1681,46 @@ export const GateScannerPage: React.FC = () => {
                         ) : cameraState === 'denied' ? (
                           <div className="flex flex-col items-center">
                             <AlertTriangle className="w-8 h-8 text-rose-400 mb-2" />
-                            <p className="text-xs font-semibold text-rose-300 mb-1">Izin Kamera Ditolak</p>
-                            <p className="text-[11px] text-slate-400 mb-3">{cameraErrorDetail}</p>
-                            <button
-                              onClick={() => startCameraScanner()}
-                              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
-                            >
-                              Coba Minta Izin Lagi
-                            </button>
+                            <p className="text-xs font-semibold text-rose-300 mb-1">Izin Kamera Belum Aktif</p>
+                            <p className="text-[11px] text-slate-400 mb-2">{cameraErrorDetail}</p>
+                            {isIOSDevice() && (
+                              <p className="text-[10.5px] text-slate-300 bg-slate-900 border border-slate-700/80 rounded-lg p-2 mb-3 text-left leading-relaxed">
+                                💡 <strong>Panduan iPhone/iPad (Safari):</strong><br />
+                                1. Ketuk ikon <strong>"aA"</strong> di kiri address bar Safari.<br />
+                                2. Pilih <strong>Pengaturan Situs Web</strong> &gt; <strong>Kamera: Izinkan</strong>.<br />
+                                3. Refresh halaman atau ketuk tombol di bawah.
+                              </p>
+                            )}
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => startCameraScanner()}
+                                className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
+                              >
+                                Coba Minta Izin Lagi
+                              </button>
+                              <button
+                                onClick={() => setActiveTab('photo')}
+                                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600/80 hover:bg-emerald-600 text-white cursor-pointer"
+                              >
+                                Mode Foto QR
+                              </button>
+                            </div>
                           </div>
                         ) : (
                           <div className="flex flex-col items-center">
-                            <Camera className="w-8 h-8 text-slate-600 mb-2" />
-                            <p className="text-xs text-slate-400 mb-3">Kamera belum aktif</p>
+                            <Camera className="w-10 h-10 text-emerald-400 mb-2 animate-pulse" />
+                            <p className="text-xs font-bold text-slate-200 mb-1">
+                              {isIOSDevice() ? 'Kamera Siap Diaktifkan' : 'Kamera belum aktif'}
+                            </p>
+                            <p className="text-[11px] text-slate-400 mb-3 max-w-[240px]">
+                              {cameraErrorDetail ||
+                                (isIOSDevice()
+                                  ? 'Ketuk tombol hijau di bawah untuk menyalakan kamera di Safari iOS.'
+                                  : 'Klik tombol di bawah untuk menyalakan kamera scanner.')}
+                            </p>
                             <button
                               onClick={() => startCameraScanner()}
-                              className="px-4 py-2 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-950/40"
+                              className="px-5 py-2.5 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-950/40 cursor-pointer transition-all active:scale-95"
                             >
                               Aktifkan Kamera
                             </button>

@@ -29,20 +29,43 @@ export interface CandidateResolution {
 }
 
 /**
- * Detects if the current user agent is a mobile device (Android, iOS).
+ * Detects if the current user agent is an Apple iOS or iPadOS device (iPhone, iPad, iPod Touch).
+ * Handles modern iPadOS where Safari requests the desktop website (MacIntel + maxTouchPoints > 1).
+ */
+export function isIOSDevice(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  const isDirectIOS = /iphone|ipad|ipod/i.test(ua);
+  const isIPadOSDesktopMode =
+    (navigator.platform === 'MacIntel' || ua.includes('Macintosh')) &&
+    typeof navigator.maxTouchPoints === 'number' &&
+    navigator.maxTouchPoints > 1;
+  return isDirectIOS || isIPadOSDesktopMode;
+}
+
+/**
+ * Detects if the current user agent is a mobile or tablet device (Android, iOS, iPadOS).
  */
 export function isMobileDevice(): boolean {
   if (typeof navigator === 'undefined') return false;
+  if (isIOSDevice()) return true;
   return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || '');
 }
 
 /**
- * Detects if running on Apple Safari (iOS Safari or macOS Safari).
+ * Detects if running on Apple Safari (iOS Safari, iPadOS, or macOS Safari)
+ * or any WebKit-based browser on iOS.
  */
 export function isSafariBrowser(): boolean {
   if (typeof navigator === 'undefined') return false;
+  if (isIOSDevice()) return true; // All browsers on iOS are mandated to use WebKit
   const ua = (navigator.userAgent || '').toLowerCase();
-  return (ua.includes('safari') || ua.includes('applewebkit')) && !ua.includes('chrome') && !ua.includes('chromium') && !ua.includes('android');
+  return (
+    (ua.includes('safari') || ua.includes('applewebkit')) &&
+    !ua.includes('chrome') &&
+    !ua.includes('chromium') &&
+    !ua.includes('android')
+  );
 }
 
 /**
@@ -172,28 +195,52 @@ export function resolveCameraStartCandidates(
     };
   }
 
+  const isAppleWebKit = isIOSDevice() || isSafariBrowser();
+
   if (desiredMode === 'environment') {
     const candidates: CameraStartTarget[] = [];
     let suggestedDeviceId: string | null = null;
 
-    // 1. Primary rear camera (exact hardware deviceId string)
-    if (primaryRearCamera) {
-      candidates.push(primaryRearCamera.id);
-      candidates.push({ deviceId: { exact: primaryRearCamera.id } });
-      suggestedDeviceId = primaryRearCamera.id;
+    if (isAppleWebKit) {
+      // On iOS Safari / WebKit:
+      // 1. { facingMode: 'environment' } is the native, officially recommended WebKit constraint.
+      // It avoids OverconstrainedError and directly targets the rear camera on iPhone X, iPad, etc.
+      candidates.push({ facingMode: 'environment' });
+
+      // 2. Exact device ID if primary rear camera is known
+      if (primaryRearCamera) {
+        candidates.push(primaryRearCamera.id);
+        candidates.push({ deviceId: { exact: primaryRearCamera.id } });
+        suggestedDeviceId = primaryRearCamera.id;
+      }
+
+      // 3. Other rear cameras
+      rearCameras.forEach((rc) => {
+        if (!primaryRearCamera || rc.id !== primaryRearCamera.id) {
+          candidates.push(rc.id);
+        }
+      });
+    } else {
+      // On Android / Desktop:
+      // 1. Primary rear camera (exact hardware deviceId string to target 1x standard sensor instead of 0.5x ultra-wide)
+      if (primaryRearCamera) {
+        candidates.push(primaryRearCamera.id);
+        candidates.push({ deviceId: { exact: primaryRearCamera.id } });
+        suggestedDeviceId = primaryRearCamera.id;
+      }
+
+      // 2. Other rear cameras if primary fails
+      rearCameras.forEach((rc) => {
+        if (!primaryRearCamera || rc.id !== primaryRearCamera.id) {
+          candidates.push(rc.id);
+        }
+      });
+
+      // 3. FacingMode environment constraint
+      candidates.push({ facingMode: 'environment' });
     }
 
-    // 2. Other rear cameras if primary fails
-    rearCameras.forEach((rc) => {
-      if (!primaryRearCamera || rc.id !== primaryRearCamera.id) {
-        candidates.push(rc.id);
-      }
-    });
-
-    // 3. FacingMode environment constraint
-    candidates.push({ facingMode: 'environment' });
-
-    // 4. Only if NO rear camera exists physically on device (e.g. desktop webcam), fall back to front
+    // Fallback if NO rear camera exists physically on device (e.g. desktop webcam)
     if (rearCameras.length === 0 && frontCameras.length > 0 && frontCameras[0]) {
       candidates.push(frontCameras[0].id);
       candidates.push({ facingMode: 'user' });
@@ -209,13 +256,21 @@ export function resolveCameraStartCandidates(
     const candidates: CameraStartTarget[] = [];
     let suggestedDeviceId: string | null = null;
 
-    if (primaryFrontCamera) {
-      candidates.push(primaryFrontCamera.id);
-      candidates.push({ deviceId: { exact: primaryFrontCamera.id } });
-      suggestedDeviceId = primaryFrontCamera.id;
+    if (isAppleWebKit) {
+      candidates.push({ facingMode: 'user' });
+      if (primaryFrontCamera) {
+        candidates.push(primaryFrontCamera.id);
+        candidates.push({ deviceId: { exact: primaryFrontCamera.id } });
+        suggestedDeviceId = primaryFrontCamera.id;
+      }
+    } else {
+      if (primaryFrontCamera) {
+        candidates.push(primaryFrontCamera.id);
+        candidates.push({ deviceId: { exact: primaryFrontCamera.id } });
+        suggestedDeviceId = primaryFrontCamera.id;
+      }
+      candidates.push({ facingMode: 'user' });
     }
-
-    candidates.push({ facingMode: 'user' });
 
     // Fallback if no front camera physically exists
     if (frontCameras.length === 0 && rearCameras.length > 0 && rearCameras[0]) {
@@ -251,3 +306,49 @@ export function areEqualDevices(a: CameraDeviceItem[], b: CameraDeviceItem[]): b
  * Grace period helper to allow hardware HAL / WebKit camera daemon to release video tracks cleanly.
  */
 export const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Ensures any video element inside the container is properly configured
+ * for iOS Safari (playsinline, webkit-playsinline, autoplay, muted).
+ * Returns a cleanup function that disconnects the MutationObserver.
+ */
+export function ensureVideoPlaysInline(containerId: string): () => void {
+  if (typeof document === 'undefined') return () => {};
+  const container = document.getElementById(containerId);
+  if (!container) return () => {};
+
+  const configureVideoElement = (v: HTMLVideoElement) => {
+    v.setAttribute('playsinline', 'true');
+    v.setAttribute('webkit-playsinline', 'true');
+    v.setAttribute('autoplay', 'true');
+    v.setAttribute('muted', 'true');
+    v.playsInline = true;
+    v.muted = true;
+    if (v.paused) {
+      v.play().catch(() => {});
+    }
+  };
+
+  // Configure existing videos
+  container.querySelectorAll('video').forEach(configureVideoElement);
+
+  // Observe dynamically injected videos by html5-qrcode
+  try {
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        m.addedNodes.forEach((node) => {
+          if (node.nodeName === 'VIDEO') {
+            configureVideoElement(node as HTMLVideoElement);
+          } else if ((node as HTMLElement).querySelectorAll) {
+            (node as HTMLElement).querySelectorAll('video').forEach(configureVideoElement);
+          }
+        });
+      }
+    });
+
+    observer.observe(container, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  } catch {
+    return () => {};
+  }
+}

@@ -30,6 +30,9 @@ import {
   areEqualDevices,
   sleep,
   isMobileDevice,
+  isIOSDevice,
+  isSafariBrowser,
+  ensureVideoPlaysInline,
   isRearCameraLabel,
   isFrontCameraLabel,
 } from '@/lib/cameraScannerUtils';
@@ -104,8 +107,8 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
   // Camera Platform & Snapshot File Scanner
   const [activePlatformTab, setActivePlatformTab] = useState<'android' | 'pc' | 'ios'>(() => {
     if (typeof navigator === 'undefined') return 'android';
+    if (isIOSDevice()) return 'ios';
     const ua = navigator.userAgent.toLowerCase();
-    if (/iphone|ipad|ipod/.test(ua)) return 'ios';
     if (/android/.test(ua)) return 'android';
     return 'pc';
   });
@@ -150,6 +153,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
   const cameraStateRef = useRef(cameraState);
   cameraStateRef.current = cameraState;
   const handleExecuteScanRef = useRef<((params: { ticketCode?: string; phoneQuery?: string; attendanceId?: string }) => Promise<void>) | null>(null);
+  const videoObserverCleanupRef = useRef<(() => void) | null>(null);
 
   // Web Audio Tone Synthesis
   const playFeedbackTone = useCallback(
@@ -207,6 +211,10 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
 
   // Stop camera helper
   const stopCameraScanner = useCallback(async () => {
+    if (videoObserverCleanupRef.current) {
+      videoObserverCleanupRef.current();
+      videoObserverCleanupRef.current = null;
+    }
     if (html5QrCodeRef.current) {
       try {
         if (html5QrCodeRef.current.isScanning) {
@@ -370,6 +378,12 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
         }
         container.innerHTML = '';
 
+        // Attach video attribute observer for iOS Safari playsinline & autoplay
+        if (videoObserverCleanupRef.current) {
+          videoObserverCleanupRef.current();
+        }
+        videoObserverCleanupRef.current = ensureVideoPlaysInline('gate-qr-reader-container');
+
         const qrScanner = new Html5Qrcode('gate-qr-reader-container');
         html5QrCodeRef.current = qrScanner;
 
@@ -385,9 +399,9 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
           // Ignore normal frame scan misses
         };
 
-        // 2. Discover available cameras (using cached or fresh enumerate)
+        // 2. Discover available cameras (using cached devices; avoid pre-start getCameras on iOS Safari to prevent stream contention AbortError)
         let devices = availableCamerasRef.current;
-        if (!devices || devices.length === 0) {
+        if ((!devices || devices.length === 0) && !isIOSDevice() && !isSafariBrowser()) {
           try {
             devices = await Html5Qrcode.getCameras();
             if (devices && devices.length > 0) {
@@ -409,14 +423,15 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
             ? overrideTarget.deviceId
             : selectedCameraIdRef.current;
 
-        // 4. Resolve candidate targets (exact physical deviceId strings prioritized for iOS Safari & Android)
+        // 4. Resolve candidate targets (exact physical deviceId strings for Android, native facingMode for iOS Safari)
         const resolution = resolveCameraStartCandidates(requestedMode, requestedDeviceId, devices);
 
         const scanConfig = {
           fps: 15,
           qrbox: (w: number, h: number) => {
             const minEdge = Math.min(w, h);
-            const size = Math.max(50, Math.floor(minEdge * 0.72));
+            if (minEdge <= 0) return { width: 150, height: 150 };
+            const size = Math.min(minEdge, Math.max(50, Math.floor(minEdge * 0.72)));
             return { width: size, height: size };
           },
         };
@@ -488,29 +503,34 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
           setCameraState('unsupported');
           setCameraErrorDetail('Akses kamera tidak diizinkan oleh Permissions-Policy dokumen/server.');
         } else if (errStr.includes('notallowed') || errStr.includes('permission') || errStr.includes('denied')) {
-          let isActuallyBlocked = true;
-          if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
-            try {
-              const p = await navigator.permissions.query({ name: 'camera' as any });
-              if (p.state === 'prompt') {
-                isActuallyBlocked = false;
-              }
-            } catch {}
-          }
-
-          if (isActuallyBlocked) {
-            setCameraState('denied');
-            setCameraErrorDetail('Izin kamera belum disetujui atau diblokir oleh browser.');
-          } else {
+          if (isIOSDevice() || isSafariBrowser()) {
             setCameraState('idle');
-            setCameraErrorDetail('Klik tombol di bawah untuk memunculkan dialog izin kamera browser.');
+            setCameraErrorDetail('Ketuk tombol "Buka Kamera" di bawah untuk mengizinkan akses kamera di Safari iOS.');
+          } else {
+            let isActuallyBlocked = true;
+            if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
+              try {
+                const p = await navigator.permissions.query({ name: 'camera' as any });
+                if (p.state === 'prompt') {
+                  isActuallyBlocked = false;
+                }
+              } catch {}
+            }
+
+            if (isActuallyBlocked) {
+              setCameraState('denied');
+              setCameraErrorDetail('Izin kamera belum disetujui atau diblokir oleh browser.');
+            } else {
+              setCameraState('idle');
+              setCameraErrorDetail('Klik tombol di bawah untuk memunculkan dialog izin kamera browser.');
+            }
           }
         } else if (errStr.includes('notfound') || errStr.includes('devicesnotfound') || errStr.includes('no camera')) {
           setCameraState('not_found');
           setCameraErrorDetail('Tidak ada kamera yang terhubung pada perangkat ini.');
-        } else if (errStr.includes('notreadable') || errStr.includes('could not start video source') || errStr.includes('trackstart')) {
-          setCameraState('error');
-          setCameraErrorDetail('Kamera sedang digunakan oleh aplikasi lain atau hardware belum siap. Coba tutup aplikasi lain atau gunakan opsi Ambil Foto QR.');
+        } else if (errStr.includes('abort') || errStr.includes('notreadable') || errStr.includes('trackstart')) {
+          setCameraState('idle');
+          setCameraErrorDetail('Hardware kamera sedang dilepaskan oleh sistem. Klik tombol di bawah untuk menyalakan.');
         } else {
           setCameraState('error');
           setCameraErrorDetail(err?.message || 'Gagal menyalakan kamera scanner.');

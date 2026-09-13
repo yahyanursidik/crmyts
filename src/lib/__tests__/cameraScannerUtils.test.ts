@@ -1,7 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import {
   isRearCameraLabel,
   isFrontCameraLabel,
+  isIOSDevice,
+  isSafariBrowser,
   categorizeCameras,
   resolveCameraStartCandidates,
   areEqualDevices,
@@ -38,6 +40,77 @@ describe('cameraScannerUtils', () => {
     });
   });
 
+  describe('Platform Detection', () => {
+    const originalNavigator = globalThis.navigator;
+
+    it('identifies iPhone and legacy iPad user agents as iOS', () => {
+      // iPhone X UA
+      Object.defineProperty(globalThis, 'navigator', {
+        value: {
+          userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+          platform: 'iPhone',
+          maxTouchPoints: 5,
+        },
+        configurable: true,
+        writable: true,
+      });
+      expect(isIOSDevice()).toBe(true);
+      expect(isSafariBrowser()).toBe(true);
+    });
+
+    it('identifies modern iPadOS (desktop user agent MacIntel + touch) as iOS', () => {
+      // Modern iPad Pro / iPad Air running iPadOS with Request Desktop Website
+      Object.defineProperty(globalThis, 'navigator', {
+        value: {
+          userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+          platform: 'MacIntel',
+          maxTouchPoints: 5, // Key indicator of iPad touch screen
+        },
+        configurable: true,
+        writable: true,
+      });
+      expect(isIOSDevice()).toBe(true);
+      expect(isSafariBrowser()).toBe(true);
+    });
+
+    it('identifies macOS desktop (no touch) as non-iOS but Safari', () => {
+      Object.defineProperty(globalThis, 'navigator', {
+        value: {
+          userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+          platform: 'MacIntel',
+          maxTouchPoints: 0,
+        },
+        configurable: true,
+        writable: true,
+      });
+      expect(isIOSDevice()).toBe(false);
+      expect(isSafariBrowser()).toBe(true);
+    });
+
+    it('identifies Android devices correctly', () => {
+      Object.defineProperty(globalThis, 'navigator', {
+        value: {
+          userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36',
+          platform: 'Linux armv8l',
+          maxTouchPoints: 5,
+        },
+        configurable: true,
+        writable: true,
+      });
+      expect(isIOSDevice()).toBe(false);
+      expect(isSafariBrowser()).toBe(false);
+    });
+
+    // Restore navigator
+    afterAll(() => {
+      Object.defineProperty(globalThis, 'navigator', {
+        value: originalNavigator,
+        configurable: true,
+        writable: true,
+      });
+    });
+  });
+
   describe('categorizeCameras - iPhone Safari Scenarios', () => {
     // Exact structure returned by iOS Safari enumerateDevices
     const iPhoneSafariCameras: CameraDeviceItem[] = [
@@ -57,17 +130,39 @@ describe('cameraScannerUtils', () => {
       expect(categorized.primaryFrontCamera?.id).toBe('ios-front');
     });
 
-    it('resolves primaryRearCamera.id as the first candidate for environment mode on iPhone Safari', () => {
+    it('prioritizes native { facingMode: "environment" } constraint for iOS/Safari WebKit', () => {
+      // Mock iOS environment
+      Object.defineProperty(globalThis, 'navigator', {
+        value: {
+          userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+          platform: 'iPhone',
+          maxTouchPoints: 5,
+        },
+        configurable: true,
+        writable: true,
+      });
+
       const resolution = resolveCameraStartCandidates('environment', null, iPhoneSafariCameras);
-      expect(resolution.candidates[0]).toBe('ios-back-main');
+      // On iOS Safari, facingMode constraint is candidate #1 to avoid OverconstrainedError
+      expect(resolution.candidates[0]).toEqual({ facingMode: 'environment' });
+      expect(resolution.candidates).toContain('ios-back-main');
       expect(resolution.suggestedDeviceId).toBe('ios-back-main');
       expect(resolution.expectedFacing).toBe('environment');
     });
 
-    it('resolves primaryFrontCamera.id as the first candidate for user mode on iPhone Safari', () => {
+    it('prioritizes native { facingMode: "user" } constraint for user mode on iOS/Safari', () => {
+      Object.defineProperty(globalThis, 'navigator', {
+        value: {
+          userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+          platform: 'iPhone',
+          maxTouchPoints: 5,
+        },
+        configurable: true,
+        writable: true,
+      });
+
       const resolution = resolveCameraStartCandidates('user', null, iPhoneSafariCameras);
-      expect(resolution.candidates[0]).toBe('ios-front');
-      expect(resolution.suggestedDeviceId).toBe('ios-front');
+      expect(resolution.candidates[0]).toEqual({ facingMode: 'user' });
       expect(resolution.expectedFacing).toBe('user');
     });
   });
@@ -88,6 +183,15 @@ describe('cameraScannerUtils', () => {
     });
 
     it('prioritizes android-c0 string deviceId for environment scanning', () => {
+      Object.defineProperty(globalThis, 'navigator', {
+        value: {
+          userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36',
+          platform: 'Linux armv8l',
+          maxTouchPoints: 5,
+        },
+        configurable: true,
+        writable: true,
+      });
       const resolution = resolveCameraStartCandidates('environment', null, androidCameras);
       expect(resolution.candidates[0]).toBe('android-c0');
     });
