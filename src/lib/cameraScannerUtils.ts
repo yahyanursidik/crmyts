@@ -232,6 +232,22 @@ export function resolveCameraStartCandidates(
 }
 
 /**
+ * Compares two lists of camera devices to determine if they are identical.
+ * Prevents unnecessary state updates and re-renders in React components.
+ */
+export function areEqualDevices(a: CameraDeviceItem[], b: CameraDeviceItem[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const itemA = a[i];
+    const itemB = b[i];
+    if (!itemA || !itemB || itemA.id !== itemB.id || itemA.label !== itemB.label) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Grace period helper to allow hardware HAL / WebKit camera daemon to release video tracks cleanly.
  */
 export const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));

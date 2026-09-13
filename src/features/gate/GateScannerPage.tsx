@@ -42,6 +42,7 @@ import { Html5Qrcode, CameraDevice } from 'html5-qrcode';
 import {
   categorizeCameras,
   resolveCameraStartCandidates,
+  areEqualDevices,
   sleep,
   isMobileDevice,
   isRearCameraLabel,
@@ -268,6 +269,17 @@ export const GateScannerPage: React.FC = () => {
   const manualSearchInputRef = useRef<HTMLInputElement>(null);
   const barcodeBufferRef = useRef('');
   const lastKeyTimeRef = useRef(0);
+
+  // Stable Refs for camera scanner to avoid re-render feedback loops & flickering
+  const facingModeRef = useRef(facingMode);
+  facingModeRef.current = facingMode;
+  const selectedCameraIdRef = useRef(selectedCameraId);
+  selectedCameraIdRef.current = selectedCameraId;
+  const availableCamerasRef = useRef(availableCameras);
+  availableCamerasRef.current = availableCameras;
+  const handleExecuteScanRef = useRef<((params: { ticketCode?: string; attendanceId?: string; query?: string }) => Promise<void>) | null>(null);
+  const cameraStateRef = useRef(cameraState);
+  cameraStateRef.current = cameraState;
 
   // Save station settings
   const handleSaveSettings = (e: React.FormEvent) => {
@@ -534,6 +546,7 @@ export const GateScannerPage: React.FC = () => {
     },
     [activeEventId, stationName, officerName, playFeedbackTone, triggerHaptic]
   );
+  handleExecuteScanRef.current = handleExecuteScan;
 
   // 1-Click Manual Toggle Check-in / Undo
   const handleToggleAttendance = async (participant: ParticipantItem) => {
@@ -609,9 +622,14 @@ export const GateScannerPage: React.FC = () => {
     }
   };
 
-  // Start Camera Stream
+  // Start Camera Stream (Stable callback using refs to prevent re-render loops)
   const startCameraScanner = useCallback(
     async (overrideTarget?: { deviceId?: string; facingMode?: 'environment' | 'user' }) => {
+      // If already scanning and active with no overrideTarget, don't restart (prevents flickering)
+      if (html5QrCodeRef.current?.isScanning && cameraStateRef.current === 'active' && !overrideTarget) {
+        return;
+      }
+
       if (isStartingRef.current) return;
       isStartingRef.current = true;
 
@@ -672,12 +690,12 @@ export const GateScannerPage: React.FC = () => {
           if (scanInFlightRef.current || !decodedText) return;
           const code = extractTicketCode(decodedText);
           if (code) {
-            handleExecuteScan({ ticketCode: code });
+            handleExecuteScanRef.current?.({ ticketCode: code });
           }
         };
 
         // 2. Discover available cameras (using cached or fresh enumerate)
-        let devices = availableCameras;
+        let devices = availableCamerasRef.current;
         if (!devices || devices.length === 0) {
           try {
             devices = await Html5Qrcode.getCameras();
@@ -692,13 +710,13 @@ export const GateScannerPage: React.FC = () => {
         // 3. Determine requested facing and device ID
         const requestedMode: 'environment' | 'user' =
           overrideTarget?.facingMode ||
-          facingMode ||
+          facingModeRef.current ||
           (isMobileDevice() ? 'environment' : 'user');
 
         const requestedDeviceId =
           overrideTarget?.deviceId !== undefined
             ? overrideTarget.deviceId
-            : selectedCameraId;
+            : selectedCameraIdRef.current;
 
         // 4. Resolve candidate targets (exact physical deviceId strings prioritized for iOS Safari & Android)
         const resolution = resolveCameraStartCandidates(requestedMode, requestedDeviceId, devices);
@@ -735,15 +753,17 @@ export const GateScannerPage: React.FC = () => {
 
         // Camera successfully started!
         setCameraState('active');
-        setFacingMode(resolution.expectedFacing);
-        if (resolution.suggestedDeviceId) {
+        if (facingModeRef.current !== resolution.expectedFacing) {
+          setFacingMode(resolution.expectedFacing);
+        }
+        if (resolution.suggestedDeviceId && selectedCameraIdRef.current !== resolution.suggestedDeviceId) {
           setSelectedCameraId(resolution.suggestedDeviceId);
         }
 
-        // Refresh devices list with freshly populated labels (post-permission)
+        // Refresh devices list with freshly populated labels (post-permission) without redundant re-renders
         try {
           const refreshed = await Html5Qrcode.getCameras();
-          if (refreshed?.length) {
+          if (refreshed?.length && !areEqualDevices(availableCamerasRef.current, refreshed)) {
             setAvailableCameras(refreshed);
           }
         } catch {}
@@ -776,13 +796,14 @@ export const GateScannerPage: React.FC = () => {
         isStartingRef.current = false;
       }
     },
-    [availableCameras, facingMode, selectedCameraId, handleExecuteScan]
+    []
   );
 
   // Switch front/back with explicit deviceId resolution for iOS Safari & Android
   const handleToggleFacingMode = async () => {
-    const nextFacing: 'environment' | 'user' = facingMode === 'environment' ? 'user' : 'environment';
-    const { primaryRearCamera, primaryFrontCamera } = categorizeCameras(availableCameras);
+    const currentFacing = facingModeRef.current;
+    const nextFacing: 'environment' | 'user' = currentFacing === 'environment' ? 'user' : 'environment';
+    const { primaryRearCamera, primaryFrontCamera } = categorizeCameras(availableCamerasRef.current);
 
     let nextDeviceId: string | undefined = undefined;
     if (nextFacing === 'environment' && primaryRearCamera) {
@@ -911,7 +932,7 @@ export const GateScannerPage: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleExecuteScan]);
 
-  // Camera Mount Lifecycle
+  // Camera Mount Lifecycle (only starts on camera tab entry, only stops on leaving camera tab or unmount)
   useEffect(() => {
     if (activeEventId && activeTab === 'camera') {
       let cancelled = false;
@@ -929,7 +950,7 @@ export const GateScannerPage: React.FC = () => {
     } else {
       stopCameraScanner();
     }
-  }, [activeEventId, activeTab, startCameraScanner, stopCameraScanner]);
+  }, [activeEventId, activeTab]);
 
   // Copy URL
   const copyOriginToClipboard = () => {

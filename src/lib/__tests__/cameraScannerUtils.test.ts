@@ -4,6 +4,7 @@ import {
   isFrontCameraLabel,
   categorizeCameras,
   resolveCameraStartCandidates,
+  areEqualDevices,
   CameraDeviceItem,
 } from '../cameraScannerUtils';
 
@@ -122,6 +123,27 @@ describe('cameraScannerUtils', () => {
       const frontResolution = resolveCameraStartCandidates('environment', 'cam-front', cameras);
       expect(frontResolution.candidates[0]).toBe('cam-front');
       expect(frontResolution.expectedFacing).toBe('user');
+    });
+  });
+
+  describe('areEqualDevices Helper', () => {
+    it('returns true for identical device lists and false for differences', () => {
+      const listA: CameraDeviceItem[] = [
+        { id: 'cam-1', label: 'Back Camera' },
+        { id: 'cam-2', label: 'Front Camera' },
+      ];
+      const listB: CameraDeviceItem[] = [
+        { id: 'cam-1', label: 'Back Camera' },
+        { id: 'cam-2', label: 'Front Camera' },
+      ];
+      const listC: CameraDeviceItem[] = [
+        { id: 'cam-1', label: 'Back Camera' },
+        { id: 'cam-3', label: 'Ultra Wide' },
+      ];
+
+      expect(areEqualDevices(listA, listB)).toBe(true);
+      expect(areEqualDevices(listA, listC)).toBe(false);
+      expect(areEqualDevices(listA, listA.slice(0, 1))).toBe(false);
     });
   });
 });

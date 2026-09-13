@@ -27,6 +27,7 @@ import { Html5Qrcode, CameraDevice } from 'html5-qrcode';
 import {
   categorizeCameras,
   resolveCameraStartCandidates,
+  areEqualDevices,
   sleep,
   isMobileDevice,
   isRearCameraLabel,
@@ -138,6 +139,17 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
   const isStartingRef = useRef(false);
   const inputFocusRef = useRef<HTMLInputElement>(null);
   const scanInFlightRef = useRef(false);
+
+  // Stable refs for camera state to avoid re-render feedback loops & flickering
+  const facingModeRef = useRef(facingMode);
+  facingModeRef.current = facingMode;
+  const selectedCameraIdRef = useRef(selectedCameraId);
+  selectedCameraIdRef.current = selectedCameraId;
+  const availableCamerasRef = useRef(availableCameras);
+  availableCamerasRef.current = availableCameras;
+  const cameraStateRef = useRef(cameraState);
+  cameraStateRef.current = cameraState;
+  const handleExecuteScanRef = useRef<((params: { ticketCode?: string; phoneQuery?: string; attendanceId?: string }) => Promise<void>) | null>(null);
 
   // Web Audio Tone Synthesis
   const playFeedbackTone = useCallback(
@@ -281,6 +293,11 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
   // Start camera stream & scanner with intelligent cascading device detection
   const startCameraScanner = useCallback(
     async (overrideTarget?: any) => {
+      // If already scanning and active with no overrideTarget, don't restart (prevents flickering)
+      if (html5QrCodeRef.current?.isScanning && cameraStateRef.current === 'active' && !overrideTarget) {
+        return;
+      }
+
       if (isStartingRef.current) return;
       isStartingRef.current = true;
 
@@ -360,7 +377,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
           if (scanInFlightRef.current || !decodedText) return;
           const code = extractTicketCode(decodedText);
           if (code) {
-            handleExecuteScan({ ticketCode: code });
+            handleExecuteScanRef.current?.({ ticketCode: code });
           }
         };
 
@@ -368,8 +385,8 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
           // Ignore normal frame scan misses
         };
 
-        // 2. Discover available cameras
-        let devices = availableCameras;
+        // 2. Discover available cameras (using cached or fresh enumerate)
+        let devices = availableCamerasRef.current;
         if (!devices || devices.length === 0) {
           try {
             devices = await Html5Qrcode.getCameras();
@@ -384,13 +401,13 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
         // 3. Determine requested facing and device ID
         const requestedMode: 'environment' | 'user' =
           overrideTarget?.facingMode ||
-          facingMode ||
+          facingModeRef.current ||
           (isMobileDevice() ? 'environment' : 'user');
 
         const requestedDeviceId =
           overrideTarget?.deviceId !== undefined
             ? overrideTarget.deviceId
-            : selectedCameraId;
+            : selectedCameraIdRef.current;
 
         // 4. Resolve candidate targets (exact physical deviceId strings prioritized for iOS Safari & Android)
         const resolution = resolveCameraStartCandidates(requestedMode, requestedDeviceId, devices);
@@ -426,15 +443,17 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
 
         // Camera successfully started!
         setCameraState('active');
-        setFacingMode(resolution.expectedFacing);
-        if (resolution.suggestedDeviceId) {
+        if (facingModeRef.current !== resolution.expectedFacing) {
+          setFacingMode(resolution.expectedFacing);
+        }
+        if (resolution.suggestedDeviceId && selectedCameraIdRef.current !== resolution.suggestedDeviceId) {
           setSelectedCameraId(resolution.suggestedDeviceId);
         }
 
-        // Refresh device list with labels now that permission is granted
+        // Refresh device list with labels now that permission is granted without redundant re-renders
         try {
           const refreshedDevices = await Html5Qrcode.getCameras();
-          if (refreshedDevices && refreshedDevices.length > 0) {
+          if (refreshedDevices?.length && !areEqualDevices(availableCamerasRef.current, refreshedDevices)) {
             setAvailableCameras(refreshedDevices);
           }
         } catch {}
@@ -500,7 +519,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
         isStartingRef.current = false;
       }
     },
-    [facingMode, selectedCameraId]
+    []
   );
 
   // Direct user-gesture camera activation (guarantees native browser permission pop-up)
@@ -528,7 +547,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
       // Explicit user gesture: request simple video permission to force native browser permission prompt
       if (navigator.mediaDevices?.getUserMedia) {
         try {
-          const videoConstraint = facingMode === 'environment' ? { facingMode: 'environment' } : true;
+          const videoConstraint = facingModeRef.current === 'environment' ? { facingMode: 'environment' } : true;
           const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraint });
           stream.getTracks().forEach((t) => t.stop());
           // Wait briefly for Safari WebKit release
@@ -577,8 +596,9 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
 
   // Switch between front and back camera with explicit device ID resolution
   const handleToggleFacingMode = async () => {
-    const nextFacing: 'environment' | 'user' = facingMode === 'environment' ? 'user' : 'environment';
-    const { primaryRearCamera, primaryFrontCamera } = categorizeCameras(availableCameras);
+    const currentFacing = facingModeRef.current;
+    const nextFacing: 'environment' | 'user' = currentFacing === 'environment' ? 'user' : 'environment';
+    const { primaryRearCamera, primaryFrontCamera } = categorizeCameras(availableCamerasRef.current);
 
     let nextDeviceId: string | undefined = undefined;
     if (nextFacing === 'environment' && primaryRearCamera) {
@@ -598,7 +618,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
     setSelectedCameraId(newCamId);
     isStartingRef.current = false;
     if (newCamId) {
-      const found = availableCameras.find((c) => c.id === newCamId);
+      const found = availableCamerasRef.current.find((c) => c.id === newCamId);
       if (found) {
         if (isRearCameraLabel(found.label)) setFacingMode('environment');
         else if (isFrontCameraLabel(found.label)) setFacingMode('user');
@@ -712,7 +732,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
     } else {
       stopCameraScanner();
     }
-  }, [isOpen, activeTab, startCameraScanner, stopCameraScanner]);
+  }, [isOpen, activeTab]);
 
   // Load Event & Participants for Realtime Gate Presence & Search
   const loadEventData = useCallback(async () => {
@@ -837,6 +857,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
       }, 100);
     }
   };
+  handleExecuteScanRef.current = handleExecuteScan;
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
