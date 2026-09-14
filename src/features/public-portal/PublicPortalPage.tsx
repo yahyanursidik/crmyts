@@ -19,6 +19,9 @@ import {
   Upload,
   MessageSquare,
   X,
+  ExternalLink,
+  Receipt,
+  Users,
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -60,12 +63,17 @@ interface EventItem {
   deliveryMode: string;
   locationName: string;
   meetingUrl?: string | null;
+  targetAudience?: string;
+  minAge?: number | null;
+  isPaid?: boolean;
+  priceRupiah?: number | null;
   quota?: number | null;
   quotaIkhwan?: number | null;
   quotaAkhwat?: number | null;
   regularCount?: number;
   attendanceCount?: number;
   isRegularFull?: boolean;
+  formConfig?: any;
 }
 
 interface BankAccount {
@@ -132,6 +140,7 @@ export function PublicPortalPage() {
   // Kajian Registration Form State
   const [selectedEventId, setSelectedEventId] = useState<string>('');
   const [regFullName, setRegFullName] = useState('');
+  const [regAge, setRegAge] = useState<string>('');
   const [regPhone, setRegPhone] = useState('');
   const [regGender, setRegGender] = useState<'ikhwan' | 'akhwat'>('ikhwan');
   const [regEmail, setRegEmail] = useState('');
@@ -168,6 +177,11 @@ export function PublicPortalPage() {
           const activeEvents = (json.data.events || []).filter((ev: EventItem) => !isEventPast(ev));
           if (activeEvents.length > 0) {
             setSelectedEventId(activeEvents[0].id);
+            if (activeEvents[0].targetAudience === 'akhwat_only') {
+              setRegGender('akhwat');
+            } else if (activeEvents[0].targetAudience === 'ikhwan_only') {
+              setRegGender('ikhwan');
+            }
           }
         }
       } catch (err) {
@@ -273,6 +287,18 @@ export function PublicPortalPage() {
       return;
     }
 
+    // Validasi Batasan Usia Minimal (minAge)
+    if (selectedEvent.minAge && selectedEvent.minAge > 0) {
+      if (!regAge || isNaN(Number(regAge)) || Number(regAge) <= 0) {
+        alert(`Harap isi usia Anda. Kajian ini memiliki syarat minimal usia ${selectedEvent.minAge} tahun.`);
+        return;
+      }
+      if (Number(regAge) < selectedEvent.minAge) {
+        alert(`Mohon maaf, pendaftaran kajian ini dikhususkan untuk peserta berusia minimal ${selectedEvent.minAge} tahun. Usia Anda (${regAge} tahun) belum mencukupi.`);
+        return;
+      }
+    }
+
     try {
       setSubmittingEvent(true);
       const res = await fetch('/api/public/register-event', {
@@ -283,9 +309,11 @@ export function PublicPortalPage() {
           fullName: regFullName,
           phone: regPhone,
           gender: regGender,
+          age: regAge ? Number(regAge) : null,
           email: regEmail || null,
           cityRegency: regCity || null,
           notes: regNotes || null,
+          agreedToRules: true,
         }),
       });
 
@@ -553,7 +581,14 @@ export function PublicPortalPage() {
                     activeEvents.map((ev) => (
                       <div
                         key={ev.id}
-                        onClick={() => setSelectedEventId(ev.id)}
+                        onClick={() => {
+                          setSelectedEventId(ev.id);
+                          if (ev.targetAudience === 'akhwat_only') {
+                            setRegGender('akhwat');
+                          } else if (ev.targetAudience === 'ikhwan_only') {
+                            setRegGender('ikhwan');
+                          }
+                        }}
                         className={`p-5 rounded-3xl border cursor-pointer transition-all flex flex-col justify-between gap-4 ${
                           selectedEventId === ev.id
                             ? 'border-teal-700 bg-teal-50/70 ring-2 ring-teal-500/20 shadow-xs'
@@ -562,9 +597,35 @@ export function PublicPortalPage() {
                       >
                         <div className="space-y-2">
                           <div className="flex items-center justify-between flex-wrap gap-2">
-                            <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-teal-100 text-teal-800">
-                              {ev.category || 'Kajian Sunnah'}
-                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-teal-100 text-teal-800">
+                                {ev.category || 'Kajian Sunnah'}
+                              </span>
+                              {ev.targetAudience === 'akhwat_only' && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800">
+                                  Khusus Akhwat
+                                </span>
+                              )}
+                              {ev.targetAudience === 'ikhwan_only' && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
+                                  Khusus Ikhwan
+                                </span>
+                              )}
+                              {ev.minAge && ev.minAge > 0 && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                  🌱 Min. {ev.minAge} Thn
+                                </span>
+                              )}
+                              {ev.isPaid && ev.priceRupiah && ev.priceRupiah > 0 ? (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                                  💳 {formatRupiah(ev.priceRupiah)}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                                  Gratis
+                                </span>
+                              )}
+                            </div>
                             <span className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
                               <Calendar className="w-3.5 h-3.5 text-teal-700" /> {formatDateTime(ev.startAt)}
                             </span>
@@ -579,10 +640,26 @@ export function PublicPortalPage() {
                           </p>
                         </div>
 
-                        <div className="flex items-center justify-between border-t border-slate-200/60 pt-3">
-                          <span className="text-[11px] font-bold text-teal-900 flex items-center gap-1">
-                            <Ticket className="w-3.5 h-3.5" /> Terbuka untuk Ikhwan & Akhwat
-                          </span>
+                        <div className="flex items-center justify-between border-t border-slate-200/60 pt-3 flex-wrap gap-2">
+                          <div className="flex items-center gap-3">
+                            <span className="text-[11px] font-bold text-teal-900 flex items-center gap-1">
+                              <Ticket className="w-3.5 h-3.5" />
+                              {ev.targetAudience === 'akhwat_only'
+                                ? 'Khusus Akhwat'
+                                : ev.targetAudience === 'ikhwan_only'
+                                ? 'Khusus Ikhwan'
+                                : 'Terbuka Ikhwan & Akhwat'}
+                            </span>
+                            <Link
+                              to={`/kajian/${ev.id}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-[11px] font-bold text-teal-700 hover:text-teal-900 flex items-center gap-1 hover:underline"
+                              title="Buka formulir lengkap / rombongan keluarga"
+                            >
+                              <span>Formulir Lengkap</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </Link>
+                          </div>
                           {ev.isRegularFull || (ev.quota && (ev.regularCount ?? ev.attendanceCount ?? 0) >= ev.quota) ? (
                             <span className="text-xs font-bold px-3 py-1 rounded-xl bg-amber-100 text-amber-900 border border-amber-200">
                               ⚠️ Kuota Penuh
@@ -638,109 +715,185 @@ export function PublicPortalPage() {
                   </div>
                 ) : (
                   <form onSubmit={handleSubmitEventRegistration} className="space-y-4">
-                  {/* Full Name */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Nama Lengkap Jamaah *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Contoh: Abdullah bin Fulan"
-                      value={regFullName}
-                      onChange={(e) => setRegFullName(e.target.value)}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                    />
-                  </div>
+                    {/* Event Notices: Min Age or Paid */}
+                    {selectedEvent.minAge && selectedEvent.minAge > 0 ? (
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 flex items-start gap-2.5">
+                        <Sparkles className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-bold">Ketentuan Batas Usia Peserta</p>
+                          <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
+                            Kajian ini mensyaratkan usia peserta minimal <strong>{selectedEvent.minAge} tahun</strong>. Silakan isi kolom usia dengan benar.
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
 
-                  {/* Gender Selector */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Kategori Jamaah *</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setRegGender('ikhwan')}
-                        className={`p-2.5 rounded-xl border text-xs font-bold text-center transition-all ${
-                          regGender === 'ikhwan'
-                            ? 'bg-teal-50 border-teal-600 text-teal-900 ring-1 ring-teal-500/30'
-                            : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                        }`}
-                      >
-                        Ikhwan (Laki-laki)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setRegGender('akhwat')}
-                        className={`p-2.5 rounded-xl border text-xs font-bold text-center transition-all ${
-                          regGender === 'akhwat'
-                            ? 'bg-teal-50 border-teal-600 text-teal-900 ring-1 ring-teal-500/30'
-                            : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                        }`}
-                      >
-                        Akhwat (Perempuan)
-                      </button>
-                    </div>
-                  </div>
+                    {selectedEvent.isPaid && selectedEvent.priceRupiah && selectedEvent.priceRupiah > 0 ? (
+                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-2xl text-xs text-blue-900 flex items-start gap-2.5">
+                        <Receipt className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-bold">Infaq Kajian Khusus: {formatRupiah(selectedEvent.priceRupiah)}</p>
+                          <p className="text-[11px] text-blue-800 mt-0.5 leading-relaxed">
+                            Untuk mengunggah bukti transfer infaq, pendaftaran rombongan keluarga, atau reservasi fasilitas parkir, silakan gunakan{' '}
+                            <Link to={`/kajian/${selectedEvent.id}`} className="font-bold underline hover:text-blue-950">
+                              Formulir Lengkap Kajian ini →
+                            </Link>
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
 
-                  {/* WhatsApp Phone */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Nomor WhatsApp Aktif * <span className="text-[10px] font-normal text-slate-400">(Untuk kirim E-Tiket & Reminder)</span>
-                    </label>
-                    <input
-                      type="tel"
-                      required
-                      placeholder="Contoh: 081234567890"
-                      value={regPhone}
-                      onChange={(e) => setRegPhone(e.target.value)}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none font-mono"
-                    />
-                  </div>
-
-                  {/* City with Auto-Suggest */}
-                  <div className="space-y-3">
+                    {/* Full Name */}
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        Kota / Domisili * <span className="font-normal text-slate-400 text-[10px]">(Ketik untuk saran otomatis)</span>
-                      </label>
-                      <CitySuggestInput
-                        required
-                        placeholder="Ketik kota/kabupaten domisili (cth: Bandung, Cimahi, Jakarta...)"
-                        value={regCity}
-                        onChange={(val) => setRegCity(val)}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Email <span className="text-[10px] font-normal text-slate-400">(Opsional)</span></label>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Nama Lengkap Jamaah *</label>
                       <input
-                        type="email"
-                        placeholder="email@anda.com"
-                        value={regEmail}
-                        onChange={(e) => setRegEmail(e.target.value)}
+                        type="text"
+                        required
+                        placeholder="Contoh: Abdullah bin Fulan"
+                        value={regFullName}
+                        onChange={(e) => setRegFullName(e.target.value)}
                         className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
                       />
                     </div>
-                  </div>
 
-                  {/* Notes / Questions */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Pertanyaan untuk Pemateri / Catatan</label>
-                    <textarea
-                      rows={2}
-                      placeholder="Tuliskan pertanyaan materi atau catatan kehadiran..."
-                      value={regNotes}
-                      onChange={(e) => setRegNotes(e.target.value)}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                    />
-                  </div>
+                    {/* Gender Selector */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Kategori Jamaah *
+                        {selectedEvent.targetAudience === 'akhwat_only' && (
+                          <span className="text-[10px] text-rose-600 font-bold ml-1.5">(Kajian Khusus Akhwat)</span>
+                        )}
+                        {selectedEvent.targetAudience === 'ikhwan_only' && (
+                          <span className="text-[10px] text-indigo-600 font-bold ml-1.5">(Kajian Khusus Ikhwan)</span>
+                        )}
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          disabled={selectedEvent.targetAudience === 'akhwat_only'}
+                          onClick={() => setRegGender('ikhwan')}
+                          className={`p-2.5 rounded-xl border text-xs font-bold text-center transition-all ${
+                            regGender === 'ikhwan'
+                              ? 'bg-teal-50 border-teal-600 text-teal-900 ring-1 ring-teal-500/30'
+                              : selectedEvent.targetAudience === 'akhwat_only'
+                              ? 'opacity-40 cursor-not-allowed border-slate-200 text-slate-400 bg-slate-50'
+                              : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          Ikhwan (Laki-laki)
+                        </button>
+                        <button
+                          type="button"
+                          disabled={selectedEvent.targetAudience === 'ikhwan_only'}
+                          onClick={() => setRegGender('akhwat')}
+                          className={`p-2.5 rounded-xl border text-xs font-bold text-center transition-all ${
+                            regGender === 'akhwat'
+                              ? 'bg-teal-50 border-teal-600 text-teal-900 ring-1 ring-teal-500/30'
+                              : selectedEvent.targetAudience === 'ikhwan_only'
+                              ? 'opacity-40 cursor-not-allowed border-slate-200 text-slate-400 bg-slate-50'
+                              : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          Akhwat (Perempuan)
+                        </button>
+                      </div>
+                    </div>
 
-                  <button
-                    type="submit"
-                    disabled={submittingEvent}
-                    className="w-full py-3 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
-                  >
-                    <Ticket className="w-4 h-4" />
-                    {submittingEvent ? 'Memproses Pendaftaran...' : 'Dapatkan E-Tiket Kajian Sekarang'}
-                  </button>
-                </form>
+                    {/* Age Input */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Usia Jamaah{' '}
+                        {selectedEvent.minAge && selectedEvent.minAge > 0 ? (
+                          <span className="text-amber-700 font-bold">* (Wajib, Min. {selectedEvent.minAge} tahun)</span>
+                        ) : (
+                          <span className="text-[10px] font-normal text-slate-400">(Tahun, Opsional)</span>
+                        )}
+                      </label>
+                      <input
+                        type="number"
+                        min={selectedEvent.minAge && selectedEvent.minAge > 0 ? selectedEvent.minAge : 1}
+                        max={120}
+                        required={Boolean(selectedEvent.minAge && selectedEvent.minAge > 0)}
+                        placeholder={selectedEvent.minAge && selectedEvent.minAge > 0 ? `Minimal ${selectedEvent.minAge} tahun` : 'Contoh: 28'}
+                        value={regAge}
+                        onChange={(e) => setRegAge(e.target.value)}
+                        className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      />
+                    </div>
+
+                    {/* WhatsApp Phone */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Nomor WhatsApp Aktif * <span className="text-[10px] font-normal text-slate-400">(Untuk kirim E-Tiket & Reminder)</span>
+                      </label>
+                      <input
+                        type="tel"
+                        required
+                        placeholder="Contoh: 081234567890"
+                        value={regPhone}
+                        onChange={(e) => setRegPhone(e.target.value)}
+                        className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none font-mono"
+                      />
+                    </div>
+
+                    {/* City with Auto-Suggest */}
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Kota / Domisili * <span className="font-normal text-slate-400 text-[10px]">(Ketik untuk saran otomatis)</span>
+                        </label>
+                        <CitySuggestInput
+                          required
+                          placeholder="Ketik kota/kabupaten domisili (cth: Bandung, Cimahi, Jakarta...)"
+                          value={regCity}
+                          onChange={(val) => setRegCity(val)}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Email <span className="text-[10px] font-normal text-slate-400">(Opsional)</span></label>
+                        <input
+                          type="email"
+                          placeholder="email@anda.com"
+                          value={regEmail}
+                          onChange={(e) => setRegEmail(e.target.value)}
+                          className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Notes / Questions */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Pertanyaan untuk Pemateri / Catatan</label>
+                      <textarea
+                        rows={2}
+                        placeholder="Tuliskan pertanyaan materi atau catatan kehadiran..."
+                        value={regNotes}
+                        onChange={(e) => setRegNotes(e.target.value)}
+                        className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={submittingEvent}
+                      className="w-full py-3 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50 cursor-pointer"
+                    >
+                      <Ticket className="w-4 h-4" />
+                      {submittingEvent ? 'Memproses Pendaftaran...' : 'Dapatkan E-Tiket Kajian Sekarang'}
+                    </button>
+
+                    {/* Footer helper for family / full registration */}
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+                      <span className="text-slate-500 text-[11px]">Daftar rombongan keluarga?</span>
+                      <Link
+                        to={`/kajian/${selectedEvent.id}`}
+                        className="font-bold text-teal-700 hover:text-teal-900 flex items-center gap-1 text-[11px] hover:underline"
+                      >
+                        <Users className="w-3.5 h-3.5" />
+                        <span>Formulir Lengkap &amp; Rombongan →</span>
+                      </Link>
+                    </div>
+                  </form>
                 )}
               </div>
             </div>
@@ -1349,6 +1502,7 @@ export function PublicPortalPage() {
                 onClick={() => {
                   setEventSuccess(null);
                   setRegNotes('');
+                  setRegAge('');
                   setCopiedTicketText(false);
                 }}
                 className="w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl shadow-xs active:scale-95 cursor-pointer"
