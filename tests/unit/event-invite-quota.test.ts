@@ -278,4 +278,104 @@ describe('Dual-Track Quota (Regular & Undangan VIP) & WhatsApp Ticket Feature', 
     expect(json.data.waText).toContain('KODE E-TIKET PRESENSI');
     expect(json.data.isSpecialInvite).toBe(true);
   });
+
+  it('6. PUT /api/events/:id updates and persists quotaInvite, quotaInviteIkhwan, and quotaInviteAkhwat', async () => {
+    let capturedUpdatePayload: any = null;
+    const mockDb = {
+      query: {
+        events: {
+          findFirst: vi.fn().mockResolvedValue(mockEvent),
+        },
+      },
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockImplementation((payload) => {
+          capturedUpdatePayload = payload;
+          return {
+            where: vi.fn().mockReturnValue({
+              returning: vi.fn().mockResolvedValue([
+                {
+                  ...mockEvent,
+                  ...payload,
+                },
+              ]),
+            }),
+          };
+        }),
+      }),
+    };
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      method: 'PUT',
+      path: `/api/events/${mockEvent.id}`,
+      headers: { 'content-type': 'application/json' },
+      query: {},
+      params: { id: mockEvent.id },
+      user: mockAdminUser,
+      body: {
+        quotaInvite: 50,
+        quotaInviteIkhwan: 25,
+        quotaInviteAkhwat: 25,
+      },
+    } as any);
+
+    expect(res.statusCode).toBe(200);
+    expect(capturedUpdatePayload).toBeDefined();
+    expect(capturedUpdatePayload.quotaInvite).toBe(50);
+    expect(capturedUpdatePayload.quotaInviteIkhwan).toBe(25);
+    expect(capturedUpdatePayload.quotaInviteAkhwat).toBe(25);
+    const json = JSON.parse(res.body);
+    expect(json.data.quotaInvite).toBe(50);
+    expect(json.data.quotaInviteIkhwan).toBe(25);
+    expect(json.data.quotaInviteAkhwat).toBe(25);
+  });
+
+  it('7. POST /api/events creates event and persists quotaInvite, quotaInviteIkhwan, and quotaInviteAkhwat', async () => {
+    let capturedInsertValues: any = null;
+    const mockDb = {
+      insert: vi.fn().mockReturnValue({
+        values: vi.fn().mockImplementation((values) => {
+          capturedInsertValues = values;
+          return {
+            returning: vi.fn().mockResolvedValue([
+              {
+                id: 'new-event-1',
+                ...values,
+              },
+            ]),
+          };
+        }),
+      }),
+    };
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      method: 'POST',
+      path: '/api/events',
+      headers: { 'content-type': 'application/json' },
+      query: {},
+      params: {},
+      user: mockAdminUser,
+      body: {
+        title: 'Kajian Baru VIP',
+        category: 'Tematik',
+        speaker: 'Ustadz Pembicara',
+        startAt: new Date(Date.now() + 86400000).toISOString(),
+        deliveryMode: 'offline',
+        quotaInvite: 100,
+        quotaInviteIkhwan: 60,
+        quotaInviteAkhwat: 40,
+      },
+    } as any);
+
+    expect(res.statusCode).toBe(201);
+    expect(capturedInsertValues).toBeDefined();
+    expect(capturedInsertValues.quotaInvite).toBe(100);
+    expect(capturedInsertValues.quotaInviteIkhwan).toBe(60);
+    expect(capturedInsertValues.quotaInviteAkhwat).toBe(40);
+    const json = JSON.parse(res.body);
+    expect(json.data.quotaInvite).toBe(100);
+    expect(json.data.quotaInviteIkhwan).toBe(60);
+    expect(json.data.quotaInviteAkhwat).toBe(40);
+  });
 });

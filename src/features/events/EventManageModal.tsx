@@ -1794,6 +1794,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                       <label className="block text-xs font-bold text-emerald-950 mb-1">Total Kuota Undangan</label>
                       <input
                         type="number"
+                        min="0"
                         placeholder="Misal: 50"
                         value={quotaInvite}
                         onChange={(e) => setQuotaInvite(e.target.value === '' ? '' : Number(e.target.value))}
@@ -1805,6 +1806,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                       <label className="block text-xs font-bold text-teal-800 mb-1">Undangan Ikhwan</label>
                       <input
                         type="number"
+                        min="0"
                         placeholder="Misal: 25"
                         value={quotaInviteIkhwan}
                         onChange={(e) => setQuotaInviteIkhwan(e.target.value === '' ? '' : Number(e.target.value))}
@@ -1816,6 +1818,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                       <label className="block text-xs font-bold text-rose-800 mb-1">Undangan Akhwat</label>
                       <input
                         type="number"
+                        min="0"
                         placeholder="Misal: 25"
                         value={quotaInviteAkhwat}
                         onChange={(e) => setQuotaInviteAkhwat(e.target.value === '' ? '' : Number(e.target.value))}

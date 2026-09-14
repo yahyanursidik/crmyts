@@ -40,17 +40,17 @@ const createEventSchema = z.object({
   // Segmentation & Quota
   targetAudience: z.enum(['umum', 'ikhwan_only', 'akhwat_only', 'anak', 'itikaf_ramadan']).default('umum'),
   minAge: z.number().int().min(1, 'Usia minimal setidaknya 1 tahun').max(120, 'Usia minimal tidak valid').optional().nullable(),
-  quota: z.number().int().positive().optional().nullable(),
-  quotaIkhwan: z.number().int().positive().optional().nullable(),
-  quotaAkhwat: z.number().int().positive().optional().nullable(),
-  quotaInvite: z.number().int().positive().optional().nullable(),
-  quotaInviteIkhwan: z.number().int().positive().optional().nullable(),
-  quotaInviteAkhwat: z.number().int().positive().optional().nullable(),
+  quota: z.number().int().min(0).optional().nullable(),
+  quotaIkhwan: z.number().int().min(0).optional().nullable(),
+  quotaAkhwat: z.number().int().min(0).optional().nullable(),
+  quotaInvite: z.number().int().min(0).optional().nullable(),
+  quotaInviteIkhwan: z.number().int().min(0).optional().nullable(),
+  quotaInviteAkhwat: z.number().int().min(0).optional().nullable(),
   isRegistrationOpen: z.boolean().default(true),
   
   // Logistics & Rules
-  carParkingQuota: z.number().int().positive().optional().nullable(),
-  motorcycleParkingQuota: z.number().int().positive().optional().nullable(),
+  carParkingQuota: z.number().int().min(0).optional().nullable(),
+  motorcycleParkingQuota: z.number().int().min(0).optional().nullable(),
   venueRules: z.array(z.string()).optional().nullable(),
   customVenueRules: z.string().optional().nullable(),
   
@@ -349,13 +349,16 @@ export function registerEventsRoutes(router: Router) {
 
             targetAudience: body.targetAudience || 'umum',
             minAge: body.minAge !== undefined ? body.minAge : null,
-            quota: body.quota || null,
-            quotaIkhwan: body.quotaIkhwan || null,
-            quotaAkhwat: body.quotaAkhwat || null,
+            quota: body.quota ? body.quota : null,
+            quotaIkhwan: body.quotaIkhwan ? body.quotaIkhwan : null,
+            quotaAkhwat: body.quotaAkhwat ? body.quotaAkhwat : null,
+            quotaInvite: body.quotaInvite ? body.quotaInvite : null,
+            quotaInviteIkhwan: body.quotaInviteIkhwan ? body.quotaInviteIkhwan : null,
+            quotaInviteAkhwat: body.quotaInviteAkhwat ? body.quotaInviteAkhwat : null,
             isRegistrationOpen: body.isRegistrationOpen !== false,
             
-            carParkingQuota: body.carParkingQuota || null,
-            motorcycleParkingQuota: body.motorcycleParkingQuota || null,
+            carParkingQuota: body.carParkingQuota ? body.carParkingQuota : null,
+            motorcycleParkingQuota: body.motorcycleParkingQuota ? body.motorcycleParkingQuota : null,
             venueRules: body.venueRules || [],
             customVenueRules: body.customVenueRules || null,
             
@@ -416,13 +419,16 @@ export function registerEventsRoutes(router: Router) {
 
         if (body.targetAudience !== undefined) updatePayload.targetAudience = body.targetAudience;
         if (body.minAge !== undefined) updatePayload.minAge = body.minAge;
-        if (body.quota !== undefined) updatePayload.quota = body.quota;
-        if (body.quotaIkhwan !== undefined) updatePayload.quotaIkhwan = body.quotaIkhwan;
-        if (body.quotaAkhwat !== undefined) updatePayload.quotaAkhwat = body.quotaAkhwat;
+        if (body.quota !== undefined) updatePayload.quota = body.quota ? body.quota : null;
+        if (body.quotaIkhwan !== undefined) updatePayload.quotaIkhwan = body.quotaIkhwan ? body.quotaIkhwan : null;
+        if (body.quotaAkhwat !== undefined) updatePayload.quotaAkhwat = body.quotaAkhwat ? body.quotaAkhwat : null;
+        if (body.quotaInvite !== undefined) updatePayload.quotaInvite = body.quotaInvite ? body.quotaInvite : null;
+        if (body.quotaInviteIkhwan !== undefined) updatePayload.quotaInviteIkhwan = body.quotaInviteIkhwan ? body.quotaInviteIkhwan : null;
+        if (body.quotaInviteAkhwat !== undefined) updatePayload.quotaInviteAkhwat = body.quotaInviteAkhwat ? body.quotaInviteAkhwat : null;
         if (body.isRegistrationOpen !== undefined) updatePayload.isRegistrationOpen = body.isRegistrationOpen;
         
-        if (body.carParkingQuota !== undefined) updatePayload.carParkingQuota = body.carParkingQuota;
-        if (body.motorcycleParkingQuota !== undefined) updatePayload.motorcycleParkingQuota = body.motorcycleParkingQuota;
+        if (body.carParkingQuota !== undefined) updatePayload.carParkingQuota = body.carParkingQuota ? body.carParkingQuota : null;
+        if (body.motorcycleParkingQuota !== undefined) updatePayload.motorcycleParkingQuota = body.motorcycleParkingQuota ? body.motorcycleParkingQuota : null;
         if (body.venueRules !== undefined) updatePayload.venueRules = body.venueRules;
         if (body.customVenueRules !== undefined) updatePayload.customVenueRules = body.customVenueRules;
         
