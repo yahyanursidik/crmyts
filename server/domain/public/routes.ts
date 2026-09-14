@@ -1394,8 +1394,8 @@ export function registerPublicPortalRoutes(router: Router) {
   // 5. POST /api/public/participant-ticket (Portal peserta; nomor WA menjadi verifikasi kepemilikan tiket)
   const participantTicketSchema = z.object({
     eventId: z.string().uuid('Event tidak valid').optional().nullable(),
-    ticketCode: z.string().min(4, 'Kode peserta wajib diisi'),
-    phone: z.string().min(8, 'Nomor WhatsApp wajib diisi'),
+    ticketCode: z.string().min(3, 'Kode tiket wajib diisi'),
+    phone: z.string().optional().nullable(),
   });
 
   router.post(
@@ -1403,7 +1403,6 @@ export function registerPublicPortalRoutes(router: Router) {
     validateBody(participantTicketSchema, async (ctx, body) => {
       const db = getDb();
       const ticketCode = extractTicketCode(body.ticketCode);
-      const phoneE164 = normalizeIndonesianPhone(body.phone);
       const rawCode = body.ticketCode.trim().toUpperCase();
 
       const codeCandidates = [rawCode];
@@ -1439,21 +1438,25 @@ export function registerPublicPortalRoutes(router: Router) {
         return errorResponse('NOT_FOUND', 'Tiket atau nomor WhatsApp tidak sesuai.', 404, ctx.requestId);
       }
 
-      // Validasi kepemilikan nomor telepon (mendukung nomor utama pendaftar rombongan):
-      let isPhoneAuthorized =
-        attendance.person?.phoneE164 === phoneE164 ||
-        Boolean(attendance.person?.phoneE164?.startsWith(`${phoneE164}-fam-`));
+      // Validasi kepemilikan nomor telepon jika nomor diinput:
+      let isPhoneAuthorized = true;
+      if (body.phone && body.phone.trim().length >= 8) {
+        const phoneE164 = normalizeIndonesianPhone(body.phone);
+        isPhoneAuthorized =
+          attendance.person?.phoneE164 === phoneE164 ||
+          Boolean(attendance.person?.phoneE164?.startsWith(`${phoneE164}-fam-`));
 
-      if (!isPhoneAuthorized && attendance.registrationGroupId) {
-        const groupParentAttendance = await db.query.eventAttendance.findFirst({
-          where: eq(eventAttendance.registrationGroupId, attendance.registrationGroupId),
-          with: { person: true },
-        });
-        if (
-          groupParentAttendance?.person?.phoneE164 === phoneE164 ||
-          Boolean(groupParentAttendance?.person?.phoneE164?.startsWith(`${phoneE164}-fam-`))
-        ) {
-          isPhoneAuthorized = true;
+        if (!isPhoneAuthorized && attendance.registrationGroupId) {
+          const groupParentAttendance = await db.query.eventAttendance.findFirst({
+            where: eq(eventAttendance.registrationGroupId, attendance.registrationGroupId),
+            with: { person: true },
+          });
+          if (
+            groupParentAttendance?.person?.phoneE164 === phoneE164 ||
+            Boolean(groupParentAttendance?.person?.phoneE164?.startsWith(`${phoneE164}-fam-`))
+          ) {
+            isPhoneAuthorized = true;
+          }
         }
       }
 
@@ -1529,53 +1532,119 @@ export function registerPublicPortalRoutes(router: Router) {
   );
 
   // 5b. POST /api/public/participant/my-events (Smart Jamaah Hub: Memuat seluruh kajian aktif & riwayat jamaah secara mandiri tanpa password)
-  const participantMyEventsSchema = z.object({
-    phone: z.string().min(8, 'Nomor WhatsApp wajib diisi'),
-    ticketCode: z.string().optional().nullable(),
-  });
+  const participantMyEventsSchema = z
+    .object({
+      phone: z.string().optional().nullable(),
+      ticketCode: z.string().optional().nullable(),
+    })
+    .refine(
+      (data) => {
+        const hasPhone = Boolean(data.phone && data.phone.trim().length >= 8);
+        const hasTicket = Boolean(data.ticketCode && data.ticketCode.trim().length >= 3);
+        return hasPhone || hasTicket;
+      },
+      {
+        message: 'Masukkan nomor WhatsApp terdaftar atau kode tiket pendaftaran Anda.',
+      }
+    );
 
   router.post(
     '/api/public/participant/my-events',
     validateBody(participantMyEventsSchema, async (ctx, body) => {
       const db = getDb();
-      const phoneE164 = normalizeIndonesianPhone(body.phone);
+      const hasPhone = Boolean(body.phone && body.phone.trim().length >= 8);
+      const hasTicket = Boolean(body.ticketCode && body.ticketCode.trim().length >= 3);
+      const phoneE164 = hasPhone ? normalizeIndonesianPhone(body.phone!) : '';
 
-      // 1. Cari data person berdasarkan nomor WhatsApp yang terdaftar
-      let person = await db.query.persons.findFirst({
-        where: eq(persons.phoneE164, phoneE164),
-      });
+      let person: any = null;
+      let matchedAttendance: any = null;
 
-      // Jika tidak ditemukan dan ada ticketCode, cari attendance berdasarkan ticketCode
-      if (!person && body.ticketCode) {
-        const cleanTicket = extractTicketCode(body.ticketCode);
-        const rawCode = body.ticketCode.trim().toUpperCase();
-        const attByTicket = await db.query.eventAttendance.findFirst({
+      // Skenario 1: Jika ada ticketCode yang diinput
+      if (hasTicket) {
+        const rawCode = body.ticketCode!.trim().toUpperCase();
+        const cleanTicket = extractTicketCode(rawCode);
+        const codeCandidates = [rawCode];
+        if (cleanTicket && !codeCandidates.includes(cleanTicket)) {
+          codeCandidates.push(cleanTicket);
+        }
+        if (/^\d{4,6}$/.test(rawCode)) {
+          codeCandidates.push(`YTS-${rawCode}`, `TIKET-${rawCode}`);
+        }
+
+        matchedAttendance = await db.query.eventAttendance.findFirst({
           where: or(
+            inArray(eventAttendance.ticketCode, codeCandidates),
             eq(eventAttendance.ticketCode, cleanTicket),
             eq(eventAttendance.ticketCode, rawCode)
           ),
-          with: { person: true },
+          with: { person: true, event: true },
         });
-        if (attByTicket?.person) {
-          const memberPhone = attByTicket.person.phoneE164 || '';
-          if (memberPhone === phoneE164 || memberPhone.startsWith(`${phoneE164}-fam-`)) {
-            person = attByTicket.person;
-          } else if (attByTicket.registrationGroupId) {
-            const parentAtt = await db.query.eventAttendance.findFirst({
-              where: eq(eventAttendance.registrationGroupId, attByTicket.registrationGroupId),
-              with: { person: true },
-            });
-            if (parentAtt?.person?.phoneE164 === phoneE164) {
-              person = parentAtt.person;
+
+        if (matchedAttendance?.person) {
+          if (hasPhone) {
+            // Jika nomor WA juga diinput, verifikasi kesesuaian nomor
+            const memberPhone = matchedAttendance.person.phoneE164 || '';
+            const isDirectMatch = memberPhone === phoneE164 || memberPhone.startsWith(`${phoneE164}-fam-`);
+            let isGroupMatch = false;
+
+            if (!isDirectMatch && matchedAttendance.registrationGroupId) {
+              const parentAtt = await db.query.eventAttendance.findFirst({
+                where: eq(eventAttendance.registrationGroupId, matchedAttendance.registrationGroupId),
+                with: { person: true },
+              });
+              if (
+                parentAtt?.person?.phoneE164 === phoneE164 ||
+                Boolean(parentAtt?.person?.phoneE164?.startsWith(`${phoneE164}-fam-`))
+              ) {
+                isGroupMatch = true;
+              }
             }
+
+            if (isDirectMatch || isGroupMatch) {
+              person = matchedAttendance.person;
+            } else {
+              // Jika kombinasi tidak cocok, coba cari person berdasarkan nomor WA
+              const personByPhone = await db.query.persons.findFirst({
+                where: eq(persons.phoneE164, phoneE164),
+              });
+              if (personByPhone) {
+                person = personByPhone;
+              } else {
+                return errorResponse(
+                  'NOT_FOUND',
+                  'Kombinasi nomor WhatsApp dan kode tiket tidak sesuai dengan data pendaftaran.',
+                  404,
+                  ctx.requestId
+                );
+              }
+            }
+          } else {
+            // Cukup dengan kode tiket saja: langsung gunakan person dari tiket
+            person = matchedAttendance.person;
           }
+        } else if (!hasPhone) {
+          return errorResponse(
+            'NOT_FOUND',
+            `Data pendaftaran dengan kode tiket "${rawCode}" tidak ditemukan. Pastikan kode tiket atau nomor tiket sesuai (contoh: YTS-1048 atau 1048).`,
+            404,
+            ctx.requestId
+          );
         }
+      }
+
+      // Skenario 2: Jika person belum ditemukan dan ada nomor WhatsApp
+      if (!person && hasPhone) {
+        person = await db.query.persons.findFirst({
+          where: eq(persons.phoneE164, phoneE164),
+        });
       }
 
       if (!person) {
         return errorResponse(
           'NOT_FOUND',
-          'Data pendaftar dengan nomor WhatsApp tersebut tidak ditemukan. Pastikan nomor sesuai saat mendaftar kajian.',
+          hasTicket
+            ? 'Data pendaftar dengan kode tiket atau nomor WhatsApp tersebut tidak ditemukan.'
+            : 'Data pendaftar dengan nomor WhatsApp tersebut tidak ditemukan. Pastikan nomor sesuai saat mendaftar kajian.',
           404,
           ctx.requestId
         );
@@ -1769,15 +1838,35 @@ export function registerPublicPortalRoutes(router: Router) {
         }
       }
 
-      // Urutkan upcoming: yang terdekat pelaksanaannya berada di paling atas
-      upcoming.sort((a, b) => new Date(a.event.startAt).getTime() - new Date(b.event.startAt).getTime());
+      // Urutkan upcoming: jika dicari menggunakan kode tiket, prioritaskan tiket tersebut di paling atas
+      if (matchedAttendance) {
+        upcoming.sort((a, b) => {
+          if (a.attendanceId === matchedAttendance.id) return -1;
+          if (b.attendanceId === matchedAttendance.id) return 1;
+          return new Date(a.event.startAt).getTime() - new Date(b.event.startAt).getTime();
+        });
+        history.sort((a, b) => {
+          if (a.attendanceId === matchedAttendance.id) return -1;
+          if (b.attendanceId === matchedAttendance.id) return 1;
+          return new Date(b.event.startAt).getTime() - new Date(a.event.startAt).getTime();
+        });
+      } else {
+        upcoming.sort((a, b) => new Date(a.event.startAt).getTime() - new Date(b.event.startAt).getTime());
+      }
 
       // Masked phone: e.g. "0812 •••• 7890"
-      const rawPhone = body.phone.trim();
+      const rawPhone = (hasPhone && body.phone ? body.phone.trim() : '') || person.phoneE164 || '';
       const maskedPhone =
         rawPhone.length > 7
           ? `${rawPhone.slice(0, 4)} •••• ${rawPhone.slice(-4)}`
-          : rawPhone;
+          : rawPhone ? '••••••••' : '-';
+
+      // Mask email jika pencarian hanya dengan kode tiket demi privasi
+      const maskedEmail = person.email
+        ? !hasPhone
+          ? person.email.replace(/^(..)(.*)(@.*)$/, (_: string, a: string, _b: string, c: string) => `${a}••••${c}`)
+          : person.email
+        : null;
 
       // Calculate attendance history & loyalty metrics
       const attendedCount = attendances.filter((a) => a.status === 'attended').length;
@@ -1790,7 +1879,7 @@ export function registerPublicPortalRoutes(router: Router) {
             fullName: person.fullName,
             gender: person.gender,
             phoneMasked: maskedPhone,
-            email: person.email || null,
+            email: maskedEmail,
             cityRegency: person.cityRegency,
           },
           upcomingCount: upcoming.length,

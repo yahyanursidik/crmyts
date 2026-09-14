@@ -1472,6 +1472,89 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
     expect(body.data.person.email).toBe('hendro@example.com');
   });
 
+  it('POST /api/public/participant/my-events retrieves events by ticketCode alone with masked email and phone', async () => {
+    const mockPerson = {
+      id: 'person_code_only_01',
+      fullName: 'Ahmad Dahlan',
+      phoneE164: '+6281234567890',
+      email: 'ahmad.dahlan@example.com',
+      gender: 'ikhwan',
+      cityRegency: 'Bandung',
+    };
+
+    const mockAttendance = {
+      id: 'att_ticket_only_01',
+      ticketCode: 'YTS-1048',
+      status: 'registered',
+      checkInAt: new Date().toISOString(),
+      registrationGroupId: null,
+      personId: mockPerson.id,
+      person: mockPerson,
+      event: {
+        id: 'ev_future_1048',
+        title: 'Kajian Tauhid Tematik',
+        speaker: 'Ustadz Fulan, Lc.',
+        startAt: new Date(Date.now() + 86400000).toISOString(),
+        status: 'scheduled',
+        deliveryMode: 'offline',
+        locationName: 'Masjid Tarbiyah Sunnah',
+      },
+    };
+
+    const mockDb = {
+      query: {
+        eventAttendance: {
+          findFirst: vi.fn().mockResolvedValue(mockAttendance),
+          findMany: vi.fn().mockResolvedValue([mockAttendance]),
+        },
+      },
+    };
+
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    // Test with bare 4-digit code '1048'
+    const res = await router.handle({
+      path: '/api/public/participant/my-events',
+      method: 'POST',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        ticketCode: '1048',
+      },
+      requestId: 'req_ticket_code_only_test',
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.data.person.fullName).toBe('Ahmad Dahlan');
+    // Verify sensitive data masking for privacy when queried by ticket code only
+    expect(body.data.person.phoneMasked).toContain('•');
+    expect(body.data.person.phoneMasked).not.toBe('+6281234567890');
+    expect(body.data.person.email).toContain('•');
+    expect(body.data.person.email).not.toBe('ahmad.dahlan@example.com');
+    expect(body.data.person.email).toContain('@example.com');
+    expect(body.data.upcomingCount).toBe(1);
+    expect(body.data.upcoming[0].ticketCode).toBe('YTS-1048');
+  });
+
+  it('POST /api/public/participant/my-events rejects when neither phone nor ticketCode is provided', async () => {
+    const res = await router.handle({
+      path: '/api/public/participant/my-events',
+      method: 'POST',
+      headers: {},
+      query: {},
+      params: {},
+      body: {},
+      requestId: 'req_empty_query_test',
+    });
+
+    expect(res.statusCode).toBe(400);
+    const body = JSON.parse(res.body);
+    expect(body.error.code).toBe('VALIDATION_ERROR');
+    expect(JSON.stringify(body.error.details)).toContain('Masukkan nomor WhatsApp terdaftar atau kode tiket');
+  });
+
   describe('Public Gate Scanner Endpoints (No Login Required)', () => {
     it('GET /api/public/gate/events returns active and scheduled events for gate picker', async () => {
       const mockEvents = [

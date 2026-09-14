@@ -106,4 +106,56 @@ describe('Participant ticket portal and memorable participant codes', () => {
     expect(rejected.statusCode).toBe(404);
     expect(JSON.parse(rejected.body).error.message).toBe('Tiket atau nomor WhatsApp tidak sesuai.');
   });
+
+  it('allows retrieving ticket with ticketCode alone without providing phone', async () => {
+    const router = new Router();
+    registerPublicPortalRoutes(router);
+
+    const attendance = {
+      id: '018f0000-0000-0000-0000-000000000014',
+      eventId: '018f0000-0000-0000-0000-000000000015',
+      ticketCode: 'YTS-1048',
+      status: 'registered',
+      checkInAt: new Date('2026-09-10T01:00:00.000Z'),
+      paymentStatus: 'free',
+      person: {
+        fullName: 'Abu Fulan',
+        phoneE164: '+6281234567890',
+        gender: 'ikhwan',
+      },
+    };
+    const event = {
+      id: attendance.eventId,
+      title: 'Kajian Adab Penuntut Ilmu',
+      speaker: 'Ustadz Fulan',
+      startAt: new Date('2026-09-12T01:00:00.000Z'),
+      deliveryMode: 'offline',
+      locationName: 'Masjid YTS',
+    };
+    const mockDb = {
+      query: {
+        eventAttendance: { findFirst: vi.fn().mockResolvedValue(attendance) },
+        events: { findFirst: vi.fn().mockResolvedValue(event) },
+      },
+    };
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const response = await router.handle({
+      requestId: 'participant_ticket_no_phone',
+      method: 'POST',
+      path: '/api/public/participant-ticket',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        eventId: attendance.eventId,
+        ticketCode: '1048',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.data.participant.ticketCode).toBe('YTS-1048');
+    expect(body.data.participant.name).toBe('Abu Fulan');
+  });
 });

@@ -134,7 +134,11 @@ export function ParticipantPortalPage() {
   const [ticketInput, setTicketInput] = useState(() => {
     return searchParams.get('ticket') || '';
   });
-  const [lookupMode, setLookupMode] = useState<'phone_all' | 'specific_ticket'>('phone_all');
+  const [lookupMode, setLookupMode] = useState<'ticket_only' | 'phone_all' | 'specific_ticket'>(() => {
+    if (searchParams.get('ticket')) return 'ticket_only';
+    if (searchParams.get('phone') || localStorage.getItem(STORAGE_KEY_PHONE)) return 'phone_all';
+    return 'ticket_only';
+  });
 
   // Hub data state
   const [hubData, setHubData] = useState<MyEventsResponse | null>(null);
@@ -155,13 +159,24 @@ export function ParticipantPortalPage() {
     const savedPhone = localStorage.getItem(STORAGE_KEY_PHONE);
 
     if (urlTicket) {
-      setTicketInput(extractTicketCode(urlTicket));
-      setLookupMode('specific_ticket');
+      const cleanTicket = extractTicketCode(urlTicket);
+      setTicketInput(cleanTicket);
+      if (urlPhone) {
+        setLookupMode('specific_ticket');
+        setPhoneInput(urlPhone);
+        fetchMyEvents(urlPhone, cleanTicket);
+      } else {
+        setLookupMode('ticket_only');
+        fetchMyEvents(undefined, cleanTicket);
+      }
+      return;
     }
 
     const effectivePhone = urlPhone || savedPhone;
     if (effectivePhone && effectivePhone.length >= 8) {
-      fetchMyEvents(effectivePhone, urlTicket || undefined);
+      setPhoneInput(effectivePhone);
+      setLookupMode('phone_all');
+      fetchMyEvents(effectivePhone, undefined);
     }
   }, [searchParams, targetEventId]);
 
@@ -175,27 +190,34 @@ export function ParticipantPortalPage() {
     }
   };
 
-  const fetchMyEvents = async (phoneToUse: string, ticketCodeToUse?: string) => {
+  const fetchMyEvents = async (phoneToUse?: string, ticketCodeToUse?: string) => {
     try {
       setLoading(true);
       setError(null);
 
+      const payload: { phone?: string; ticketCode?: string } = {};
+      if (phoneToUse && phoneToUse.trim()) {
+        payload.phone = phoneToUse.trim();
+      }
+      if (ticketCodeToUse && ticketCodeToUse.trim()) {
+        payload.ticketCode = extractTicketCode(ticketCodeToUse.trim());
+      }
+
       const res = await fetch('/api/public/participant/my-events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: phoneToUse,
-          ticketCode: ticketCodeToUse ? extractTicketCode(ticketCodeToUse) : undefined,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const json = await res.json();
       if (!res.ok) {
-        throw new Error(json.message || 'Data pendaftaran tidak ditemukan.');
+        throw new Error(json.error?.message || json.message || 'Data pendaftaran tidak ditemukan.');
       }
 
       setHubData(json.data as MyEventsResponse);
-      localStorage.setItem(STORAGE_KEY_PHONE, phoneToUse.trim());
+      if (phoneToUse && phoneToUse.trim()) {
+        localStorage.setItem(STORAGE_KEY_PHONE, phoneToUse.trim());
+      }
 
       // If upcoming is empty but history has items, switch tab automatically
       if (json.data.upcomingCount === 0 && json.data.historyCount > 0) {
@@ -211,11 +233,29 @@ export function ParticipantPortalPage() {
 
   const handleSearchSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!phoneInput || phoneInput.trim().length < 8) {
-      setError('Masukkan nomor WhatsApp yang valid (minimal 8 digit).');
-      return;
+    if (lookupMode === 'ticket_only') {
+      if (!ticketInput || ticketInput.trim().length < 3) {
+        setError('Masukkan kode tiket pendaftaran Anda (minimal 3 karakter atau 4 digit angka).');
+        return;
+      }
+      fetchMyEvents(undefined, ticketInput.trim());
+    } else if (lookupMode === 'phone_all') {
+      if (!phoneInput || phoneInput.trim().length < 8) {
+        setError('Masukkan nomor WhatsApp yang valid (minimal 8 digit).');
+        return;
+      }
+      fetchMyEvents(phoneInput.trim(), undefined);
+    } else {
+      if (!phoneInput || phoneInput.trim().length < 8) {
+        setError('Masukkan nomor WhatsApp yang valid (minimal 8 digit).');
+        return;
+      }
+      if (!ticketInput || ticketInput.trim().length < 3) {
+        setError('Masukkan kode tiket yang ingin dicek.');
+        return;
+      }
+      fetchMyEvents(phoneInput.trim(), ticketInput.trim());
     }
-    fetchMyEvents(phoneInput.trim(), lookupMode === 'specific_ticket' ? ticketInput.trim() : undefined);
   };
 
   const handleResetSearch = () => {
@@ -257,10 +297,10 @@ export function ParticipantPortalPage() {
                 type="button"
                 onClick={handleResetSearch}
                 className="px-3 py-1.5 rounded-xl border border-cream-300 bg-white hover:bg-rose-50 hover:text-rose-900 hover:border-rose-200 text-slate-600 text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 shadow-2xs"
-                title="Ganti nomor atau cari tiket keluarga lainnya"
+                title="Cari tiket lain atau ganti nomor"
               >
                 <LogOut className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Ganti Nomor</span>
+                <span className="hidden sm:inline">Cari Tiket Lain</span>
               </button>
             )}
           </div>
@@ -281,75 +321,92 @@ export function ParticipantPortalPage() {
                 Cek E-Tiket, QR Presensi &amp; Riwayat Kajian Anda
               </h1>
               <p className="text-xs sm:text-sm text-surface-600 leading-relaxed max-w-xl mx-auto">
-                Bebas hambatan, tanpa perlu membuat akun baru. Cukup masukkan nomor WhatsApp yang Anda gunakan saat mendaftar kajian untuk membuka tiket digital.
+                Bebas hambatan, tanpa perlu membuat akun baru. Cukup masukkan kode tiket atau nomor WhatsApp Anda saat mendaftar untuk membuka e-tiket &amp; QR presensi.
               </p>
             </div>
 
             {/* Fast Lookup Card */}
             <div className="bg-white rounded-3xl border border-cream-300 p-6 sm:p-8 shadow-sm space-y-5">
               {/* Lookup mode selector */}
-              <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-cream-100 border border-cream-200">
+              <div className="grid grid-cols-3 gap-1.5 p-1.5 rounded-2xl bg-cream-100 border border-cream-200">
+                <button
+                  type="button"
+                  onClick={() => setLookupMode('ticket_only')}
+                  className={`py-2 px-2 rounded-xl text-xs font-bold transition-all text-center ${
+                    lookupMode === 'ticket_only'
+                      ? 'bg-white text-brand-950 shadow-xs font-black'
+                      : 'text-surface-600 hover:text-brand-950'
+                  }`}
+                >
+                  🎟️ Kode Tiket
+                </button>
                 <button
                   type="button"
                   onClick={() => setLookupMode('phone_all')}
-                  className={`py-2 px-3 rounded-xl text-xs font-bold transition-all ${
+                  className={`py-2 px-2 rounded-xl text-xs font-bold transition-all text-center ${
                     lookupMode === 'phone_all'
                       ? 'bg-white text-brand-950 shadow-xs font-black'
                       : 'text-surface-600 hover:text-brand-950'
                   }`}
                 >
-                  📱 No. WhatsApp Saja
+                  📱 No. WhatsApp
                 </button>
                 <button
                   type="button"
                   onClick={() => setLookupMode('specific_ticket')}
-                  className={`py-2 px-3 rounded-xl text-xs font-bold transition-all ${
+                  className={`py-2 px-2 rounded-xl text-xs font-bold transition-all text-center ${
                     lookupMode === 'specific_ticket'
                       ? 'bg-white text-brand-950 shadow-xs font-black'
                       : 'text-surface-600 hover:text-brand-950'
                   }`}
                 >
-                  🎟️ No. WA + Kode Tiket
+                  🔍 WA + Kode
                 </button>
               </div>
 
               <form onSubmit={handleSearchSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-surface-700 mb-1" htmlFor="input-phone">
-                    Nomor WhatsApp Terdaftar *
-                  </label>
-                  <div className="relative">
-                    <input
-                      id="input-phone"
-                      type="tel"
-                      required
-                      value={phoneInput}
-                      onChange={(e) => setPhoneInput(e.target.value)}
-                      placeholder="Contoh: 081234567890"
-                      autoFocus
-                      className="w-full h-12 rounded-2xl border border-cream-400 bg-cream-50/60 px-4 text-sm font-bold text-brand-950 placeholder:font-normal placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-700"
-                    />
-                  </div>
-                  <p className="text-[11px] text-surface-500 mt-1">
-                    Gunakan nomor ponsel yang Anda isi pada formulir pendaftaran.
-                  </p>
-                </div>
-
-                {lookupMode === 'specific_ticket' && (
+                {/* Input Kode Tiket (for ticket_only and specific_ticket) */}
+                {(lookupMode === 'ticket_only' || lookupMode === 'specific_ticket') && (
                   <div>
                     <label className="block text-xs font-bold text-surface-700 mb-1" htmlFor="input-ticket">
-                      Kode Tiket / Nomor Kursi
+                      Kode Tiket / Nomor Kursi {lookupMode === 'ticket_only' ? '*' : '(Opsional)'}
                     </label>
                     <input
                       id="input-ticket"
                       type="text"
+                      required={lookupMode === 'ticket_only'}
                       value={ticketInput}
                       onChange={(e) => setTicketInput(e.target.value.toUpperCase())}
                       placeholder="Contoh: 1048 atau YTS-1048"
+                      autoFocus={lookupMode === 'ticket_only'}
                       className="w-full h-12 rounded-2xl border border-cream-400 bg-cream-50/60 px-4 font-mono text-sm font-bold text-brand-950 uppercase placeholder:font-sans placeholder:normal-case placeholder:font-normal placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-700"
                     />
                     <p className="text-[11px] text-surface-500 mt-1">
-                      Cukup 4 digit angka (misal 1048) atau kode lengkap YTS-XXXX.
+                      Cukup 4 digit angka (misal: 1048) atau kode lengkap YTS-XXXX.
+                    </p>
+                  </div>
+                )}
+
+                {/* Input No. WhatsApp (for phone_all and specific_ticket) */}
+                {(lookupMode === 'phone_all' || lookupMode === 'specific_ticket') && (
+                  <div>
+                    <label className="block text-xs font-bold text-surface-700 mb-1" htmlFor="input-phone">
+                      Nomor WhatsApp Terdaftar *
+                    </label>
+                    <div className="relative">
+                      <input
+                        id="input-phone"
+                        type="tel"
+                        required
+                        value={phoneInput}
+                        onChange={(e) => setPhoneInput(e.target.value)}
+                        placeholder="Contoh: 081234567890"
+                        autoFocus={lookupMode === 'phone_all'}
+                        className="w-full h-12 rounded-2xl border border-cream-400 bg-cream-50/60 px-4 text-sm font-bold text-brand-950 placeholder:font-normal placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-700"
+                      />
+                    </div>
+                    <p className="text-[11px] text-surface-500 mt-1">
+                      Gunakan nomor WhatsApp yang Anda isi pada formulir pendaftaran.
                     </p>
                   </div>
                 )}
@@ -371,7 +428,13 @@ export function ParticipantPortalPage() {
                   ) : (
                     <>
                       <Search className="w-4 h-4" />
-                      <span>Buka Dasbor Tiket Saya</span>
+                      <span>
+                        {lookupMode === 'ticket_only'
+                          ? 'Buka E-Tiket & QR Presensi'
+                          : lookupMode === 'phone_all'
+                          ? 'Buka Riwayat Tiket Saya'
+                          : 'Buka Tiket Spesifik'}
+                      </span>
                     </>
                   )}
                 </button>
@@ -439,10 +502,10 @@ export function ParticipantPortalPage() {
                   type="button"
                   onClick={handleResetSearch}
                   className="px-3.5 py-2 bg-white hover:bg-rose-50 text-slate-600 hover:text-rose-900 border border-cream-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
-                  title="Ganti nomor atau cari tiket keluarga lainnya"
+                  title="Cari tiket lain atau ganti nomor"
                 >
                   <LogOut className="w-3.5 h-3.5" />
-                  <span>Keluar</span>
+                  <span>Cari Tiket Lain</span>
                 </button>
               </div>
             </div>
