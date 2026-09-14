@@ -190,6 +190,28 @@ export function EventsPortalPage() {
     setTimeout(() => setCopiedTicketText(null), 2500);
   };
 
+  const handleCloseEventSuccessModal = () => {
+    setEventSuccess(null);
+    setLookupInput('');
+    setLookupSuccess(null);
+    setRegFullName('');
+    setRegAge('');
+    setRegPhone('');
+    setRegEmail('');
+    setRegCity('');
+    setRegNotes('');
+    setCustomResponses({});
+    setFamilyMembers([]);
+    setPaymentProofUrl(null);
+    setPaymentProofName(null);
+    setRegVehicleType('none');
+    setRegVehiclePlate('');
+    setAgreedToRules(false);
+    setSelectedGroupTicketIdx(0);
+    setShowAllGroupQrs(false);
+    setCopiedTicketText(null);
+  };
+
   // Filters
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [audienceFilter, setAudienceFilter] = useState<string>('all');
@@ -2648,27 +2670,52 @@ export function EventsPortalPage() {
 
       {/* 4. SUCCESS MODAL EVENT TICKET */}
       {eventSuccess && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 text-center space-y-4 animate-in fade-in zoom-in duration-200">
-            <div className="w-14 h-14 rounded-2xl bg-teal-100 text-teal-800 flex items-center justify-center mx-auto shadow-inner">
-              <Ticket className="w-8 h-8" />
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 md:p-6 overflow-y-auto">
+          <div
+            className={`bg-white rounded-3xl w-full shadow-2xl border border-slate-200 text-center flex flex-col max-h-[92dvh] sm:max-h-[90vh] my-auto overflow-hidden animate-in fade-in zoom-in duration-200 relative ${
+              eventSuccess.groupTickets && eventSuccess.groupTickets.length > 1
+                ? 'max-w-xl sm:max-w-2xl'
+                : 'max-w-lg'
+            }`}
+          >
+            {/* Header with Title & Top-Right Close Button */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-start justify-between gap-3 shrink-0 bg-white">
+              <div className="flex items-center gap-3 text-left min-w-0">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-teal-100 text-teal-800 flex items-center justify-center shrink-0 shadow-inner">
+                  <Ticket className="w-5 h-5 sm:w-6 sm:h-6" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900 leading-tight">
+                    E-Tiket Majelis Ilmu Terbit!
+                  </h3>
+                  <p className="text-[11px] sm:text-xs text-slate-600 mt-0.5 truncate">
+                    Bismillah, pendaftaran atas nama <b>{eventSuccess.participant.name}</b>
+                    {eventSuccess.participant.gender ? ` (${eventSuccess.participant.gender})` : ''} berhasil dicatat
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleCloseEventSuccessModal}
+                className="p-2 -mr-1 -mt-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors cursor-pointer shrink-0"
+                title="Tutup Tiket"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            <h3 className="text-xl font-bold text-slate-900">E-Tiket Majelis Ilmu Terbit!</h3>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Bismillah, pendaftaran atas nama <b>{eventSuccess.participant.name}</b>
-              {eventSuccess.participant.gender ? ` (${eventSuccess.participant.gender})` : ''} berhasil dicatat:
-            </p>
-
-            <div className="p-4 bg-teal-50/80 border border-teal-200 rounded-2xl text-left space-y-1.5 text-xs">
-              <span className="font-black text-teal-950 block text-sm">{eventSuccess.event.title}</span>
-              <p className="text-slate-600 flex items-center gap-1">
-                <Sparkles className="w-3.5 h-3.5 text-amber-600" /> Pemateri: {eventSuccess.event.speaker}
-              </p>
-              <p className="text-slate-600 flex items-center gap-1">
-                <MapPin className="w-3.5 h-3.5 text-teal-700" /> Lokasi: {eventSuccess.event.locationName}
-              </p>
-            </div>
+            {/* Scrollable Modal Body */}
+            <div className="overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-4 text-center flex-1 scrollbar-thin">
+              <div className="p-4 bg-teal-50/80 border border-teal-200 rounded-2xl text-left space-y-1.5 text-xs">
+                <span className="font-black text-teal-950 block text-sm">{eventSuccess.event.title}</span>
+                <p className="text-slate-600 flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-600" /> Pemateri: {eventSuccess.event.speaker}
+                </p>
+                <p className="text-slate-600 flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5 text-teal-700" /> Lokasi: {eventSuccess.event.locationName}
+                </p>
+              </div>
 
             {/* Parking Pass Indicator */}
             {eventSuccess.participant.vehicleType && eventSuccess.participant.vehicleType !== 'none' && (
@@ -2807,37 +2854,45 @@ export function EventsPortalPage() {
                 {/* MODE A: Tab Selector + Single Active QR Display */}
                 {!showAllGroupQrs ? (
                   <div className="space-y-3">
-                    {/* Selector Pills / Horizontal Scroll */}
-                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                      {eventSuccess.groupTickets.map((t: any, idx: number) => {
-                        const isSelected = selectedGroupTicketIdx === idx;
-                        return (
-                          <button
-                            key={t.ticketCode || idx}
-                            type="button"
-                            onClick={() => setSelectedGroupTicketIdx(idx)}
-                            className={`px-3 py-2 rounded-xl text-left shrink-0 transition-all border text-xs cursor-pointer ${
-                              isSelected
-                                ? 'bg-brand-900 text-white border-brand-950 shadow-xs'
-                                : 'bg-white hover:bg-cream-100 text-slate-700 border-cream-300'
-                            }`}
-                          >
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-black truncate max-w-[120px]">{t.name}</span>
-                              <span
-                                className={`text-[9px] font-bold px-1.5 py-0.2 rounded shrink-0 ${
-                                  isSelected ? 'bg-brand-800 text-emerald-300' : 'bg-cream-200 text-brand-950'
-                                }`}
-                              >
-                                {t.relationship}
+                    {/* Selector Pills / Responsive Scrollable Bar */}
+                    <div className="space-y-1">
+                      <div className="flex items-stretch gap-2 overflow-x-auto pb-2 pt-0.5 px-0.5 overscroll-x-contain scrollbar-thin">
+                        {eventSuccess.groupTickets.map((t: any, idx: number) => {
+                          const isSelected = selectedGroupTicketIdx === idx;
+                          return (
+                            <button
+                              key={t.ticketCode || idx}
+                              type="button"
+                              onClick={() => setSelectedGroupTicketIdx(idx)}
+                              className={`p-2.5 sm:p-3 rounded-2xl text-left shrink-0 transition-all border text-xs cursor-pointer min-w-[130px] sm:min-w-[150px] flex-1 max-w-[200px] ${
+                                isSelected
+                                  ? 'bg-brand-900 text-white border-brand-950 shadow-xs ring-2 ring-emerald-500/50'
+                                  : 'bg-white hover:bg-cream-100 text-slate-700 border-cream-300'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-1.5 min-w-0">
+                                <span className="font-black truncate block text-xs">{t.name}</span>
+                                <span
+                                  className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                                    isSelected ? 'bg-brand-800 text-emerald-300' : 'bg-cream-200 text-brand-950'
+                                  }`}
+                                >
+                                  {t.relationship}
+                                </span>
+                              </div>
+                              <span className="text-[10px] font-mono block mt-1 opacity-90 truncate">
+                                {t.ticketCode}
                               </span>
-                            </div>
-                            <span className="text-[10px] font-mono block mt-0.5 opacity-90">
-                              {t.ticketCode}
-                            </span>
-                          </button>
-                        );
-                      })}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {eventSuccess.groupTickets.length > 2 && (
+                        <div className="flex items-center justify-end text-[10px] text-surface-400 gap-1 px-1">
+                          <span>Geser untuk jamaah lainnya</span>
+                          <span>👉</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Active Member QR Card */}
@@ -2893,37 +2948,37 @@ export function EventsPortalPage() {
                               href={activeWaUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] shadow-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                              className="py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
                             >
-                              <MessageSquare className="w-3.5 h-3.5" />
-                              <span>Bagikan WA ({active.name.split(' ')[0]})</span>
+                              <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate">Bagikan WA ({(active.name || '').split(' ')[0]})</span>
                             </a>
 
                             <a
                               href={activeTgUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="py-2 px-3 rounded-xl bg-sky-500 hover:bg-sky-600 text-white font-bold text-[11px] shadow-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                              className="py-2.5 px-3 rounded-xl bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs shadow-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
                             >
-                              <Send className="w-3.5 h-3.5" />
-                              <span>Bagikan Telegram ({active.name.split(' ')[0]})</span>
+                              <Send className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate">Bagikan Telegram ({(active.name || '').split(' ')[0]})</span>
                             </a>
                           </div>
 
-                          <div className="flex flex-col sm:flex-row items-center gap-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <button
                               type="button"
                               onClick={() => handleCopyTicketText(activeSingleText, `member-${activeTicketCode}`)}
-                              className="w-full py-2 px-3 rounded-xl bg-white hover:bg-cream-100 text-brand-950 font-bold text-[11px] border border-cream-300 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                              className="w-full py-2 px-3 rounded-xl bg-white hover:bg-cream-100 text-brand-950 font-bold text-xs border border-cream-300 flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
                             >
                               {copiedTicketText === `member-${activeTicketCode}` ? (
                                 <>
-                                  <Check className="w-3.5 h-3.5 text-emerald-600 animate-in zoom-in-50" />
-                                  <span className="text-emerald-800">Teks Tiket Tersalin!</span>
+                                  <Check className="w-3.5 h-3.5 text-emerald-600 animate-in zoom-in-50 shrink-0" />
+                                  <span className="text-emerald-800 font-bold">Teks Tiket Tersalin!</span>
                                 </>
                               ) : (
                                 <>
-                                  <Copy className="w-3.5 h-3.5 text-brand-700" />
+                                  <Copy className="w-3.5 h-3.5 text-brand-700 shrink-0" />
                                   <span>Salin Teks Tiket</span>
                                 </>
                               )}
@@ -2931,9 +2986,9 @@ export function EventsPortalPage() {
 
                             <Link
                               to={activePortalPath}
-                              className="w-full sm:w-auto py-2 px-3 rounded-xl bg-brand-900 hover:bg-brand-950 text-white font-bold text-[11px] flex items-center justify-center gap-1.5 transition-all shrink-0 cursor-pointer"
+                              className="w-full py-2 px-3 rounded-xl bg-brand-900 hover:bg-brand-950 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 shrink-0 cursor-pointer"
                             >
-                              <Ticket className="w-3.5 h-3.5 text-emerald-300" />
+                              <Ticket className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
                               <span>Buka Portal</span>
                             </Link>
                           </div>
@@ -3211,21 +3266,13 @@ export function EventsPortalPage() {
               Silakan simpan tangkapan layar tiket ini untuk ditunjukkan kepada panitia/petugas saat hadir di majelis ilmu. Barakallahu fiikum.
             </p>
 
-            <div className="pt-2 flex flex-col gap-2">
-              <Link
-                to={buildParticipantPortalPath(eventSuccess.event.id, eventSuccess.ticketCode)}
-                className="w-full py-2.5 bg-brand-800 hover:bg-brand-900 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-95"
-              >
-                <Ticket className="w-3.5 h-3.5" />
-                <span>Buka Portal Peserta &amp; QR</span>
-              </Link>
-
+            <div className="pt-1 flex flex-col gap-2">
               {eventSuccess.event.whatsappGroupInviteUrl && (
                 <a
                   href={eventSuccess.event.whatsappGroupInviteUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-95"
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
                 >
                   <MessageSquare className="w-3.5 h-3.5" />
                   <span>Gabung Grup WhatsApp {eventSuccess.participant.gender === 'akhwat' ? 'Akhwat' : 'Ikhwan'}</span>
@@ -3251,7 +3298,7 @@ export function EventsPortalPage() {
               <button
                 type="button"
                 onClick={() => handleCopyShareLink(eventSuccess.event.id)}
-                className="w-full py-2.5 bg-cream-100 hover:bg-cream-200 text-brand-950 font-bold text-xs rounded-xl border border-cream-300 transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95"
+                className="w-full py-2.5 bg-cream-100 hover:bg-cream-200 text-brand-950 font-bold text-xs rounded-xl border border-cream-300 transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
               >
                 {copiedShareLink ? (
                   <>
@@ -3265,37 +3312,29 @@ export function EventsPortalPage() {
                   </>
                 )}
               </button>
-
-              <button
-                onClick={() => {
-                  setEventSuccess(null);
-                  setLookupInput('');
-                  setLookupSuccess(null);
-                  setRegFullName('');
-                  setRegAge('');
-                  setRegPhone('');
-                  setRegEmail('');
-                  setRegCity('');
-                  setRegNotes('');
-                  setCustomResponses({});
-                  setFamilyMembers([]);
-                  setPaymentProofUrl(null);
-                  setPaymentProofName(null);
-                  setRegVehicleType('none');
-                  setRegVehiclePlate('');
-                  setAgreedToRules(false);
-                  setSelectedGroupTicketIdx(0);
-                  setShowAllGroupQrs(false);
-                  setCopiedTicketText(null);
-                }}
-                className="w-full py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-xs active:scale-95"
-              >
-                Tutup & Simpan Tiket
-              </button>
             </div>
           </div>
+
+          {/* Sticky Footer Action Bar */}
+          <div className="p-3.5 sm:p-4 bg-slate-50/95 backdrop-blur-xs border-t border-slate-200 shrink-0 flex flex-col sm:flex-row items-center gap-2">
+            <Link
+              to={buildParticipantPortalPath(eventSuccess.event.id, eventSuccess.ticketCode)}
+              className="w-full sm:flex-1 py-2.5 bg-brand-900 hover:bg-brand-950 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+            >
+              <Ticket className="w-3.5 h-3.5 text-emerald-300" />
+              <span>Buka Portal Peserta &amp; QR</span>
+            </Link>
+            <button
+              type="button"
+              onClick={handleCloseEventSuccessModal}
+              className="w-full sm:w-auto px-6 py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer"
+            >
+              Tutup &amp; Simpan Tiket
+            </button>
+          </div>
         </div>
-      )}
+      </div>
+    )}
 
       {/* 5. FOOTER */}
       <footer className="event-portal-footer text-white pt-12 pb-8 border-t">
