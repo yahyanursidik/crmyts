@@ -23,6 +23,7 @@ import {
   Store,
   ChevronLeft,
   ChevronRight,
+  Pencil,
 } from 'lucide-react';
 import { LoadingState } from '@/components/common/LoadingState';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
@@ -30,6 +31,7 @@ import { EventManageModal, EventFormConfig } from './EventManageModal';
 import { EventSubmissionsModal } from './EventSubmissionsModal';
 import { EventScannerModal } from './components/EventScannerModal';
 import { EventBazaarManageModal } from './components/EventBazaarManageModal';
+import { EventEditModal } from './components/EventEditModal';
 
 interface EventItem {
   id: string;
@@ -83,6 +85,7 @@ export const EventsListPage: React.FC = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
 
   // Selected modals
+  const [selectedEditEventId, setSelectedEditEventId] = useState<string | null>(null);
   const [selectedManageEventId, setSelectedManageEventId] = useState<string | null>(null);
   const [selectedSubmissionsEventId, setSelectedSubmissionsEventId] = useState<string | null>(null);
   const [selectedScannerEvent, setSelectedScannerEvent] = useState<EventItem | null>(null);
@@ -785,6 +788,16 @@ export const EventsListPage: React.FC = () => {
                       <span>Kelola &amp; Form</span>
                     </button>
 
+                    {/* Edit Kajian Button */}
+                    <button
+                      onClick={() => setSelectedEditEventId(ev.id)}
+                      className="py-1.5 px-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-bold transition-all flex items-center gap-1 active:scale-98 shadow-2xs"
+                      title="Edit Data Lengkap Kajian (Judul, Pemateri, Jadwal, Kuota, dll)"
+                    >
+                      <Pencil className="w-3.5 h-3.5 text-amber-700" />
+                      <span>Edit</span>
+                    </button>
+
                     {/* Copy Link */}
                     <button
                       onClick={() => handleCopyPublicLink(ev.id)}
@@ -908,6 +921,14 @@ export const EventsListPage: React.FC = () => {
                   {/* Actions */}
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        onClick={() => setSelectedEditEventId(ev.id)}
+                        className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg transition-all"
+                        title="Edit Data Lengkap Kajian"
+                      >
+                        <Pencil className="w-3.5 h-3.5 text-amber-700" />
+                      </button>
+
                       <button
                         onClick={() => setSelectedSubmissionsEventId(ev.id)}
                         className="p-1.5 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#1C2321] rounded-lg border border-[#1B4332]/12"
@@ -1311,6 +1332,19 @@ export const EventsListPage: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* EDIT MODAL */}
+      {selectedEditEventId && (
+        <EventEditModal
+          eventId={selectedEditEventId}
+          isOpen={true}
+          onClose={() => setSelectedEditEventId(null)}
+          onEventUpdated={() => {
+            loadEvents();
+            showToast('Data kajian berhasil diperbarui!');
+          }}
+        />
       )}
 
       {/* MANAGE MODAL */}

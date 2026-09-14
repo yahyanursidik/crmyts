@@ -26,10 +26,12 @@ import {
   RotateCcw,
   Send,
   ExternalLink,
+  Pencil,
 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { LoadingState } from '@/components/common/LoadingState';
 import { EventImportModal } from './components/EventImportModal';
+import { EventEditModal } from './components/EventEditModal';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { ParticipantQrCode } from '../public-portal/ParticipantQrCode';
 
@@ -229,6 +231,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   const [saving, setSaving] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   // Tata Tertib & Syarat Kajian Editor State
   const [newAdabRule, setNewAdabRule] = useState('');
@@ -905,6 +908,15 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowEditModal(true)}
+              className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-bold transition-all flex items-center gap-1.5 border border-amber-500/40 cursor-pointer shadow-2xs"
+              title="Edit Data Lengkap Kajian (Judul, Pemateri, Jadwal, Lokasi, Kuota, dll)"
+            >
+              <Pencil className="w-3.5 h-3.5 text-amber-300" />
+              <span>Edit Data Kajian</span>
+            </button>
             <button
               onClick={handleCopyPublicLink}
               className="px-3 py-1.5 rounded-xl bg-teal-800/80 hover:bg-teal-700 text-teal-100 text-xs font-bold transition-all flex items-center gap-1.5 border border-teal-700"
@@ -3169,6 +3181,19 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
               setDeletingParticipant(null);
               setDeleteGroupCheckbox(false);
             }
+          }}
+        />
+      )}
+
+      {showEditModal && (
+        <EventEditModal
+          eventId={eventId}
+          isOpen={true}
+          onClose={() => setShowEditModal(false)}
+          onEventUpdated={() => {
+            loadEventDetail();
+            onEventUpdated();
+            showToast('Data kajian berhasil diperbarui!');
           }}
         />
       )}
