@@ -235,19 +235,19 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
         method: 'DELETE',
       });
 
-      if (res.data) {
-        showToast(res.data.message || `Pendaftaran berhasil dihapus. Kuota kajian telah dikembalikan.`);
-        if (selectedIds.has(deletingAttendance.id)) {
-          const next = new Set(selectedIds);
-          next.delete(deletingAttendance.id);
-          setSelectedIds(next);
-        }
-        setDeletingAttendance(null);
-        setDeleteGroupCheckbox(false);
-        await loadEventDetail();
-        if (onRefreshList) onRefreshList();
+      const message = res?.data?.message || 'Pendaftaran berhasil dihapus. Kuota kajian telah dikembalikan.';
+      showToast(message);
+      if (selectedIds.has(deletingAttendance.id)) {
+        const next = new Set(selectedIds);
+        next.delete(deletingAttendance.id);
+        setSelectedIds(next);
       }
+      setDeletingAttendance(null);
+      setDeleteGroupCheckbox(false);
+      await loadEventDetail();
+      if (onRefreshList) onRefreshList();
     } catch (err: any) {
+      console.error('Gagal menghapus pendaftaran peserta:', err);
       showToast(err.message || 'Gagal menghapus pendaftaran peserta', 'error');
     } finally {
       setSingleDeleteLoading(false);
@@ -266,14 +266,14 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
         }),
       });
 
-      if (res.data) {
-        showToast(res.data.message || `Berhasil menghapus ${res.data.deletedCount} peserta. Kuota telah dikembalikan.`);
-        setSelectedIds(new Set());
-        setConfirmBulkDelete(false);
-        await loadEventDetail();
-        if (onRefreshList) onRefreshList();
-      }
+      const message = res?.data?.message || `Berhasil menghapus ${selectedIds.size} peserta. Kuota telah dikembalikan.`;
+      showToast(message);
+      setSelectedIds(new Set());
+      setConfirmBulkDelete(false);
+      await loadEventDetail();
+      if (onRefreshList) onRefreshList();
     } catch (err: any) {
+      console.error('Gagal menghapus peserta massal:', err);
       showToast(err.message || 'Gagal menghapus peserta terpilih', 'error');
     } finally {
       setBulkActionLoading(false);
@@ -1323,7 +1323,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
 
       {/* Floating Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-70 animate-in slide-in-from-bottom-5 duration-200">
+        <div className="fixed bottom-6 right-6 z-90 animate-in slide-in-from-bottom-5 duration-200">
           <div
             className={`px-4 py-3 rounded-2xl shadow-xl border flex items-center gap-2.5 text-xs font-bold ${
               toastMessage.type === 'success'

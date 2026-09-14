@@ -69,7 +69,14 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   const vStyles = getVariantStyles();
 
   return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-surface-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+    <div
+      className="fixed inset-0 z-80 flex items-center justify-center p-4 bg-surface-950/60 backdrop-blur-xs animate-in fade-in duration-150"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !loading) {
+          onClose();
+        }
+      }}
+    >
       <div
         className="bg-[#fbfaf6] rounded-3xl max-w-md w-full p-6 shadow-2xl border border-cream-300 relative space-y-5 animate-in zoom-in-95 duration-150"
         role="dialog"

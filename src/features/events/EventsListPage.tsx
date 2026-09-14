@@ -1334,6 +1334,7 @@ export const EventsListPage: React.FC = () => {
             setSelectedSubmissionsEventId(null);
             loadEvents();
           }}
+          onRefreshList={loadEvents}
         />
       )}
 

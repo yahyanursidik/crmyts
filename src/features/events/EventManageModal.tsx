@@ -638,6 +638,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       await loadEventDetail();
       onEventUpdated();
     } catch (err: any) {
+      console.error('Gagal menghapus pendaftar kajian:', err);
       showToast(err.message || 'Gagal menghapus pendaftar', 'error');
     } finally {
       setDeleteParticipantLoading(false);
@@ -845,8 +846,9 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   if (!eventData) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl max-w-5xl w-full my-auto shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+    <>
+      <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+        <div className="bg-white rounded-3xl max-w-5xl w-full my-auto shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
         {/* Header Modal */}
         <div className="p-6 border-b border-slate-200 flex items-start justify-between bg-gradient-to-r from-teal-900 to-emerald-950 text-white shrink-0">
           <div className="space-y-1 max-w-2xl">
@@ -2730,6 +2732,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           </button>
         </div>
       </div>
+    </div>
 
       {/* SUB-MODAL: MANUAL ADD PARTICIPANT */}
       {showAddParticipant && (
@@ -3074,7 +3077,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
 
       {/* Floating Toast Notification Banner */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-70 animate-in slide-in-from-bottom-5 duration-200">
+        <div className="fixed bottom-6 right-6 z-90 animate-in slide-in-from-bottom-5 duration-200">
           <div
             className={`px-4 py-3 rounded-2xl shadow-xl border flex items-center gap-2.5 text-xs font-bold ${
               toastMessage.type === 'success'
@@ -3169,6 +3172,6 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           }}
         />
       )}
-    </div>
+    </>
   );
 };
