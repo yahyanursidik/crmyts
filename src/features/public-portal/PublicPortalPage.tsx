@@ -861,18 +861,6 @@ export function PublicPortalPage() {
                       </div>
                     </div>
 
-                    {/* Notes / Questions */}
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Pertanyaan untuk Pemateri / Catatan</label>
-                      <textarea
-                        rows={2}
-                        placeholder="Tuliskan pertanyaan materi atau catatan kehadiran..."
-                        value={regNotes}
-                        onChange={(e) => setRegNotes(e.target.value)}
-                        className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                      />
-                    </div>
-
                     <button
                       type="submit"
                       disabled={submittingEvent}

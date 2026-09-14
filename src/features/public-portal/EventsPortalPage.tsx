@@ -2314,22 +2314,6 @@ export function EventsPortalPage() {
                       </div>
                     ))}
 
-                  {/* 7. Notes */}
-                  {selectedEvent?.formConfig?.collectNotes !== false && (
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        Pertanyaan untuk Pemateri / Catatan
-                      </label>
-                      <textarea
-                        rows={2}
-                        placeholder="Tuliskan pertanyaan materi atau catatan..."
-                        value={regNotes}
-                        onChange={(e) => setRegNotes(e.target.value)}
-                        className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                      />
-                    </div>
-                  )}
-
                   {/* 7a. Jalur Khusus Undangan Resmi (Hanya Muncul Bila Menggunakan Tautan Khusus) */}
                   {verifiedReferrer && (
                     <div className="p-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-white border-2 border-emerald-300 rounded-2xl space-y-2 shadow-2xs animate-in fade-in duration-200">

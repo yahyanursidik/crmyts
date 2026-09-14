@@ -53,7 +53,7 @@ export function ParticipantQrCode({ value, ticketCode, className = '' }: Partici
         </div>
       )}
       <figcaption className="mt-2 text-[11px] leading-relaxed text-surface-600">
-        Tunjukkan QR ini atau sebutkan nomor tiket <strong className="inline-block font-mono font-black text-brand-950 bg-cream-200/80 px-2 py-0.5 rounded border border-cream-400 text-xs">{ticketCode}</strong> kepada panitia gerbang.
+        Tunjukkan QR ini atau sebutkan nomor tiket <strong className="inline-block font-mono font-black text-brand-950 bg-cream-200/80 px-2 py-0.5 rounded border border-cream-400 text-xs">{ticketCode}</strong> kepada panitia.
       </figcaption>
     </figure>
   );
