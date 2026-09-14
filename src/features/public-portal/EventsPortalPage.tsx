@@ -13,7 +13,6 @@ import {
   Search,
   Car,
   Bike,
-  ShieldAlert,
   Copy,
   Check,
   CheckCircle2,
@@ -1298,35 +1297,6 @@ export function EventsPortalPage() {
                       </div>
                     )}
                   </div>
-
-                  {/* Tata Tertib & Batasan Majelis */}
-                  {selectedEvent.venueRules && selectedEvent.venueRules.length > 0 && (
-                    <div className="event-info-panel event-info-panel--rules p-6 border shadow-sm space-y-3">
-                      <div className="flex items-center gap-2 pb-2 border-b border-amber-200/60">
-                        <ShieldAlert className="w-5 h-5 text-amber-700" />
-                        <h3 className="text-base font-bold text-amber-950 font-display">
-                          Tata Tertib & Batasan Majelis Ilmu
-                        </h3>
-                      </div>
-                      <ul className="space-y-2 text-xs text-amber-950">
-                        {selectedEvent.venueRules.map((rId) => {
-                          const rule = VENUE_RULES_MAP[rId];
-                          return rule ? (
-                            <li key={rId} className="flex items-start gap-2 bg-white/70 p-2.5 rounded-xl border border-amber-200/70">
-                              <span className="font-bold">{rule.label}</span>
-                              <span className="text-amber-800 text-[11px]">— {rule.desc}</span>
-                            </li>
-                          ) : null;
-                        })}
-                      </ul>
-                      {selectedEvent.customVenueRules && (
-                        <p className="text-xs text-amber-900 pt-2 border-t border-amber-200/60">
-                          <b>Aturan Tambahan:</b> {selectedEvent.customVenueRules}
-                        </p>
-                      )}
-                    </div>
-                  )}
-
                 </div>
               ) : (
                 /* GENERAL CATALOG SCHEDULE LIST */
