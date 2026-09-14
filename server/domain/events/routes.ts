@@ -43,6 +43,9 @@ const createEventSchema = z.object({
   quota: z.number().int().positive().optional().nullable(),
   quotaIkhwan: z.number().int().positive().optional().nullable(),
   quotaAkhwat: z.number().int().positive().optional().nullable(),
+  quotaInvite: z.number().int().positive().optional().nullable(),
+  quotaInviteIkhwan: z.number().int().positive().optional().nullable(),
+  quotaInviteAkhwat: z.number().int().positive().optional().nullable(),
   isRegistrationOpen: z.boolean().default(true),
   
   // Logistics & Rules
@@ -261,6 +264,11 @@ export function registerEventsRoutes(router: Router) {
       const verifiedPaymentCount = participants.filter((p) => p.paymentStatus === 'verified').length;
       const pendingPaymentCount = participants.filter((p) => p.paymentStatus === 'pending_payment').length;
       const specialInviteCount = participants.filter((p) => p.isSpecialInvite).length;
+      const specialInviteIkhwanCount = participants.filter((p) => p.isSpecialInvite && p.personGender === 'ikhwan').length;
+      const specialInviteAkhwatCount = participants.filter((p) => p.isSpecialInvite && p.personGender === 'akhwat').length;
+      const regularCount = participants.filter((p) => !p.isSpecialInvite).length;
+      const regularIkhwanCount = participants.filter((p) => !p.isSpecialInvite && p.personGender === 'ikhwan').length;
+      const regularAkhwatCount = participants.filter((p) => !p.isSpecialInvite && p.personGender === 'akhwat').length;
       const firstTimerCount = participants.filter((p) => p.currentKajianNumber <= 1).length;
       const returningCount = participants.filter((p) => p.currentKajianNumber > 1).length;
 
@@ -279,6 +287,11 @@ export function registerEventsRoutes(router: Router) {
           verifiedPaymentCount,
           pendingPaymentCount,
           specialInviteCount,
+          specialInviteIkhwanCount,
+          specialInviteAkhwatCount,
+          regularCount,
+          regularIkhwanCount,
+          regularAkhwatCount,
           referralSignups: specialInviteCount,
           firstTimerCount,
           returningCount,
@@ -1063,16 +1076,91 @@ export function registerEventsRoutes(router: Router) {
     })
   );
 
-  // 8. POST /api/events/:id/participants/manual (Manually add participant by staff)
+  // 8. POST /api/events/:id/participants/manual (Manually add participant by staff with invite support & wa.me)
   router.post(
     '/api/events/:id/participants/manual',
     requireAuth(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
-      const { fullName, phone, gender, cityRegency, email, vehicleType, vehiclePlateNumber } = (ctx.body as any) || {};
+      const {
+        fullName,
+        phone,
+        gender,
+        cityRegency,
+        email,
+        age,
+        vehicleType,
+        vehiclePlateNumber,
+        isSpecialInvite = false,
+        inviteNotes,
+      } = (ctx.body as any) || {};
 
       if (!eventId || !fullName || !phone) {
         return errorResponse('VALIDATION_ERROR', 'Event ID, nama lengkap, dan nomor telepon wajib diisi', 400, ctx.requestId);
+      }
+
+      const targetEvent = await db.query.events.findFirst({
+        where: eq(events.id, eventId),
+        with: {
+          attendances: {
+            with: {
+              person: {
+                columns: { id: true, gender: true },
+              },
+            },
+          },
+        },
+      });
+
+      if (!targetEvent) {
+        return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
+      }
+
+      const atts = targetEvent.attendances || [];
+      const regGender = gender || 'ikhwan';
+
+      if (isSpecialInvite) {
+        const currentInviteAtts = atts.filter(
+          (a) =>
+            (a.registrationData as any)?.isSpecialInvite === true ||
+            (a.registrationData as any)?.inviteSource === 'admin_invite' ||
+            (a.registrationData as any)?.inviteSource === 'admin_dashboard' ||
+            Boolean(a.referredByAttendanceId)
+        );
+        const currentInviteIkhwan = currentInviteAtts.filter((a) => a.person?.gender === 'ikhwan').length;
+        const currentInviteAkhwat = currentInviteAtts.filter((a) => a.person?.gender === 'akhwat').length;
+
+        if (regGender === 'ikhwan' && targetEvent.quotaInviteIkhwan && currentInviteIkhwan >= targetEvent.quotaInviteIkhwan) {
+          return errorResponse('VALIDATION_ERROR', `Kuota jalur undangan khusus Ikhwan telah penuh (${currentInviteIkhwan}/${targetEvent.quotaInviteIkhwan}).`, 400, ctx.requestId);
+        }
+        if (regGender === 'akhwat' && targetEvent.quotaInviteAkhwat && currentInviteAkhwat >= targetEvent.quotaInviteAkhwat) {
+          return errorResponse('VALIDATION_ERROR', `Kuota jalur undangan khusus Akhwat telah penuh (${currentInviteAkhwat}/${targetEvent.quotaInviteAkhwat}).`, 400, ctx.requestId);
+        }
+        if (targetEvent.quotaInvite && currentInviteAtts.length >= targetEvent.quotaInvite) {
+          return errorResponse('VALIDATION_ERROR', `Kuota keseluruhan jalur undangan telah penuh (${currentInviteAtts.length}/${targetEvent.quotaInvite}).`, 400, ctx.requestId);
+        }
+      } else {
+        const currentRegAtts = atts.filter(
+          (a) =>
+            !(
+              (a.registrationData as any)?.isSpecialInvite === true ||
+              (a.registrationData as any)?.inviteSource === 'admin_invite' ||
+              (a.registrationData as any)?.inviteSource === 'admin_dashboard' ||
+              Boolean(a.referredByAttendanceId)
+            )
+        );
+        const currentRegIkhwan = currentRegAtts.filter((a) => a.person?.gender === 'ikhwan').length;
+        const currentRegAkhwat = currentRegAtts.filter((a) => a.person?.gender === 'akhwat').length;
+
+        if (regGender === 'ikhwan' && targetEvent.quotaIkhwan && currentRegIkhwan >= targetEvent.quotaIkhwan) {
+          return errorResponse('VALIDATION_ERROR', `Kuota pendaftaran reguler khusus Ikhwan telah penuh (${currentRegIkhwan}/${targetEvent.quotaIkhwan}).`, 400, ctx.requestId);
+        }
+        if (regGender === 'akhwat' && targetEvent.quotaAkhwat && currentRegAkhwat >= targetEvent.quotaAkhwat) {
+          return errorResponse('VALIDATION_ERROR', `Kuota pendaftaran reguler khusus Akhwat telah penuh (${currentRegAkhwat}/${targetEvent.quotaAkhwat}).`, 400, ctx.requestId);
+        }
+        if (targetEvent.quota && currentRegAtts.length >= targetEvent.quota) {
+          return errorResponse('VALIDATION_ERROR', `Kuota pendaftaran reguler telah penuh (${currentRegAtts.length}/${targetEvent.quota}).`, 400, ctx.requestId);
+        }
       }
 
       const phoneNorm = normalizeIndonesianPhone(phone);
@@ -1087,10 +1175,10 @@ export function registerEventsRoutes(router: Router) {
           .values({
             fullName,
             phoneE164: phoneNorm,
-            gender: gender || 'ikhwan',
+            gender: regGender,
             cityRegency: cityRegency || null,
             email: email || null,
-            sourceCode: 'manual_staff_event',
+            sourceCode: isSpecialInvite ? 'admin_dashboard_invite' : 'manual_staff_event',
           })
           .returning();
         person = newPerson;
@@ -1110,8 +1198,20 @@ export function registerEventsRoutes(router: Router) {
           source: 'manual_input',
           status: 'registered',
           ticketCode,
+          age: age ? Number(age) : null,
           vehicleType: vehicleType || 'none',
           vehiclePlateNumber: vehiclePlateNumber || null,
+          registrationData: {
+            ...(isSpecialInvite
+              ? {
+                  isSpecialInvite: true,
+                  inviteSource: 'admin_dashboard',
+                  inviteNotes: inviteNotes || null,
+                }
+              : {}),
+            registeredByAdmin: ctx.user?.email || 'admin',
+            addedVia: 'admin_dashboard_manual',
+          },
         });
 
       const onConflict = typeof (insertQuery as any).onConflictDoNothing === 'function'
@@ -1120,11 +1220,35 @@ export function registerEventsRoutes(router: Router) {
 
       const [attendance] = await onConflict.returning();
 
+      const cleanPhone = phoneNorm.replace(/\+/g, '');
+      const eventTitle = targetEvent.title || 'Kajian Sunnah';
+      const speaker = targetEvent.speaker || 'Pemateri';
+      const startAtFormatted = targetEvent.startAt
+        ? new Date(targetEvent.startAt).toLocaleDateString('id-ID', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          })
+        : '';
+      const locationName = targetEvent.locationName || 'Masjid Tarbiyah Sunnah';
+      const ticketUrl = `/peserta/${eventId}?ticket=${encodeURIComponent(ticketCode)}`;
+      const fullTicketUrl = `${process.env.APP_URL || 'https://tarbiyahsunnah.or.id'}${ticketUrl}`;
+      const waText = `Bismillah, Assalamu'alaikum Warahmatullahi Wabarakatuh.\n\nKepada Yth. Bapak/Ibu/Asatidzah *${fullName}*,\n\nAhlan wa Sahlan. Pendaftaran antum/anda sebagai *${isSpecialInvite ? 'Tamu Undangan Khusus (VIP)' : 'Peserta'}* telah terkonfirmasi resmi:\n\n📖 *${eventTitle}*\n🎙️ Pemateri: *${speaker}*\n🗓️ Waktu: *${startAtFormatted}*\n📍 Tempat: *${locationName}*\n\n🎫 *KODE E-TIKET PRESENSI:* *${ticketCode}*\n\nSilakan buka tautan berikut untuk melihat E-Tiket & QR Code kehadiran Anda:\n👉 ${fullTicketUrl}\n\nTunjukkan QR Code tersebut kepada petugas di pintu gerbang kedatangan.\n\nJazakumullahu khairan wa barakallahu fiikum.\n— Panitia Yayasan Tarbiyah Sunnah`;
+      const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waText)}`;
+
       return successResponse(
         {
           attendance,
           person,
           ticketCode,
+          ticketUrl,
+          fullTicketUrl,
+          waText,
+          waUrl,
+          isSpecialInvite: Boolean(isSpecialInvite),
         },
         { requestId: ctx.requestId },
         201

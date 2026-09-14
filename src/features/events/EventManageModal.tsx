@@ -24,11 +24,14 @@ import {
   ScrollText,
   Eye,
   RotateCcw,
+  Send,
+  ExternalLink,
 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { LoadingState } from '@/components/common/LoadingState';
 import { EventImportModal } from './components/EventImportModal';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { ParticipantQrCode } from '../public-portal/ParticipantQrCode';
 
 export interface EventFormField {
   id: string;
@@ -124,6 +127,9 @@ interface EventDetail {
   quota?: number | null;
   quotaIkhwan?: number | null;
   quotaAkhwat?: number | null;
+  quotaInvite?: number | null;
+  quotaInviteIkhwan?: number | null;
+  quotaInviteAkhwat?: number | null;
   isRegistrationOpen: boolean;
   
   carParkingQuota?: number | null;
@@ -141,6 +147,11 @@ interface EventDetail {
   motorcyclesCount?: number;
   referralSignups?: number;
   specialInviteCount?: number;
+  specialInviteIkhwanCount?: number;
+  specialInviteAkhwatCount?: number;
+  regularCount?: number;
+  regularIkhwanCount?: number;
+  regularAkhwatCount?: number;
   adminInviteCode?: string;
 }
 
@@ -230,6 +241,9 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   const [quota, setQuota] = useState<number | ''>('');
   const [quotaIkhwan, setQuotaIkhwan] = useState<number | ''>('');
   const [quotaAkhwat, setQuotaAkhwat] = useState<number | ''>('');
+  const [quotaInvite, setQuotaInvite] = useState<number | ''>('');
+  const [quotaInviteIkhwan, setQuotaInviteIkhwan] = useState<number | ''>('');
+  const [quotaInviteAkhwat, setQuotaInviteAkhwat] = useState<number | ''>('');
   const [carParkingQuota, setCarParkingQuota] = useState<number | ''>('');
   const [motorcycleParkingQuota, setMotorcycleParkingQuota] = useState<number | ''>('');
   const [venueRules, setVenueRules] = useState<string[]>([]);
@@ -261,6 +275,9 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
 
   // Manual Add Participant Modal State
   const [showAddParticipant, setShowAddParticipant] = useState(false);
+  const [manualIsInvite, setManualIsInvite] = useState(false);
+  const [manualInviteNotes, setManualInviteNotes] = useState('');
+  const [manualAge, setManualAge] = useState<number | ''>('');
   const [manualName, setManualName] = useState('');
   const [manualPhone, setManualPhone] = useState('');
   const [manualGender, setManualGender] = useState<'ikhwan' | 'akhwat'>('ikhwan');
@@ -269,6 +286,21 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   const [manualVehicleType, setManualVehicleType] = useState<'none' | 'motorcycle' | 'car'>('none');
   const [manualVehiclePlate, setManualVehiclePlate] = useState('');
   const [manualSubmitting, setManualSubmitting] = useState(false);
+
+  // Ticket Modal State (Bukti Pendaftaran & QR Code wa.me)
+  const [showTicketSuccessModal, setShowTicketSuccessModal] = useState(false);
+  const [ticketModalData, setTicketModalData] = useState<{
+    personName: string;
+    phone: string;
+    ticketCode: string;
+    ticketUrl: string;
+    fullTicketUrl: string;
+    waUrl: string;
+    waText: string;
+    isSpecialInvite: boolean;
+    inviteNotes?: string | null;
+  } | null>(null);
+  const [copiedWaMsg, setCopiedWaMsg] = useState(false);
 
   // Check-In Ticket Code Search
   const [ticketInput, setTicketInput] = useState('');
@@ -308,6 +340,9 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       setQuota(res.data.quota || '');
       setQuotaIkhwan(res.data.quotaIkhwan || '');
       setQuotaAkhwat(res.data.quotaAkhwat || '');
+      setQuotaInvite(res.data.quotaInvite || '');
+      setQuotaInviteIkhwan(res.data.quotaInviteIkhwan || '');
+      setQuotaInviteAkhwat(res.data.quotaInviteAkhwat || '');
       setCarParkingQuota(res.data.carParkingQuota || '');
       setMotorcycleParkingQuota(res.data.motorcycleParkingQuota || '');
       setVenueRules(res.data.venueRules || []);
@@ -408,6 +443,9 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           quota: quota ? Number(quota) : null,
           quotaIkhwan: quotaIkhwan ? Number(quotaIkhwan) : null,
           quotaAkhwat: quotaAkhwat ? Number(quotaAkhwat) : null,
+          quotaInvite: quotaInvite ? Number(quotaInvite) : null,
+          quotaInviteIkhwan: quotaInviteIkhwan ? Number(quotaInviteIkhwan) : null,
+          quotaInviteAkhwat: quotaInviteAkhwat ? Number(quotaInviteAkhwat) : null,
           carParkingQuota: carParkingQuota ? Number(carParkingQuota) : null,
           motorcycleParkingQuota: motorcycleParkingQuota ? Number(motorcycleParkingQuota) : null,
           venueRules,
@@ -630,7 +668,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
 
     try {
       setManualSubmitting(true);
-      await apiClient(`/events/${eventId}/participants/manual`, {
+      const res = await apiClient<any>(`/events/${eventId}/participants/manual`, {
         method: 'POST',
         body: JSON.stringify({
           fullName: manualName.trim(),
@@ -638,21 +676,48 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           gender: manualGender,
           cityRegency: manualCity.trim() || null,
           email: manualEmail.trim() || null,
+          age: manualAge !== '' ? Number(manualAge) : null,
           vehicleType: manualVehicleType,
           vehiclePlateNumber: manualVehiclePlate.trim() || null,
+          isSpecialInvite: manualIsInvite,
+          inviteNotes: manualInviteNotes.trim() || null,
         }),
       });
 
       setShowAddParticipant(false);
+      const savedName = manualName.trim();
+      const savedPhone = manualPhone.trim();
+      const savedIsInvite = manualIsInvite;
+      const savedNotes = manualInviteNotes.trim();
+
       setManualName('');
       setManualPhone('');
       setManualCity('');
       setManualEmail('');
+      setManualAge('');
+      setManualInviteNotes('');
+      setManualIsInvite(false);
       setManualVehicleType('none');
       setManualVehiclePlate('');
       loadEventDetail();
       onEventUpdated();
-      showToast(`Peserta "${manualName.trim()}" berhasil ditambahkan!`);
+
+      if (res.data?.ticketCode) {
+        setTicketModalData({
+          personName: res.data.person?.fullName || savedName,
+          phone: res.data.person?.phoneE164 || savedPhone,
+          ticketCode: res.data.ticketCode,
+          ticketUrl: res.data.ticketUrl || `/peserta/${eventId}?ticket=${encodeURIComponent(res.data.ticketCode)}`,
+          fullTicketUrl: res.data.fullTicketUrl || `${window.location.origin}/peserta/${eventId}?ticket=${encodeURIComponent(res.data.ticketCode)}`,
+          waUrl: res.data.waUrl,
+          waText: res.data.waText,
+          isSpecialInvite: Boolean(res.data.isSpecialInvite ?? savedIsInvite),
+          inviteNotes: savedNotes || null,
+        });
+        setShowTicketSuccessModal(true);
+      } else {
+        showToast(`Peserta "${savedName}" berhasil ditambahkan!`);
+      }
     } catch (err: any) {
       setAlertDialog({
         title: 'Gagal Menambah Peserta',
@@ -662,6 +727,37 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
     } finally {
       setManualSubmitting(false);
     }
+  };
+
+  const handleSendWhatsAppTicket = (p: ParticipantItem) => {
+    const cleanPhone = (p.personPhone || '').replace(/\D/g, '').replace(/^0/, '62');
+    const startAtFormatted = eventData?.startAt
+      ? new Date(eventData.startAt).toLocaleDateString('id-ID', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : '';
+    const ticketUrl = `/peserta/${eventId}?ticket=${encodeURIComponent(p.ticketCode || '')}`;
+    const fullTicketUrl = `${window.location.origin}${ticketUrl}`;
+    const isInvite = Boolean(p.isSpecialInvite || p.source === 'admin_invite' || p.referredByAttendanceId);
+    const waText = `Bismillah, Assalamu'alaikum Warahmatullahi Wabarakatuh.\n\nKepada Yth. Bapak/Ibu/Asatidzah *${p.personName}*,\n\nAhlan wa Sahlan. Pendaftaran antum/anda sebagai *${isInvite ? 'Tamu Undangan Khusus (VIP)' : 'Peserta'}* telah terkonfirmasi resmi:\n\n📖 *${eventData?.title || 'Kajian Sunnah'}*\n🎙️ Pemateri: *${eventData?.speaker || 'Pemateri'}*\n🗓️ Waktu: *${startAtFormatted}*\n📍 Tempat: *${eventData?.locationName || 'Masjid Tarbiyah Sunnah'}*\n\n🎫 *KODE E-TIKET PRESENSI:* *${p.ticketCode || '-'}*\n\nSilakan buka tautan berikut untuk melihat E-Tiket & QR Code kehadiran Anda:\n👉 ${fullTicketUrl}\n\nTunjukkan QR Code tersebut kepada petugas di pintu gerbang kedatangan.\n\nJazakumullahu khairan wa barakallahu fiikum.\n— Panitia Yayasan Tarbiyah Sunnah`;
+    const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waText)}`;
+
+    setTicketModalData({
+      personName: p.personName,
+      phone: p.personPhone,
+      ticketCode: p.ticketCode || '',
+      ticketUrl,
+      fullTicketUrl,
+      waUrl,
+      waText,
+      isSpecialInvite: isInvite,
+    });
+    setShowTicketSuccessModal(true);
   };
 
   const handleExportCSV = () => {
@@ -882,8 +978,8 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           {/* TAB 1: DAFTAR PESERTA & PRESENSI */}
           {activeTab === 'participants' && (
             <div className="space-y-6">
-              {/* Top Bar: Live KPI Quotas & Parking Capacity */}
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              {/* Top Bar: Live KPI Quotas & Capacity */}
+              <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
                 <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs">
                   <span className="text-[10px] font-bold uppercase text-slate-400 block">Total Hadir</span>
                   <div className="flex items-baseline gap-1 mt-1">
@@ -893,9 +989,9 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                 </div>
 
                 <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] font-bold uppercase text-teal-800 block">🕌 Jamaah Ikhwan</span>
+                  <span className="text-[10px] font-bold uppercase text-teal-800 block">🕌 Reguler Ikhwan</span>
                   <div className="flex items-baseline gap-1 mt-1">
-                    <span className="text-xl font-black text-teal-950">{eventData.ikhwanCount || 0}</span>
+                    <span className="text-xl font-black text-teal-950">{eventData.regularIkhwanCount ?? eventData.ikhwanCount ?? 0}</span>
                     <span className="text-xs text-slate-400 font-semibold">
                       {eventData.quotaIkhwan ? `/ ${eventData.quotaIkhwan} max` : 'terdaftar'}
                     </span>
@@ -903,13 +999,30 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                 </div>
 
                 <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] font-bold uppercase text-rose-800 block">🌸 Jamaah Akhwat</span>
+                  <span className="text-[10px] font-bold uppercase text-rose-800 block">🌸 Reguler Akhwat</span>
                   <div className="flex items-baseline gap-1 mt-1">
-                    <span className="text-xl font-black text-rose-950">{eventData.akhwatCount || 0}</span>
+                    <span className="text-xl font-black text-rose-950">{eventData.regularAkhwatCount ?? eventData.akhwatCount ?? 0}</span>
                     <span className="text-xs text-slate-400 font-semibold">
                       {eventData.quotaAkhwat ? `/ ${eventData.quotaAkhwat} max` : 'terdaftar'}
                     </span>
                   </div>
+                </div>
+
+                <div className="p-3.5 bg-white rounded-2xl border border-emerald-200 bg-emerald-50/50 shadow-2xs">
+                  <span className="text-[10px] font-bold uppercase text-emerald-900 block flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-amber-500" /> Undangan (VIP)
+                  </span>
+                  <div className="flex items-baseline gap-1 mt-1">
+                    <span className="text-xl font-black text-emerald-950">{eventData.specialInviteCount || eventData.referralSignups || 0}</span>
+                    <span className="text-xs text-emerald-700 font-semibold">
+                      {eventData.quotaInvite ? `/ ${eventData.quotaInvite} max` : 'tamu'}
+                    </span>
+                  </div>
+                  {(eventData.quotaInviteIkhwan || eventData.quotaInviteAkhwat) && (
+                    <span className="text-[9.5px] text-emerald-700 block font-medium mt-0.5">
+                      I: {eventData.specialInviteIkhwanCount || 0}/{eventData.quotaInviteIkhwan || '∞'} | A: {eventData.specialInviteAkhwatCount || 0}/{eventData.quotaInviteAkhwat || '∞'}
+                    </span>
+                  )}
                 </div>
 
                 <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs">
@@ -924,7 +1037,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                   </div>
                 </div>
 
-                <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs col-span-2 sm:col-span-1">
+                <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs">
                   <span className="text-[10px] font-bold uppercase text-amber-800 block flex items-center gap-1">
                     <Bike className="w-3 h-3 text-amber-600" /> Parkir Motor
                   </span>
@@ -933,14 +1046,6 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                     <span className="text-xs text-slate-400 font-semibold">
                       {eventData.motorcycleParkingQuota ? `/ ${eventData.motorcycleParkingQuota} slot` : 'motor'}
                     </span>
-                  </div>
-                </div>
-
-                <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs col-span-2 sm:col-span-1">
-                  <span className="text-[10px] font-bold uppercase text-emerald-800 block">✨ Undangan Panitia</span>
-                  <div className="flex items-baseline gap-1 mt-1">
-                    <span className="text-xl font-black text-emerald-950">{eventData.specialInviteCount || eventData.referralSignups || 0}</span>
-                    <span className="text-xs text-slate-400 font-semibold">tamu</span>
                   </div>
                 </div>
               </div>
@@ -967,6 +1072,18 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-slate-800/80">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManualIsInvite(true);
+                      setShowAddParticipant(true);
+                    }}
+                    className="px-3.5 py-1.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-amber-950 text-xs font-black rounded-xl transition-all flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-950" />
+                    <span>+ Input Tamu Undangan (VIP)</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => {
@@ -1095,7 +1212,24 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                   </button>
 
                   <button
-                    onClick={() => setShowAddParticipant(true)}
+                    type="button"
+                    onClick={() => {
+                      setManualIsInvite(true);
+                      setShowAddParticipant(true);
+                    }}
+                    className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
+                    title="Tambah Peserta Tamu Undangan Khusus (VIP) langsung dari dashboard"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                    <span>✨ Tambah Undangan (VIP)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManualIsInvite(false);
+                      setShowAddParticipant(true);
+                    }}
                     className="px-3.5 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs active:scale-95"
                   >
                     <PlusCircle className="w-3.5 h-3.5" />
@@ -1199,6 +1333,14 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                                   }`}
                                 >
                                   {p.status === 'attended' ? '✓ Hadir' : 'Tandai Hadir'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSendWhatsAppTicket(p)}
+                                  className="p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg border border-transparent hover:border-emerald-200 transition-all active:scale-95"
+                                  title="Kirim / Bagikan Tiket & QR Code via WhatsApp (wa.me)"
+                                >
+                                  <Send className="w-3.5 h-3.5" />
                                 </button>
                                 <button
                                   type="button"
@@ -1584,42 +1726,102 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                 <div>
                   <h4 className="text-sm font-bold text-slate-900">3. Batas Kuota Peserta (Kapasitas Majelis)</h4>
                   <p className="text-xs text-slate-500">
-                    Kosongkan jika tidak ada batas kuota. Pendaftaran otomatis terkunci saat kuota tercapai.
+                    Kosongkan jika tidak ada batas kuota. Pendaftaran otomatis terkunci saat kuota masing-masing jalur tercapai.
                   </p>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Total Kuota Keseluruhan</label>
-                    <input
-                      type="number"
-                      placeholder="Misal: 250"
-                      value={quota}
-                      onChange={(e) => setQuota(e.target.value === '' ? '' : Number(e.target.value))}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                    />
+                {/* 3A: Kuota Jalur Reguler */}
+                <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      🏛️ 3A. Kuota Jalur Reguler (Jamaah Umum)
+                    </span>
+                    <span className="text-[10px] uppercase font-extrabold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
+                      Jalur Reguler
+                    </span>
                   </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Total Kuota Reguler</label>
+                      <input
+                        type="number"
+                        placeholder="Misal: 250"
+                        value={quota}
+                        onChange={(e) => setQuota(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="w-full p-2.5 border border-slate-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      />
+                    </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-teal-800 mb-1">Kuota Khusus Ikhwan</label>
-                    <input
-                      type="number"
-                      placeholder="Misal: 100"
-                      value={quotaIkhwan}
-                      onChange={(e) => setQuotaIkhwan(e.target.value === '' ? '' : Number(e.target.value))}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                    />
+                    <div>
+                      <label className="block text-xs font-bold text-teal-800 mb-1">Reguler Ikhwan</label>
+                      <input
+                        type="number"
+                        placeholder="Misal: 100"
+                        value={quotaIkhwan}
+                        onChange={(e) => setQuotaIkhwan(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="w-full p-2.5 border border-slate-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-rose-800 mb-1">Reguler Akhwat</label>
+                      <input
+                        type="number"
+                        placeholder="Misal: 150"
+                        value={quotaAkhwat}
+                        onChange={(e) => setQuotaAkhwat(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="w-full p-2.5 border border-slate-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      />
+                    </div>
                   </div>
+                </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-rose-800 mb-1">Kuota Khusus Akhwat</label>
-                    <input
-                      type="number"
-                      placeholder="Misal: 150"
-                      value={quotaAkhwat}
-                      onChange={(e) => setQuotaAkhwat(e.target.value === '' ? '' : Number(e.target.value))}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                    />
+                {/* 3B: Kuota Jalur Khusus Undangan (VIP) */}
+                <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-500" /> 3B. Kuota Jalur Undangan Khusus (VIP / Tamu)
+                    </span>
+                    <span className="text-[10px] uppercase font-extrabold px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900">
+                      Jalur VIP
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-emerald-700">
+                    Batas kuota terpisah untuk pendaftar tamu undangan khusus panitia (baik via link undangan ber-token maupun input manual admin).
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-emerald-950 mb-1">Total Kuota Undangan</label>
+                      <input
+                        type="number"
+                        placeholder="Misal: 50"
+                        value={quotaInvite}
+                        onChange={(e) => setQuotaInvite(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="w-full p-2.5 border border-emerald-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-teal-800 mb-1">Undangan Ikhwan</label>
+                      <input
+                        type="number"
+                        placeholder="Misal: 25"
+                        value={quotaInviteIkhwan}
+                        onChange={(e) => setQuotaInviteIkhwan(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="w-full p-2.5 border border-emerald-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-rose-800 mb-1">Undangan Akhwat</label>
+                      <input
+                        type="number"
+                        placeholder="Misal: 25"
+                        value={quotaInviteAkhwat}
+                        onChange={(e) => setQuotaInviteAkhwat(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="w-full p-2.5 border border-emerald-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2529,10 +2731,20 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       {/* SUB-MODAL: MANUAL ADD PARTICIPANT */}
       {showAddParticipant && (
         <div className="fixed inset-0 z-60 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b pb-3">
-              <h4 className="text-base font-bold text-slate-900">Tambah Peserta Manual</h4>
+              <div>
+                <h4 className="text-base font-bold text-slate-900">
+                  {manualIsInvite ? '✨ Tambah Tamu Undangan (VIP)' : 'Tambah Peserta Reguler'}
+                </h4>
+                <span className="text-[11px] text-slate-500">
+                  {manualIsInvite
+                    ? 'Input langsung peserta tamu khusus / VIP oleh admin'
+                    : 'Input pendaftaran manual jamaah reguler'}
+                </span>
+              </div>
               <button
+                type="button"
                 onClick={() => setShowAddParticipant(false)}
                 className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
               >
@@ -2540,13 +2752,51 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
               </button>
             </div>
 
+            {/* Track Selector Toggle */}
+            <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200 text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setManualIsInvite(false)}
+                className={`py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                  !manualIsInvite
+                    ? 'bg-white text-teal-950 shadow-xs border border-slate-200 font-extrabold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <span>🏛️ Jalur Reguler</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setManualIsInvite(true)}
+                className={`py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                  manualIsInvite
+                    ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-xs font-extrabold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>✨ Undangan (VIP)</span>
+              </button>
+            </div>
+
+            {manualIsInvite && (
+              <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-2xl text-[11px] text-amber-900 space-y-1">
+                <span className="font-bold flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-600" /> Tamu Undangan Khusus (VIP)
+                </span>
+                <p className="text-amber-800">
+                  Peserta ini dialokasikan ke kuota undangan khusus dan akan menerima e-tiket VIP resmi dengan QR Code presensi.
+                </p>
+              </div>
+            )}
+
             <form onSubmit={handleManualAddParticipant} className="space-y-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Nama Lengkap Jamaah *</label>
                 <input
                   type="text"
                   required
-                  placeholder="Contoh: Fulan bin Fulan"
+                  placeholder="Contoh: Ustadz Fulan / Bapak Ahmad"
                   value={manualName}
                   onChange={(e) => setManualName(e.target.value)}
                   className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
@@ -2567,7 +2817,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Kategori</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Kategori Gender</label>
                   <select
                     value={manualGender}
                     onChange={(e) => setManualGender(e.target.value as any)}
@@ -2578,6 +2828,19 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                   </select>
                 </div>
                 <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Usia (Tahun)</label>
+                  <input
+                    type="number"
+                    placeholder="Contoh: 35"
+                    value={manualAge}
+                    onChange={(e) => setManualAge(e.target.value === '' ? '' : Number(e.target.value))}
+                    className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Kota / Domisili</label>
                   <input
                     type="text"
@@ -2587,7 +2850,32 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                     className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
                   />
                 </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Email (Opsional)</label>
+                  <input
+                    type="email"
+                    placeholder="email@domain.com"
+                    value={manualEmail}
+                    onChange={(e) => setManualEmail(e.target.value)}
+                    className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                  />
+                </div>
               </div>
+
+              {manualIsInvite && (
+                <div>
+                  <label className="block text-xs font-bold text-amber-950 mb-1">
+                    Instansi / Jabatan / Catatan Undangan
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Contoh: Pembina Yayasan / Tokoh Masyarakat / Tamu Kehormatan"
+                    value={manualInviteNotes}
+                    onChange={(e) => setManualInviteNotes(e.target.value)}
+                    className="w-full p-2.5 border border-amber-300 bg-amber-50/30 rounded-xl text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -2625,12 +2913,144 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                 <button
                   type="submit"
                   disabled={manualSubmitting}
-                  className="px-5 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold shadow-xs active:scale-95 disabled:opacity-50"
+                  className={`px-5 py-2 text-white rounded-xl text-xs font-bold shadow-xs active:scale-95 disabled:opacity-50 ${
+                    manualIsInvite
+                      ? 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700'
+                      : 'bg-teal-800 hover:bg-teal-900'
+                  }`}
                 >
-                  {manualSubmitting ? 'Menyimpan...' : 'Simpan & Daftarkan'}
+                  {manualSubmitting ? 'Menyimpan...' : manualIsInvite ? '✨ Daftarkan Tamu VIP' : 'Simpan & Daftarkan'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* SUB-MODAL: BUKTI TIKET & WA DISPATCH POPUP */}
+      {showTicketSuccessModal && ticketModalData && (
+        <div className="fixed inset-0 z-70 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                  ✓
+                </div>
+                <div>
+                  <h4 className="text-base font-bold text-slate-900">
+                    {ticketModalData.isSpecialInvite ? 'Tamu Undangan Terdaftar!' : 'Peserta Berhasil Didaftarkan!'}
+                  </h4>
+                  <span className="text-xs text-slate-500">Tiket & QR Code siap dikirimkan</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTicketSuccessModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* QR Code & Ticket Info */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-center space-y-3">
+              <div className="flex justify-center">
+                <ParticipantQrCode
+                  ticketCode={ticketModalData.ticketCode}
+                  value={ticketModalData.ticketCode}
+                />
+              </div>
+
+              <div>
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 block">
+                  KODE E-TIKET PRESENSI
+                </span>
+                <span className="text-xl font-black font-mono text-teal-950">{ticketModalData.ticketCode}</span>
+              </div>
+
+              <div className="text-left text-xs border-t border-slate-200 pt-2 space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Nama:</span>
+                  <strong className="text-slate-900">{ticketModalData.personName}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Nomor WhatsApp:</span>
+                  <span className="font-mono text-slate-700">{ticketModalData.phone}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Jalur Pendaftaran:</span>
+                  <span className={`font-bold ${ticketModalData.isSpecialInvite ? 'text-amber-700' : 'text-teal-700'}`}>
+                    {ticketModalData.isSpecialInvite ? '✨ Undangan Khusus (VIP)' : '🏛️ Jalur Reguler'}
+                  </span>
+                </div>
+                {ticketModalData.inviteNotes && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Catatan Undangan:</span>
+                    <span className="font-medium text-slate-800">{ticketModalData.inviteNotes}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="space-y-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <a
+                  href={ticketModalData.waUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Kirim WhatsApp (wa.me)</span>
+                </a>
+
+                <a
+                  href={`https://t.me/share/url?url=${encodeURIComponent(ticketModalData.fullTicketUrl)}&text=${encodeURIComponent(ticketModalData.waText)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Kirim Telegram</span>
+                </a>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(ticketModalData.waText);
+                    setCopiedWaMsg(true);
+                    setTimeout(() => setCopiedWaMsg(false), 2500);
+                  }}
+                  className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 border border-slate-300"
+                >
+                  {copiedWaMsg ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedWaMsg ? 'Tersalin!' : 'Salin Pesan Tiket'}</span>
+                </button>
+
+                <a
+                  href={ticketModalData.ticketUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 border border-slate-300"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Buka E-Tiket</span>
+                </a>
+              </div>
+            </div>
+
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => setShowTicketSuccessModal(false)}
+                className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-semibold cursor-pointer"
+              >
+                Selesai / Tutup
+              </button>
+            </div>
           </div>
         </div>
       )}

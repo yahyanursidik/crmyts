@@ -82,6 +82,9 @@ export const events = pgTable(
     quota: integer('quota'),
     quotaIkhwan: integer('quota_ikhwan'),
     quotaAkhwat: integer('quota_akhwat'),
+    quotaInvite: integer('quota_invite'),
+    quotaInviteIkhwan: integer('quota_invite_ikhwan'),
+    quotaInviteAkhwat: integer('quota_invite_akhwat'),
     isRegistrationOpen: boolean('is_registration_open').default(true).notNull(),
     
     // Parking & Logistics

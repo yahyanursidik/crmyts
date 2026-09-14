@@ -7,6 +7,7 @@ import {
   categorizeCameras,
   resolveCameraStartCandidates,
   areEqualDevices,
+  inspectActiveStreamTrack,
   CameraDeviceItem,
 } from '../cameraScannerUtils';
 
@@ -130,7 +131,7 @@ describe('cameraScannerUtils', () => {
       expect(categorized.primaryFrontCamera?.id).toBe('ios-front');
     });
 
-    it('prioritizes native { facingMode: "environment" } constraint for iOS/Safari WebKit', () => {
+    it('prioritizes native exact { facingMode: { exact: "environment" } } constraint for iOS/Safari WebKit', () => {
       // Mock iOS environment
       Object.defineProperty(globalThis, 'navigator', {
         value: {
@@ -143,14 +144,15 @@ describe('cameraScannerUtils', () => {
       });
 
       const resolution = resolveCameraStartCandidates('environment', null, iPhoneSafariCameras);
-      // On iOS Safari, facingMode constraint is candidate #1 to avoid OverconstrainedError
-      expect(resolution.candidates[0]).toEqual({ facingMode: 'environment' });
+      // On iOS Safari, exact facingMode constraint is candidate #1 to force WebKit to select rear camera
+      expect(resolution.candidates[0]).toEqual({ facingMode: { exact: 'environment' } });
+      expect(resolution.candidates).toContainEqual({ facingMode: 'environment' });
       expect(resolution.candidates).toContain('ios-back-main');
       expect(resolution.suggestedDeviceId).toBe('ios-back-main');
       expect(resolution.expectedFacing).toBe('environment');
     });
 
-    it('prioritizes native { facingMode: "user" } constraint for user mode on iOS/Safari', () => {
+    it('prioritizes native exact { facingMode: { exact: "user" } } constraint for user mode on iOS/Safari', () => {
       Object.defineProperty(globalThis, 'navigator', {
         value: {
           userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
@@ -162,8 +164,33 @@ describe('cameraScannerUtils', () => {
       });
 
       const resolution = resolveCameraStartCandidates('user', null, iPhoneSafariCameras);
-      expect(resolution.candidates[0]).toEqual({ facingMode: 'user' });
+      expect(resolution.candidates[0]).toEqual({ facingMode: { exact: 'user' } });
+      expect(resolution.candidates).toContainEqual({ facingMode: 'user' });
       expect(resolution.expectedFacing).toBe('user');
+    });
+
+    it('does not assume cameras[0] is rear on iOS when labels are empty', () => {
+      Object.defineProperty(globalThis, 'navigator', {
+        value: {
+          userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+          platform: 'iPhone',
+          maxTouchPoints: 5,
+        },
+        configurable: true,
+        writable: true,
+      });
+
+      const emptyLabelCameras: CameraDeviceItem[] = [
+        { id: 'cam-0', label: '' },
+        { id: 'cam-1', label: '' },
+      ];
+
+      const categorized = categorizeCameras(emptyLabelCameras);
+      expect(categorized.primaryRearCamera).toBeNull();
+      expect(categorized.rearCameras.length).toBe(0);
+
+      const resolution = resolveCameraStartCandidates('environment', null, emptyLabelCameras);
+      expect(resolution.candidates[0]).toEqual({ facingMode: { exact: 'environment' } });
     });
   });
 
@@ -218,14 +245,17 @@ describe('cameraScannerUtils', () => {
       { id: 'cam-back-wide', label: 'Back Ultra Wide Camera' },
     ];
 
-    it('targets selected camera ID directly as string and sets appropriate expectedFacing', () => {
+    it('targets selected camera ID directly as string and provides facingMode fallbacks', () => {
       const resolution = resolveCameraStartCandidates('environment', 'cam-back-wide', cameras);
       expect(resolution.candidates[0]).toBe('cam-back-wide');
+      expect(resolution.candidates[1]).toEqual({ deviceId: { exact: 'cam-back-wide' } });
+      expect(resolution.candidates).toContainEqual({ facingMode: { exact: 'environment' } });
       expect(resolution.suggestedDeviceId).toBe('cam-back-wide');
       expect(resolution.expectedFacing).toBe('environment');
 
       const frontResolution = resolveCameraStartCandidates('environment', 'cam-front', cameras);
       expect(frontResolution.candidates[0]).toBe('cam-front');
+      expect(frontResolution.candidates).toContainEqual({ facingMode: { exact: 'user' } });
       expect(frontResolution.expectedFacing).toBe('user');
     });
   });
@@ -248,6 +278,15 @@ describe('cameraScannerUtils', () => {
       expect(areEqualDevices(listA, listB)).toBe(true);
       expect(areEqualDevices(listA, listC)).toBe(false);
       expect(areEqualDevices(listA, listA.slice(0, 1))).toBe(false);
+    });
+  });
+
+  describe('inspectActiveStreamTrack Helper', () => {
+    it('returns safe fallback object when DOM element is missing', () => {
+      const inspection = inspectActiveStreamTrack('non-existent-reader-id');
+      expect(inspection.isFront).toBe(false);
+      expect(inspection.isRear).toBe(false);
+      expect(inspection.facingMode).toBeUndefined();
     });
   });
 });

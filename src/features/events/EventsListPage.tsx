@@ -56,6 +56,9 @@ interface EventItem {
   quota?: number | null;
   quotaIkhwan?: number | null;
   quotaAkhwat?: number | null;
+  quotaInvite?: number | null;
+  quotaInviteIkhwan?: number | null;
+  quotaInviteAkhwat?: number | null;
   isRegistrationOpen: boolean;
 
   carParkingQuota?: number | null;
@@ -131,6 +134,9 @@ export const EventsListPage: React.FC = () => {
     quota: '',
     quotaIkhwan: '',
     quotaAkhwat: '',
+    quotaInvite: '',
+    quotaInviteIkhwan: '',
+    quotaInviteAkhwat: '',
     carParkingQuota: '',
     motorcycleParkingQuota: '',
     venueRules: [] as string[],
@@ -164,6 +170,9 @@ export const EventsListPage: React.FC = () => {
         quota: newEvent.quota ? parseInt(newEvent.quota) : null,
         quotaIkhwan: newEvent.quotaIkhwan ? parseInt(newEvent.quotaIkhwan) : null,
         quotaAkhwat: newEvent.quotaAkhwat ? parseInt(newEvent.quotaAkhwat) : null,
+        quotaInvite: newEvent.quotaInvite ? parseInt(newEvent.quotaInvite) : null,
+        quotaInviteIkhwan: newEvent.quotaInviteIkhwan ? parseInt(newEvent.quotaInviteIkhwan) : null,
+        quotaInviteAkhwat: newEvent.quotaInviteAkhwat ? parseInt(newEvent.quotaInviteAkhwat) : null,
         carParkingQuota: newEvent.carParkingQuota ? parseInt(newEvent.carParkingQuota) : null,
         motorcycleParkingQuota: newEvent.motorcycleParkingQuota ? parseInt(newEvent.motorcycleParkingQuota) : null,
       };
@@ -193,6 +202,9 @@ export const EventsListPage: React.FC = () => {
         quota: '',
         quotaIkhwan: '',
         quotaAkhwat: '',
+        quotaInvite: '',
+        quotaInviteIkhwan: '',
+        quotaInviteAkhwat: '',
         carParkingQuota: '',
         motorcycleParkingQuota: '',
         venueRules: [],
@@ -704,6 +716,18 @@ export const EventsListPage: React.FC = () => {
                       </div>
                     )}
 
+                    {Boolean(ev.quotaInvite || ev.quotaInviteIkhwan || ev.quotaInviteAkhwat) && (
+                      <div className="flex items-center justify-between text-[10px] text-emerald-800 pt-1 border-t border-[#1B4332]/10 bg-emerald-50/70 -mx-1 px-1.5 py-0.5 rounded">
+                        <span className="flex items-center gap-1 font-bold">
+                          <Sparkles className="w-3 h-3 text-amber-500" /> VIP / Undangan
+                        </span>
+                        <span>
+                          {ev.quotaInvite ? `Max ${ev.quotaInvite}` : ''}
+                          {(ev.quotaInviteIkhwan || ev.quotaInviteAkhwat) ? ` (I: ${ev.quotaInviteIkhwan || '∞'} | A: ${ev.quotaInviteAkhwat || '∞'})` : ''}
+                        </span>
+                      </div>
+                    )}
+
                     {(ev.carParkingQuota || ev.motorcycleParkingQuota) && (
                       <div className="flex items-center justify-between text-[10px] text-[#6B7A72] pt-1 border-t border-[#1B4332]/10">
                         <span className="flex items-center gap-1">
@@ -855,6 +879,7 @@ export const EventsListPage: React.FC = () => {
                     <p className="text-[11px] text-[#6B7A72] mt-0.5">
                       {ev.quota ? `Kuota ${ev.attendanceCount} / ${ev.quota}` : 'Tanpa Batas Kuota'}
                       {ev.minAge && ev.minAge > 0 ? ` • Min. ${ev.minAge} thn` : ''}
+                      {ev.quotaInvite ? ` • VIP: ${ev.quotaInvite}` : ''}
                     </p>
                   </td>
 
@@ -1168,39 +1193,91 @@ export const EventsListPage: React.FC = () => {
                 </div>
               )}
 
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block font-bold text-[#1C2321] mb-1">Kuota Total</label>
-                  <input
-                    type="number"
-                    min="1"
-                    placeholder="Contoh: 500"
-                    value={newEvent.quota}
-                    onChange={(e) => setNewEvent({ ...newEvent, quota: e.target.value })}
-                    className="w-full p-2.5 bg-[#F2EEE4] border border-[#1B4332]/14 rounded-lg focus:ring-2 focus:ring-[#1B4332] outline-none font-mono"
-                  />
+              {/* Kuota Jalur Reguler */}
+              <div className="p-3 bg-[#F2EEE4]/60 border border-[#1B4332]/14 rounded-xl space-y-2">
+                <span className="font-bold text-[#1C2321] block">🏛️ Kuota Jalur Reguler (Jamaah Umum)</span>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block font-bold text-[#1C2321] mb-1">Total Reguler</label>
+                    <input
+                      type="number"
+                      min="1"
+                      placeholder="Contoh: 500"
+                      value={newEvent.quota}
+                      onChange={(e) => setNewEvent({ ...newEvent, quota: e.target.value })}
+                      className="w-full p-2.5 bg-white border border-[#1B4332]/14 rounded-lg focus:ring-2 focus:ring-[#1B4332] outline-none font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-teal-800 mb-1">Reguler Ikhwan</label>
+                    <input
+                      type="number"
+                      min="1"
+                      placeholder="250"
+                      value={newEvent.quotaIkhwan}
+                      onChange={(e) => setNewEvent({ ...newEvent, quotaIkhwan: e.target.value })}
+                      className="w-full p-2.5 bg-white border border-[#1B4332]/14 rounded-lg focus:ring-2 focus:ring-[#1B4332] outline-none font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-rose-800 mb-1">Reguler Akhwat</label>
+                    <input
+                      type="number"
+                      min="1"
+                      placeholder="250"
+                      value={newEvent.quotaAkhwat}
+                      onChange={(e) => setNewEvent({ ...newEvent, quotaAkhwat: e.target.value })}
+                      className="w-full p-2.5 bg-white border border-[#1B4332]/14 rounded-lg focus:ring-2 focus:ring-[#1B4332] outline-none font-mono"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block font-bold text-[#1C2321] mb-1">Kuota Ikhwan</label>
-                  <input
-                    type="number"
-                    min="1"
-                    placeholder="250"
-                    value={newEvent.quotaIkhwan}
-                    onChange={(e) => setNewEvent({ ...newEvent, quotaIkhwan: e.target.value })}
-                    className="w-full p-2.5 bg-[#F2EEE4] border border-[#1B4332]/14 rounded-lg focus:ring-2 focus:ring-[#1B4332] outline-none font-mono"
-                  />
+              </div>
+
+              {/* Kuota Jalur Undangan (VIP) */}
+              <div className="p-3 bg-emerald-50/70 border border-emerald-300 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-emerald-950 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                    <span>✨ Kuota Tamu Undangan Khusus (VIP)</span>
+                  </span>
+                  <span className="text-[10px] uppercase font-bold text-emerald-800 bg-emerald-200/70 px-2 py-0.5 rounded-full">
+                    Opsional
+                  </span>
                 </div>
-                <div>
-                  <label className="block font-bold text-[#1C2321] mb-1">Kuota Akhwat</label>
-                  <input
-                    type="number"
-                    min="1"
-                    placeholder="250"
-                    value={newEvent.quotaAkhwat}
-                    onChange={(e) => setNewEvent({ ...newEvent, quotaAkhwat: e.target.value })}
-                    className="w-full p-2.5 bg-[#F2EEE4] border border-[#1B4332]/14 rounded-lg focus:ring-2 focus:ring-[#1B4332] outline-none font-mono"
-                  />
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block font-bold text-emerald-950 mb-1">Total Undangan</label>
+                    <input
+                      type="number"
+                      min="1"
+                      placeholder="Contoh: 50"
+                      value={newEvent.quotaInvite}
+                      onChange={(e) => setNewEvent({ ...newEvent, quotaInvite: e.target.value })}
+                      className="w-full p-2.5 bg-white border border-emerald-300 rounded-lg focus:ring-2 focus:ring-emerald-600 outline-none font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-teal-800 mb-1">Undangan Ikhwan</label>
+                    <input
+                      type="number"
+                      min="1"
+                      placeholder="25"
+                      value={newEvent.quotaInviteIkhwan}
+                      onChange={(e) => setNewEvent({ ...newEvent, quotaInviteIkhwan: e.target.value })}
+                      className="w-full p-2.5 bg-white border border-emerald-300 rounded-lg focus:ring-2 focus:ring-emerald-600 outline-none font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-rose-800 mb-1">Undangan Akhwat</label>
+                    <input
+                      type="number"
+                      min="1"
+                      placeholder="25"
+                      value={newEvent.quotaInviteAkhwat}
+                      onChange={(e) => setNewEvent({ ...newEvent, quotaInviteAkhwat: e.target.value })}
+                      className="w-full p-2.5 bg-white border border-emerald-300 rounded-lg focus:ring-2 focus:ring-emerald-600 outline-none font-mono"
+                    />
+                  </div>
                 </div>
               </div>
 

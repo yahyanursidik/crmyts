@@ -33,6 +33,7 @@ import {
   QrCode,
   Users,
   Mail,
+  Send,
   X,
 } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
@@ -46,7 +47,14 @@ import {
   DEFAULT_RULES_MODAL_DETAIL,
 } from '../events/EventManageModal';
 import { ParticipantQrCode } from './ParticipantQrCode';
-import { buildParticipantPortalPath } from '@/lib/participantTicket';
+import {
+  buildParticipantPortalPath,
+  buildWhatsAppShareUrl,
+  buildTelegramShareUrl,
+  formatTicketShareMessageSingle,
+  formatTicketShareMessageGroup,
+} from '@/lib/participantTicket';
+import { isEventPast } from '@/lib/eventUtils';
 import './events-portal.css';
 
 interface EventItem {
@@ -66,6 +74,7 @@ interface EventItem {
   meetingUrl?: string | null;
   
   isRegistrationOpen: boolean;
+  isPast?: boolean;
   targetAudience?: string;
   minAge?: number | null;
   quota?: number | null;
@@ -90,6 +99,17 @@ interface EventItem {
   akhwatCount?: number;
   carsCount?: number;
   motorcyclesCount?: number;
+  quotaInvite?: number | null;
+  quotaInviteIkhwan?: number | null;
+  quotaInviteAkhwat?: number | null;
+  specialInviteCount?: number;
+  specialInviteIkhwanCount?: number;
+  specialInviteAkhwatCount?: number;
+  regularCount?: number;
+  regularIkhwanCount?: number;
+  regularAkhwatCount?: number;
+  isRegularFull?: boolean;
+  isInviteFull?: boolean;
   bazaarInfo?: {
     id: string;
     isOpen: boolean;
@@ -162,6 +182,13 @@ export function EventsPortalPage() {
   // Copy share link states
   const [copiedShareLink, setCopiedShareLink] = useState(false);
   const [copiedCardId, setCopiedCardId] = useState<string | null>(null);
+  const [copiedTicketText, setCopiedTicketText] = useState<string | null>(null);
+
+  const handleCopyTicketText = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedTicketText(id);
+    setTimeout(() => setCopiedTicketText(null), 2500);
+  };
 
   // Filters
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -268,6 +295,7 @@ export function EventsPortalPage() {
   const [paymentProofUrl, setPaymentProofUrl] = useState<string | null>(null);
   const [paymentProofName, setPaymentProofName] = useState<string | null>(null);
   const [copiedBankAccount, setCopiedBankAccount] = useState(false);
+  const [directEvent, setDirectEvent] = useState<EventItem | null>(null);
 
   useEffect(() => {
     async function loadPortal() {
@@ -277,16 +305,37 @@ export function EventsPortalPage() {
         if (res.ok) {
           const json = await res.json();
           setData(json.data);
-          if (json.data.events && json.data.events.length > 0) {
-            let target = json.data.events[0];
-            if (targetId) {
-              const matched = json.data.events.find(
-                (ev: EventItem) =>
-                  ev.id.toLowerCase() === targetId.toLowerCase() ||
-                  ev.id.toLowerCase().includes(targetId.toLowerCase())
-              );
-              if (matched) target = matched;
+          const rawEvents: EventItem[] = json.data?.events || [];
+          const upcoming = rawEvents.filter((ev) => !isEventPast(ev));
+          let target: EventItem | undefined = undefined;
+
+          if (targetId) {
+            target = rawEvents.find(
+              (ev: EventItem) =>
+                ev.id.toLowerCase() === targetId.toLowerCase() ||
+                ev.id.toLowerCase().includes(targetId.toLowerCase())
+            );
+            if (!target) {
+              try {
+                const singleRes = await fetch(`/api/public/events/${encodeURIComponent(targetId)}`);
+                if (singleRes.ok) {
+                  const singleJson = await singleRes.json();
+                  if (singleJson.data?.event) {
+                    target = singleJson.data.event;
+                    setDirectEvent(target ?? null);
+                  }
+                }
+              } catch (err) {
+                console.warn('Failed to load specific event:', err);
+              }
             }
+          }
+
+          if (!target && upcoming.length > 0) {
+            target = upcoming[0];
+          }
+
+          if (target) {
             setSelectedEventId(target.id);
             // Default gender based on event target
             if (target.targetAudience === 'akhwat_only') {
@@ -305,7 +354,11 @@ export function EventsPortalPage() {
     loadPortal();
   }, [targetId]);
 
-  const selectedEvent = data?.events?.find((ev) => ev.id === selectedEventId);
+  const selectedEvent =
+    directEvent && directEvent.id === selectedEventId
+      ? directEvent
+      : data?.events?.find((ev) => ev.id === selectedEventId) || directEvent;
+  const isPastEvent = isEventPast(selectedEvent);
   const isVenueEvent = selectedEvent?.deliveryMode !== 'online';
   const locationQuery =
     selectedEvent?.locationAddress?.trim() ||
@@ -516,6 +569,11 @@ export function EventsPortalPage() {
       return;
     }
 
+    if (selectedEvent && isPastEvent) {
+      alert('Mohon maaf, formulir pendaftaran tidak dapat diproses karena kajian ini telah selesai dilaksanakan atau telah berlalu.');
+      return;
+    }
+
     if (selectedEvent && selectedEvent.isRegistrationOpen === false) {
       alert('Pendaftaran untuk kajian ini telah ditutup oleh pengurus.');
       return;
@@ -642,16 +700,18 @@ export function EventsPortalPage() {
     }
   };
 
-  const filteredEvents = (data?.events || []).filter((ev) => {
-    const matchCat = categoryFilter === 'all' || ev.category.toLowerCase().includes(categoryFilter.toLowerCase());
-    const matchAudience = audienceFilter === 'all' || (ev.targetAudience || 'umum') === audienceFilter;
-    const matchSearch =
-      searchQuery.trim() === '' ||
-      ev.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      ev.speaker.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      ev.locationName.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchCat && matchAudience && matchSearch;
-  });
+  const filteredEvents = (data?.events || [])
+    .filter((ev) => !isEventPast(ev))
+    .filter((ev) => {
+      const matchCat = categoryFilter === 'all' || ev.category.toLowerCase().includes(categoryFilter.toLowerCase());
+      const matchAudience = audienceFilter === 'all' || (ev.targetAudience || 'umum') === audienceFilter;
+      const matchSearch =
+        searchQuery.trim() === '' ||
+        ev.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        ev.speaker.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        ev.locationName.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchCat && matchAudience && matchSearch;
+    });
 
   const categories = ['all', 'Kajian Rutin', 'Daurah Khusus', 'Tazkiyatun Nafs', 'Aqidah', 'Fiqh'];
 
@@ -659,13 +719,44 @@ export function EventsPortalPage() {
     return <LoadingState message="Memuat Jadwal Majelis Ilmu Tarbiyah Sunnah..." />;
   }
 
-  // Quota & Parking calculations for selected event
-  const isIkhwanFull = selectedEvent?.quotaIkhwan
-    ? (selectedEvent.ikhwanCount || 0) >= selectedEvent.quotaIkhwan
-    : false;
-  const isAkhwatFull = selectedEvent?.quotaAkhwat
-    ? (selectedEvent.akhwatCount || 0) >= selectedEvent.quotaAkhwat
-    : false;
+  // Dual-Track Quota & Parking calculations for selected event
+  const isInviteTrack = Boolean(verifiedReferrer?.valid);
+
+  const activeQuotaTotal = isInviteTrack ? selectedEvent?.quotaInvite : selectedEvent?.quota;
+  const activeQuotaIkhwan = isInviteTrack ? selectedEvent?.quotaInviteIkhwan : selectedEvent?.quotaIkhwan;
+  const activeQuotaAkhwat = isInviteTrack ? selectedEvent?.quotaInviteAkhwat : selectedEvent?.quotaAkhwat;
+
+  const currentCountTotal = isInviteTrack
+    ? (selectedEvent?.specialInviteCount ?? 0)
+    : (selectedEvent?.regularCount ?? selectedEvent?.attendanceCount ?? 0);
+  const currentCountIkhwan = isInviteTrack
+    ? (selectedEvent?.specialInviteIkhwanCount ?? 0)
+    : (selectedEvent?.regularIkhwanCount ?? selectedEvent?.ikhwanCount ?? 0);
+  const currentCountAkhwat = isInviteTrack
+    ? (selectedEvent?.specialInviteAkhwatCount ?? 0)
+    : (selectedEvent?.regularAkhwatCount ?? selectedEvent?.akhwatCount ?? 0);
+
+  const isTotalFull = Boolean(
+    isInviteTrack
+      ? (selectedEvent?.isInviteFull || (activeQuotaTotal && currentCountTotal >= activeQuotaTotal))
+      : (selectedEvent?.isRegularFull || (activeQuotaTotal && currentCountTotal >= activeQuotaTotal))
+  );
+
+  const isIkhwanFull = Boolean(activeQuotaIkhwan && currentCountIkhwan >= activeQuotaIkhwan);
+  const isAkhwatFull = Boolean(activeQuotaAkhwat && currentCountAkhwat >= activeQuotaAkhwat);
+
+  // If audience is restricted, gender fullness determines total fullness
+  const isAudienceFull =
+    (selectedEvent?.targetAudience === 'ikhwan_only' && isIkhwanFull) ||
+    (selectedEvent?.targetAudience === 'akhwat_only' && isAkhwatFull);
+
+  // Both genders full when separate quotas are specified
+  const isBothGendersFull = Boolean(
+    activeQuotaIkhwan && activeQuotaAkhwat && isIkhwanFull && isAkhwatFull
+  );
+
+  const isTrackFull = isTotalFull || isAudienceFull || isBothGendersFull;
+
   const isCarFull = selectedEvent?.carParkingQuota
     ? (selectedEvent.carsCount || 0) >= selectedEvent.carParkingQuota
     : false;
@@ -852,12 +943,22 @@ export function EventsPortalPage() {
                 )}
                 <span
                   className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                    selectedEvent.isRegistrationOpen
-                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                      : 'bg-red-100 text-red-700 border border-red-200'
+                    isPastEvent
+                      ? 'bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs'
+                      : isTrackFull
+                        ? 'bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs'
+                        : selectedEvent.isRegistrationOpen
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : 'bg-red-100 text-red-700 border border-red-200'
                   }`}
                 >
-                  {selectedEvent.isRegistrationOpen ? 'Pendaftaran Dibuka' : 'Pendaftaran Ditutup'}
+                  {isPastEvent
+                    ? 'Kajian Telah Selesai'
+                    : isTrackFull
+                      ? (isInviteTrack ? 'Kuota VIP Penuh' : 'Kuota Penuh')
+                      : selectedEvent.isRegistrationOpen
+                        ? 'Pendaftaran Dibuka'
+                        : 'Pendaftaran Ditutup'}
                 </span>
               </div>
 
@@ -947,7 +1048,7 @@ export function EventsPortalPage() {
                 <li className="event-path__step"><span className="event-path__step-no">2</span><span>Isi data yang diperlukan pada formulir.</span></li>
                 <li className="event-path__step"><span className="event-path__step-no">3</span><span>Simpan e-tiket untuk check-in saat hadir.</span></li>
               </ol>
-              {selectedEvent.isRegistrationOpen && (
+              {selectedEvent.isRegistrationOpen && !isPastEvent && !isTrackFull && (
                 <button type="button" onClick={scrollToRegistration} className="event-path__action">
                   Isi formulir pendaftaran
                 </button>
@@ -997,7 +1098,7 @@ export function EventsPortalPage() {
               <div className="p-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs text-center">
                 <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Kajian Terjadwal</span>
                 <span className="text-xl font-black text-teal-900 block mt-1">
-                  {data?.events?.length || 0} Majelis
+                  {data?.events?.filter((ev) => !isEventPast(ev)).length || 0} Majelis
                 </span>
               </div>
 
@@ -1426,12 +1527,12 @@ export function EventsPortalPage() {
                     'Pilih jadwal kajian di sebelah kiri.'
                   )}
                 </p>
-                {selectedEvent && selectedEvent.isRegistrationOpen && (
+                {selectedEvent && !isPastEvent && selectedEvent.isRegistrationOpen && (
                   <p className="registration-panel__helper">Data bertanda * wajib diisi. Gunakan nomor WhatsApp yang aktif untuk e-tiket dan pengingat kajian.</p>
                 )}
               </div>
 
-              {selectedEvent && selectedEvent.isRegistrationOpen && (
+              {selectedEvent && !isPastEvent && selectedEvent.isRegistrationOpen && !isTrackFull && (
                 <ol className="registration-steps" aria-label="Tahapan formulir">
                   <li className="registration-step"><span className="registration-step__no">1</span><span>Data diri</span></li>
                   <li className="registration-step"><span className="registration-step__no">2</span><span>Ketentuan</span></li>
@@ -1439,13 +1540,127 @@ export function EventsPortalPage() {
                 </ol>
               )}
 
-              {selectedEvent && selectedEvent.isRegistrationOpen === false ? (
+              {selectedEvent && isPastEvent ? (
+                <div className="p-6 bg-amber-50/90 border border-amber-200 rounded-2xl text-center space-y-3">
+                  <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mx-auto text-amber-700">
+                    <Clock className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-bold text-amber-950 font-display">Kajian Telah Selesai Dilaksanakan</h4>
+                  <p className="text-xs text-amber-800 font-medium leading-relaxed max-w-sm mx-auto">
+                    Mohon maaf, formulir pendaftaran untuk kajian ini sudah tidak aktif karena waktu pelaksanaan kajian telah berlalu.
+                  </p>
+                  {filteredEvents.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = filteredEvents[0];
+                        if (next) {
+                          setSelectedEventId(next.id);
+                          if (next.targetAudience === 'akhwat_only') setRegGender('akhwat');
+                          else if (next.targetAudience === 'ikhwan_only') setRegGender('ikhwan');
+                        }
+                      }}
+                      className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 bg-teal-800 hover:bg-teal-900 text-white text-xs font-bold rounded-xl transition-all shadow-xs active:scale-95 cursor-pointer"
+                    >
+                      <span>Lihat Jadwal Kajian Mendatang</span>
+                    </button>
+                  )}
+                </div>
+              ) : selectedEvent && selectedEvent.isRegistrationOpen === false ? (
                 <div className="p-6 bg-red-50 border border-red-200 rounded-2xl text-center space-y-2">
                   <Clock className="w-8 h-8 text-red-500 mx-auto" />
                   <h4 className="text-sm font-bold text-red-900">Pendaftaran Telah Ditutup</h4>
                   <p className="text-xs text-red-700">
                     Mohon maaf, pendaftaran untuk kajian ini telah ditutup oleh pengurus. Hubungi panitia bila membutuhkan informasi lebih lanjut.
                   </p>
+                </div>
+              ) : !selectedEvent ? (
+                <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl text-center space-y-2">
+                  <Clock className="w-8 h-8 text-slate-400 mx-auto" />
+                  <h4 className="text-sm font-bold text-slate-700">Belum Ada Kajian Dipilih</h4>
+                  <p className="text-xs text-slate-500">
+                    Silakan pilih jadwal kajian dari daftar di sebelah kiri untuk membuka formulir pendaftaran.
+                  </p>
+                </div>
+              ) : isTrackFull ? (
+                <div className="p-6 bg-amber-50/90 border-2 border-amber-300 rounded-2xl text-center space-y-4 shadow-xs animate-in fade-in duration-200">
+                  <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mx-auto text-amber-700">
+                    <AlertCircle className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-amber-900 bg-amber-200 px-2.5 py-0.5 rounded-full">
+                      Kuota Penuh
+                    </span>
+                    <h4 className="text-base font-bold text-amber-950 font-display mt-2">
+                      {isInviteTrack ? 'Kuota Tamu Undangan (VIP) Telah Penuh' : 'Kuota Pendaftaran Reguler Telah Penuh'}
+                    </h4>
+                    <p className="text-xs text-amber-900 font-medium leading-relaxed max-w-md mx-auto mt-1">
+                      {isInviteTrack
+                        ? `Mohon maaf, kuota khusus untuk tamu undangan pada kajian ini telah terpenuhi (${selectedEvent.quotaInvite ? `${selectedEvent.quotaInvite} tamu` : 'kuota penuh'}). Silakan hubungi panitia bila memerlukan bantuan.`
+                        : isTotalFull
+                        ? `Alhamdulillah atas antusiasme jamaah. Seluruh kuota majelis (${selectedEvent.quota} jamaah) telah terisi penuh. Formulir pendaftaran reguler otomatis ditutup.`
+                        : isBothGendersFull
+                        ? `Kuota pendaftaran ikhwan (${selectedEvent.quotaIkhwan}) dan akhwat (${selectedEvent.quotaAkhwat}) telah terisi penuh.`
+                        : isAudienceFull
+                        ? `Kuota pendaftaran untuk segmentasi kajian ini telah terisi penuh.`
+                        : `Kuota pendaftaran untuk jalur ini telah terisi penuh.`}
+                    </p>
+                  </div>
+
+                  {!isInviteTrack && (
+                    <div className="p-4 bg-white/95 rounded-2xl border border-amber-200 text-left space-y-2.5 max-w-md mx-auto shadow-2xs">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-amber-600" />
+                        <span className="text-xs font-bold text-slate-900">
+                          Memiliki Kode Undangan Khusus (VIP) dari Panitia?
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600">
+                        Jika Anda adalah asatidzah, pembina, atau tamu kehormatan dengan token undangan khusus, masukkan kode untuk membuka formulir jalur undangan:
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Kode Undangan Khusus (VIP)"
+                          value={inputReferralCode}
+                          onChange={(e) => setInputReferralCode(e.target.value)}
+                          className="flex-1 px-3 py-2 text-xs font-mono font-bold uppercase border border-amber-300 rounded-xl bg-amber-50/40 focus:ring-2 focus:ring-amber-500 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleVerifyReferral()}
+                          disabled={verifyingReferral || !inputReferralCode.trim()}
+                          className="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs disabled:opacity-50 active:scale-95 cursor-pointer"
+                        >
+                          {verifyingReferral ? 'Memeriksa...' : 'Validasi'}
+                        </button>
+                      </div>
+                      {referralStatusText && (
+                        <p className={`text-[11px] font-semibold ${verifiedReferrer?.valid ? 'text-emerald-700' : 'text-rose-600'}`}>
+                          {referralStatusText}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {filteredEvents.filter((ev) => ev.id !== selectedEvent.id).length > 0 && (
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const other = filteredEvents.find((ev) => ev.id !== selectedEvent.id);
+                          if (other) {
+                            setSelectedEventId(other.id);
+                            if (other.targetAudience === 'akhwat_only') setRegGender('akhwat');
+                            else if (other.targetAudience === 'ikhwan_only') setRegGender('ikhwan');
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 bg-teal-800 hover:bg-teal-900 text-white text-xs font-bold rounded-xl transition-all shadow-xs active:scale-95 cursor-pointer"
+                      >
+                        <span>Lihat Jadwal Kajian Lainnya</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <form onSubmit={handleSubmitEventRegistration} className="registration-form space-y-5">
@@ -2632,6 +2847,20 @@ export function EventsPortalPage() {
                       const activeTicketCode = active.ticketCode || eventSuccess.ticketCode;
                       const activePortalPath = buildParticipantPortalPath(eventSuccess.event.id, activeTicketCode);
                       const activePortalUrl = `${window.location.origin}${activePortalPath}`;
+                      const activeSingleText = formatTicketShareMessageSingle({
+                        eventTitle: eventSuccess.event.title,
+                        speaker: eventSuccess.event.speaker,
+                        startAt: eventSuccess.event.startAt,
+                        locationName: eventSuccess.event.locationName,
+                        participantName: active.name,
+                        relationship: active.relationship,
+                        gender: active.gender,
+                        ticketCode: activeTicketCode,
+                        portalUrl: activePortalUrl,
+                        isSpecialInvite: eventSuccess.isSpecialInvite,
+                      });
+                      const activeWaUrl = buildWhatsAppShareUrl(activeSingleText);
+                      const activeTgUrl = buildTelegramShareUrl(activePortalUrl, activeSingleText);
 
                       return (
                         <div className="p-4 bg-cream-50/70 border-2 border-brand-800/80 rounded-2xl space-y-3 text-center">
@@ -2658,24 +2887,53 @@ export function EventsPortalPage() {
                             className="mx-auto max-w-[15rem]"
                           />
 
-                          <div className="pt-1 flex flex-col sm:flex-row items-center gap-2">
+                          {/* Individual Share Buttons for Active Member */}
+                          <div className="pt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <a
-                              href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
-                                `Bismillah, ini e-tiket kajian "${eventSuccess.event.title}" untuk ${active.name} (${active.relationship}):\nNomor Tiket: ${activeTicketCode}\nTautan QR Presensi: ${activePortalUrl}\n\nJazakumullah khairan.`
-                              )}`}
+                              href={activeWaUrl}
                               target="_blank"
-                              rel="noreferrer"
-                              className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] shadow-xs flex items-center justify-center gap-1.5 transition-all active:scale-95"
+                              rel="noopener noreferrer"
+                              className="py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] shadow-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
                             >
                               <MessageSquare className="w-3.5 h-3.5" />
-                              <span>Bagikan Tiket WA ({active.name.split(' ')[0]})</span>
+                              <span>Bagikan WA ({active.name.split(' ')[0]})</span>
                             </a>
+
+                            <a
+                              href={activeTgUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="py-2 px-3 rounded-xl bg-sky-500 hover:bg-sky-600 text-white font-bold text-[11px] shadow-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                              <span>Bagikan Telegram ({active.name.split(' ')[0]})</span>
+                            </a>
+                          </div>
+
+                          <div className="flex flex-col sm:flex-row items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleCopyTicketText(activeSingleText, `member-${activeTicketCode}`)}
+                              className="w-full py-2 px-3 rounded-xl bg-white hover:bg-cream-100 text-brand-950 font-bold text-[11px] border border-cream-300 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                            >
+                              {copiedTicketText === `member-${activeTicketCode}` ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5 text-emerald-600 animate-in zoom-in-50" />
+                                  <span className="text-emerald-800">Teks Tiket Tersalin!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3.5 h-3.5 text-brand-700" />
+                                  <span>Salin Teks Tiket</span>
+                                </>
+                              )}
+                            </button>
 
                             <Link
                               to={activePortalPath}
-                              className="w-full sm:w-auto py-2 px-3 rounded-xl bg-white hover:bg-cream-100 text-brand-950 font-bold text-[11px] border border-cream-300 flex items-center justify-center gap-1.5 transition-all"
+                              className="w-full sm:w-auto py-2 px-3 rounded-xl bg-brand-900 hover:bg-brand-950 text-white font-bold text-[11px] flex items-center justify-center gap-1.5 transition-all shrink-0 cursor-pointer"
                             >
-                              <Ticket className="w-3.5 h-3.5 text-brand-700" />
+                              <Ticket className="w-3.5 h-3.5 text-emerald-300" />
                               <span>Buka Portal</span>
                             </Link>
                           </div>
@@ -2685,9 +2943,9 @@ export function EventsPortalPage() {
                   </div>
                 ) : (
                   /* MODE B: Grid Display of ALL Member QRs */
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     <p className="text-[11px] text-surface-600">
-                      Berikut QR presensi untuk seluruh anggota rombongan. Anda dapat mengambil tangkapan layar kartu ini:
+                      Berikut QR presensi untuk seluruh anggota rombongan. Anda dapat membagikan atau menyimpan kartu tiket masing-masing:
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-96 overflow-y-auto pr-1">
                       {eventSuccess.groupTickets.map((t: any, idx: number) => {
@@ -2696,11 +2954,25 @@ export function EventsPortalPage() {
                           eventSuccess.event.id,
                           memberTicketCode
                         )}`;
+                        const memberSingleText = formatTicketShareMessageSingle({
+                          eventTitle: eventSuccess.event.title,
+                          speaker: eventSuccess.event.speaker,
+                          startAt: eventSuccess.event.startAt,
+                          locationName: eventSuccess.event.locationName,
+                          participantName: t.name,
+                          relationship: t.relationship,
+                          gender: t.gender,
+                          ticketCode: memberTicketCode,
+                          portalUrl: memberPortalUrl,
+                          isSpecialInvite: eventSuccess.isSpecialInvite,
+                        });
+                        const memberWaUrl = buildWhatsAppShareUrl(memberSingleText);
+                        const memberTgUrl = buildTelegramShareUrl(memberPortalUrl, memberSingleText);
 
                         return (
                           <div
                             key={t.ticketCode || idx}
-                            className="p-3 bg-white rounded-2xl border border-cream-300 shadow-2xs space-y-2 text-center"
+                            className="p-3 bg-white rounded-2xl border border-cream-300 shadow-2xs space-y-2.5 text-center"
                           >
                             <div className="flex items-center justify-between text-left border-b border-cream-200 pb-1.5">
                               <div>
@@ -2719,12 +2991,139 @@ export function EventsPortalPage() {
                               ticketCode={memberTicketCode}
                               className="mx-auto max-w-[13rem]"
                             />
+
+                            {/* Mini Share Row per Member Card */}
+                            <div className="grid grid-cols-3 gap-1 pt-1">
+                              <a
+                                href={memberWaUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Bagikan via WhatsApp"
+                                className="py-1.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer"
+                              >
+                                <MessageSquare className="w-3 h-3" />
+                                <span>WA</span>
+                              </a>
+                              <a
+                                href={memberTgUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Bagikan via Telegram"
+                                className="py-1.5 px-2 bg-sky-500 hover:bg-sky-600 text-white rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer"
+                              >
+                                <Send className="w-3 h-3" />
+                                <span>TG</span>
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyTicketText(memberSingleText, `grid-${memberTicketCode}`)}
+                                title="Salin Teks Tiket"
+                                className="py-1.5 px-2 bg-cream-100 hover:bg-cream-200 text-slate-800 rounded-lg text-[10px] font-bold border border-cream-300 flex items-center justify-center gap-1 transition-all cursor-pointer"
+                              >
+                                {copiedTicketText === `grid-${memberTicketCode}` ? (
+                                  <Check className="w-3 h-3 text-emerald-600" />
+                                ) : (
+                                  <Copy className="w-3 h-3 text-slate-600" />
+                                )}
+                                <span>{copiedTicketText === `grid-${memberTicketCode}` ? 'OK' : 'Salin'}</span>
+                              </button>
+                            </div>
                           </div>
                         );
                       })}
                     </div>
                   </div>
                 )}
+
+                {/* Collective Group Share Section */}
+                {(() => {
+                  const mappedGroupTickets = eventSuccess.groupTickets.map((t: any) => {
+                    const tCode = t.ticketCode || eventSuccess.ticketCode;
+                    return {
+                      name: t.name,
+                      relationship: t.relationship,
+                      gender: t.gender,
+                      ticketCode: tCode,
+                      portalUrl: `${window.location.origin}${buildParticipantPortalPath(eventSuccess.event.id, tCode)}`,
+                    };
+                  });
+
+                  const groupTicketText = formatTicketShareMessageGroup({
+                    eventTitle: eventSuccess.event.title,
+                    speaker: eventSuccess.event.speaker,
+                    startAt: eventSuccess.event.startAt,
+                    locationName: eventSuccess.event.locationName,
+                    registrantName: eventSuccess.participant?.name || 'Pendaftar Utama',
+                    totalParticipants: eventSuccess.groupTickets.length,
+                    groupTickets: mappedGroupTickets,
+                    isSpecialInvite: eventSuccess.isSpecialInvite,
+                  });
+
+                  const primaryPortalUrl = `${window.location.origin}${buildParticipantPortalPath(
+                    eventSuccess.event.id,
+                    eventSuccess.ticketCode
+                  )}`;
+                  const groupWaUrl = buildWhatsAppShareUrl(groupTicketText, eventSuccess.participant?.phone);
+                  const groupTgUrl = buildTelegramShareUrl(primaryPortalUrl, groupTicketText);
+
+                  return (
+                    <div className="p-3.5 bg-gradient-to-br from-cream-100 to-cream-50 rounded-2xl border border-cream-300 shadow-2xs space-y-2.5">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-brand-900 text-emerald-300 flex items-center justify-center font-bold text-xs shrink-0">
+                          <Users className="w-3.5 h-3.5" />
+                        </div>
+                        <div>
+                          <span className="text-xs font-black text-brand-950 block font-display">
+                            Bagikan Seluruh Tiket Rombongan Sekaligus
+                          </span>
+                          <span className="text-[10px] text-surface-600">
+                            Kirim 1 pesan berisi {eventSuccess.groupTickets.length} nomor tiket dan tautan QR masing-masing
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                        <a
+                          href={groupWaUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>Kirim Semua WA</span>
+                        </a>
+
+                        <a
+                          href={groupTgUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="py-2.5 px-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Kirim Semua Telegram</span>
+                        </a>
+
+                        <button
+                          type="button"
+                          onClick={() => handleCopyTicketText(groupTicketText, 'group')}
+                          className="py-2.5 px-3 bg-white hover:bg-cream-200 text-slate-800 font-bold text-xs rounded-xl border border-cream-300 transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+                        >
+                          {copiedTicketText === 'group' ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-600 animate-in zoom-in-50" />
+                              <span className="text-emerald-800">Semua Tiket Tersalin!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5 text-slate-600" />
+                              <span>Salin Teks Rombongan</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             ) : (
               <>
@@ -2741,6 +3140,70 @@ export function EventsPortalPage() {
                     className="mx-auto max-w-[15rem]"
                   />
                 )}
+
+                {/* Single Participant Share Buttons */}
+                {(() => {
+                  const singlePortalPath = buildParticipantPortalPath(eventSuccess.event.id, eventSuccess.ticketCode);
+                  const singlePortalUrl = `${window.location.origin}${singlePortalPath}`;
+                  const singleTicketText = formatTicketShareMessageSingle({
+                    eventTitle: eventSuccess.event.title,
+                    speaker: eventSuccess.event.speaker,
+                    startAt: eventSuccess.event.startAt,
+                    locationName: eventSuccess.event.locationName,
+                    participantName: eventSuccess.participant?.name || 'Jamaah',
+                    relationship: 'Pendaftar Utama',
+                    gender: eventSuccess.participant?.gender,
+                    ticketCode: eventSuccess.ticketCode,
+                    portalUrl: singlePortalUrl,
+                    isSpecialInvite: eventSuccess.isSpecialInvite,
+                  });
+                  const singleWaUrl = buildWhatsAppShareUrl(singleTicketText, eventSuccess.participant?.phone);
+                  const singleTgUrl = buildTelegramShareUrl(singlePortalUrl, singleTicketText);
+
+                  return (
+                    <div className="space-y-2 pt-1">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <a
+                          href={singleWaUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>Bagikan via WhatsApp (wa.me)</span>
+                        </a>
+
+                        <a
+                          href={singleTgUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="py-2.5 px-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Bagikan via Telegram</span>
+                        </a>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleCopyTicketText(singleTicketText, 'single')}
+                        className="w-full py-2.5 bg-cream-100 hover:bg-cream-200 text-brand-950 font-bold text-xs rounded-xl border border-cream-300 transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
+                      >
+                        {copiedTicketText === 'single' ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-600 animate-in zoom-in-50" />
+                            <span className="text-emerald-800 font-bold">Teks E-Tiket Berhasil Disalin!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5 text-brand-800" />
+                            <span>Salin Teks Ringkasan E-Tiket</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })()}
               </>
             )}
 
@@ -2823,6 +3286,7 @@ export function EventsPortalPage() {
                   setAgreedToRules(false);
                   setSelectedGroupTicketIdx(0);
                   setShowAllGroupQrs(false);
+                  setCopiedTicketText(null);
                 }}
                 className="w-full py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-xs active:scale-95"
               >
@@ -2882,7 +3346,7 @@ export function EventsPortalPage() {
           </a>
         </div>
       )}
-      {isSingleEvent && selectedEvent?.isRegistrationOpen && (
+      {isSingleEvent && selectedEvent?.isRegistrationOpen && !isPastEvent && !isTrackFull && (
         <aside className="mobile-register-bar" aria-label="Aksi pendaftaran">
           <div className="mobile-register-bar__copy">
             <span className="mobile-register-bar__label">{selectedEvent.title}</span>

@@ -35,6 +35,7 @@ import {
   ensureVideoPlaysInline,
   isRearCameraLabel,
   isFrontCameraLabel,
+  inspectActiveStreamTrack,
 } from '@/lib/cameraScannerUtils';
 import { apiClient } from '@/lib/apiClient';
 import { extractTicketCode } from '@/lib/participantTicket';
@@ -365,7 +366,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
           }
           html5QrCodeRef.current = null;
           // Hardware release grace period for Android HAL and iOS WebKit camera daemon
-          await sleep(150);
+          await sleep(250);
         }
 
         // Check DOM container exists
@@ -463,6 +464,33 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
         }
         if (resolution.suggestedDeviceId && selectedCameraIdRef.current !== resolution.suggestedDeviceId) {
           setSelectedCameraId(resolution.suggestedDeviceId);
+        }
+
+        // Active Stream Verification & Auto-Recovery (Crucial for iOS Safari / iPadOS)
+        try {
+          const inspection = inspectActiveStreamTrack('gate-qr-reader-container');
+          const runningSettings = (typeof qrScanner.getRunningTrackSettings === 'function' ? qrScanner.getRunningTrackSettings() : {}) as any;
+          const activeFacing = (runningSettings?.facingMode || inspection.facingMode || '').toLowerCase();
+          const activeIsFront = activeFacing === 'user' || inspection.isFront;
+
+          if (requestedMode === 'environment' && activeIsFront && !overrideTarget?.isRecoveryAttempt) {
+            console.warn('[EventScannerModal] Detected front camera active despite requesting environment. Initiating auto-recovery with exact constraint...');
+            try {
+              if (qrScanner.isScanning) {
+                await qrScanner.stop();
+              }
+              qrScanner.clear();
+            } catch {}
+            await sleep(250);
+            await startCameraScanner({
+              facingMode: 'environment',
+              deviceId: undefined,
+              isRecoveryAttempt: true,
+            });
+            return;
+          }
+        } catch (inspectErr) {
+          console.warn('[EventScannerModal] Active track inspection warning:', inspectErr);
         }
 
         // Refresh device list with labels now that permission is granted without redundant re-renders
@@ -614,17 +642,20 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
     }
   };
 
-  // Switch between front and back camera with explicit device ID resolution
+  // Switch between front and back camera with pure exact facingMode on iOS Safari & deviceId resolution for Android
   const handleToggleFacingMode = async () => {
     const currentFacing = facingModeRef.current;
     const nextFacing: 'environment' | 'user' = currentFacing === 'environment' ? 'user' : 'environment';
-    const { primaryRearCamera, primaryFrontCamera } = categorizeCameras(availableCamerasRef.current);
+    const isApple = isIOSDevice() || isSafariBrowser();
 
     let nextDeviceId: string | undefined = undefined;
-    if (nextFacing === 'environment' && primaryRearCamera) {
-      nextDeviceId = primaryRearCamera.id;
-    } else if (nextFacing === 'user' && primaryFrontCamera) {
-      nextDeviceId = primaryFrontCamera.id;
+    if (!isApple) {
+      const { primaryRearCamera, primaryFrontCamera } = categorizeCameras(availableCamerasRef.current);
+      if (nextFacing === 'environment' && primaryRearCamera) {
+        nextDeviceId = primaryRearCamera.id;
+      } else if (nextFacing === 'user' && primaryFrontCamera) {
+        nextDeviceId = primaryFrontCamera.id;
+      }
     }
 
     setFacingMode(nextFacing);

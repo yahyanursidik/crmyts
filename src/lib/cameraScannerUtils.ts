@@ -129,20 +129,28 @@ export function categorizeCameras(cameras: CameraDeviceItem[]): CategorizedCamer
   });
 
   // Fallback for devices where labels are empty or generic ("camera 0", "camera 1")
+  // NOTE: On Apple devices (iOS/iPadOS/Safari), cameras[0] in enumerateDevices is often the Front camera!
+  // Do NOT blindly assign cameras[0] to rear on iOS/AppleWebKit when labels are missing.
   if (rearCameras.length === 0 && frontCameras.length === 0 && cameras.length > 0) {
-    const firstCam = cameras[0];
-    if (firstCam) {
-      rearCameras.push(firstCam);
-    }
-    const secondCam = cameras[1];
-    if (secondCam) {
-      frontCameras.push(secondCam);
-    }
-    for (let i = 2; i < cameras.length; i++) {
-      const extraCam = cameras[i];
-      if (extraCam) {
-        otherCameras.push(extraCam);
+    const isApple = isIOSDevice() || isSafariBrowser();
+    if (!isApple) {
+      const firstCam = cameras[0];
+      if (firstCam) {
+        rearCameras.push(firstCam);
       }
+      const secondCam = cameras[1];
+      if (secondCam) {
+        frontCameras.push(secondCam);
+      }
+      for (let i = 2; i < cameras.length; i++) {
+        const extraCam = cameras[i];
+        if (extraCam) {
+          otherCameras.push(extraCam);
+        }
+      }
+    } else {
+      // On iOS Safari, keep devices in otherCameras so resolution relies on native exact facingMode constraints
+      cameras.forEach((cam) => otherCameras.push(cam));
     }
   }
 
@@ -168,7 +176,9 @@ export function categorizeCameras(cameras: CameraDeviceItem[]): CategorizedCamer
 
 /**
  * Generates an ordered list of start candidate targets for Html5Qrcode.
- * Using deviceId string directly bypasses WebRTC facingMode negotiation bugs on iOS Safari & Android.
+ * Using deviceId string directly bypasses WebRTC facingMode negotiation bugs on Android,
+ * while exact facingMode constraints ensure iOS Safari selects the rear camera rather
+ * than defaulting to the FaceTime front camera.
  */
 export function resolveCameraStartCandidates(
   desiredMode: 'environment' | 'user',
@@ -189,6 +199,9 @@ export function resolveCameraStartCandidates(
       candidates: [
         selectedCameraId, // Exact string device ID (preferred by Html5Qrcode)
         { deviceId: { exact: selectedCameraId } },
+        // Fallbacks if WebKit rejects deviceId due to stream contention or randomized device ID:
+        { facingMode: { exact: expectedFacing } },
+        { facingMode: expectedFacing },
       ],
       expectedFacing,
       suggestedDeviceId: selectedCameraId,
@@ -203,18 +216,21 @@ export function resolveCameraStartCandidates(
 
     if (isAppleWebKit) {
       // On iOS Safari / WebKit:
-      // 1. { facingMode: 'environment' } is the native, officially recommended WebKit constraint.
-      // It avoids OverconstrainedError and directly targets the rear camera on iPhone X, iPad, etc.
-      candidates.push({ facingMode: 'environment' });
+      // 1. { facingMode: { exact: 'environment' } } is MANDATORY on iPad & iPhone to force
+      // WebKit to select the rear camera rather than defaulting to FaceTime HD front camera.
+      candidates.push({ facingMode: { exact: 'environment' } });
 
-      // 2. Exact device ID if primary rear camera is known
-      if (primaryRearCamera) {
+      // 2. Exact device ID if primary rear camera is identified with explicit rear label
+      if (primaryRearCamera && isRearCameraLabel(primaryRearCamera.label)) {
         candidates.push(primaryRearCamera.id);
         candidates.push({ deviceId: { exact: primaryRearCamera.id } });
         suggestedDeviceId = primaryRearCamera.id;
       }
 
-      // 3. Other rear cameras
+      // 3. Native soft facingMode constraint fallback
+      candidates.push({ facingMode: 'environment' });
+
+      // 4. Other rear cameras if identified
       rearCameras.forEach((rc) => {
         if (!primaryRearCamera || rc.id !== primaryRearCamera.id) {
           candidates.push(rc.id);
@@ -229,20 +245,24 @@ export function resolveCameraStartCandidates(
         suggestedDeviceId = primaryRearCamera.id;
       }
 
-      // 2. Other rear cameras if primary fails
+      // 2. Exact facingMode constraint
+      candidates.push({ facingMode: { exact: 'environment' } });
+
+      // 3. Other rear cameras if primary fails
       rearCameras.forEach((rc) => {
         if (!primaryRearCamera || rc.id !== primaryRearCamera.id) {
           candidates.push(rc.id);
         }
       });
 
-      // 3. FacingMode environment constraint
+      // 4. Soft facingMode environment constraint
       candidates.push({ facingMode: 'environment' });
     }
 
     // Fallback if NO rear camera exists physically on device (e.g. desktop webcam)
     if (rearCameras.length === 0 && frontCameras.length > 0 && frontCameras[0]) {
       candidates.push(frontCameras[0].id);
+      candidates.push({ facingMode: { exact: 'user' } });
       candidates.push({ facingMode: 'user' });
     }
 
@@ -257,6 +277,7 @@ export function resolveCameraStartCandidates(
     let suggestedDeviceId: string | null = null;
 
     if (isAppleWebKit) {
+      candidates.push({ facingMode: { exact: 'user' } });
       candidates.push({ facingMode: 'user' });
       if (primaryFrontCamera) {
         candidates.push(primaryFrontCamera.id);
@@ -269,12 +290,14 @@ export function resolveCameraStartCandidates(
         candidates.push({ deviceId: { exact: primaryFrontCamera.id } });
         suggestedDeviceId = primaryFrontCamera.id;
       }
+      candidates.push({ facingMode: { exact: 'user' } });
       candidates.push({ facingMode: 'user' });
     }
 
     // Fallback if no front camera physically exists
     if (frontCameras.length === 0 && rearCameras.length > 0 && rearCameras[0]) {
       candidates.push(rearCameras[0].id);
+      candidates.push({ facingMode: { exact: 'environment' } });
       candidates.push({ facingMode: 'environment' });
     }
 
@@ -351,4 +374,56 @@ export function ensureVideoPlaysInline(containerId: string): () => void {
   } catch {
     return () => {};
   }
+}
+
+export interface ActiveStreamInspection {
+  facingMode?: string;
+  label?: string;
+  deviceId?: string;
+  isFront: boolean;
+  isRear: boolean;
+}
+
+/**
+ * Inspects the actively running video track inside a container to determine
+ * the actual hardware sensor orientation (facingMode & label) being streamed.
+ * Enables auto-recovery on iOS Safari when the browser silently selects the front
+ * camera despite environment being requested.
+ */
+export function inspectActiveStreamTrack(containerId: string): ActiveStreamInspection {
+  if (typeof document === 'undefined') {
+    return { isFront: false, isRear: false };
+  }
+  const container = document.getElementById(containerId);
+  if (!container) {
+    return { isFront: false, isRear: false };
+  }
+  const video = container.querySelector('video') as HTMLVideoElement | null;
+  if (!video || !video.srcObject) {
+    return { isFront: false, isRear: false };
+  }
+  const stream = video.srcObject as MediaStream;
+  const tracks = typeof stream.getVideoTracks === 'function' ? stream.getVideoTracks() : [];
+  if (!tracks || tracks.length === 0) {
+    return { isFront: false, isRear: false };
+  }
+  const track = tracks[0];
+  if (!track) {
+    return { isFront: false, isRear: false };
+  }
+  const settings = typeof track.getSettings === 'function' ? track.getSettings() : {};
+  const label = (track.label || '').toLowerCase();
+  const facingMode = (settings.facingMode || '').toLowerCase();
+  const deviceId = settings.deviceId || undefined;
+
+  const isFront = facingMode === 'user' || isFrontCameraLabel(label);
+  const isRear = facingMode === 'environment' || isRearCameraLabel(label);
+
+  return {
+    facingMode: settings.facingMode || undefined,
+    label: track.label || undefined,
+    deviceId,
+    isFront,
+    isRear,
+  };
 }

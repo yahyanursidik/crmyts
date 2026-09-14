@@ -28,7 +28,7 @@ describe('Multi-Participant & Family Group Registration API', () => {
       category: 'Program Ramadan',
       speaker: 'Asatidzah Tarbiyah Sunnah',
       targetAudience: 'itikaf_ramadan',
-      startAt: new Date('2026-04-05T17:00:00.000Z'),
+      startAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       deliveryMode: 'offline',
       locationName: 'Masjid Tarbiyah Sunnah',
       isPaid: true,
