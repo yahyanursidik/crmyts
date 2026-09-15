@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { eventAttendance } from '../../db/schema';
 import { getBroadcastDailyQuota, reserveBroadcastEmailSlot } from '../../email/broadcastQuota';
-import { sendEventReminder, type EventEmailEvent } from './emailNotifications';
+import { sendEventAnnouncementEmail } from '../../email/service';
+import { formatEventDateTimeWib, sendEventReminder, type EventEmailEvent } from './emailNotifications';
 
 type ReminderAttendance = {
   id: string;
@@ -25,13 +27,12 @@ export type EventReminderDispatchResult = {
 };
 
 /**
- * Delivers one reminder per email address and reserves the shared broadcast quota
- * before each provider request. Automatic runs record delivery per attendance.
+ * Delivers one manually-triggered reminder per email address and reserves the
+ * shared broadcast quota before each provider request.
  */
 export async function dispatchEventReminders(
   db: any,
-  event: EventEmailEvent,
-  mode: 'manual' | 'automatic'
+  event: EventEmailEvent
 ): Promise<EventReminderDispatchResult> {
   const attendances: ReminderAttendance[] = await db.query.eventAttendance.findMany({
     where: eq(eventAttendance.eventId, event.id),
@@ -50,11 +51,6 @@ export async function dispatchEventReminders(
     }
     if (recipients.has(email)) continue;
 
-    const reminderSentAt = attendance.registrationData?.emailNotifications?.reminderH1SentAt;
-    if (mode === 'automatic' && reminderSentAt) {
-      skippedAlreadySent++;
-      continue;
-    }
     recipients.set(email, attendance);
   }
 
@@ -104,4 +100,81 @@ export async function dispatchEventReminders(
     quotaReached,
     remainingToday: quota.remainingToday,
   };
+}
+
+export async function dispatchEventBroadcast(
+  db: any,
+  event: EventEmailEvent,
+  input: { subject: string; message: string }
+): Promise<EventReminderDispatchResult> {
+  const attendances: ReminderAttendance[] = await db.query.eventAttendance.findMany({
+    where: eq(eventAttendance.eventId, event.id),
+    with: { person: true },
+  });
+  const recipients = new Map<string, ReminderAttendance>();
+  const contentKey = createHash('sha256').update(`${event.id}\n${input.subject}\n${input.message}`).digest('hex');
+  const retryAfter = Date.now() - 24 * 60 * 60 * 1000;
+  let skippedNoEmail = 0;
+  let skippedAlreadySent = 0;
+
+  for (const attendance of attendances) {
+    const email = attendance.person?.email?.trim().toLowerCase();
+    if (!email) {
+      skippedNoEmail++;
+      continue;
+    }
+    if (recipients.has(email)) continue;
+    const history = attendance.registrationData?.emailNotifications?.broadcastHistory;
+    const sentRecently = Array.isArray(history) && history.some(
+      (item: any) => item?.key === contentKey && new Date(item.sentAt || 0).getTime() >= retryAfter
+    );
+    if (sentRecently) {
+      skippedAlreadySent++;
+      continue;
+    }
+    recipients.set(email, attendance);
+  }
+
+  let sent = 0;
+  let failed = 0;
+  let quotaReached = false;
+  let quota = await getBroadcastDailyQuota(db);
+  for (const attendance of recipients.values()) {
+    const reserved = await reserveBroadcastEmailSlot(db);
+    if (!reserved) {
+      quotaReached = true;
+      break;
+    }
+    quota = reserved;
+    const delivery = await sendEventAnnouncementEmail({
+      recipientEmail: attendance.person?.email || '',
+      recipientName: attendance.person?.fullName || 'Jamaah YTS',
+      subject: input.subject,
+      message: input.message,
+      eventTitle: event.title,
+      speaker: event.speaker,
+      startAtFormatted: formatEventDateTimeWib(event.startAt),
+      locationName: event.locationName || 'Masjid Tarbiyah Sunnah',
+      ticketCode: attendance.ticketCode || '-',
+    });
+    if (!delivery.success) {
+      failed++;
+      continue;
+    }
+    sent++;
+    const previous = attendance.registrationData || {};
+    const notifications = previous.emailNotifications || {};
+    const history = Array.isArray(notifications.broadcastHistory) ? notifications.broadcastHistory : [];
+    await db.update(eventAttendance).set({
+      registrationData: {
+        ...previous,
+        emailNotifications: {
+          ...notifications,
+          broadcastHistory: [...history, { key: contentKey, sentAt: new Date().toISOString(), messageId: delivery.messageId || null }].slice(-10),
+        },
+      },
+    }).where(eq(eventAttendance.id, attendance.id));
+  }
+
+  return { attempted: recipients.size, sent, skippedNoEmail, skippedAlreadySent, failed, quotaReached, remainingToday: quota.remainingToday };
 }

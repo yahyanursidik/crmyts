@@ -2553,53 +2553,18 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                   <Send className="w-5 h-5 text-emerald-700 mt-0.5" />
                   <div>
                     <h4 className="text-sm font-bold text-slate-900">Reminder Email Kajian</h4>
-                    <p className="text-xs text-slate-500 mt-1">Pengiriman otomatis berjalan sekali per peserta dan mengikuti batas broadcast email harian sistem.</p>
+                    <p className="text-xs text-slate-500 mt-1">Pengiriman hanya dilakukan ketika admin menekan tombol kirim dan mengikuti batas broadcast email harian sistem.</p>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-end">
-                  <label className="flex items-center justify-between gap-4 p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 cursor-pointer">
-                    <div>
-                      <span className="text-xs font-bold text-emerald-950 block">Aktifkan reminder otomatis</span>
-                      <span className="text-[11px] text-emerald-800">Jadwal terdekat akan diproses oleh sistem.</span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={formConfig.emailNotifications?.reminderEnabled === true}
-                      onChange={(e) => setFormConfig({
-                        ...formConfig,
-                        emailNotifications: {
-                          ...formConfig.emailNotifications,
-                          reminderEnabled: e.target.checked,
-                          reminderHoursBefore: formConfig.emailNotifications?.reminderHoursBefore || 24,
-                        },
-                      })}
-                      className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-500"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-[11px] font-bold text-slate-700 block mb-1.5">Kirim sebelum mulai</span>
-                    <select
-                      value={formConfig.emailNotifications?.reminderHoursBefore || 24}
-                      onChange={(e) => setFormConfig({
-                        ...formConfig,
-                        emailNotifications: {
-                          ...formConfig.emailNotifications,
-                          reminderHoursBefore: Number(e.target.value),
-                        },
-                      })}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-bold bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                    >
-                      <option value={24}>H-1 (24 jam)</option>
-                      <option value={48}>H-2 (48 jam)</option>
-                      <option value={72}>H-3 (72 jam)</option>
-                    </select>
-                  </label>
+                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200">
+                  <span className="text-xs font-bold text-emerald-950 block">Pemicu Admin</span>
+                  <span className="text-[11px] text-emerald-800">Reminder H-1 tidak memiliki jadwal otomatis dan hanya berjalan setelah admin menekan tombol kirim.</span>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
                   <span className="text-[11px] text-slate-500">Kirim ulang e-tiket individual tersedia pada tab daftar peserta.</span>
                   <button
                     type="button"
-                    disabled={formConfig.emailNotifications?.reminderEnabled !== true || sendingReminder || (eventData.emailRecipientCount || 0) === 0}
+                    disabled={sendingReminder || (eventData.emailRecipientCount || 0) === 0}
                     onClick={() => setShowReminderConfirm(true)}
                     className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold inline-flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                   >

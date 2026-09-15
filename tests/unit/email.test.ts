@@ -4,6 +4,7 @@ import {
   sendEmail,
   sendEventRegistrationTicketEmail,
   sendEventReminderEmail,
+  sendEventAnnouncementEmail,
   sendDonationReceivedEmail,
   sendDonationVerifiedReceiptEmail,
   sendWaqfInquiryConfirmationEmail,
@@ -101,6 +102,11 @@ describe('Official Email Service (Mailketing)', () => {
       speaker: 'Ustadz Abu Fulan Hafizhahullah', startAtFormatted: 'Ahad, 25 Agustus 2026 pukul 09.00 WIB',
       locationName: 'Masjid Tarbiyah Sunnah', ticketCode: 'TIKET-KJN-260825-ABCD', eventUrl: 'https://yts.web.id/peserta/123',
     })).resolves.toMatchObject({ success: true });
+    await expect(sendEventAnnouncementEmail({
+      recipientEmail: 'jamaah@example.com', recipientName: 'Fulan bin Fulan', subject: 'Perubahan Jadwal Kajian',
+      message: 'Waktu kajian telah diperbarui.', eventTitle: 'Kajian Kitab Tauhid', speaker: 'Ustadz Abu Fulan Hafizhahullah',
+      startAtFormatted: 'Ahad, 25 Agustus 2026 pukul 09.00 WIB', locationName: 'Masjid Tarbiyah Sunnah', ticketCode: 'TIKET-KJN-260825-ABCD',
+    })).resolves.toMatchObject({ success: true });
     await expect(sendDonationReceivedEmail({
       recipientEmail: 'donatur@example.com', donorName: 'Abdullah', programName: 'Infaq Dakwah Sunnah',
       amountRupiah: 250000, donationCode: 'YTS-260825-XYZ1', paymentMethod: 'bank_transfer',
@@ -117,6 +123,6 @@ describe('Official Email Service (Mailketing)', () => {
     })).resolves.toMatchObject({ success: true });
     await expect(sendTestEmail('admin@tarbiyahsunnah.id')).resolves.toMatchObject({ success: true });
 
-    expect(fetchMock).toHaveBeenCalledTimes(7);
+    expect(fetchMock).toHaveBeenCalledTimes(8);
   });
 });

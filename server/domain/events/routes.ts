@@ -15,7 +15,8 @@ import {
   getSinglePersonAttendanceStats,
 } from './attendanceHistory';
 import { getEventEmailSettings, sendEventTicketEmail } from './emailNotifications';
-import { dispatchEventReminders } from './reminderDispatch';
+import { dispatchEventBroadcast, dispatchEventReminders } from './reminderDispatch';
+import { getBroadcastDailyQuota } from '../../email/broadcastQuota';
 
 const createEventSchema = z.object({
   title: z.string().min(3, 'Judul kajian minimal 3 karakter'),
@@ -66,6 +67,11 @@ const createEventSchema = z.object({
 
 const updateEventSchema = createEventSchema.partial().extend({
   status: z.enum(['scheduled', 'in_progress', 'completed', 'canceled']).optional(),
+});
+
+const eventBroadcastEmailSchema = z.object({
+  subject: z.string().trim().min(3, 'Subjek email minimal 3 karakter.').max(160, 'Subjek email maksimal 160 karakter.'),
+  message: z.string().trim().min(3, 'Isi email minimal 3 karakter.').max(5000, 'Isi email maksimal 5000 karakter.'),
 });
 
 export function registerEventsRoutes(router: Router) {
@@ -289,6 +295,7 @@ export function registerEventsRoutes(router: Router) {
       const emailReminderSentCount = participants.filter(
         (participant) => Boolean((participant.registrationData as any)?.emailNotifications?.reminderH1SentAt)
       ).length;
+      const emailBroadcastQuota = await getBroadcastDailyQuota(db).catch(() => null);
 
       return successResponse(
         {
@@ -319,6 +326,7 @@ export function registerEventsRoutes(router: Router) {
           emailRecipientCount,
           emailReminderSentCount,
           emailSettings: getEventEmailSettings(eventItem.formConfig),
+          emailBroadcastQuota,
         },
         { requestId: ctx.requestId }
       );
@@ -890,19 +898,14 @@ export function registerEventsRoutes(router: Router) {
       const event = await db.query.events.findFirst({ where: eq(events.id, eventId) });
       if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan.', 404, ctx.requestId);
 
-      const settings = getEventEmailSettings(event.formConfig);
-      if (!settings.reminderEnabled) {
-        return errorResponse('VALIDATION_ERROR', 'Aktifkan reminder email pada pengaturan kajian sebelum mengirim pengingat.', 400, ctx.requestId);
-      }
-
-      const result = await dispatchEventReminders(db, event, 'manual');
+      const result = await dispatchEventReminders(db, event);
       await logAuditEvent({
         actorUserId: ctx.user?.id,
         action: 'send_event_email_reminder',
         entityType: 'event',
         entityId: eventId,
         afterJson: result,
-        reason: `Pengiriman reminder email manual H-${Math.max(1, Math.ceil(settings.reminderHoursBefore / 24))}`,
+        reason: 'Pengiriman reminder email manual oleh admin',
         requestId: ctx.requestId,
       });
 
@@ -916,6 +919,42 @@ export function registerEventsRoutes(router: Router) {
         { requestId: ctx.requestId }
       );
     })
+  );
+
+  // 7f. POST /api/events/:id/email-broadcast (Admin-triggered announcement to this event's participant emails only)
+  router.post(
+    '/api/events/:id/email-broadcast',
+    requireAuth(
+      validateBody(eventBroadcastEmailSchema, async (ctx, body) => {
+        const db = getDb();
+        const eventId = ctx.params.id;
+        if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+        const event = await db.query.events.findFirst({ where: eq(events.id, eventId) });
+        if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan.', 404, ctx.requestId);
+
+        const result = await dispatchEventBroadcast(db, event, body);
+        await logAuditEvent({
+          actorUserId: ctx.user?.id,
+          action: 'send_event_email_broadcast',
+          entityType: 'event',
+          entityId: eventId,
+          afterJson: {
+            subject: body.subject,
+            messageLength: body.message.length,
+            ...result,
+          },
+          reason: 'Broadcast email manual khusus peserta kajian',
+          requestId: ctx.requestId,
+        });
+
+        return successResponse({
+          ...result,
+          message: result.quotaReached
+            ? `Broadcast dihentikan pada batas kuota harian. ${result.sent} email berhasil dikirim.`
+            : `${result.sent} email berhasil dikirim ke peserta kajian.`,
+        }, { requestId: ctx.requestId });
+      })
+    )
   );
 
   // 7d. POST /api/events/:id/attendances/bulk-checkin (Bulk Check-in / Uncheck-in)

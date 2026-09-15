@@ -346,6 +346,41 @@ export async function sendEventReminderEmail(params: {
   });
 }
 
+function escapeEmailHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+
+/** Sends an admin-composed announcement only to participants of one event. */
+export async function sendEventAnnouncementEmail(params: {
+  recipientEmail: string;
+  recipientName: string;
+  subject: string;
+  message: string;
+  eventTitle: string;
+  speaker: string;
+  startAtFormatted: string;
+  locationName: string;
+  ticketCode: string;
+}) {
+  const content = `
+    <p>Assalamu'alaikum Warahmatullahi Wabarakatuh, <strong>${escapeEmailHtml(params.recipientName)}</strong>.</p>
+    <div style="white-space: pre-line;">${escapeEmailHtml(params.message)}</div>
+    <div class="card">
+      <div class="data-row"><span class="data-label">Kajian</span><span class="data-value">${escapeEmailHtml(params.eventTitle)}</span></div>
+      <div class="data-row"><span class="data-label">Pemateri</span><span class="data-value">${escapeEmailHtml(params.speaker)}</span></div>
+      <div class="data-row"><span class="data-label">Waktu</span><span class="data-value">${escapeEmailHtml(params.startAtFormatted)}</span></div>
+      <div class="data-row"><span class="data-label">Lokasi</span><span class="data-value">${escapeEmailHtml(params.locationName)}</span></div>
+      <div class="data-row"><span class="data-label">Kode E-Tiket</span><span class="data-value">${escapeEmailHtml(params.ticketCode)}</span></div>
+    </div>
+    <p>Jazakumullahu khairan wa barakallahu fiikum.</p>
+  `;
+  return sendEmail({
+    to: params.recipientEmail,
+    subject: params.subject,
+    html: renderEmailLayout(params.subject, content),
+  });
+}
+
 /**
  * 2. Send Infaq / Donation Received & Bank Transfer Instructions Email
  */

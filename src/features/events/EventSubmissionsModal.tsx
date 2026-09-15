@@ -117,6 +117,12 @@ interface EventDetailData {
   regularAkhwatCount?: number;
   referralSignups?: number;
   adminInviteCode?: string;
+  emailRecipientCount?: number;
+  emailBroadcastQuota?: {
+    dailyLimit: number;
+    dispatchedToday: number;
+    remainingToday: number;
+  } | null;
 }
 
 interface EventSubmissionsModalProps {
@@ -156,6 +162,11 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   const [selectedForPaymentVerify, setSelectedForPaymentVerify] = useState<ParticipantPaymentData | null>(null);
   const [togglingAttendanceId, setTogglingAttendanceId] = useState<string | null>(null);
   const [emailSendingAttendanceId, setEmailSendingAttendanceId] = useState<string | null>(null);
+  const [showBroadcastComposer, setShowBroadcastComposer] = useState(false);
+  const [showBroadcastConfirm, setShowBroadcastConfirm] = useState(false);
+  const [broadcastSubject, setBroadcastSubject] = useState('');
+  const [broadcastMessage, setBroadcastMessage] = useState('');
+  const [broadcastSending, setBroadcastSending] = useState(false);
 
   // Toast
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -171,6 +182,8 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
       const res = await apiClient<EventDetailData>(`/events/${eventId}`);
       if (res.data) {
         setData(res.data);
+        setBroadcastSubject((current) => current || `Pembaruan informasi kajian: ${res.data.title}`);
+        setBroadcastMessage((current) => current || 'Bismillah, terdapat pembaruan informasi mengenai kajian. Mohon perhatikan jadwal dan lokasi terbaru pada email ini.');
       }
     } catch (err: any) {
       console.error('Failed to load event submissions:', err);
@@ -227,6 +240,41 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
       showToast(err.message || 'E-tiket gagal dikirim.', 'error');
     } finally {
       setEmailSendingAttendanceId(null);
+    }
+  };
+
+  const handleOpenBroadcastComposer = () => {
+    if (!data || (data.emailRecipientCount || 0) === 0) {
+      showToast('Belum ada peserta kajian ini yang memiliki alamat email.', 'error');
+      return;
+    }
+    setShowBroadcastComposer(true);
+  };
+
+  const handleBroadcastSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (broadcastSubject.trim().length < 3 || broadcastMessage.trim().length < 3) {
+      showToast('Subjek dan isi broadcast wajib diisi.', 'error');
+      return;
+    }
+    setShowBroadcastConfirm(true);
+  };
+
+  const handleSendBroadcast = async () => {
+    try {
+      setBroadcastSending(true);
+      const response = await apiClient<{ message: string }>(`/events/${eventId}/email-broadcast`, {
+        method: 'POST',
+        body: JSON.stringify({ subject: broadcastSubject.trim(), message: broadcastMessage.trim() }),
+      });
+      showToast(response.data?.message || 'Broadcast email berhasil dikirim.');
+      setShowBroadcastConfirm(false);
+      setShowBroadcastComposer(false);
+      await loadEventDetail();
+    } catch (err: any) {
+      showToast(err.message || 'Broadcast email gagal dikirim.', 'error');
+    } finally {
+      setBroadcastSending(false);
     }
   };
 
@@ -630,6 +678,17 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Ekspor CSV ({filtered.length})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleOpenBroadcastComposer}
+                  disabled={(data?.emailRecipientCount || 0) === 0}
+                  className="py-2 px-3.5 bg-sky-700 hover:bg-sky-800 disabled:opacity-45 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 shrink-0 active:scale-95"
+                  title="Kirim broadcast email hanya kepada peserta kajian ini yang memiliki email"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>BC Email ({data?.emailRecipientCount || 0})</span>
                 </button>
 
                 <button
@@ -1249,6 +1308,63 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
           )}
         </div>
       </div>
+
+      {showBroadcastComposer && data && (
+        <div className="fixed inset-0 z-70 bg-surface-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <form onSubmit={handleBroadcastSubmit} className="bg-[#fbfaf6] rounded-2xl max-w-lg w-full p-5 shadow-2xl border border-cream-300 space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-full bg-sky-100 text-sky-900 border border-sky-200">
+                  <Mail className="w-3 h-3" /> Broadcast Peserta Kajian
+                </div>
+                <h3 className="mt-2 text-base font-black text-brand-950">Kirim Informasi ke Peserta</h3>
+              </div>
+              <button type="button" onClick={() => setShowBroadcastComposer(false)} disabled={broadcastSending} className="p-1.5 text-surface-400 hover:text-surface-700 rounded-lg">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="p-3 bg-white border border-cream-200 rounded-xl">
+                <span className="text-[10px] uppercase font-bold text-surface-400 block">Penerima</span>
+                <span className="text-sm font-black text-brand-950">{data.emailRecipientCount || 0} email unik</span>
+              </div>
+              <div className="p-3 bg-white border border-cream-200 rounded-xl">
+                <span className="text-[10px] uppercase font-bold text-surface-400 block">Sisa Hari Ini</span>
+                <span className="text-sm font-black text-brand-950">{data.emailBroadcastQuota?.remainingToday ?? '-'} / {data.emailBroadcastQuota?.dailyLimit ?? '-'}</span>
+              </div>
+            </div>
+
+            <label className="block">
+              <span className="block text-xs font-bold text-surface-800 mb-1.5">Subjek Email</span>
+              <input value={broadcastSubject} onChange={(e) => setBroadcastSubject(e.target.value)} maxLength={160} required className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-sky-600 focus:outline-none" />
+            </label>
+            <label className="block">
+              <span className="block text-xs font-bold text-surface-800 mb-1.5">Isi Pesan</span>
+              <textarea value={broadcastMessage} onChange={(e) => setBroadcastMessage(e.target.value)} maxLength={5000} required rows={6} className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-sky-600 focus:outline-none resize-y" />
+            </label>
+            <p className="text-[11px] text-surface-500 leading-relaxed">Email memuat detail kajian terbaru dalam WIB. Hanya peserta dari kajian ini yang memiliki email akan diproses.</p>
+            <div className="flex justify-end gap-2 pt-1">
+              <button type="button" onClick={() => setShowBroadcastComposer(false)} className="px-4 py-2.5 rounded-xl border border-cream-300 bg-white text-surface-700 text-xs font-bold">Batal</button>
+              <button type="submit" className="px-4 py-2.5 rounded-xl bg-sky-700 hover:bg-sky-800 text-white text-xs font-bold inline-flex items-center gap-2"><Mail className="w-3.5 h-3.5" /> Lanjutkan</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {showBroadcastConfirm && data && (
+        <ConfirmDialog
+          isOpen={true}
+          title="Kirim Broadcast Email?"
+          message={<div className="space-y-2"><p>Pesan akan dikirim hanya kepada maksimal <strong>{data.emailRecipientCount || 0}</strong> alamat email unik peserta kajian ini.</p><p className="text-[11px] text-amber-800">Pengiriman berhenti otomatis ketika batas broadcast harian tercapai. Isi yang sama tidak dikirim ulang ke penerima yang sama dalam 24 jam.</p></div>}
+          confirmLabel="Kirim Broadcast"
+          cancelLabel="Kembali"
+          variant="warning"
+          loading={broadcastSending}
+          onConfirm={handleSendBroadcast}
+          onClose={() => { if (!broadcastSending) setShowBroadcastConfirm(false); }}
+        />
+      )}
 
       {/* Live Gate Scanner Modal */}
       {showScannerModal && data && (

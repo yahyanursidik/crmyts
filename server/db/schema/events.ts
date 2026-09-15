@@ -50,7 +50,7 @@ export interface EventFormConfig {
   emailNotifications?: {
     /** Kirim e-tiket setelah pendaftaran berhasil (default: aktif). */
     registrationTicketEnabled?: boolean;
-    /** Kirim pengingat otomatis sebelum kajian (default: nonaktif). */
+    /** Menyimpan pilihan reminder manual kajian (tidak pernah memicu pengiriman otomatis). */
     reminderEnabled?: boolean;
     /** Jeda pengiriman reminder terhadap waktu mulai, dalam jam (default: 24 / H-1). */
     reminderHoursBefore?: number;
