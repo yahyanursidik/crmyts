@@ -57,6 +57,8 @@ export interface EventFormConfig {
   collectVehicle?: boolean;
   allowMultiParticipant?: boolean;
   maxMultiParticipants?: number;
+  allowStaffFamilyRegistration?: boolean;
+  maxStaffFamilyParticipants?: number;
   customFields?: EventFormField[];
   whatsappMessageTemplate?: string;
   whatsappGroupIkhwanUrl?: string;
@@ -89,6 +91,7 @@ interface ParticipantItem {
   referralCode?: string | null;
   isSpecialInvite?: boolean;
   isStaffRegistration?: boolean;
+  isStaffFamilyRegistration?: boolean;
   referredByAttendanceId?: string | null;
   referrerName?: string | null;
   referrerCode?: string | null;
@@ -220,6 +223,8 @@ const DEFAULT_FORM_CONFIG: EventFormConfig = {
   collectVehicle: true,
   allowMultiParticipant: false,
   maxMultiParticipants: 10,
+  allowStaffFamilyRegistration: false,
+  maxStaffFamilyParticipants: 4,
   customFields: [],
   whatsappMessageTemplate:
     'Bismillah. Pendaftaran kajian Anda telah terkonfirmasi. Tiket: {{ticket_code}}. Mohon hadir 15 menit sebelum acara dimulai dan menaati tata tertib majelis. Barakallahu fiikum.',
@@ -509,6 +514,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           bankAccountNumber: isPaid ? bankAccountNumber : null,
           bankAccountName: isPaid ? bankAccountName : null,
           paymentInstructions: isPaid ? paymentInstructions : null,
+          formConfig,
         }),
       });
       showToast('Pengaturan lokasi, Google Maps, biaya, kuota, segmen, parkir & aturan berhasil disimpan!');
@@ -1353,7 +1359,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                               )}
                               {p.isStaffRegistration && (
                                 <span className="mt-1 ml-1 inline-block rounded bg-indigo-50 border border-indigo-300 px-1.5 py-0.5 text-[9px] font-sans font-bold text-indigo-800">
-                                  Staff Yayasan
+                                  {p.isStaffFamilyRegistration ? 'Keluarga Staff' : 'Staff Yayasan'}
                                 </span>
                               )}
                             </td>
@@ -1904,6 +1910,10 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                     <label className="block text-xs font-bold text-indigo-950">Total kuota staff<input type="number" min="0" value={quotaStaff} onChange={(e) => setQuotaStaff(e.target.value === '' ? '' : Number(e.target.value))} placeholder="Misal: 30" className="mt-1 w-full p-2.5 border border-indigo-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" /></label>
                     <label className="block text-xs font-bold text-indigo-950">Staff Ikhwan<input type="number" min="0" value={quotaStaffIkhwan} onChange={(e) => setQuotaStaffIkhwan(e.target.value === '' ? '' : Number(e.target.value))} placeholder="Misal: 15" className="mt-1 w-full p-2.5 border border-indigo-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" /></label>
                     <label className="block text-xs font-bold text-indigo-950">Staff Akhwat<input type="number" min="0" value={quotaStaffAkhwat} onChange={(e) => setQuotaStaffAkhwat(e.target.value === '' ? '' : Number(e.target.value))} placeholder="Misal: 15" className="mt-1 w-full p-2.5 border border-indigo-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" /></label>
+                  </div>
+                  <div className="grid gap-3 rounded-xl border border-indigo-200 bg-white/70 p-3 sm:grid-cols-[1fr_10rem] sm:items-end">
+                    <label className="inline-flex items-start gap-2 text-xs font-bold text-indigo-950"><input type="checkbox" checked={formConfig.allowStaffFamilyRegistration === true} onChange={(e) => setFormConfig((current) => ({ ...current, allowStaffFamilyRegistration: e.target.checked }))} className="mt-0.5 h-4 w-4 accent-indigo-700" /><span>Izinkan staff menambahkan keluarga<br /><span className="font-normal text-indigo-700">Setiap anggota memperoleh QR dan e-tiket sendiri.</span></span></label>
+                    <label className="block text-xs font-bold text-indigo-950">Maks. keluarga tambahan<input type="number" min="1" max="20" disabled={formConfig.allowStaffFamilyRegistration !== true} value={formConfig.maxStaffFamilyParticipants ?? 4} onChange={(e) => setFormConfig((current) => ({ ...current, maxStaffFamilyParticipants: Math.min(20, Math.max(1, Number(e.target.value) || 1)) }))} className="mt-1 w-full rounded-lg border border-indigo-300 bg-white p-2 text-xs disabled:cursor-not-allowed disabled:bg-slate-100" /></label>
                   </div>
                   <div className="flex flex-col gap-2 border-t border-indigo-200 pt-3 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-[11px] text-indigo-800">Terdaftar: {eventData.staffCount || 0}{eventData.quotaStaff ? ` / ${eventData.quotaStaff}` : ''}</span>

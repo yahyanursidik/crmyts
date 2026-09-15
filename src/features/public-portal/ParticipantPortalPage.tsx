@@ -4,6 +4,7 @@ import {
   AlertCircle,
   Award,
   BookOpen,
+  BriefcaseBusiness,
   Calendar,
   Check,
   CheckCircle2,
@@ -59,6 +60,8 @@ interface ParticipantEventItem {
   vehicleType?: string;
   vehiclePlateNumber?: string | null;
   isSpecialInvite?: boolean;
+  isStaffRegistration?: boolean;
+  isStaffFamilyRegistration?: boolean;
   participantPortalPath: string;
   certificateAvailable?: boolean;
   event: {
@@ -854,6 +857,14 @@ export function ParticipantPortalPage() {
                                 <span className="text-emerald-700 font-bold">✨</span>
                                 <span className="font-bold text-[11px]">
                                   Jalur Undangan Khusus Panitia
+                                </span>
+                              </div>
+                            )}
+                            {ticket.isStaffRegistration && (
+                              <div className="p-2.5 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center gap-2 text-xs text-indigo-950">
+                                <BriefcaseBusiness className="w-4 h-4 text-indigo-700" />
+                                <span className="font-bold text-[11px]">
+                                  {ticket.isStaffFamilyRegistration ? 'Keluarga Staff Yayasan' : 'Staff Yayasan'}
                                 </span>
                               </div>
                             )}

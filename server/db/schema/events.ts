@@ -25,6 +25,10 @@ export interface EventFormConfig {
   collectVehicle?: boolean;
   allowMultiParticipant?: boolean;
   maxMultiParticipants?: number;
+  /** Mengizinkan staff mendaftarkan anggota keluarga melalui tautan staff. */
+  allowStaffFamilyRegistration?: boolean;
+  /** Maksimum anggota keluarga tambahan dalam satu pendaftaran staff. */
+  maxStaffFamilyParticipants?: number;
   adminInviteCode?: string;
   customFields?: EventFormField[];
   whatsappMessageTemplate?: string;

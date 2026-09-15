@@ -8,7 +8,7 @@ import { desc, eq, and, inArray, sql, or, ilike } from 'drizzle-orm';
 import { normalizeIndonesianPhone } from '../../lib/phone';
 import { extractTicketCode } from '../../../src/lib/participantTicket';
 import { createMemorableTicketCode } from './participantCodes';
-import { createStaffRegistrationToken, isSpecialInviteRegistration, isStaffRegistration } from './registrationChannels';
+import { createStaffRegistrationToken, isSpecialInviteRegistration, isStaffFamilyRegistration, isStaffRegistration } from './registrationChannels';
 import { logAuditEvent } from '../../audit/service';
 import {
   getPersonsAttendanceStats,
@@ -229,6 +229,7 @@ export function registerEventsRoutes(router: Router) {
           referralCode: att.referralCode,
           isSpecialInvite,
           isStaffRegistration: isStaffRegistrant,
+          isStaffFamilyRegistration: isStaffFamilyRegistration(att),
           referredByAttendanceId: att.referredByAttendanceId,
           
           // Attendance History & Loyalty
@@ -328,6 +329,8 @@ export function registerEventsRoutes(router: Router) {
           collectVehicle: true,
           allowMultiParticipant: false,
           maxMultiParticipants: 10,
+          allowStaffFamilyRegistration: false,
+          maxStaffFamilyParticipants: 4,
           customFields: [],
           whatsappMessageTemplate:
             "Bismillah. Pendaftaran kajian Anda telah terkonfirmasi. Tiket: {{ticket_code}}. Mohon hadir 15 menit sebelum acara dimulai dan menaati tata tertib majelis. Barakallahu fiikum.",

@@ -1,6 +1,7 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 
 export const STAFF_REGISTRATION_CHANNEL = 'staff_yayasan';
+export const STAFF_FAMILY_REGISTRATION_CHANNEL = 'staff_yayasan_family';
 
 type AttendanceLike = {
   registrationData?: Record<string, unknown> | null;
@@ -8,7 +9,12 @@ type AttendanceLike = {
 };
 
 export function isStaffRegistration(attendance: AttendanceLike): boolean {
-  return attendance.registrationData?.registrationChannel === STAFF_REGISTRATION_CHANNEL;
+  const channel = attendance.registrationData?.registrationChannel;
+  return channel === STAFF_REGISTRATION_CHANNEL || channel === STAFF_FAMILY_REGISTRATION_CHANNEL;
+}
+
+export function isStaffFamilyRegistration(attendance: AttendanceLike): boolean {
+  return attendance.registrationData?.registrationChannel === STAFF_FAMILY_REGISTRATION_CHANNEL;
 }
 
 export function isSpecialInviteRegistration(attendance: AttendanceLike): boolean {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { randomBytes } from 'node:crypto';
 import { Router } from '../../http/router';
 import { validateBody } from '../../http/middleware';
 import { successResponse, errorResponse } from '../../http/response';
@@ -25,7 +26,9 @@ import {
   hasValidStaffRegistrationToken,
   isRegularRegistration,
   isSpecialInviteRegistration,
+  isStaffFamilyRegistration,
   isStaffRegistration,
+  STAFF_FAMILY_REGISTRATION_CHANNEL,
   STAFF_REGISTRATION_CHANNEL,
 } from '../events/registrationChannels';
 import {
@@ -112,6 +115,7 @@ const publicStaffEventRegistrationSchema = z.object({
   email: optionalEmailSchema,
   notes: z.string().max(1000).optional().nullable(),
   agreedToRules: z.boolean().default(true),
+  additionalParticipants: z.array(additionalParticipantSchema).optional().nullable(),
 });
 
 function safeWhatsAppGroupUrl(value?: string | null): string | null {
@@ -798,7 +802,11 @@ export function registerPublicPortalRoutes(router: Router) {
           targetAudience: targetEvent.targetAudience,
           venueRules: targetEvent.venueRules || [],
           customVenueRules: targetEvent.customVenueRules,
-          formConfig: { requireRulesAgreement: targetEvent.formConfig?.requireRulesAgreement !== false },
+          formConfig: {
+            requireRulesAgreement: targetEvent.formConfig?.requireRulesAgreement !== false,
+            allowStaffFamilyRegistration: targetEvent.formConfig?.allowStaffFamilyRegistration === true,
+            maxStaffFamilyParticipants: Math.min(20, Math.max(1, targetEvent.formConfig?.maxStaffFamilyParticipants ?? 4)),
+          },
           isRegistrationOpen: targetEvent.isStaffRegistrationOpen && !isPast && !isFull,
           isPast,
         },
@@ -843,21 +851,73 @@ export function registerPublicPortalRoutes(router: Router) {
       if (targetEvent.targetAudience === 'umum' && !gender) {
         return errorResponse('VALIDATION_ERROR', 'Jenis kelamin wajib dipilih untuk pendaftaran staff.', 400, ctx.requestId);
       }
+
+      const requestedFamily = body.additionalParticipants || [];
+      const allowStaffFamily = targetEvent.formConfig?.allowStaffFamilyRegistration === true;
+      const maxStaffFamilyParticipants = Math.min(20, Math.max(1, targetEvent.formConfig?.maxStaffFamilyParticipants ?? 4));
+      if (!allowStaffFamily && requestedFamily.length > 0) {
+        return errorResponse('VALIDATION_ERROR', 'Pendaftaran keluarga staff belum diaktifkan untuk kajian ini.', 400, ctx.requestId);
+      }
+      if (requestedFamily.length > maxStaffFamilyParticipants) {
+        return errorResponse('VALIDATION_ERROR', `Maksimal ${maxStaffFamilyParticipants} anggota keluarga dapat ditambahkan dalam satu pendaftaran staff.`, 400, ctx.requestId);
+      }
+
+      const additionalList = requestedFamily.map((member) => ({
+        ...member,
+        gender: fixedGender || member.gender || null,
+      }));
+      for (const member of additionalList) {
+        if (!member.gender) {
+          return errorResponse('VALIDATION_ERROR', `Jenis kelamin wajib dipilih untuk anggota keluarga ${member.fullName}.`, 400, ctx.requestId);
+        }
+        if (targetEvent.minAge && (!member.age || member.age < targetEvent.minAge)) {
+          return errorResponse('VALIDATION_ERROR', `Anggota keluarga ${member.fullName} belum memenuhi usia minimal ${targetEvent.minAge} tahun.`, 400, ctx.requestId);
+        }
+      }
+
+      const primaryIkhwan = gender === 'ikhwan' ? 1 : 0;
+      const primaryAkhwat = gender === 'akhwat' ? 1 : 0;
+      const newIkhwan = primaryIkhwan + additionalList.filter((member) => member.gender === 'ikhwan').length;
+      const newAkhwat = primaryAkhwat + additionalList.filter((member) => member.gender === 'akhwat').length;
+      const totalRegistrantCount = 1 + additionalList.length;
       const staffAtts = (targetEvent.attendances || []).filter(isStaffRegistration);
       const staffIkhwan = staffAtts.filter((a) => a.person?.gender === 'ikhwan').length;
       const staffAkhwat = staffAtts.filter((a) => a.person?.gender === 'akhwat').length;
-      if (targetEvent.quotaStaff && staffAtts.length >= targetEvent.quotaStaff) {
-        return errorResponse('VALIDATION_ERROR', 'Kuota pendaftaran staff untuk kajian ini telah penuh.', 400, ctx.requestId);
+      if (targetEvent.quotaStaff && staffAtts.length + totalRegistrantCount > targetEvent.quotaStaff) {
+        return errorResponse('VALIDATION_ERROR', `Kuota pendaftaran staff tidak mencukupi (sisa ${Math.max(0, targetEvent.quotaStaff - staffAtts.length)} slot).`, 400, ctx.requestId);
       }
-      if (gender === 'ikhwan' && targetEvent.quotaStaffIkhwan && staffIkhwan >= targetEvent.quotaStaffIkhwan) {
-        return errorResponse('VALIDATION_ERROR', 'Kuota pendaftaran staff Ikhwan telah penuh.', 400, ctx.requestId);
+      if (targetEvent.quotaStaffIkhwan && staffIkhwan + newIkhwan > targetEvent.quotaStaffIkhwan) {
+        return errorResponse('VALIDATION_ERROR', `Kuota pendaftaran staff Ikhwan tidak mencukupi (sisa ${Math.max(0, targetEvent.quotaStaffIkhwan - staffIkhwan)} slot).`, 400, ctx.requestId);
       }
-      if (gender === 'akhwat' && targetEvent.quotaStaffAkhwat && staffAkhwat >= targetEvent.quotaStaffAkhwat) {
-        return errorResponse('VALIDATION_ERROR', 'Kuota pendaftaran staff Akhwat telah penuh.', 400, ctx.requestId);
+      if (targetEvent.quotaStaffAkhwat && staffAkhwat + newAkhwat > targetEvent.quotaStaffAkhwat) {
+        return errorResponse('VALIDATION_ERROR', `Kuota pendaftaran staff Akhwat tidak mencukupi (sisa ${Math.max(0, targetEvent.quotaStaffAkhwat - staffAkhwat)} slot).`, 400, ctx.requestId);
       }
 
       const phoneNorm = normalizeIndonesianPhone(body.phone);
       let person = await db.query.persons.findFirst({ where: eq(persons.phoneE164, phoneNorm) });
+      const primaryNameKey = body.fullName.trim().toLocaleLowerCase('id-ID');
+      const familyNameKeys = new Set<string>();
+      for (const [familyIndex, member] of additionalList.entries()) {
+        const memberNameKey = member.fullName.trim().toLocaleLowerCase('id-ID');
+        if (memberNameKey === primaryNameKey || familyNameKeys.has(memberNameKey)) {
+          return errorResponse('VALIDATION_ERROR', 'Setiap anggota keluarga harus memiliki nama yang berbeda dari staff utama dan anggota lainnya.', 400, ctx.requestId);
+        }
+        familyNameKeys.add(memberNameKey);
+
+        const virtualPhone = `${phoneNorm}-staff-family-${familyIndex + 1}`;
+        const existingFamilyPerson = await db.query.persons.findFirst({
+          where: sql`${persons.fullName} = ${member.fullName} AND (${persons.phoneE164} = ${virtualPhone} OR ${persons.phoneE164} = ${phoneNorm})`,
+        });
+        if (existingFamilyPerson) {
+          const existingFamilyAttendance = await db.query.eventAttendance.findFirst({
+            where: and(eq(eventAttendance.eventId, targetEvent.id), eq(eventAttendance.personId, existingFamilyPerson.id)),
+          });
+          if (existingFamilyAttendance) {
+            return errorResponse('CONFLICT', `Anggota keluarga ${member.fullName} sudah terdaftar pada kajian ini.`, 409, ctx.requestId);
+          }
+        }
+      }
+
       if (!person) {
         const [createdPerson] = await db.insert(persons).values({
           fullName: body.fullName,
@@ -879,17 +939,21 @@ export function registerPublicPortalRoutes(router: Router) {
       }
 
       const ticketCode = createMemorableTicketCode();
+      const registrationGroupId = additionalList.length > 0 ? `STAFF-${randomBytes(6).toString('hex').toUpperCase()}` : null;
       await db.insert(eventAttendance).values({
         eventId: targetEvent.id,
         personId: person!.id,
         source: 'form_registration',
         status: 'registered',
         ticketCode,
+        registrationGroupId,
+        familyRelationship: registrationGroupId ? 'Staff / Pendaftar Utama' : null,
         paymentStatus: 'free',
         vehicleType: 'none',
         agreedToRules: body.agreedToRules,
         registrationData: {
           registrationChannel: STAFF_REGISTRATION_CHANNEL,
+          registrationType: 'staff',
           unitName: body.unitName.trim(),
           roleName: body.roleName.trim(),
           employeeNumber: body.employeeNumber?.trim() || null,
@@ -897,9 +961,68 @@ export function registerPublicPortalRoutes(router: Router) {
         },
       });
 
+      const groupTickets: Array<{ name: string; gender: string; relationship: string; age?: number | null; ticketCode: string; isStaffFamily: boolean }> = [
+        { name: body.fullName, gender: gender || 'tidak_ditentukan', relationship: registrationGroupId ? 'Staff / Pendaftar Utama' : 'Staff Yayasan', ticketCode, isStaffFamily: false },
+      ];
+
+      for (const [familyIndex, member] of additionalList.entries()) {
+        const familyTicketCode = createMemorableTicketCode();
+        const virtualPhone = `${phoneNorm}-staff-family-${familyIndex + 1}`;
+        let familyPerson = await db.query.persons.findFirst({
+          where: sql`${persons.fullName} = ${member.fullName} AND (${persons.phoneE164} = ${virtualPhone} OR ${persons.phoneE164} = ${phoneNorm})`,
+        });
+        if (!familyPerson) {
+          const [createdFamilyPerson] = await db.insert(persons).values({
+            fullName: member.fullName,
+            phoneE164: virtualPhone,
+            gender: member.gender,
+            sourceCode: 'staff_event_family_registration',
+            engagementStatus: 'baru',
+            preferredChannel: 'whatsapp',
+          }).returning();
+          familyPerson = createdFamilyPerson;
+        }
+        if (!familyPerson) return errorResponse('INTERNAL_ERROR', 'Gagal memproses data anggota keluarga staff.', 500, ctx.requestId);
+
+        await db.insert(eventAttendance).values({
+          eventId: targetEvent.id,
+          personId: familyPerson.id,
+          source: 'form_registration',
+          status: 'registered',
+          ticketCode: familyTicketCode,
+          registrationGroupId,
+          familyRelationship: member.relationship || 'Keluarga Staff',
+          age: member.age || null,
+          paymentStatus: 'free',
+          vehicleType: 'none',
+          agreedToRules: true,
+          registrationData: {
+            registrationChannel: STAFF_FAMILY_REGISTRATION_CHANNEL,
+            registrationType: 'staff_family',
+            registeredByStaffName: body.fullName,
+            staffUnitName: body.unitName.trim(),
+            relationship: member.relationship || 'Keluarga Staff',
+            ...(member.notes ? { notes: member.notes } : {}),
+          },
+        });
+        groupTickets.push({
+          name: member.fullName,
+          gender: member.gender || 'tidak_ditentukan',
+          relationship: member.relationship || 'Keluarga Staff',
+          age: member.age || null,
+          ticketCode: familyTicketCode,
+          isStaffFamily: true,
+        });
+      }
+
       return successResponse({
         ticketCode,
         participantPortalPath: buildParticipantPortalPath(targetEvent.id, ticketCode),
+        registrationGroupId,
+        isGroupRegistration: additionalList.length > 0,
+        totalParticipantsCount: totalRegistrantCount,
+        isStaffRegistration: true,
+        groupTickets,
         participant: { name: body.fullName, gender, unitName: body.unitName, roleName: body.roleName },
         event: { id: targetEvent.id, title: targetEvent.title, speaker: targetEvent.speaker, startAt: targetEvent.startAt, locationName: targetEvent.locationName },
       }, { requestId: ctx.requestId }, 201);
@@ -1640,9 +1763,9 @@ export function registerPublicPortalRoutes(router: Router) {
             registrationGroupId: attendance.registrationGroupId,
             groupMembers,
             isSpecialInvite:
-              (attendance.registrationData as any)?.isSpecialInvite === true ||
-              (attendance.registrationData as any)?.inviteSource === 'admin_invite' ||
-              Boolean(attendance.referredByAttendanceId),
+              isSpecialInviteRegistration(attendance),
+            isStaffRegistration: isStaffRegistration(attendance),
+            isStaffFamilyRegistration: isStaffFamilyRegistration(attendance),
           },
           event: {
             id: event.id,
@@ -1902,9 +2025,9 @@ export function registerPublicPortalRoutes(router: Router) {
           paymentAmountRupiah: att.paymentAmountRupiah,
           vehicleType: att.vehicleType,
           isSpecialInvite:
-            (att.registrationData as any)?.isSpecialInvite === true ||
-            (att.registrationData as any)?.inviteSource === 'admin_invite' ||
-            Boolean(att.referredByAttendanceId),
+            isSpecialInviteRegistration(att),
+          isStaffRegistration: isStaffRegistration(att),
+          isStaffFamilyRegistration: isStaffFamilyRegistration(att),
           participantPortalPath: buildParticipantPortalPath(ev.id, att.ticketCode || ''),
           event: {
             id: ev.id,
