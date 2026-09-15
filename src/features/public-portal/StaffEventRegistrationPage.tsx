@@ -75,7 +75,8 @@ export const StaffEventRegistrationPage: React.FC = () => {
   const [familyMembers, setFamilyMembers] = useState<FamilyMemberForm[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [submitError, setSubmitError] = useState('');
   const [success, setSuccess] = useState<StaffRegistrationSuccess | null>(null);
 
   useEffect(() => {
@@ -88,7 +89,7 @@ export const StaffEventRegistrationPage: React.FC = () => {
         setData(json.data);
       })
       .catch((requestError) => {
-        if (requestError.name !== 'AbortError') setError(requestError.message || 'Tautan pendaftaran tidak dapat digunakan.');
+        if (requestError.name !== 'AbortError') setLoadError(requestError.message || 'Tautan pendaftaran tidak dapat digunakan.');
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
@@ -106,7 +107,7 @@ export const StaffEventRegistrationPage: React.FC = () => {
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!id || !token) return;
-    setError('');
+    setSubmitError('');
     setSubmitting(true);
     try {
       const response = await fetch('/api/public/register-staff-event', {
@@ -126,7 +127,7 @@ export const StaffEventRegistrationPage: React.FC = () => {
       const registration = await parseRegistrationResponse<StaffRegistrationSuccess>(response);
       setSuccess(registration);
     } catch (submitError: any) {
-      setError(submitError.message || 'Pendaftaran belum dapat diproses.');
+      setSubmitError(submitError.message || 'Pendaftaran belum dapat diproses.');
     } finally {
       setSubmitting(false);
     }
@@ -134,14 +135,14 @@ export const StaffEventRegistrationPage: React.FC = () => {
 
   if (loading) return <PortalBackground><LoadingState message="Memeriksa tautan pendaftaran staff..." className="min-h-screen" /></PortalBackground>;
 
-  if (!data || error) {
+  if (!data || loadError) {
     return (
       <PortalBackground>
         <main className="min-h-screen flex items-center justify-center p-5">
           <section className="w-full max-w-md bg-white border border-rose-200 shadow-lg rounded-lg p-6 text-center space-y-4">
             <BriefcaseBusiness className="w-10 h-10 mx-auto text-rose-600" />
             <h1 className="text-xl font-bold text-slate-900">Tautan staff tidak tersedia</h1>
-            <p className="text-sm text-slate-600">{error || 'Silakan minta tautan pendaftaran terbaru kepada koordinator kajian.'}</p>
+            <p className="text-sm text-slate-600">{loadError || 'Silakan minta tautan pendaftaran terbaru kepada koordinator kajian.'}</p>
             <Link to="/kajian" className="inline-flex text-sm font-semibold text-teal-700 hover:text-teal-900">Kembali ke kajian</Link>
           </section>
         </main>
@@ -202,7 +203,7 @@ export const StaffEventRegistrationPage: React.FC = () => {
                 {allowFamilyRegistration && <section className="rounded-md border border-indigo-200 bg-indigo-50/60 p-4 space-y-4"><div className="flex items-start justify-between gap-3"><div><h3 className="flex items-center gap-2 text-sm font-bold text-indigo-950"><Users className="w-4 h-4" /> Keluarga staff</h3><p className="mt-1 text-xs text-indigo-800">Tambahkan maksimal {maxFamilyMembers} anggota. Masing-masing mendapatkan QR dan e-tiket sendiri.</p></div><button type="button" onClick={addFamilyMember} disabled={familyMembers.length >= maxFamilyMembers} className="inline-flex shrink-0 items-center gap-1 rounded-md bg-indigo-700 px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-400"><Plus className="w-3.5 h-3.5" /> Tambah</button></div>{familyMembers.map((member, index) => <div key={index} className="grid gap-3 rounded-md border border-indigo-200 bg-white p-3 sm:grid-cols-2"><label className="text-xs font-bold text-slate-800">Nama lengkap<input required value={member.fullName} onChange={(e) => updateFamilyMember(index, 'fullName', e.target.value)} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 font-normal" /></label><label className="text-xs font-bold text-slate-800">Hubungan<select value={member.relationship} onChange={(e) => updateFamilyMember(index, 'relationship', e.target.value)} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-normal"><option>Pasangan</option><option>Anak</option><option>Orang Tua</option><option>Saudara</option><option>Keluarga Staff</option></select></label><label className="text-xs font-bold text-slate-800">Jenis kelamin<select required={requiresGender} value={event.targetAudience === 'ikhwan_only' ? 'ikhwan' : event.targetAudience === 'akhwat_only' ? 'akhwat' : member.gender} disabled={!requiresGender} onChange={(e) => updateFamilyMember(index, 'gender', e.target.value)} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-normal"><option value="">Pilih</option><option value="ikhwan" disabled={quota.isIkhwanFull}>Ikhwan{quota.isIkhwanFull ? ' (kuota penuh)' : ''}</option><option value="akhwat" disabled={quota.isAkhwatFull}>Akhwat{quota.isAkhwatFull ? ' (kuota penuh)' : ''}</option></select></label><div className="flex items-end gap-2"><label className="flex-1 text-xs font-bold text-slate-800">Usia <span className="font-normal text-slate-400">(opsional)</span><input type="number" min="1" max="120" value={member.age} onChange={(e) => updateFamilyMember(index, 'age', e.target.value)} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 font-normal" /></label><button type="button" onClick={() => removeFamilyMember(index)} className="rounded-md border border-rose-200 p-2.5 text-rose-700" title="Hapus anggota"><Trash2 className="w-4 h-4" /></button></div></div>)}</section>}
                 <label className="block text-sm font-semibold text-slate-800">Catatan <span className="font-normal text-slate-400">(opsional)</span><textarea value={form.notes} onChange={(e) => update('notes', e.target.value)} rows={3} className="mt-1.5 w-full resize-y rounded-md border border-slate-300 px-3 py-2.5 font-normal focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" /></label>
                 {requiresRules ? <label className="flex items-start gap-3 rounded-md bg-slate-50 p-3 text-sm text-slate-700"><input required checked={form.agreedToRules} onChange={(e) => update('agreedToRules', e.target.checked)} type="checkbox" className="mt-0.5 h-4 w-4 accent-teal-700" /><span>Saya bersedia mengikuti tata tertib kajian dan arahan koordinator.</span></label> : null}
-                {error ? <p role="alert" className="rounded-md bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
+                {submitError ? <p role="alert" className="rounded-md bg-rose-50 p-3 text-sm text-rose-700">{submitError}</p> : null}
                 <button disabled={submitting} type="submit" className="w-full rounded-md bg-teal-700 px-4 py-3 text-sm font-bold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-400"><span className="inline-flex items-center gap-2"><UserRound className="w-4 h-4" />{submitting ? 'Memproses pendaftaran...' : 'Daftar sebagai staff'}</span></button>
               </form>
             ) : <div className="p-7 text-center"><BriefcaseBusiness className="mx-auto w-8 h-8 text-amber-600" /><p className="mt-3 font-semibold text-slate-800">{event.registrationClosedReason === 'quota_full' ? 'Kuota Pendaftaran Staff Telah Penuh' : event.registrationClosedReason === 'event_past' ? 'Kajian Telah Berlalu' : 'Pendaftaran Staff Saat Ini Ditutup'}</p><p className="mt-1 text-sm text-slate-500">{event.registrationClosedReason === 'quota_full' ? 'Alhamdulillah, seluruh slot pendaftaran staff pada kajian ini telah terisi. Formulir otomatis ditutup.' : event.registrationClosedReason === 'event_past' ? 'Pendaftaran tidak tersedia karena waktu pelaksanaan kajian telah berlalu.' : 'Hubungi koordinator kajian untuk informasi lebih lanjut.'}</p></div>}

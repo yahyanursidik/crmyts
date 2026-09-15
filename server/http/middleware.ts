@@ -24,6 +24,29 @@ export interface RequestContext {
 
 export type Handler = (ctx: RequestContext) => Promise<HttpResponse>;
 
+function getValidationMessage(error: z.ZodError): string {
+  const issue = error.issues[0];
+  if (!issue) return 'Format data tidak valid.';
+
+  const field = String(issue.path[0] || 'data');
+  const fieldLabels: Record<string, string> = {
+    eventId: 'Kajian',
+    fullName: 'Nama lengkap',
+    phone: 'Nomor WhatsApp',
+    gender: 'Kategori jamaah',
+    age: 'Usia',
+    email: 'Alamat email',
+    referralCode: 'Kode undangan',
+    inviteCode: 'Kode undangan',
+    additionalParticipants: 'Data peserta tambahan',
+  };
+  const label = fieldLabels[field] || 'Data yang diisi';
+
+  if (issue.code === 'invalid_enum_value') return `${label} tidak valid. Silakan pilih kembali.`;
+  if (issue.code === 'invalid_type') return `${label} belum diisi atau formatnya tidak sesuai.`;
+  return issue.message || 'Format data tidak valid.';
+}
+
 /**
  * Generate or retrieve correlation request ID
  */
@@ -95,7 +118,7 @@ export function validateBody<T>(schema: z.ZodSchema<T>, handler: (ctx: RequestCo
   return async (ctx: RequestContext) => {
     const result = schema.safeParse(ctx.body);
     if (!result.success) {
-      return errorResponse('VALIDATION_ERROR', 'Format data tidak valid.', 400, ctx.requestId, result.error.format());
+      return errorResponse('VALIDATION_ERROR', getValidationMessage(result.error), 400, ctx.requestId, result.error.format());
     }
     return handler(ctx, result.data);
   };

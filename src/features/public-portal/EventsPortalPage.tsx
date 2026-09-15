@@ -55,7 +55,7 @@ import {
 } from '@/lib/participantTicket';
 import { isEventPast } from '@/lib/eventUtils';
 import { QuotaFullDialog } from './QuotaFullDialog';
-import { isQuotaFullMessage, parseRegistrationResponse } from './registrationResponse';
+import { getRegistrationErrorVariant, isQuotaFullMessage, parseRegistrationResponse, RegistrationErrorVariant } from './registrationResponse';
 import './events-portal.css';
 
 interface EventItem {
@@ -236,7 +236,7 @@ export function EventsPortalPage() {
   const [submittingEvent, setSubmittingEvent] = useState(false);
   const [eventSuccess, setEventSuccess] = useState<any | null>(null);
   const [quotaFullMessage, setQuotaFullMessage] = useState<string | null>(null);
-  const [registrationErrorMessage, setRegistrationErrorMessage] = useState<string | null>(null);
+  const [registrationError, setRegistrationError] = useState<{ message: string; variant: RegistrationErrorVariant } | null>(null);
   const [selectedGroupTicketIdx, setSelectedGroupTicketIdx] = useState<number>(0);
   const [showAllGroupQrs, setShowAllGroupQrs] = useState(false);
 
@@ -698,7 +698,7 @@ export function EventsPortalPage() {
     } catch (err: any) {
       const message = err?.message || 'Pendaftaran belum dapat diproses. Silakan coba lagi.';
       if (isQuotaFullMessage(message)) setQuotaFullMessage(message);
-      else setRegistrationErrorMessage(message);
+      else setRegistrationError({ message, variant: getRegistrationErrorVariant(err) });
     } finally {
       setSubmittingEvent(false);
     }
@@ -3411,7 +3411,7 @@ export function EventsPortalPage() {
         </div>
       )}
       <QuotaFullDialog message={quotaFullMessage} eventTitle={selectedEvent?.title} onClose={() => setQuotaFullMessage(null)} />
-      <QuotaFullDialog message={registrationErrorMessage} eventTitle={selectedEvent?.title} variant="service" onClose={() => setRegistrationErrorMessage(null)} />
+      <QuotaFullDialog message={registrationError?.message || null} eventTitle={selectedEvent?.title} variant={registrationError?.variant || 'service'} onClose={() => setRegistrationError(null)} />
       </div>
     </PortalBackground>
   );

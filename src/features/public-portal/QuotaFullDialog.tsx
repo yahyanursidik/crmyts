@@ -5,18 +5,21 @@ interface QuotaFullDialogProps {
   message: string | null;
   eventTitle?: string | null;
   onClose: () => void;
-  variant?: 'quota' | 'service';
+  variant?: 'quota' | 'validation' | 'service';
 }
 
 export const QuotaFullDialog: React.FC<QuotaFullDialogProps> = ({ message, eventTitle, onClose, variant = 'quota' }) => {
   if (!message) return null;
 
   const isQuota = variant === 'quota';
-  const title = isQuota ? 'Kuota kajian sudah penuh' : 'Pendaftaran sedang terkendala';
-  const eyebrow = isQuota ? 'Pendaftaran Belum Diproses' : 'Gangguan Layanan';
+  const isValidation = variant === 'validation';
+  const title = isQuota ? 'Kuota kajian sudah penuh' : isValidation ? 'Data pendaftaran perlu diperiksa' : 'Pendaftaran sedang terkendala';
+  const eyebrow = isQuota ? 'Pendaftaran Belum Diproses' : isValidation ? 'Periksa Data' : 'Gangguan Layanan';
   const description = isQuota
     ? 'Terima kasih atas antusiasmenya. Slot yang tersedia baru saja habis, sehingga data dan tiket Anda belum dibuat.'
-    : 'Data dan tiket Anda belum dibuat. Silakan coba lagi setelah beberapa saat.';
+    : isValidation
+      ? 'Perbaiki data yang ditunjukkan di bawah, kemudian kirim pendaftaran kembali.'
+      : 'Data dan tiket Anda belum dibuat. Silakan coba lagi setelah beberapa saat.';
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="quota-dialog-title">
@@ -32,7 +35,7 @@ export const QuotaFullDialog: React.FC<QuotaFullDialogProps> = ({ message, event
           {eventTitle && <p className="font-semibold text-slate-900">{eventTitle}</p>}
           <p>{description}</p>
           <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-medium text-amber-950">{message}</p>
-          <p className="text-xs text-slate-500">{isQuota ? 'Silakan pilih jadwal kajian lain atau hubungi panitia bila memerlukan informasi lebih lanjut.' : 'Bila masalah berlanjut, hubungi panitia dan sertakan waktu pendaftaran Anda.'}</p>
+          <p className="text-xs text-slate-500">{isQuota ? 'Silakan pilih jadwal kajian lain atau hubungi panitia bila memerlukan informasi lebih lanjut.' : isValidation ? 'Data pendaftaran belum disimpan dan belum ada tiket yang dibuat.' : 'Bila masalah berlanjut, hubungi panitia dan sertakan waktu pendaftaran Anda.'}</p>
         </div>
         <div className="flex justify-end border-t border-slate-100 px-5 py-3"><button type="button" onClick={onClose} className="rounded-lg bg-teal-800 px-4 py-2 text-sm font-bold text-white hover:bg-teal-900">Saya Mengerti</button></div>
       </section>
