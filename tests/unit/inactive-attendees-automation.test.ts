@@ -21,57 +21,30 @@ describe('Inactive Jamaah Detection & Caring Greetings API', () => {
 
   it('GET /api/automation/inactive-attendees returns jamaah who have not attended in >30 days', async () => {
     const fortyFiveDaysAgo = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000);
-    const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
-
-    const mockAttendances = [
-      {
-        id: 'att_1',
-        personId: '018f0000-0000-0000-0000-000000000001',
-        status: 'attended',
-        createdAt: fortyFiveDaysAgo,
-        checkInAt: fortyFiveDaysAgo,
-        person: {
-          id: '018f0000-0000-0000-0000-000000000001',
-          fullName: 'Fulan bin Fulan (Absen 45 Hari)',
-          gender: 'ikhwan',
-          phoneE164: '+6281234567890',
-          cityRegency: 'Kota Bandung',
-        },
-        event: {
-          id: 'ev_1',
-          title: 'Kajian Kitab Tauhid Bab 4',
-          speaker: 'Ustadz Dr. Fulan, M.A.',
-        },
-      },
-      {
-        id: 'att_2',
-        personId: '018f0000-0000-0000-0000-000000000002',
-        status: 'attended',
-        createdAt: tenDaysAgo,
-        checkInAt: tenDaysAgo,
-        person: {
-          id: '018f0000-0000-0000-0000-000000000002',
-          fullName: 'Ahmad Rajin (Aktif 10 Hari Lalu)',
-          gender: 'ikhwan',
-          phoneE164: '+6281234567891',
-          cityRegency: 'Kabupaten Bandung',
-        },
-        event: {
-          id: 'ev_2',
-          title: 'Kajian Fiqh Bulughul Maram',
-          speaker: 'Ustadz Abu Fulan',
-        },
-      },
-    ];
 
     const mockDb = {
+      execute: vi.fn().mockResolvedValue({
+        rows: [
+          {
+            person_id: '018f0000-0000-0000-0000-000000000001',
+            full_name: 'Fulan bin Fulan (Absen 45 Hari)',
+            gender: 'ikhwan',
+            phone_e164: '+6281234567890',
+            city_regency: 'Kota Bandung',
+            last_attended_at: fortyFiveDaysAgo,
+            total_attendances: 3,
+            last_event_title: 'Kajian Kitab Tauhid Bab 4',
+            last_event_speaker: 'Ustadz Dr. Fulan, M.A.',
+            last_greeted_at: null,
+            days_since_last_attendance: 45,
+            total_inactive: 1,
+            need_greeting_count: 1,
+            greeted_recently_count: 0,
+            critical_count: 0,
+          },
+        ],
+      }),
       query: {
-        eventAttendance: {
-          findMany: vi.fn().mockResolvedValue(mockAttendances),
-        },
-        interactions: {
-          findMany: vi.fn().mockResolvedValue([]),
-        },
         events: {
           findMany: vi.fn().mockResolvedValue([
             {
@@ -106,6 +79,8 @@ describe('Inactive Jamaah Detection & Caring Greetings API', () => {
     expect(body.data.items[0].daysSinceLastAttendance).toBeGreaterThanOrEqual(44);
     expect(body.data.items[0].templates.kabar_doa.message).toContain('Kajian Kitab Tauhid Bab 4');
     expect(body.data.items[0].templates.undangan_kajian.message).toContain('Tabligh Akbar Menyambut Ramadan');
+    expect(body.data.pagination).toMatchObject({ page: 1, pageSize: 15, totalItems: 1, totalPages: 1 });
+    expect(mockDb.execute).toHaveBeenCalledTimes(1);
   });
 
   it('POST /api/automation/send-inactive-greeting logs interaction and creates follow-up task', async () => {

@@ -54,6 +54,12 @@ interface InactiveResponse {
     startAt: string;
     startAtFormatted: string;
   } | null;
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalPages: number;
+    totalItems: number;
+  };
   items: InactiveAttendee[];
 }
 
@@ -111,6 +117,8 @@ export function InactiveAttendeesTab() {
       setError(null);
       const queryParams = new URLSearchParams();
       queryParams.set('minDays', minDaysFilter.toString());
+      queryParams.set('page', page.toString());
+      queryParams.set('pageSize', pageSize.toString());
       if (genderFilter !== 'all') queryParams.set('gender', genderFilter);
       if (debouncedSearch.trim()) queryParams.set('search', debouncedSearch.trim());
 
@@ -125,7 +133,7 @@ export function InactiveAttendeesTab() {
 
   useEffect(() => {
     fetchInactiveAttendees();
-  }, [minDaysFilter, genderFilter, debouncedSearch]);
+  }, [minDaysFilter, genderFilter, debouncedSearch, page]);
 
   const handleOpenGreetingModal = (attendee: InactiveAttendee) => {
     setSelectedAttendee(attendee);
@@ -182,19 +190,18 @@ export function InactiveAttendeesTab() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const allItems = data?.items || [];
-  const totalItems = allItems.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
-  const paginatedItems = allItems.slice((page - 1) * pageSize, page * pageSize);
+  const pageItems = data?.items || [];
+  const totalItems = data?.pagination?.totalItems || 0;
+  const totalPages = data?.pagination?.totalPages || 1;
 
   const handleExportCsv = () => {
-    if (allItems.length === 0) {
+    if (pageItems.length === 0) {
       alert('Tidak ada data jamaah inaktif untuk diekspor');
       return;
     }
 
     const headers = ['Nama Jamaah', 'Gender', 'Nomor WhatsApp', 'Domisili', 'Total Kehadiran', 'Kajian Terakhir', 'Pemateri Terakhir', 'Tanggal Terakhir Hadir', 'Hari Absen', 'Status Sapaan'];
-    const rows = allItems.map((item) => [
+    const rows = pageItems.map((item) => [
       `"${item.fullName}"`,
       `"${item.gender || '-'}"`,
       `"${item.phoneE164}"`,
@@ -341,10 +348,10 @@ export function InactiveAttendeesTab() {
             type="button"
             onClick={handleExportCsv}
             className="px-3.5 py-2 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#1C2321] border border-[#1B4332]/12 rounded-xl text-xs font-semibold shadow-2xs transition-all flex items-center gap-1.5 active:scale-98"
-            title="Ekspor daftar ke format CSV"
+            title="Ekspor halaman yang sedang ditampilkan ke format CSV"
           >
             <Download className="w-3.5 h-3.5 text-[#6B7A72]" />
-            <span>Ekspor CSV</span>
+            <span>Ekspor Halaman</span>
           </button>
 
           <button
@@ -407,8 +414,13 @@ export function InactiveAttendeesTab() {
             <LoadingState message="Memuat data jamaah rindu majelis..." />
           </div>
         ) : error ? (
-          <div className="p-6 text-rose-700 text-xs bg-rose-50 border-b border-rose-200">{error}</div>
-        ) : allItems.length === 0 ? (
+          <div className="p-6 text-rose-700 text-xs bg-rose-50 border-b border-rose-200 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span>{error}</span>
+            <button type="button" onClick={fetchInactiveAttendees} className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-rose-300 bg-white px-3 py-2 font-semibold text-rose-800 hover:bg-rose-100">
+              <RefreshCw className="w-3.5 h-3.5" /> Coba lagi
+            </button>
+          </div>
+        ) : pageItems.length === 0 ? (
           <div className="py-16 text-center text-[#6B7A72] text-xs space-y-3">
             <div className="w-12 h-12 bg-[#F2EEE4] rounded-xl flex items-center justify-center mx-auto text-[#6B7A72]">
               <Heart className="w-6 h-6" />
@@ -432,7 +444,7 @@ export function InactiveAttendeesTab() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1B4332]/8 font-medium text-[#1C2321]">
-                {paginatedItems.map((item) => {
+                {pageItems.map((item) => {
                   const initials = getInitials(item.fullName);
                   return (
                     <tr key={item.personId} className="hover:bg-[#F2EEE4]/50 transition-colors">
@@ -529,7 +541,7 @@ export function InactiveAttendeesTab() {
         {/* Server/Client Pagination Controls */}
         <div className="px-4 py-3 border-t border-[#1B4332]/10 bg-[#F2EEE4]/60 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-[#6B7A72]">
           <div>
-            Menampilkan <strong className="text-[#1C2321]">{paginatedItems.length}</strong> dari{' '}
+            Menampilkan <strong className="text-[#1C2321]">{pageItems.length}</strong> dari{' '}
             <strong className="text-[#1C2321]">{totalItems.toLocaleString('id-ID')}</strong> jamaah rindu majelis
           </div>
 

@@ -18,7 +18,7 @@ import {
   DripRecipient,
   DripCampaignStats,
 } from '../../db/schema';
-import { eq, and, desc, isNotNull, ne, sql, or } from 'drizzle-orm';
+import { asc, eq, and, desc, gte, isNotNull, ne, sql, or } from 'drizzle-orm';
 import { logAuditEvent } from '../../audit/service';
 import { sendEmail, renderEmailLayout } from '../../email/service';
 import { getBroadcastDailyQuota, reserveBroadcastEmailSlot } from '../../email/broadcastQuota';
@@ -879,29 +879,87 @@ export function registerAutomationRoutes(router: Router) {
     '/api/automation/inactive-attendees',
     requireAuth(async (ctx) => {
       const db = getDb();
-      const minDays = ctx.query.minDays ? parseInt(ctx.query.minDays as string, 10) : 30;
-      const gender = ctx.query.gender as string | undefined;
-      const search = (ctx.query.search as string | undefined)?.toLowerCase() || '';
+      const parsedMinDays = Number.parseInt(ctx.query.minDays || '30', 10);
+      const minDays = Number.isFinite(parsedMinDays) ? Math.min(Math.max(parsedMinDays, 1), 3650) : 30;
+      const parsedPage = Number.parseInt(ctx.query.page || '1', 10);
+      const page = Number.isFinite(parsedPage) ? Math.max(parsedPage, 1) : 1;
+      const parsedPageSize = Number.parseInt(ctx.query.pageSize || '15', 10);
+      const pageSize = Number.isFinite(parsedPageSize) ? Math.min(Math.max(parsedPageSize, 1), 100) : 15;
+      const gender = ctx.query.gender === 'ikhwan' || ctx.query.gender === 'akhwat' ? ctx.query.gender : null;
+      const search = (ctx.query.search || '').trim().slice(0, 100);
+      const searchPattern = `%${search.replace(/[\\%_]/g, '\\$&')}%`;
+      const genderClause = gender ? sql`AND p.gender = ${gender}` : sql``;
+      const searchClause = search
+        ? sql`AND (
+            p.full_name ILIKE ${searchPattern}
+            OR p.phone_e164 ILIKE ${searchPattern}
+            OR coalesce(p.city_regency, '') ILIKE ${searchPattern}
+          )`
+        : sql``;
 
-      // 1. Fetch all attendance records with person & event
-      const allAttendances = await db.query.eventAttendance.findMany({
-        with: {
-          event: true,
-          person: true,
-        },
-        orderBy: [desc(eventAttendance.checkInAt)],
-      });
+      // Keep aggregation in PostgreSQL. Loading every attendance, interaction, and message
+      // template into a serverless function was the source of production gateway timeouts.
+      const result = await db.execute(sql`
+        WITH latest_attendance AS (
+          SELECT DISTINCT ON (ea.person_id)
+            ea.person_id,
+            ea.event_id,
+            ea.check_in_at AS last_attended_at,
+            count(*) OVER (PARTITION BY ea.person_id)::int AS total_attendances
+          FROM event_attendance ea
+          WHERE ea.status IN ('attended', 'registered')
+          ORDER BY ea.person_id, ea.check_in_at DESC
+        ), inactive AS (
+          SELECT
+            p.id AS person_id,
+            p.full_name,
+            p.gender,
+            p.phone_e164,
+            p.city_regency,
+            la.last_attended_at,
+            la.total_attendances,
+            e.title AS last_event_title,
+            e.speaker AS last_event_speaker,
+            lg.last_greeted_at,
+            floor(extract(epoch FROM (now() - la.last_attended_at)) / 86400)::int AS days_since_last_attendance
+          FROM latest_attendance la
+          INNER JOIN persons p ON p.id = la.person_id
+          LEFT JOIN events e ON e.id = la.event_id
+          LEFT JOIN LATERAL (
+            SELECT i.occurred_at AS last_greeted_at
+            FROM interactions i
+            WHERE i.person_id = p.id
+              AND (i.summary ILIKE '%sapaan%' OR i.summary ILIKE '%rindu majelis%')
+            ORDER BY i.occurred_at DESC
+            LIMIT 1
+          ) lg ON true
+          WHERE p.is_active = true
+            AND p.phone_e164 IS NOT NULL
+            AND la.last_attended_at < now() - (${minDays} * interval '1 day')
+            ${genderClause}
+            ${searchClause}
+        ), ranked AS (
+          SELECT
+            inactive.*,
+            count(*) OVER()::int AS total_inactive,
+            (count(CASE WHEN last_greeted_at IS NULL OR last_greeted_at < now() - interval '30 days' THEN 1 END) OVER())::int AS need_greeting_count,
+            (count(CASE WHEN last_greeted_at >= now() - interval '30 days' THEN 1 END) OVER())::int AS greeted_recently_count,
+            (count(CASE WHEN days_since_last_attendance >= 90 THEN 1 END) OVER())::int AS critical_count
+          FROM inactive
+        )
+        SELECT *
+        FROM ranked
+        ORDER BY last_attended_at ASC
+        LIMIT ${pageSize}
+        OFFSET ${(page - 1) * pageSize}
+      `);
+      const inactiveRows = (Array.isArray(result) ? result : result.rows || []) as Array<Record<string, any>>;
 
-      // 2. Fetch all greetings/interactions
-      const allInteractions = await db.query.interactions.findMany({
-        orderBy: [desc(interactions.occurredAt)],
-      });
-
-      // 3. Fetch upcoming open event for invitation
+      // Fetch the nearest future open event, not the furthest event in the schedule.
       const now = new Date();
       const upcomingEvents = await db.query.events.findMany({
-        where: eq(events.isRegistrationOpen, true),
-        orderBy: [desc(events.startAt)],
+        where: and(eq(events.isRegistrationOpen, true), gte(events.startAt, now)),
+        orderBy: [asc(events.startAt)],
         limit: 1,
       });
       const nextEvent = upcomingEvents[0] || null;
@@ -924,96 +982,39 @@ export function registerAutomationRoutes(router: Router) {
           }
         : null;
 
-      // Group attendances by personId
-      const personAttendanceMap = new Map<string, { person: any; attendances: any[] }>();
-      for (const att of allAttendances) {
-        if (!att.person || !att.person.phoneE164) continue;
-        if (!personAttendanceMap.has(att.personId)) {
-          personAttendanceMap.set(att.personId, { person: att.person, attendances: [] });
-        }
-        personAttendanceMap.get(att.personId)!.attendances.push(att);
-      }
-
-      // Group greetings by personId
-      const personGreetingsMap = new Map<string, any[]>();
-      for (const inter of allInteractions) {
-        if (!personGreetingsMap.has(inter.personId)) {
-          personGreetingsMap.set(inter.personId, []);
-        }
-        if (
-          (inter.summary || '').toLowerCase().includes('sapaan') ||
-          (inter.summary || '').toLowerCase().includes('rindu majelis')
-        ) {
-          personGreetingsMap.get(inter.personId)!.push(inter);
-        }
-      }
-
-      const inactiveList: any[] = [];
-      let totalGreetedRecently = 0;
-
-      for (const [, { person: p, attendances }] of personAttendanceMap) {
-        if (gender && gender !== 'all' && p.gender !== gender) continue;
-        if (
-          search &&
-          !p.fullName.toLowerCase().includes(search) &&
-          !p.phoneE164.includes(search) &&
-          !(p.cityRegency || '').toLowerCase().includes(search)
-        ) {
-          continue;
-        }
-
-        const validAttendances = attendances.filter(
-          (a) => a.status === 'attended' || a.status === 'registered'
-        );
-
-        if (validAttendances.length === 0) continue;
-
-        const latestAttendance = validAttendances[0];
-        const lastAttendedDate = latestAttendance.checkInAt;
-        const diffMs = now.getTime() - new Date(lastAttendedDate).getTime();
-        const daysSinceLastAttendance = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
-
-        if (daysSinceLastAttendance < minDays) continue;
-
-        // Find recent greetings
-        const recentGreetings = personGreetingsMap.get(p.id) || [];
-        const lastGreeting = recentGreetings[0] || null;
-        const lastGreetedDate = lastGreeting ? lastGreeting.occurredAt : null;
+      const inactiveList = inactiveRows.map((row) => {
+        const lastAttendedDate = new Date(row.last_attended_at);
+        const lastGreetedDate = row.last_greeted_at ? new Date(row.last_greeted_at) : null;
         const daysSinceLastGreeting = lastGreetedDate
-          ? Math.floor((now.getTime() - new Date(lastGreetedDate).getTime()) / (1000 * 60 * 60 * 24))
+          ? Math.max(0, Math.floor((now.getTime() - lastGreetedDate.getTime()) / (1000 * 60 * 60 * 24)))
           : null;
-
         const isGreetedRecently = daysSinceLastGreeting !== null && daysSinceLastGreeting <= 30;
-        if (isGreetedRecently) {
-          totalGreetedRecently++;
-        }
-
-        const sapaanPanggilan = p.gender === 'akhwat' ? 'Ukhti' : p.gender === 'ikhwan' ? 'Akhi' : 'Bapak/Ibu';
-        const lastEventTitle = latestAttendance.event?.title || 'Kajian Rutin Yayasan';
+        const sapaanPanggilan = row.gender === 'akhwat' ? 'Ukhti' : row.gender === 'ikhwan' ? 'Akhi' : 'Bapak/Ibu';
+        const lastEventTitle = row.last_event_title || 'Kajian Rutin Yayasan';
 
         // Pre-build templates
-        const tplKabarDoa = `Bismillah, Assalamu'alaikum Warahmatullahi Wabarakatuh.\n\nSemoga ${sapaanPanggilan} ${p.fullName} dan keluarga senantiasa berada dalam lindungan, taufik, dan rahmat Allah Ta'ala.\n\nSudah cukup lama kami tidak bersua dengan antum di majelis ilmu Yayasan Tarbiyah Sunnah (terakhir di kajian *${lastEventTitle}*). Asatidzah dan ikhwah di majelis senantiasa merindukan kehadiran dan kebersamaan antum menuntut ilmu syar'i.\n\nSemoga antum sekeluarga selalu diberikan kesehatan, kelapangan rezeki, dan kemudahan dalam segala urusan. Sampai jumpa di majelis ilmu berikutnya, barakallahu fiikum.\n\n— Tim Layanan Jamaah Yayasan Tarbiyah Sunnah`;
+        const tplKabarDoa = `Bismillah, Assalamu'alaikum Warahmatullahi Wabarakatuh.\n\nSemoga ${sapaanPanggilan} ${row.full_name} dan keluarga senantiasa berada dalam lindungan, taufik, dan rahmat Allah Ta'ala.\n\nSudah cukup lama kami tidak bersua dengan antum di majelis ilmu Yayasan Tarbiyah Sunnah (terakhir di kajian *${lastEventTitle}*). Asatidzah dan ikhwah di majelis senantiasa merindukan kehadiran dan kebersamaan antum menuntut ilmu syar'i.\n\nSemoga antum sekeluarga selalu diberikan kesehatan, kelapangan rezeki, dan kemudahan dalam segala urusan. Sampai jumpa di majelis ilmu berikutnya, barakallahu fiikum.\n\n— Tim Layanan Jamaah Tarbiyah Sunnah`;
 
         const tplUndanganKajian = formattedNextEvent
-          ? `Bismillah, Assalamu'alaikum Warahmatullahi Wabarakatuh.\n\nYth. ${sapaanPanggilan} ${p.fullName},\n\nSemoga senantiasa dalam keadaan sehat wal 'afiat. Mengingat antum sudah beberapa waktu belum sempat hadir di majelis ilmu, dengan senang hati kami mengundang antum untuk kembali hadir pada kajian terdekat kami:\n\n📖 *${formattedNextEvent.title}*\n🎙️ Pemateri: *${formattedNextEvent.speaker}*\n📅 Waktu: *${formattedNextEvent.startAtFormatted}*\n📍 Tempat: *${formattedNextEvent.locationName}*\n\nInsya Allah tempat dan fasilitas majelis telah disiapkan dengan nyaman. Kami sangat menantikan kehadiran antum kembali. _Jazakumullahu khairan_.\n\n— Yayasan Tarbiyah Sunnah`
+          ? `Bismillah, Assalamu'alaikum Warahmatullahi Wabarakatuh.\n\nYth. ${sapaanPanggilan} ${row.full_name},\n\nSemoga senantiasa dalam keadaan sehat wal 'afiat. Mengingat antum sudah beberapa waktu belum sempat hadir di majelis ilmu, dengan senang hati kami mengundang antum untuk kembali hadir pada kajian terdekat kami:\n\n📖 *${formattedNextEvent.title}*\n🎙️ Pemateri: *${formattedNextEvent.speaker}*\n📅 Waktu: *${formattedNextEvent.startAtFormatted}*\n📍 Tempat: *${formattedNextEvent.locationName}*\n\nInsya Allah tempat dan fasilitas majelis telah disiapkan dengan nyaman. Kami sangat menantikan kehadiran antum kembali. _Jazakumullahu khairan_.\n\n— Yayasan Tarbiyah Sunnah`
           : tplKabarDoa;
 
-        const tplTabayyunTaawun = `Bismillah, Assalamu'alaikum Warahmatullahi Wabarakatuh.\n\nAfwan mengganggu waktunya ${sapaanPanggilan} ${p.fullName}. Semoga antum senantiasa sehat dan berkah.\n\nKami dari Divisi Layanan Jamaah YTS memperhatikan bahwa antum sudah beberapa waktu tidak hadir di kajian. Sekadar bertabayyun dan menanyakan kabar, apakah antum atau keluarga sedang berhalangan sakit, ada kesibukan, atau ada kendala transportasi yang sekiranya bisa dibantu oleh tim ta'awun yayasan?\n\nJika ada hal yang bisa kami bantu, jangan sungkan untuk mengabari kami ya. Semoga Allah memudahkan setiap urusan antum. Barakallahu fiik.\n\n— Divisi Layanan Jamaah Tarbiyah Sunnah`;
+        const tplTabayyunTaawun = `Bismillah, Assalamu'alaikum Warahmatullahi Wabarakatuh.\n\nAfwan mengganggu waktunya ${sapaanPanggilan} ${row.full_name}. Semoga antum senantiasa sehat dan berkah.\n\nKami dari Divisi Layanan Jamaah YTS memperhatikan bahwa antum sudah beberapa waktu tidak hadir di kajian. Sekadar bertabayyun dan menanyakan kabar, apakah antum atau keluarga sedang berhalangan sakit, ada kesibukan, atau ada kendala transportasi yang sekiranya bisa dibantu oleh tim ta'awun yayasan?\n\nJika ada hal yang bisa kami bantu, jangan sungkan untuk mengabari kami ya. Semoga Allah memudahkan setiap urusan antum. Barakallahu fiik.\n\n— Divisi Layanan Jamaah Tarbiyah Sunnah`;
 
-        const rawPhone = p.phoneE164.replace(/[^0-9]/g, '');
+        const rawPhone = row.phone_e164.replace(/[^0-9]/g, '');
 
-        inactiveList.push({
-          personId: p.id,
-          fullName: p.fullName,
-          gender: p.gender,
-          phoneE164: p.phoneE164,
-          cityRegency: p.cityRegency || 'Kota Bandung',
-          totalAttendances: validAttendances.length,
+        return {
+          personId: row.person_id,
+          fullName: row.full_name,
+          gender: row.gender,
+          phoneE164: row.phone_e164,
+          cityRegency: row.city_regency || 'Kota Bandung',
+          totalAttendances: Number(row.total_attendances),
           lastAttendedAt: lastAttendedDate,
           lastEventTitle,
-          lastEventSpeaker: latestAttendance.event?.speaker || 'Asatidzah YTS',
-          daysSinceLastAttendance,
-          urgencyLevel: daysSinceLastAttendance >= 90 ? 'critical' : daysSinceLastAttendance >= 60 ? 'warning' : 'need_greeting',
+          lastEventSpeaker: row.last_event_speaker || 'Asatidzah YTS',
+          daysSinceLastAttendance: Number(row.days_since_last_attendance),
+          urgencyLevel: Number(row.days_since_last_attendance) >= 90 ? 'critical' : Number(row.days_since_last_attendance) >= 60 ? 'warning' : 'need_greeting',
           lastGreetedAt: lastGreetedDate,
           daysSinceLastGreeting,
           isGreetedRecently,
@@ -1037,19 +1038,25 @@ export function registerAutomationRoutes(router: Router) {
               waUrl: `https://wa.me/${rawPhone}?text=${encodeURIComponent(tplTabayyunTaawun)}`,
             },
           },
-        });
-      }
+        };
+      });
 
-      // Sort by daysSinceLastAttendance descending
-      inactiveList.sort((a, b) => b.daysSinceLastAttendance - a.daysSinceLastAttendance);
+      const metrics = inactiveRows[0] || {};
+      const totalInactive = Number(metrics.total_inactive || 0);
 
       return successResponse(
         {
-          totalInactive: inactiveList.length,
-          needGreetingCount: inactiveList.filter((i) => !i.isGreetedRecently).length,
-          greetedRecentlyCount: totalGreetedRecently,
-          criticalCount: inactiveList.filter((i) => i.urgencyLevel === 'critical').length,
+          totalInactive,
+          needGreetingCount: Number(metrics.need_greeting_count || 0),
+          greetedRecentlyCount: Number(metrics.greeted_recently_count || 0),
+          criticalCount: Number(metrics.critical_count || 0),
           nextUpcomingEvent: formattedNextEvent,
+          pagination: {
+            page,
+            pageSize,
+            totalPages: Math.max(1, Math.ceil(totalInactive / pageSize)),
+            totalItems: totalInactive,
+          },
           items: inactiveList,
         },
         { requestId: ctx.requestId }
