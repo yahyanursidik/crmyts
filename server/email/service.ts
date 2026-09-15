@@ -191,6 +191,7 @@ export async function sendEventRegistrationTicketEmail(params: {
   locationName: string;
   ticketCode: string;
   gender: 'ikhwan' | 'akhwat' | null;
+  registrationLabel?: string;
   familyCount?: number;
   groupTickets?: Array<{ name: string; relationship: string; ticketCode: string }>;
   isPaid?: boolean;
@@ -271,6 +272,11 @@ export async function sendEventRegistrationTicketEmail(params: {
           <span class="data-label">Kategori Peserta</span>
           <span class="data-value" style="text-transform: capitalize;">${params.gender === 'akhwat' ? 'Akhwat' : params.gender === 'ikhwan' ? 'Ikhwan' : 'Jamaah'} ${params.familyCount ? `(+${params.familyCount} Anggota Keluarga)` : ''}</span>
         </div>
+        ${params.registrationLabel ? `
+        <div class="data-row">
+          <span class="data-label">Jalur Pendaftaran</span>
+          <span class="data-value">${params.registrationLabel}</span>
+        </div>` : ''}
         ${
           params.isPaid
             ? `
@@ -298,6 +304,45 @@ export async function sendEventRegistrationTicketEmail(params: {
     to: params.recipientEmail,
     subject: `[E-Tiket] Konfirmasi Pendaftaran: ${params.eventTitle} — YTS`,
     html: renderEmailLayout(`E-Tiket Kajian: ${params.eventTitle}`, content),
+  });
+}
+
+/** Sends a concise, event-specific attendance reminder. */
+export async function sendEventReminderEmail(params: {
+  recipientEmail: string;
+  recipientName: string;
+  eventTitle: string;
+  speaker: string;
+  startAtFormatted: string;
+  locationName: string;
+  ticketCode: string;
+  eventUrl: string;
+  meetingUrl?: string | null;
+}) {
+  const attendanceLink = params.meetingUrl
+    ? `<a href="${params.meetingUrl}" class="btn btn-gold" target="_blank">Buka Tautan Kajian</a>`
+    : `<a href="${params.eventUrl}" class="btn" target="_blank">Lihat E-Tiket & Detail Kajian</a>`;
+
+  const content = `
+    <p>Assalamu'alaikum Warahmatullahi Wabarakatuh, <strong>${params.recipientName}</strong>.</p>
+    <p>Insya Allah kajian berikut akan berlangsung besok. Kami mengingatkan agar antum/Anda dapat mempersiapkan kehadiran dengan baik.</p>
+    <div class="card">
+      <div style="text-align:center; margin-bottom: 14px;"><span class="badge">PENGINGAT KAJIAN H-1</span></div>
+      <div class="data-row"><span class="data-label">Tema Kajian</span><span class="data-value">${params.eventTitle}</span></div>
+      <div class="data-row"><span class="data-label">Pemateri</span><span class="data-value">${params.speaker}</span></div>
+      <div class="data-row"><span class="data-label">Waktu Pelaksanaan</span><span class="data-value">${params.startAtFormatted}</span></div>
+      <div class="data-row"><span class="data-label">Lokasi / Tempat</span><span class="data-value">${params.locationName}</span></div>
+      <div class="data-row"><span class="data-label">Kode E-Tiket</span><span class="data-value" style="font-family: monospace; color: #047857;">${params.ticketCode}</span></div>
+    </div>
+    <p>Mohon hadir lebih awal dan tunjukkan QR Code atau kode e-tiket kepada panitia di gerbang masuk.</p>
+    <div style="text-align:center;">${attendanceLink}</div>
+    <p style="margin-top: 16px;">Jazakumullahu khairan wa barakallahu fiikum.</p>
+  `;
+
+  return sendEmail({
+    to: params.recipientEmail,
+    subject: `[Pengingat H-1] ${params.eventTitle} — YTS`,
+    html: renderEmailLayout(`Pengingat Kajian: ${params.eventTitle}`, content),
   });
 }
 

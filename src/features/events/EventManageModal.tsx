@@ -28,6 +28,7 @@ import {
   ExternalLink,
   Pencil,
   BriefcaseBusiness,
+  Mail,
 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -74,6 +75,11 @@ export interface EventFormConfig {
   requireRulesAgreement?: boolean;
   /** Penjelasan detail adab penuntut ilmu (hadits & faedah) untuk modal edukasi */
   rulesModalDetail?: string;
+  emailNotifications?: {
+    registrationTicketEnabled?: boolean;
+    reminderEnabled?: boolean;
+    reminderHoursBefore?: number;
+  };
 }
 
 interface ParticipantItem {
@@ -168,6 +174,13 @@ interface EventDetail {
   staffIkhwanCount?: number;
   staffAkhwatCount?: number;
   adminInviteCode?: string;
+  emailRecipientCount?: number;
+  emailReminderSentCount?: number;
+  emailSettings?: {
+    registrationTicketEnabled: boolean;
+    reminderEnabled: boolean;
+    reminderHoursBefore: number;
+  };
 }
 
 interface EventManageModalProps {
@@ -233,6 +246,11 @@ const DEFAULT_FORM_CONFIG: EventFormConfig = {
   participantRequirements: DEFAULT_PARTICIPANT_REQUIREMENTS,
   requireRulesAgreement: true,
   rulesModalDetail: DEFAULT_RULES_MODAL_DETAIL,
+  emailNotifications: {
+    registrationTicketEnabled: true,
+    reminderEnabled: false,
+    reminderHoursBefore: 24,
+  },
 };
 
 export const EventManageModal: React.FC<EventManageModalProps> = ({
@@ -242,7 +260,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
 }) => {
   const [eventData, setEventData] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'participants' | 'settings' | 'form_builder' | 'rules'>('participants');
+  const [activeTab, setActiveTab] = useState<'participants' | 'settings' | 'form_builder' | 'rules' | 'email'>('participants');
   const [saving, setSaving] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedStaffLink, setCopiedStaffLink] = useState(false);
@@ -310,6 +328,9 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   const [manualVehicleType, setManualVehicleType] = useState<'none' | 'motorcycle' | 'car'>('none');
   const [manualVehiclePlate, setManualVehiclePlate] = useState('');
   const [manualSubmitting, setManualSubmitting] = useState(false);
+  const [emailSendingAttendanceId, setEmailSendingAttendanceId] = useState<string | null>(null);
+  const [sendingReminder, setSendingReminder] = useState(false);
+  const [showReminderConfirm, setShowReminderConfirm] = useState(false);
 
   // Ticket Modal State (Bukti Pendaftaran & QR Code wa.me)
   const [showTicketSuccessModal, setShowTicketSuccessModal] = useState(false);
@@ -794,6 +815,7 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           year: 'numeric',
           hour: '2-digit',
           minute: '2-digit',
+          timeZone: 'Asia/Jakarta',
         })
       : '';
     const ticketUrl = `/peserta/${eventId}?ticket=${encodeURIComponent(p.ticketCode || '')}`;
@@ -813,6 +835,42 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       isSpecialInvite: isInvite,
     });
     setShowTicketSuccessModal(true);
+  };
+
+  const handleResendTicketEmail = async (participant: ParticipantItem) => {
+    if (!participant.personEmail) {
+      showToast('Peserta ini belum memiliki alamat email.', 'error');
+      return;
+    }
+    try {
+      setEmailSendingAttendanceId(participant.id);
+      const response = await apiClient<{ message: string }>(`/events/${eventId}/attendances/${participant.id}/email-ticket`, {
+        method: 'POST',
+      });
+      showToast(response.data?.message || `E-tiket terbaru dikirim ke ${participant.personEmail}.`);
+      await loadEventDetail();
+    } catch (err: any) {
+      showToast(err.message || 'E-tiket gagal dikirim.', 'error');
+    } finally {
+      setEmailSendingAttendanceId(null);
+    }
+  };
+
+  const handleSendReminder = async () => {
+    try {
+      setSendingReminder(true);
+      const response = await apiClient<{ message: string; sent: number; failed: number; quotaReached: boolean }>(
+        `/events/${eventId}/email-reminder`,
+        { method: 'POST' }
+      );
+      showToast(response.data?.message || `${response.data?.sent || 0} reminder berhasil dikirim.`);
+      setShowReminderConfirm(false);
+      await loadEventDetail();
+    } catch (err: any) {
+      showToast(err.message || 'Reminder email gagal dikirim.', 'error');
+    } finally {
+      setSendingReminder(false);
+    }
   };
 
   const handleExportCSV = () => {
@@ -1023,6 +1081,18 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           >
             <Sparkles className="w-4 h-4" />
             <span>Form Builder Pendaftaran</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('email')}
+            className={`py-3.5 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+              activeTab === 'email'
+                ? 'border-teal-800 text-teal-900 bg-white shadow-2xs'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Send className="w-4 h-4 text-sky-700" />
+            <span>Email Kajian</span>
           </button>
 
           <button
@@ -1411,6 +1481,15 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                                   title="Kirim / Bagikan Tiket & QR Code via WhatsApp (wa.me)"
                                 >
                                   <Send className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleResendTicketEmail(p)}
+                                  disabled={!p.personEmail || emailSendingAttendanceId === p.id}
+                                  className="p-1.5 text-sky-600 hover:text-sky-800 hover:bg-sky-50 rounded-lg border border-transparent hover:border-sky-200 transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
+                                  title={p.personEmail ? `Kirim ulang e-tiket terbaru ke ${p.personEmail}` : 'Peserta belum memiliki alamat email'}
+                                >
+                                  {emailSendingAttendanceId === p.id ? <RotateCcw className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
                                 </button>
                                 <button
                                   type="button"
@@ -2420,7 +2499,131 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
             </div>
           )}
 
-          {/* TAB 4: TATA TERTIB & SYARAT KAJIAN */}
+          {/* TAB 4: EMAIL KAJIAN */}
+          {activeTab === 'email' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-4 bg-white rounded-2xl border border-sky-200 shadow-2xs">
+                  <span className="text-[10px] font-bold uppercase text-sky-700 block">Penerima Email</span>
+                  <span className="mt-1 block text-2xl font-black text-sky-950">{eventData.emailRecipientCount || 0}</span>
+                  <span className="text-[11px] text-slate-500">alamat unik peserta</span>
+                </div>
+                <div className="p-4 bg-white rounded-2xl border border-emerald-200 shadow-2xs">
+                  <span className="text-[10px] font-bold uppercase text-emerald-700 block">Reminder Terkirim</span>
+                  <span className="mt-1 block text-2xl font-black text-emerald-950">{eventData.emailReminderSentCount || 0}</span>
+                  <span className="text-[11px] text-slate-500">penanda pengiriman H-1</span>
+                </div>
+                <div className="p-4 bg-white rounded-2xl border border-amber-200 shadow-2xs">
+                  <span className="text-[10px] font-bold uppercase text-amber-700 block">Zona Waktu Email</span>
+                  <span className="mt-1 block text-2xl font-black text-amber-950">WIB</span>
+                  <span className="text-[11px] text-slate-500">Asia/Jakarta</span>
+                </div>
+              </div>
+
+              <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-5">
+                <div className="flex items-start gap-3">
+                  <Mail className="w-5 h-5 text-sky-700 mt-0.5" />
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900">Pengiriman E-Tiket</h4>
+                    <p className="text-xs text-slate-500 mt-1">E-tiket selalu dibentuk dari judul, pemateri, waktu, dan lokasi kajian yang tersimpan saat ini.</p>
+                  </div>
+                </div>
+                <label className="flex items-center justify-between gap-4 p-3.5 rounded-xl bg-sky-50 border border-sky-200 cursor-pointer">
+                  <div>
+                    <span className="text-xs font-bold text-sky-950 block">E-tiket otomatis setelah pendaftaran</span>
+                    <span className="text-[11px] text-sky-800">Hanya dikirim bila peserta mengisi alamat email.</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={formConfig.emailNotifications?.registrationTicketEnabled !== false}
+                    onChange={(e) => setFormConfig({
+                      ...formConfig,
+                      emailNotifications: {
+                        ...formConfig.emailNotifications,
+                        registrationTicketEnabled: e.target.checked,
+                      },
+                    })}
+                    className="w-4 h-4 rounded text-sky-700 focus:ring-sky-500"
+                  />
+                </label>
+              </div>
+
+              <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-5">
+                <div className="flex items-start gap-3">
+                  <Send className="w-5 h-5 text-emerald-700 mt-0.5" />
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900">Reminder Email Kajian</h4>
+                    <p className="text-xs text-slate-500 mt-1">Pengiriman otomatis berjalan sekali per peserta dan mengikuti batas broadcast email harian sistem.</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-end">
+                  <label className="flex items-center justify-between gap-4 p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 cursor-pointer">
+                    <div>
+                      <span className="text-xs font-bold text-emerald-950 block">Aktifkan reminder otomatis</span>
+                      <span className="text-[11px] text-emerald-800">Jadwal terdekat akan diproses oleh sistem.</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={formConfig.emailNotifications?.reminderEnabled === true}
+                      onChange={(e) => setFormConfig({
+                        ...formConfig,
+                        emailNotifications: {
+                          ...formConfig.emailNotifications,
+                          reminderEnabled: e.target.checked,
+                          reminderHoursBefore: formConfig.emailNotifications?.reminderHoursBefore || 24,
+                        },
+                      })}
+                      className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-500"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-[11px] font-bold text-slate-700 block mb-1.5">Kirim sebelum mulai</span>
+                    <select
+                      value={formConfig.emailNotifications?.reminderHoursBefore || 24}
+                      onChange={(e) => setFormConfig({
+                        ...formConfig,
+                        emailNotifications: {
+                          ...formConfig.emailNotifications,
+                          reminderHoursBefore: Number(e.target.value),
+                        },
+                      })}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-bold bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                    >
+                      <option value={24}>H-1 (24 jam)</option>
+                      <option value={48}>H-2 (48 jam)</option>
+                      <option value={72}>H-3 (72 jam)</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                  <span className="text-[11px] text-slate-500">Kirim ulang e-tiket individual tersedia pada tab daftar peserta.</span>
+                  <button
+                    type="button"
+                    disabled={formConfig.emailNotifications?.reminderEnabled !== true || sendingReminder || (eventData.emailRecipientCount || 0) === 0}
+                    onClick={() => setShowReminderConfirm(true)}
+                    className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold inline-flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Kirim Reminder Sekarang</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleSaveFormConfig}
+                  disabled={saving}
+                  className="px-6 py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{saving ? 'Menyimpan...' : 'Simpan Pengaturan Email'}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: TATA TERTIB & SYARAT KAJIAN */}
           {activeTab === 'rules' && (
             <div className="space-y-6">
               {/* Header Card with Toggle & Actions */}
@@ -3191,6 +3394,27 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
             </button>
           </div>
         </div>
+      )}
+
+      {showReminderConfirm && (
+        <ConfirmDialog
+          isOpen={true}
+          title="Kirim Reminder Email Sekarang?"
+          message={
+            <div className="space-y-2">
+              <p>Reminder akan dikirim ke maksimal <strong>{eventData?.emailRecipientCount || 0}</strong> alamat email unik peserta kajian ini.</p>
+              <p className="text-[11px] text-amber-800">Batas broadcast email harian tetap diterapkan. Peserta tanpa email tidak akan dihubungi.</p>
+            </div>
+          }
+          confirmLabel="Kirim Reminder"
+          cancelLabel="Batal"
+          variant="warning"
+          loading={sendingReminder}
+          onConfirm={handleSendReminder}
+          onClose={() => {
+            if (!sendingReminder) setShowReminderConfirm(false);
+          }}
+        />
       )}
 
       {/* Alert / Notice Dialog */}

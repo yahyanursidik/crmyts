@@ -42,6 +42,7 @@ import {
   sendDonationReceivedEmail,
   sendWaqfInquiryConfirmationEmail,
 } from '../../email/service';
+import { formatEventDateTimeWib, getEventEmailSettings } from '../events/emailNotifications';
 import { ensureS3StorageUrl, uploadPublicProofFile } from '../../storage/providers/s3';
 
 const optionalEmailSchema = z
@@ -1671,17 +1672,14 @@ export function registerPublicPortalRoutes(router: Router) {
         { requestId: ctx.requestId }
       );
 
-      // Send E-Ticket Email if email provided
-      if (email) {
+      // Send E-Ticket Email if email provided and this event has not disabled it.
+      if (email && getEventEmailSettings(targetEvent.formConfig).registrationTicketEnabled) {
         sendEventRegistrationTicketEmail({
           recipientEmail: email,
           recipientName: body.fullName,
           eventTitle: targetEvent.title,
           speaker: targetEvent.speaker,
-          startAtFormatted: new Date(targetEvent.startAt).toLocaleString('id-ID', {
-            dateStyle: 'full',
-            timeStyle: 'short',
-          }),
+          startAtFormatted: formatEventDateTimeWib(targetEvent.startAt),
           locationName: targetEvent.locationName || 'Masjid Tarbiyah Sunnah',
           ticketCode,
           gender,

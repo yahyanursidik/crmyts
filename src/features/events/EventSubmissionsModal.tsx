@@ -16,6 +16,7 @@ import {
   Copy,
   Trash2,
   RefreshCw,
+  Mail,
 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -154,6 +155,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   const [selectedForCert, setSelectedForCert] = useState<ParticipantItem | null>(null);
   const [selectedForPaymentVerify, setSelectedForPaymentVerify] = useState<ParticipantPaymentData | null>(null);
   const [togglingAttendanceId, setTogglingAttendanceId] = useState<string | null>(null);
+  const [emailSendingAttendanceId, setEmailSendingAttendanceId] = useState<string | null>(null);
 
   // Toast
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -206,6 +208,25 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
       showToast(err.message || 'Gagal mengubah status presensi', 'error');
     } finally {
       setTogglingAttendanceId(null);
+    }
+  };
+
+  const handleResendTicketEmail = async (participant: ParticipantItem) => {
+    if (!participant.personEmail) {
+      showToast('Peserta ini belum memiliki alamat email.', 'error');
+      return;
+    }
+    try {
+      setEmailSendingAttendanceId(participant.id);
+      const response = await apiClient<{ message: string }>(`/events/${eventId}/attendances/${participant.id}/email-ticket`, {
+        method: 'POST',
+      });
+      showToast(response.data?.message || `E-tiket terbaru dikirim ke ${participant.personEmail}.`);
+      await loadEventDetail();
+    } catch (err: any) {
+      showToast(err.message || 'E-tiket gagal dikirim.', 'error');
+    } finally {
+      setEmailSendingAttendanceId(null);
     }
   };
 
@@ -981,6 +1002,15 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                                 </button>
                                 <button
                                   type="button"
+                                  onClick={() => handleResendTicketEmail(p)}
+                                  disabled={!p.personEmail || emailSendingAttendanceId === p.id}
+                                  className="p-1.5 text-sky-600 hover:text-sky-800 hover:bg-sky-50 rounded-lg border border-transparent hover:border-sky-200 transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
+                                  title={p.personEmail ? `Kirim ulang e-tiket terbaru ke ${p.personEmail}` : 'Peserta belum memiliki alamat email'}
+                                >
+                                  {emailSendingAttendanceId === p.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
+                                </button>
+                                <button
+                                  type="button"
                                   onClick={() => {
                                     setDeletingAttendance(p);
                                     setDeleteGroupCheckbox(false);
@@ -1108,6 +1138,16 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                             >
                               <Award className="w-3 h-3" />
                               <span>Sertifikat</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleResendTicketEmail(p)}
+                              disabled={!p.personEmail || emailSendingAttendanceId === p.id}
+                              className="px-2 py-1 text-sky-700 hover:text-sky-900 hover:bg-sky-50 border border-sky-200 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all disabled:cursor-not-allowed disabled:opacity-35"
+                              title={p.personEmail ? `Kirim ulang e-tiket terbaru ke ${p.personEmail}` : 'Peserta belum memiliki alamat email'}
+                            >
+                              {emailSendingAttendanceId === p.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Mail className="w-3 h-3" />}
+                              <span>Email</span>
                             </button>
                             <button
                               type="button"

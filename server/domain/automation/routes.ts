@@ -22,6 +22,7 @@ import { asc, eq, and, desc, gte, isNotNull, ne, sql, or } from 'drizzle-orm';
 import { logAuditEvent } from '../../audit/service';
 import { sendEmail, renderEmailLayout } from '../../email/service';
 import { getBroadcastDailyQuota, reserveBroadcastEmailSlot } from '../../email/broadcastQuota';
+import { formatEventDateTimeWib } from '../events/emailNotifications';
 
 export type { DripRecipient, DripCampaignStats };
 
@@ -554,14 +555,7 @@ export function registerAutomationRoutes(router: Router) {
           isFallback = true;
         }
 
-        const formattedDate = new Date(event.startAt).toLocaleString('id-ID', {
-          weekday: 'long',
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-        });
+        const formattedDate = formatEventDateTimeWib(event.startAt);
 
         const locationStr = event.deliveryMode === 'online'
           ? 'Online (Zoom / YouTube Live)'
@@ -978,6 +972,7 @@ export function registerAutomationRoutes(router: Router) {
               year: 'numeric',
               hour: '2-digit',
               minute: '2-digit',
+              timeZone: 'Asia/Jakarta',
             }).format(new Date(nextEvent.startAt)) + ' WIB',
           }
         : null;

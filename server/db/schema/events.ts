@@ -46,6 +46,15 @@ export interface EventFormConfig {
   requireRulesAgreement?: boolean;
   /** Penjelasan detail adab penuntut ilmu (hadits & faedah) untuk modal edukasi */
   rulesModalDetail?: string;
+  /** Pengaturan notifikasi email khusus kajian ini. */
+  emailNotifications?: {
+    /** Kirim e-tiket setelah pendaftaran berhasil (default: aktif). */
+    registrationTicketEnabled?: boolean;
+    /** Kirim pengingat otomatis sebelum kajian (default: nonaktif). */
+    reminderEnabled?: boolean;
+    /** Jeda pengiriman reminder terhadap waktu mulai, dalam jam (default: 24 / H-1). */
+    reminderHoursBefore?: number;
+  };
   announcements?: Array<{
     id: string;
     title: string;

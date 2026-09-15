@@ -14,6 +14,8 @@ import {
   getPersonsAttendanceStats,
   getSinglePersonAttendanceStats,
 } from './attendanceHistory';
+import { getEventEmailSettings, sendEventTicketEmail } from './emailNotifications';
+import { dispatchEventReminders } from './reminderDispatch';
 
 const createEventSchema = z.object({
   title: z.string().min(3, 'Judul kajian minimal 3 karakter'),
@@ -279,6 +281,14 @@ export function registerEventsRoutes(router: Router) {
       const regularAkhwatCount = participants.filter((p) => !p.isSpecialInvite && !p.isStaffRegistration && p.personGender === 'akhwat').length;
       const firstTimerCount = participants.filter((p) => p.currentKajianNumber <= 1).length;
       const returningCount = participants.filter((p) => p.currentKajianNumber > 1).length;
+      const emailRecipientCount = new Set(
+        participants
+          .map((participant) => participant.personEmail?.trim().toLowerCase())
+          .filter((email): email is string => Boolean(email))
+      ).size;
+      const emailReminderSentCount = participants.filter(
+        (participant) => Boolean((participant.registrationData as any)?.emailNotifications?.reminderH1SentAt)
+      ).length;
 
       return successResponse(
         {
@@ -306,6 +316,9 @@ export function registerEventsRoutes(router: Router) {
           referralSignups: specialInviteCount,
           firstTimerCount,
           returningCount,
+          emailRecipientCount,
+          emailReminderSentCount,
+          emailSettings: getEventEmailSettings(eventItem.formConfig),
         },
         { requestId: ctx.requestId }
       );
@@ -791,6 +804,114 @@ export function registerEventsRoutes(router: Router) {
             : 'Status pembayaran berhasil ditolak.',
           attendance: updatedList[0] || existing,
           updatedCount: updatedList.length,
+        },
+        { requestId: ctx.requestId }
+      );
+    })
+  );
+
+  // 7d. POST /api/events/:id/attendances/:attendanceId/email-ticket (Resend current e-ticket after data correction)
+  router.post(
+    '/api/events/:id/attendances/:attendanceId/email-ticket',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const eventId = ctx.params.id;
+      const attendanceId = ctx.params.attendanceId;
+      if (!eventId || !attendanceId) {
+        return errorResponse('VALIDATION_ERROR', 'Event ID dan data peserta diperlukan.', 400, ctx.requestId);
+      }
+
+      const event = await db.query.events.findFirst({ where: eq(events.id, eventId) });
+      if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan.', 404, ctx.requestId);
+
+      const attendance = await db.query.eventAttendance.findFirst({
+        where: and(eq(eventAttendance.id, attendanceId), eq(eventAttendance.eventId, eventId)),
+        with: { person: true },
+      });
+      if (!attendance) return errorResponse('NOT_FOUND', 'Data pendaftaran peserta tidak ditemukan.', 404, ctx.requestId);
+      if (!attendance.person?.email) {
+        return errorResponse('VALIDATION_ERROR', 'Peserta ini belum memiliki alamat email. Perbarui data jamaah terlebih dahulu.', 400, ctx.requestId);
+      }
+
+      const groupAttendances = attendance.registrationGroupId
+        ? await db.query.eventAttendance.findMany({
+            where: and(
+              eq(eventAttendance.eventId, eventId),
+              eq(eventAttendance.registrationGroupId, attendance.registrationGroupId)
+            ),
+            with: { person: true },
+          })
+        : [attendance];
+      const delivery = await sendEventTicketEmail({ event, attendance, groupAttendances });
+      if (!delivery.success) {
+        return errorResponse('INTERNAL_ERROR', delivery.error || 'E-tiket gagal dikirim.', 502, ctx.requestId);
+      }
+
+      const previous = attendance.registrationData || {};
+      await db
+        .update(eventAttendance)
+        .set({
+          registrationData: {
+            ...previous,
+            emailNotifications: {
+              ...(previous as any).emailNotifications,
+              ticketLastSentAt: new Date().toISOString(),
+              ticketLastMessageId: delivery.messageId || null,
+            },
+          },
+        })
+        .where(eq(eventAttendance.id, attendance.id));
+
+      await logAuditEvent({
+        actorUserId: ctx.user?.id,
+        action: 'resend_event_ticket_email',
+        entityType: 'event_attendance',
+        entityId: attendance.id,
+        afterJson: { eventId, recipientEmail: attendance.person.email, ticketCode: attendance.ticketCode },
+        reason: 'Pengiriman ulang e-tiket kajian dengan detail terbaru',
+        requestId: ctx.requestId,
+      });
+
+      return successResponse(
+        { message: `E-tiket terbaru telah dikirim ke ${attendance.person.email}.`, messageId: delivery.messageId || null },
+        { requestId: ctx.requestId }
+      );
+    })
+  );
+
+  // 7e. POST /api/events/:id/email-reminder (Manual H-1 delivery, protected by the global daily broadcast limit)
+  router.post(
+    '/api/events/:id/email-reminder',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const eventId = ctx.params.id;
+      if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+
+      const event = await db.query.events.findFirst({ where: eq(events.id, eventId) });
+      if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan.', 404, ctx.requestId);
+
+      const settings = getEventEmailSettings(event.formConfig);
+      if (!settings.reminderEnabled) {
+        return errorResponse('VALIDATION_ERROR', 'Aktifkan reminder email pada pengaturan kajian sebelum mengirim pengingat.', 400, ctx.requestId);
+      }
+
+      const result = await dispatchEventReminders(db, event, 'manual');
+      await logAuditEvent({
+        actorUserId: ctx.user?.id,
+        action: 'send_event_email_reminder',
+        entityType: 'event',
+        entityId: eventId,
+        afterJson: result,
+        reason: `Pengiriman reminder email manual H-${Math.max(1, Math.ceil(settings.reminderHoursBefore / 24))}`,
+        requestId: ctx.requestId,
+      });
+
+      return successResponse(
+        {
+          ...result,
+          message: result.quotaReached
+            ? `Pengiriman dihentikan karena batas broadcast harian. ${result.sent} email berhasil dikirim.`
+            : `${result.sent} reminder berhasil dikirim.`,
         },
         { requestId: ctx.requestId }
       );
