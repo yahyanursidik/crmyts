@@ -936,10 +936,10 @@ export function registerPublicPortalRoutes(router: Router) {
       if (targetEvent.quotaStaff && staffAtts.length + totalRegistrantCount > targetEvent.quotaStaff) {
         return errorResponse('VALIDATION_ERROR', `Kuota pendaftaran staff tidak mencukupi (sisa ${Math.max(0, targetEvent.quotaStaff - staffAtts.length)} slot).`, 400, ctx.requestId);
       }
-      if (targetEvent.quotaStaffIkhwan && staffIkhwan + newIkhwan > targetEvent.quotaStaffIkhwan) {
+      if (newIkhwan > 0 && targetEvent.quotaStaffIkhwan && staffIkhwan + newIkhwan > targetEvent.quotaStaffIkhwan) {
         return errorResponse('VALIDATION_ERROR', `Kuota pendaftaran staff Ikhwan tidak mencukupi (sisa ${Math.max(0, targetEvent.quotaStaffIkhwan - staffIkhwan)} slot).`, 400, ctx.requestId);
       }
-      if (targetEvent.quotaStaffAkhwat && staffAkhwat + newAkhwat > targetEvent.quotaStaffAkhwat) {
+      if (newAkhwat > 0 && targetEvent.quotaStaffAkhwat && staffAkhwat + newAkhwat > targetEvent.quotaStaffAkhwat) {
         return errorResponse('VALIDATION_ERROR', `Kuota pendaftaran staff Akhwat tidak mencukupi (sisa ${Math.max(0, targetEvent.quotaStaffAkhwat - staffAkhwat)} slot).`, 400, ctx.requestId);
       }
 
@@ -1374,11 +1374,11 @@ export function registerPublicPortalRoutes(router: Router) {
       const regularAkhwat = existingRegAtts.filter((a) => a.person?.gender === 'akhwat').length;
 
       if (isSpecialInvite) {
-        if (targetEvent.quotaInviteIkhwan && inviteIkhwan + newIkhwan > targetEvent.quotaInviteIkhwan) {
+        if (newIkhwan > 0 && targetEvent.quotaInviteIkhwan && inviteIkhwan + newIkhwan > targetEvent.quotaInviteIkhwan) {
           const sisa = Math.max(0, targetEvent.quotaInviteIkhwan - inviteIkhwan);
           return errorResponse('VALIDATION_ERROR', `Mohon maaf, kuota jalur undangan khusus Jamaah Ikhwan tidak mencukupi (sisa ${sisa} slot).`, 400, ctx.requestId);
         }
-        if (targetEvent.quotaInviteAkhwat && inviteAkhwat + newAkhwat > targetEvent.quotaInviteAkhwat) {
+        if (newAkhwat > 0 && targetEvent.quotaInviteAkhwat && inviteAkhwat + newAkhwat > targetEvent.quotaInviteAkhwat) {
           const sisa = Math.max(0, targetEvent.quotaInviteAkhwat - inviteAkhwat);
           return errorResponse('VALIDATION_ERROR', `Mohon maaf, kuota jalur undangan khusus Jamaah Akhwat tidak mencukupi (sisa ${sisa} slot).`, 400, ctx.requestId);
         }
@@ -1387,11 +1387,11 @@ export function registerPublicPortalRoutes(router: Router) {
           return errorResponse('VALIDATION_ERROR', `Mohon maaf, kuota keseluruhan jalur undangan tidak mencukupi (sisa ${sisa} slot).`, 400, ctx.requestId);
         }
       } else {
-        if (targetEvent.quotaIkhwan && regularIkhwan + newIkhwan > targetEvent.quotaIkhwan) {
+        if (newIkhwan > 0 && targetEvent.quotaIkhwan && regularIkhwan + newIkhwan > targetEvent.quotaIkhwan) {
           const sisa = Math.max(0, targetEvent.quotaIkhwan - regularIkhwan);
           return errorResponse('VALIDATION_ERROR', `Mohon maaf, kuota pendaftaran reguler khusus Jamaah Ikhwan tidak mencukupi (sisa ${sisa} slot).`, 400, ctx.requestId);
         }
-        if (targetEvent.quotaAkhwat && regularAkhwat + newAkhwat > targetEvent.quotaAkhwat) {
+        if (newAkhwat > 0 && targetEvent.quotaAkhwat && regularAkhwat + newAkhwat > targetEvent.quotaAkhwat) {
           const sisa = Math.max(0, targetEvent.quotaAkhwat - regularAkhwat);
           return errorResponse('VALIDATION_ERROR', `Mohon maaf, kuota pendaftaran reguler khusus Jamaah Akhwat tidak mencukupi (sisa ${sisa} slot).`, 400, ctx.requestId);
         }
