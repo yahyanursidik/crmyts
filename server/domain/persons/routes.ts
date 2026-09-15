@@ -40,6 +40,24 @@ const createPersonSchema = z.object({
 
 const updatePersonSchema = createPersonSchema.partial();
 
+const bulkDeletePersonsSchema = z.object({
+  personIds: z
+    .array(z.string().uuid('ID jamaah tidak valid'))
+    .min(1, 'Pilih minimal satu jamaah')
+    .max(100, 'Maksimal 100 jamaah dapat dihapus dalam satu proses')
+    .refine((ids) => new Set(ids).size === ids.length, 'Daftar jamaah tidak boleh berulang'),
+  confirmation: z.literal('HAPUS', {
+    errorMap: () => ({ message: 'Konfirmasi penghapusan massal tidak valid' }),
+  }),
+});
+
+class BulkDeleteConflictError extends Error {
+  constructor(readonly missingIds: string[]) {
+    super('Sebagian data jamaah tidak ditemukan');
+    this.name = 'BulkDeleteConflictError';
+  }
+}
+
 const createInteractionSchema = z.object({
   channel: z.enum(['whatsapp', 'phone_call', 'in_person', 'telegram', 'email', 'other']),
   summary: z.string().min(3, 'Ringkasan interaksi minimal 3 karakter'),
@@ -133,6 +151,7 @@ export function registerPersonsRoutes(router: Router) {
       const tagId = ctx.query.tagId?.trim();
       const ownerUserId = ctx.query.ownerUserId?.trim();
       const attendanceFilter = ctx.query.attendanceFilter?.trim();
+      const forceStatsRefresh = ctx.query.refreshStats === '1';
 
       // Sorting
       const sortBy = ctx.query.sortBy || 'createdAt';
@@ -182,7 +201,14 @@ export function registerPersonsRoutes(router: Router) {
           whereConditions.push(
             sql`(
               EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" = 'wakif')
-              OR EXISTS (SELECT 1 FROM "waqf_cases" WHERE "waqf_cases"."wakif_person_id" = "persons"."id")
+              OR EXISTS (SELECT 1 FROM "waqf_cases" WHERE "waqf_cases"."person_id" = "persons"."id")
+            )`
+          );
+        } else if (roleCode === 'wakif_relawan') {
+          whereConditions.push(
+            sql`(
+              EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" IN ('wakif', 'relawan'))
+              OR EXISTS (SELECT 1 FROM "waqf_cases" WHERE "waqf_cases"."person_id" = "persons"."id")
             )`
           );
         } else {
@@ -342,11 +368,13 @@ export function registerPersonsRoutes(router: Router) {
       };
 
       const nowTime = Date.now();
-      if (cachedPersonsStats && nowTime - cachedPersonsStats.timestamp < STATS_CACHE_TTL_MS) {
+      if (!forceStatsRefresh && cachedPersonsStats && nowTime - cachedPersonsStats.timestamp < STATS_CACHE_TTL_MS) {
         stats = cachedPersonsStats.data;
       } else {
-        try {
-          const [statsRes] = await db
+        // Keep the core engagement and wakaf/relawan figures independent. A future
+        // schema issue in one data source must not turn every KPI card into zero.
+        const [coreStatsResult, waqfAndVolunteerResult] = await Promise.allSettled([
+          db
             .select({
               totalMaster: sql<number>`(SELECT count(*)::int FROM "persons")`,
               multiKajian: sql<number>`(SELECT count(*)::int FROM (SELECT "person_id" FROM "event_attendance" GROUP BY "person_id" HAVING count("id") >= 2) sub)`,
@@ -355,20 +383,38 @@ export function registerPersonsRoutes(router: Router) {
                 WHERE EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" = 'donatur')
                    OR EXISTS (SELECT 1 FROM "donations" WHERE "donations"."person_id" = "persons"."id")
               )`,
+            })
+            .from(sql`(SELECT 1) stats_seed`),
+          db
+            .select({
               waqfCount: sql<number>`(
-                SELECT count(distinct "id")::int FROM "persons" 
-                WHERE EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" = 'wakif')
-                   OR EXISTS (SELECT 1 FROM "waqf_cases" WHERE "waqf_cases"."wakif_person_id" = "persons"."id")
+                SELECT count(distinct "id")::int FROM "persons"
+                WHERE EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" IN ('wakif', 'relawan'))
+                   OR EXISTS (SELECT 1 FROM "waqf_cases" WHERE "waqf_cases"."person_id" = "persons"."id")
               )`,
             })
-            .from(sql`(SELECT 1) dummy`);
+            .from(sql`(SELECT 1) stats_seed`),
+        ]);
 
-          if (statsRes) {
-            stats = statsRes;
-            cachedPersonsStats = { data: statsRes, timestamp: nowTime };
-          }
-        } catch (err) {
-          console.warn('[Persons Stats Query Warn]:', err);
+        if (coreStatsResult.status === 'fulfilled') {
+          const coreStats = coreStatsResult.value[0];
+          if (coreStats) stats = { ...stats, ...coreStats };
+        } else {
+          console.warn('[Persons Core Stats Query Warn]:', coreStatsResult.reason);
+        }
+
+        if (waqfAndVolunteerResult.status === 'fulfilled') {
+          const waqfAndVolunteerStats = waqfAndVolunteerResult.value[0];
+          if (waqfAndVolunteerStats) stats = { ...stats, ...waqfAndVolunteerStats };
+        } else {
+          console.warn('[Persons Wakaf & Relawan Stats Query Warn]:', waqfAndVolunteerResult.reason);
+        }
+
+        if (coreStatsResult.status === 'fulfilled' && waqfAndVolunteerResult.status === 'fulfilled') {
+          cachedPersonsStats = { data: stats, timestamp: nowTime };
+        } else {
+          // Do not cache fallback zeros after a transient database/schema failure.
+          cachedPersonsStats = null;
         }
       }
 
@@ -680,6 +726,7 @@ export function registerPersonsRoutes(router: Router) {
             );
           }
 
+          cachedPersonsStats = null;
           return successResponse(created, { requestId: ctx.requestId }, 201);
         })
       )
@@ -753,6 +800,7 @@ export function registerPersonsRoutes(router: Router) {
             }
           }
 
+          cachedPersonsStats = null;
           return successResponse(updated, { requestId: ctx.requestId });
         })
       )
@@ -862,6 +910,7 @@ export function registerPersonsRoutes(router: Router) {
 
         // Delete person record (Cascades to related records)
         await db.delete(persons).where(eq(persons.id, id));
+        cachedPersonsStats = null;
 
         // Audit Trail
         if (ctx.user) {
@@ -885,6 +934,75 @@ export function registerPersonsRoutes(router: Router) {
           { requestId: ctx.requestId }
         );
       })
+    )
+  );
+
+  // POST /api/persons/bulk-delete (transactional, permissioned permanent deletion)
+  router.post(
+    '/api/persons/bulk-delete',
+    requireAuth(
+      requirePermission(
+        PERMISSIONS.PERSONS_DELETE,
+        validateBody(bulkDeletePersonsSchema, async (ctx, body) => {
+          const db = getDb();
+          const user = ctx.user;
+          if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+
+          const deletedPeople = await db.transaction(async (tx) => {
+            const existingPeople = await tx.query.persons.findMany({
+              where: inArray(persons.id, body.personIds),
+              columns: { id: true, fullName: true, phoneE164: true, email: true },
+            });
+
+            if (existingPeople.length !== body.personIds.length) {
+              const existingIds = new Set(existingPeople.map((person) => person.id));
+              const missingIds = body.personIds.filter((personId) => !existingIds.has(personId));
+              throw new BulkDeleteConflictError(missingIds);
+            }
+
+            // The same foreign-key cascade semantics as single-person deletion apply here.
+            await tx.delete(persons).where(inArray(persons.id, body.personIds));
+            await tx.insert(auditLogs).values(
+              existingPeople.map((person) => ({
+                actorUserId: user.id,
+                action: 'bulk_delete_person',
+                entityType: 'persons',
+                entityId: person.id,
+                beforeJson: person,
+                afterJson: { bulkOperation: true, batchSize: body.personIds.length },
+                reason: `Penghapusan massal data jamaah: ${person.fullName} (${person.phoneE164 || person.email || '-'})`,
+                requestId: ctx.requestId,
+              }))
+            );
+
+            return existingPeople;
+          }).catch((error) => {
+            if (error instanceof BulkDeleteConflictError) return error;
+            throw error;
+          });
+
+          if (deletedPeople instanceof BulkDeleteConflictError) {
+            return errorResponse(
+              'CONFLICT',
+              'Sebagian data jamaah tidak lagi tersedia. Segarkan daftar lalu pilih kembali.',
+              409,
+              ctx.requestId,
+              { missingIds: deletedPeople.missingIds }
+            );
+          }
+
+          cachedPersonsStats = null;
+          return successResponse(
+            {
+              success: true,
+              deletedCount: deletedPeople.length,
+              deletedPersonIds: deletedPeople.map((person) => person.id),
+              message: `${deletedPeople.length} data jamaah berhasil dihapus permanen.`,
+            },
+            { requestId: ctx.requestId }
+          );
+        })
+      )
     )
   );
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { apiClient } from '@/lib/apiClient';
 import { 
@@ -82,6 +82,7 @@ export const PersonsListPage: React.FC = () => {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [engagementFilter, setEngagementFilter] = useState('');
   const [domisiliFilter, setDomisiliFilter] = useState('');
+  const [debouncedDomisili, setDebouncedDomisili] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [attendanceFilter, setAttendanceFilter] = useState('');
   const [kpiStats, setKpiStats] = useState<{ totalMaster: number; multiKajian: number; donorsCount: number; waqfCount?: number }>({
@@ -96,6 +97,10 @@ export const PersonsListPage: React.FC = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [personToDelete, setPersonToDelete] = useState<PersonListItem | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [selectedPersonIds, setSelectedPersonIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
+  const selectAllRef = useRef<HTMLInputElement>(null);
 
   // Debounce search input for instant snappy filtering
   useEffect(() => {
@@ -105,13 +110,25 @@ export const PersonsListPage: React.FC = () => {
     return () => clearTimeout(handler);
   }, [search]);
 
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedDomisili(domisiliFilter);
+    }, 350);
+    return () => clearTimeout(handler);
+  }, [domisiliFilter]);
+
   const handleDeletePerson = async () => {
     if (!personToDelete) return;
     try {
       setDeleteLoading(true);
       await apiClient(`/persons/${personToDelete.id}`, { method: 'DELETE' });
       setPersonToDelete(null);
-      fetchPersons(pagination.page);
+      setSelectedPersonIds((current) => {
+        const next = new Set(current);
+        next.delete(personToDelete.id);
+        return next;
+      });
+      fetchPersons(pagination.page, true);
     } catch (err: any) {
       alert(err.message || 'Gagal menghapus data jamaah');
     } finally {
@@ -119,7 +136,7 @@ export const PersonsListPage: React.FC = () => {
     }
   };
 
-  const fetchPersons = async (pageToFetch = 1) => {
+  const fetchPersons = async (pageToFetch = 1, forceStatsRefresh = false) => {
     try {
       setLoading(true);
       setError(null);
@@ -129,12 +146,14 @@ export const PersonsListPage: React.FC = () => {
       params.append('pageSize', pagination.pageSize.toString());
       if (debouncedSearch.trim()) params.append('search', debouncedSearch.trim());
       if (engagementFilter) params.append('engagementStatus', engagementFilter);
-      if (domisiliFilter.trim()) params.append('domisili', domisiliFilter.trim());
+      if (debouncedDomisili.trim()) params.append('domisili', debouncedDomisili.trim());
       if (roleFilter) params.append('roleCode', roleFilter);
       if (attendanceFilter) params.append('attendanceFilter', attendanceFilter);
+      if (forceStatsRefresh) params.append('refreshStats', '1');
 
       const res = await apiClient<PersonListItem[]>(`/persons?${params.toString()}`);
       setPersonsList(res.data || []);
+      setSelectedPersonIds(new Set());
       if (res.meta?.pagination) {
         setPagination(res.meta.pagination as PaginationMeta);
       }
@@ -150,7 +169,7 @@ export const PersonsListPage: React.FC = () => {
 
   useEffect(() => {
     fetchPersons(1);
-  }, [debouncedSearch, engagementFilter, roleFilter, attendanceFilter, pagination.pageSize]);
+  }, [debouncedSearch, debouncedDomisili, engagementFilter, roleFilter, attendanceFilter, pagination.pageSize]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -162,6 +181,7 @@ export const PersonsListPage: React.FC = () => {
     setDebouncedSearch('');
     setEngagementFilter('');
     setDomisiliFilter('');
+    setDebouncedDomisili('');
     setRoleFilter('');
     setAttendanceFilter('');
   };
@@ -169,6 +189,52 @@ export const PersonsListPage: React.FC = () => {
   const isAnyFilterActive = Boolean(
     debouncedSearch || engagementFilter || domisiliFilter || roleFilter || attendanceFilter
   );
+  const selectedCount = selectedPersonIds.size;
+  const allVisibleSelected = personsList.length > 0 && personsList.every((person) => selectedPersonIds.has(person.id));
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = selectedCount > 0 && !allVisibleSelected;
+    }
+  }, [selectedCount, allVisibleSelected]);
+
+  const togglePersonSelection = (personId: string) => {
+    setSelectedPersonIds((current) => {
+      const next = new Set(current);
+      if (next.has(personId)) next.delete(personId);
+      else next.add(personId);
+      return next;
+    });
+  };
+
+  const toggleAllVisibleSelections = () => {
+    setSelectedPersonIds((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected) personsList.forEach((person) => next.delete(person.id));
+      else personsList.forEach((person) => next.add(person.id));
+      return next;
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    const personIds = Array.from(selectedPersonIds);
+    if (personIds.length === 0) return;
+    try {
+      setBulkDeleteLoading(true);
+      await apiClient('/persons/bulk-delete', {
+        method: 'POST',
+        body: JSON.stringify({ personIds, confirmation: 'HAPUS' }),
+      });
+      setIsBulkDeleteOpen(false);
+      setSelectedPersonIds(new Set());
+      const nextPage = personIds.length >= personsList.length && pagination.page > 1 ? pagination.page - 1 : pagination.page;
+      fetchPersons(nextPage, true);
+    } catch (err: any) {
+      alert(err.message || 'Gagal menghapus data jamaah pilihan');
+    } finally {
+      setBulkDeleteLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto pb-16">
@@ -266,9 +332,9 @@ export const PersonsListPage: React.FC = () => {
 
         {/* 4. Wakif & Relawan */}
         <div
-          onClick={() => setRoleFilter(roleFilter === 'wakif' ? '' : 'wakif')}
+          onClick={() => setRoleFilter(roleFilter === 'wakif_relawan' ? '' : 'wakif_relawan')}
           className={`p-4 bg-[#FBF9F4] border rounded-xl shadow-2xs border-l-[3px] border-l-[#0F4C4A] space-y-1 transition-all cursor-pointer ${
-            roleFilter === 'wakif' ? 'ring-2 ring-[#0F4C4A]/50 border-[#0F4C4A]' : 'border-[#1B4332]/12 hover:border-[#0F4C4A]/50'
+            roleFilter === 'wakif_relawan' ? 'ring-2 ring-[#0F4C4A]/50 border-[#0F4C4A]' : 'border-[#1B4332]/12 hover:border-[#0F4C4A]/50'
           }`}
         >
           <div className="font-mono text-[10.5px] font-semibold text-[#0F4C4A] tracking-wider uppercase flex items-center justify-between">
@@ -279,8 +345,8 @@ export const PersonsListPage: React.FC = () => {
             {(kpiStats.waqfCount || 0).toLocaleString('id-ID')}
           </div>
           <div className="text-[11.5px] text-[#6B7A72] flex items-center justify-between">
-            <span>Amanah Harta Wakaf</span>
-            {roleFilter === 'wakif' && (
+            <span>Amanah Wakaf &amp; Kerelawanan</span>
+            {roleFilter === 'wakif_relawan' && (
               <span className="text-[9.5px] font-mono font-bold text-[#0F4C4A]">✓ Filter Aktif</span>
             )}
           </div>
@@ -319,7 +385,7 @@ export const PersonsListPage: React.FC = () => {
 
           <button
             type="button"
-            onClick={() => fetchPersons(1)}
+            onClick={() => fetchPersons(pagination.page, true)}
             disabled={loading}
             className="p-2 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#3D4A44] rounded-xl border border-[#1B4332]/12 transition-all"
             title="Segarkan Data"
@@ -373,6 +439,7 @@ export const PersonsListPage: React.FC = () => {
               <option value="donatur">Donatur</option>
               <option value="wakif">Wakif</option>
               <option value="relawan">Relawan</option>
+              <option value="wakif_relawan">Wakif &amp; Relawan</option>
               <option value="tokoh">Tokoh / Asatidz</option>
             </select>
           </div>
@@ -384,7 +451,6 @@ export const PersonsListPage: React.FC = () => {
               type="text"
               value={domisiliFilter}
               onChange={(e) => setDomisiliFilter(e.target.value)}
-              onBlur={() => fetchPersons(1)}
               placeholder="Filter Kota / Provinsi..."
               className="w-full pl-8 pr-2.5 py-1.5 border border-[#1B4332]/14 bg-[#FBF9F4] rounded-lg text-xs font-semibold text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
             />
@@ -394,6 +460,15 @@ export const PersonsListPage: React.FC = () => {
 
       {/* 4. Enterprise Data Table */}
       <div className="bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/12 shadow-2xs overflow-hidden">
+        {selectedCount > 0 && (
+          <div className="flex flex-col gap-3 border-b border-rose-200 bg-rose-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs font-semibold text-rose-900"><strong>{selectedCount}</strong> jamaah dipilih pada halaman ini.</p>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setSelectedPersonIds(new Set())} className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-800 hover:bg-rose-100"><X className="w-3.5 h-3.5" /> Bersihkan</button>
+              <button type="button" onClick={() => setIsBulkDeleteOpen(true)} className="inline-flex items-center gap-1 rounded-lg bg-rose-700 px-3 py-2 text-xs font-bold text-white hover:bg-rose-800"><Trash2 className="w-3.5 h-3.5" /> Hapus {selectedCount} Data</button>
+            </div>
+          </div>
+        )}
         {loading ? (
           <div className="py-16">
             <LoadingState message="Memuat database jamaah..." />
@@ -423,6 +498,7 @@ export const PersonsListPage: React.FC = () => {
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="border-b border-[#1B4332]/12 bg-[#F2EEE4] text-[#14352A] text-[10.5px] font-mono font-bold uppercase tracking-wider">
+                  <th className="w-10 py-3 px-3 text-center"><input ref={selectAllRef} type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisibleSelections} aria-label="Pilih semua jamaah pada halaman ini" className="h-4 w-4 rounded border-[#1B4332]/30 accent-[#1B4332]" /></th>
                   <th className="py-3 px-4">Nama Jamaah</th>
                   <th className="py-3 px-3">Kontak WhatsApp</th>
                   <th className="py-3 px-3">Domisili</th>
@@ -443,6 +519,7 @@ export const PersonsListPage: React.FC = () => {
 
                   return (
                     <tr key={p.id} className="hover:bg-[#F2EEE4]/50 transition-colors">
+                      <td className="py-3 px-3 text-center"><input type="checkbox" checked={selectedPersonIds.has(p.id)} onChange={() => togglePersonSelection(p.id)} aria-label={`Pilih ${p.fullName}`} className="h-4 w-4 rounded border-[#1B4332]/30 accent-[#1B4332]" /></td>
                       {/* Nama & Gender with Avatar Initial */}
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2.5">
@@ -682,6 +759,18 @@ export const PersonsListPage: React.FC = () => {
         loading={deleteLoading}
         onConfirm={handleDeletePerson}
         onClose={() => setPersonToDelete(null)}
+      />
+
+      <ConfirmDialog
+        isOpen={isBulkDeleteOpen}
+        title="Hapus Data Jamaah Terpilih"
+        message={<div className="space-y-2 text-xs"><p>Anda akan menghapus permanen <strong className="font-bold text-[#1C2321]">{selectedCount} data jamaah</strong> yang dipilih.</p><p className="rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-[11px] text-rose-800">Tindakan ini menghapus riwayat terkait melalui aturan cascade dan tidak dapat dibatalkan. Setiap data tetap dicatat pada audit log.</p></div>}
+        confirmLabel={`Ya, Hapus ${selectedCount} Data`}
+        cancelLabel="Batal"
+        variant="danger"
+        loading={bulkDeleteLoading}
+        onConfirm={handleBulkDelete}
+        onClose={() => setIsBulkDeleteOpen(false)}
       />
     </div>
   );

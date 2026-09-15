@@ -398,6 +398,56 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
     expect(body.error.message).toContain('slot fasilitas parkir mobil telah penuh');
   });
 
+  it('POST /api/public/register-event rejects a regular registration when the event quota is full', async () => {
+    const query = {
+      events: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: '018f0000-0000-0000-0000-000000000023',
+          title: 'Kajian Kuota Penuh',
+          startAt: new Date('2026-10-20T09:00:00Z'),
+          targetAudience: 'umum',
+          isRegistrationOpen: true,
+          quota: 1,
+          attendances: [{
+            id: 'att_regular_1',
+            registrationData: {},
+            referredByAttendanceId: null,
+            vehicleType: 'none',
+            person: { id: 'person_regular_1', gender: 'ikhwan' },
+          }],
+        }),
+      },
+    };
+    const execute = vi.fn().mockResolvedValue([]);
+    const transaction = vi.fn(async (callback) => callback({ query, execute }));
+    const mockDb = {
+      query,
+      transaction,
+    };
+    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+    const res = await router.handle({
+      path: '/api/public/register-event',
+      method: 'POST',
+      headers: {},
+      query: {},
+      params: {},
+      body: {
+        eventId: '018f0000-0000-0000-0000-000000000023',
+        fullName: 'Jamaah Setelah Penuh',
+        phone: '081298765432',
+        gender: 'ikhwan',
+      },
+      requestId: 'req_pub_reg_quota_full',
+    });
+
+    expect(res.statusCode).toBe(400);
+    const body = JSON.parse(res.body);
+    expect(body.error.message).toContain('kuota pendaftaran reguler tidak mencukupi');
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
   it('POST /api/public/register-event ignores vehicle input when parking is hidden in Form Builder', async () => {
     let insertedAttendance: any = null;
     const mockDb = {

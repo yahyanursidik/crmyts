@@ -137,6 +137,35 @@ const publicUploadSchema = z.object({
   folder: z.enum(['bazaar-proofs', 'event-proofs', 'donation-proofs', 'public-proofs']).default('public-proofs'),
 });
 
+type AppDatabase = ReturnType<typeof getDb>;
+type AppTransaction = Parameters<AppDatabase['transaction']>[0] extends (tx: infer Transaction) => Promise<unknown>
+  ? Transaction
+  : never;
+type RegistrationDatabase = AppDatabase | AppTransaction;
+
+/**
+ * Serializes registrations for one event. Quota checks and inserts must share a
+ * transaction; otherwise simultaneous submissions can both consume the last slot.
+ */
+async function withEventRegistrationLock<T>(
+  db: AppDatabase,
+  eventId: string,
+  operation: (tx: RegistrationDatabase) => Promise<T>
+): Promise<T> {
+  const databaseWithOptionalTransaction = db as unknown as {
+    transaction?: (callback: (tx: AppTransaction) => Promise<T>) => Promise<T>;
+  };
+
+  // Unit tests use intentionally small database doubles. Production always takes
+  // the transactional branch below.
+  if (!databaseWithOptionalTransaction.transaction) return operation(db);
+
+  return databaseWithOptionalTransaction.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('event_registration'), hashtext(${eventId}))`);
+    return operation(tx);
+  });
+}
+
 export function registerPublicPortalRoutes(router: Router) {
   // 0. POST /api/public/upload (Public Upload for Proofs to Contabo S3)
   router.post(
@@ -777,11 +806,21 @@ export function registerPublicPortalRoutes(router: Router) {
     const staffIkhwan = staffAtts.filter((a) => a.person?.gender === 'ikhwan').length;
     const staffAkhwat = staffAtts.filter((a) => a.person?.gender === 'akhwat').length;
     const isPast = isEventPast(targetEvent);
+    const isStaffIkhwanFull = Boolean(targetEvent.quotaStaffIkhwan && staffIkhwan >= targetEvent.quotaStaffIkhwan);
+    const isStaffAkhwatFull = Boolean(targetEvent.quotaStaffAkhwat && staffAkhwat >= targetEvent.quotaStaffAkhwat);
     const isFull = Boolean(
       (targetEvent.quotaStaff && staffAtts.length >= targetEvent.quotaStaff) ||
-      (targetEvent.quotaStaffIkhwan && staffIkhwan >= targetEvent.quotaStaffIkhwan) ||
-      (targetEvent.quotaStaffAkhwat && staffAkhwat >= targetEvent.quotaStaffAkhwat)
+      (targetEvent.targetAudience === 'ikhwan_only' && isStaffIkhwanFull) ||
+      (targetEvent.targetAudience === 'akhwat_only' && isStaffAkhwatFull) ||
+      (Boolean(targetEvent.quotaStaffIkhwan && targetEvent.quotaStaffAkhwat) && isStaffIkhwanFull && isStaffAkhwatFull)
     );
+    const registrationClosedReason = isPast
+      ? 'event_past'
+      : !targetEvent.isStaffRegistrationOpen
+        ? 'closed_by_organizer'
+        : isFull
+          ? 'quota_full'
+          : null;
 
     return successResponse(
       {
@@ -809,6 +848,7 @@ export function registerPublicPortalRoutes(router: Router) {
           },
           isRegistrationOpen: targetEvent.isStaffRegistrationOpen && !isPast && !isFull,
           isPast,
+          registrationClosedReason,
         },
         quota: {
           total: targetEvent.quotaStaff,
@@ -818,6 +858,10 @@ export function registerPublicPortalRoutes(router: Router) {
           usedIkhwan: staffIkhwan,
           usedAkhwat: staffAkhwat,
           remaining: targetEvent.quotaStaff ? Math.max(0, targetEvent.quotaStaff - staffAtts.length) : null,
+          remainingIkhwan: targetEvent.quotaStaffIkhwan ? Math.max(0, targetEvent.quotaStaffIkhwan - staffIkhwan) : null,
+          remainingAkhwat: targetEvent.quotaStaffAkhwat ? Math.max(0, targetEvent.quotaStaffAkhwat - staffAkhwat) : null,
+          isIkhwanFull: isStaffIkhwanFull,
+          isAkhwatFull: isStaffAkhwatFull,
         },
       },
       { requestId: ctx.requestId }
@@ -827,7 +871,7 @@ export function registerPublicPortalRoutes(router: Router) {
   router.post(
     '/api/public/register-staff-event',
     validateBody(publicStaffEventRegistrationSchema, async (ctx, body) => {
-      const db = getDb();
+      return withEventRegistrationLock(getDb(), body.eventId, async (db) => {
       const targetEvent = await db.query.events.findFirst({
         where: eq(events.id, body.eventId),
         with: { attendances: { with: { person: { columns: { id: true, gender: true } } } } },
@@ -1026,6 +1070,7 @@ export function registerPublicPortalRoutes(router: Router) {
         participant: { name: body.fullName, gender, unitName: body.unitName, roleName: body.roleName },
         event: { id: targetEvent.id, title: targetEvent.title, speaker: targetEvent.speaker, startAt: targetEvent.startAt, locationName: targetEvent.locationName },
       }, { requestId: ctx.requestId }, 201);
+      });
     })
   );
 
@@ -1146,7 +1191,7 @@ export function registerPublicPortalRoutes(router: Router) {
   router.post(
     '/api/public/register-event',
     validateBody(publicEventRegistrationSchema, async (ctx, body) => {
-      const db = getDb();
+      return withEventRegistrationLock(getDb(), body.eventId, async (db) => {
       const phoneNorm = normalizeIndonesianPhone(body.phone);
 
       // Check event existence with attendances
@@ -1643,6 +1688,7 @@ export function registerPublicPortalRoutes(router: Router) {
       }
 
       return res;
+      });
     })
   );
 

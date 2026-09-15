@@ -87,6 +87,44 @@ describe('staff event registration channel', () => {
     expect(invalid.statusCode).toBe(404);
   });
 
+  it('keeps the staff form open for the remaining gender and closes it with a quota reason only when all relevant slots are full', async () => {
+    const router = new Router();
+    registerPublicPortalRoutes(router);
+    const eventId = '018f0000-0000-0000-0000-000000000124';
+    const staffToken = 'staff-registration-token-for-segmented-quota-12345';
+    const eventWithOnlyIkhwanFull = {
+      id: eventId,
+      title: 'Kajian Staff Segmentasi',
+      category: 'Kajian',
+      speaker: 'Ustadz',
+      startAt: new Date(Date.now() + 86_400_000),
+      targetAudience: 'umum',
+      formConfig: {},
+      staffRegistrationToken: staffToken,
+      isStaffRegistrationOpen: true,
+      quotaStaff: null,
+      quotaStaffIkhwan: 1,
+      quotaStaffAkhwat: 1,
+      attendances: [{ registrationData: { registrationChannel: STAFF_REGISTRATION_CHANNEL }, person: { id: 'p1', gender: 'ikhwan' } }],
+    };
+    vi.spyOn(client, 'getDb').mockReturnValue({ query: { events: { findFirst: vi.fn().mockResolvedValue(eventWithOnlyIkhwanFull) } } } as any);
+
+    const partial = await router.handle({ method: 'GET', path: `/api/public/events/${eventId}/staff-registration`, headers: {}, query: { token: staffToken }, params: { id: eventId }, body: null } as any);
+    const partialBody = JSON.parse(partial.body);
+    expect(partial.statusCode).toBe(200);
+    expect(partialBody.data.event.isRegistrationOpen).toBe(true);
+    expect(partialBody.data.event.registrationClosedReason).toBeNull();
+    expect(partialBody.data.quota.isIkhwanFull).toBe(true);
+    expect(partialBody.data.quota.isAkhwatFull).toBe(false);
+
+    eventWithOnlyIkhwanFull.attendances.push({ registrationData: { registrationChannel: STAFF_REGISTRATION_CHANNEL }, person: { id: 'p2', gender: 'akhwat' } });
+    const full = await router.handle({ method: 'GET', path: `/api/public/events/${eventId}/staff-registration`, headers: {}, query: { token: staffToken }, params: { id: eventId }, body: null } as any);
+    const fullBody = JSON.parse(full.body);
+    expect(full.statusCode).toBe(200);
+    expect(fullBody.data.event.isRegistrationOpen).toBe(false);
+    expect(fullBody.data.event.registrationClosedReason).toBe('quota_full');
+  });
+
   it('registers a staff member and family with isolated staff quota, labels, and individual tickets', async () => {
     const router = new Router();
     registerPublicPortalRoutes(router);
