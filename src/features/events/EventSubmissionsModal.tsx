@@ -57,6 +57,8 @@ interface ParticipantItem {
   // Invitation tracking
   referralCode?: string | null;
   isSpecialInvite?: boolean;
+  isStaffRegistration?: boolean;
+  isStaffFamilyRegistration?: boolean;
   referredByAttendanceId?: string | null;
   referrerName?: string | null;
   referrerCode?: string | null;
@@ -104,6 +106,14 @@ interface EventDetailData {
   verifiedPaymentCount?: number;
   pendingPaymentCount?: number;
   specialInviteCount?: number;
+  specialInviteIkhwanCount?: number;
+  specialInviteAkhwatCount?: number;
+  staffCount?: number;
+  staffIkhwanCount?: number;
+  staffAkhwatCount?: number;
+  regularCount?: number;
+  regularIkhwanCount?: number;
+  regularAkhwatCount?: number;
   referralSignups?: number;
   adminInviteCode?: string;
 }
@@ -124,7 +134,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   const [data, setData] = useState<EventDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'all' | 'attended' | 'registered' | 'waiting_verification' | 'ikhwan' | 'akhwat' | 'from_referral'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'attended' | 'registered' | 'waiting_verification' | 'ikhwan' | 'akhwat' | 'regular' | 'staff' | 'from_referral'>('all');
   const [vehicleFilter, setVehicleFilter] = useState<'all' | 'car' | 'motorcycle' | 'none'>('all');
   const [loyaltyFilter, setLoyaltyFilter] = useState<'all' | 'first_timer' | 'returning' | 'loyal' | 'istiqomah'>('all');
 
@@ -320,6 +330,8 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
     else if (activeTab === 'waiting_verification') matchTab = p.paymentStatus === 'waiting_verification';
     else if (activeTab === 'ikhwan') matchTab = p.personGender === 'ikhwan';
     else if (activeTab === 'akhwat') matchTab = p.personGender === 'akhwat';
+    else if (activeTab === 'regular') matchTab = !p.isSpecialInvite && !p.isStaffRegistration;
+    else if (activeTab === 'staff') matchTab = Boolean(p.isStaffRegistration);
     else if (activeTab === 'from_referral') matchTab = Boolean(p.isSpecialInvite || p.source === 'admin_invite' || p.referredByAttendanceId);
 
     const matchVehicle =
@@ -497,7 +509,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
           {/* 2. Quick KPI Counters */}
           {data && (
             <div className="bg-cream-100/70 border-b border-cream-300">
-              <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5 p-3 sm:p-4 text-center">
+              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2.5 p-3 sm:p-4 text-center">
                 <div className="p-2.5 bg-white rounded-2xl border border-cream-300 shadow-2xs">
                   <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">Total Terdaftar</span>
                   <span className="text-base sm:text-lg font-black text-brand-950 block mt-0.5 font-display">
@@ -513,6 +525,24 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                     {data.attendedCount} <span className="text-xs font-medium text-emerald-700">({data.totalParticipants > 0 ? Math.round((data.attendedCount / data.totalParticipants) * 100) : 0}%)</span>
                   </span>
                 </div>
+
+                <button type="button" onClick={() => setActiveTab('regular')} title="Tampilkan peserta jalur reguler" className={`p-2.5 rounded-2xl border text-left shadow-2xs transition-colors ${activeTab === 'regular' ? 'border-teal-600 bg-teal-100 ring-2 ring-teal-500/25' : 'border-teal-200 bg-teal-50 hover:bg-teal-100'}`}>
+                  <span className="text-[10px] font-bold text-teal-800 uppercase tracking-wider block">Jalur Reguler</span>
+                  <span className="text-base sm:text-lg font-black text-teal-950 block mt-0.5 font-display">{data.regularCount ?? 0} <span className="text-xs font-medium text-teal-700">peserta</span></span>
+                  <span className="text-[10px] text-teal-700">Ikhwan {data.regularIkhwanCount ?? 0} · Akhwat {data.regularAkhwatCount ?? 0}</span>
+                </button>
+
+                <button type="button" onClick={() => setActiveTab('from_referral')} title="Tampilkan peserta jalur undangan panitia" className={`p-2.5 rounded-2xl border text-left shadow-2xs transition-colors ${activeTab === 'from_referral' ? 'border-amber-600 bg-amber-100 ring-2 ring-amber-500/25' : 'border-amber-200 bg-amber-50 hover:bg-amber-100'}`}>
+                  <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Undangan Panitia</span>
+                  <span className="text-base sm:text-lg font-black text-amber-950 block mt-0.5 font-display">{data.specialInviteCount ?? 0} <span className="text-xs font-medium text-amber-700">peserta</span></span>
+                  <span className="text-[10px] text-amber-700">Ikhwan {data.specialInviteIkhwanCount ?? 0} · Akhwat {data.specialInviteAkhwatCount ?? 0}</span>
+                </button>
+
+                <button type="button" onClick={() => setActiveTab('staff')} title="Tampilkan peserta staff yayasan dan keluarganya" className={`p-2.5 rounded-2xl border text-left shadow-2xs transition-colors ${activeTab === 'staff' ? 'border-indigo-600 bg-indigo-100 ring-2 ring-indigo-500/25' : 'border-indigo-200 bg-indigo-50 hover:bg-indigo-100'}`}>
+                  <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider block">Staff Yayasan</span>
+                  <span className="text-base sm:text-lg font-black text-indigo-950 block mt-0.5 font-display">{data.staffCount ?? 0} <span className="text-xs font-medium text-indigo-700">peserta</span></span>
+                  <span className="text-[10px] text-indigo-700">Ikhwan {data.staffIkhwanCount ?? 0} · Akhwat {data.staffAkhwatCount ?? 0}</span>
+                </button>
 
                 {/* Loyalty KPI Ratio */}
                 <div className="p-2.5 bg-sky-50 rounded-2xl border border-sky-200 shadow-2xs">

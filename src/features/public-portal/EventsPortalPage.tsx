@@ -54,6 +54,8 @@ import {
   formatTicketShareMessageGroup,
 } from '@/lib/participantTicket';
 import { isEventPast } from '@/lib/eventUtils';
+import { QuotaFullDialog } from './QuotaFullDialog';
+import { isQuotaFullMessage, parseRegistrationResponse } from './registrationResponse';
 import './events-portal.css';
 
 interface EventItem {
@@ -233,6 +235,8 @@ export function EventsPortalPage() {
   const [customResponses, setCustomResponses] = useState<Record<string, any>>({});
   const [submittingEvent, setSubmittingEvent] = useState(false);
   const [eventSuccess, setEventSuccess] = useState<any | null>(null);
+  const [quotaFullMessage, setQuotaFullMessage] = useState<string | null>(null);
+  const [registrationErrorMessage, setRegistrationErrorMessage] = useState<string | null>(null);
   const [selectedGroupTicketIdx, setSelectedGroupTicketIdx] = useState<number>(0);
   const [showAllGroupQrs, setShowAllGroupQrs] = useState(false);
 
@@ -689,15 +693,12 @@ export function EventsPortalPage() {
         }),
       });
 
-      if (res.ok) {
-        const json = await res.json();
-        setEventSuccess(json.data);
-      } else {
-        const err = await res.json();
-        alert(err.message || 'Gagal mendaftar kajian');
-      }
+      const registration = await parseRegistrationResponse<any>(res);
+      setEventSuccess(registration);
     } catch (err: any) {
-      alert(err.message || 'Terjadi kesalahan');
+      const message = err?.message || 'Pendaftaran belum dapat diproses. Silakan coba lagi.';
+      if (isQuotaFullMessage(message)) setQuotaFullMessage(message);
+      else setRegistrationErrorMessage(message);
     } finally {
       setSubmittingEvent(false);
     }
@@ -3409,6 +3410,8 @@ export function EventsPortalPage() {
           </div>
         </div>
       )}
+      <QuotaFullDialog message={quotaFullMessage} eventTitle={selectedEvent?.title} onClose={() => setQuotaFullMessage(null)} />
+      <QuotaFullDialog message={registrationErrorMessage} eventTitle={selectedEvent?.title} variant="service" onClose={() => setRegistrationErrorMessage(null)} />
       </div>
     </PortalBackground>
   );

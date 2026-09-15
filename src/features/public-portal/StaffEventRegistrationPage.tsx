@@ -6,6 +6,7 @@ import { LoadingState } from '@/components/common/LoadingState';
 import { PortalBackground } from '@/components/common/PortalBackground';
 import { ParticipantQrCode } from './ParticipantQrCode';
 import { buildParticipantPortalPath, buildTelegramShareUrl, buildWhatsAppShareUrl, formatTicketShareMessageSingle } from '@/lib/participantTicket';
+import { parseRegistrationResponse } from './registrationResponse';
 
 interface StaffEvent {
   id: string;
@@ -122,9 +123,8 @@ export const StaffEventRegistrationPage: React.FC = () => {
           additionalParticipants: familyMembers.map((member) => ({ ...member, gender: member.gender || null, age: member.age ? Number(member.age) : null })),
         }),
       });
-      const json = await response.json();
-      if (!response.ok) throw new Error(json?.error?.message || json?.message || 'Pendaftaran belum dapat diproses.');
-      setSuccess(json.data);
+      const registration = await parseRegistrationResponse<StaffRegistrationSuccess>(response);
+      setSuccess(registration);
     } catch (submitError: any) {
       setError(submitError.message || 'Pendaftaran belum dapat diproses.');
     } finally {

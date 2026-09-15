@@ -146,6 +146,10 @@ type RegistrationDatabase = AppDatabase | AppTransaction;
 /**
  * Serializes registrations for one event. Quota checks and inserts must share a
  * transaction; otherwise simultaneous submissions can both consume the last slot.
+ *
+ * A row lock is deliberately used instead of a PostgreSQL advisory lock. The
+ * serverless database driver can leave an advisory lock waiting beyond the
+ * function lifetime, which makes an otherwise valid registration time out.
  */
 async function withEventRegistrationLock<T>(
   db: AppDatabase,
@@ -161,7 +165,9 @@ async function withEventRegistrationLock<T>(
   if (!databaseWithOptionalTransaction.transaction) return operation(db);
 
   return databaseWithOptionalTransaction.transaction(async (tx) => {
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('event_registration'), hashtext(${eventId}))`);
+    // Keep a busy registration bounded while preserving atomic quota validation.
+    await tx.execute(sql`SET LOCAL lock_timeout = '4s'`);
+    await tx.execute(sql`SELECT id FROM events WHERE id = ${eventId} FOR UPDATE`);
     return operation(tx);
   });
 }

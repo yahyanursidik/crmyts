@@ -445,7 +445,9 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
     const body = JSON.parse(res.body);
     expect(body.error.message).toContain('kuota pendaftaran reguler tidak mencukupi');
     expect(transaction).toHaveBeenCalledTimes(1);
-    expect(execute).toHaveBeenCalledTimes(1);
+    // The transaction sets a bounded lock wait, then locks the event row so
+    // concurrent registrations cannot overrun the same quota.
+    expect(execute).toHaveBeenCalledTimes(2);
   });
 
   it('POST /api/public/register-event ignores vehicle input when parking is hidden in Form Builder', async () => {
