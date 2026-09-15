@@ -8,7 +8,7 @@
 
 [functions]
   node_bundler = "esbuild"
-  included_files = ["server/**"]
+  included_files = ["server/**", "dist/index.html"]
 
 # Production Security Headers
 [[headers]]
@@ -24,9 +24,14 @@
 
 # SPA and API Redirects
 [[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/api/:splat"
-  status = 200
+from = "/api/*"
+to = "/.netlify/functions/api/:splat"
+status = 200
+
+[[redirects]]
+from = "/kajian/:id"
+to = "/.netlify/functions/page-meta?eventId=:id"
+status = 200
 
 [[redirects]]
   from = "/*"

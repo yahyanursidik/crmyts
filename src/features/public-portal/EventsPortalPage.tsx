@@ -54,6 +54,7 @@ import {
   formatTicketShareMessageGroup,
 } from '@/lib/participantTicket';
 import { isEventPast } from '@/lib/eventUtils';
+import { usePageMetadata } from '@/lib/pageMetadata';
 import { QuotaFullDialog } from './QuotaFullDialog';
 import { getRegistrationErrorVariant, isQuotaFullMessage, parseRegistrationResponse, RegistrationErrorVariant } from './registrationResponse';
 import './events-portal.css';
@@ -383,6 +384,12 @@ export function EventsPortalPage() {
     directEvent && directEvent.id === selectedEventId
       ? directEvent
       : data?.events?.find((ev) => ev.id === selectedEventId) || directEvent;
+  usePageMetadata({
+    title: selectedEvent ? `${selectedEvent.title} | Pendaftaran Kajian YTS` : 'Pendaftaran Kajian | Yayasan Tarbiyah Sunnah',
+    description: selectedEvent
+      ? `Informasi dan pendaftaran ${selectedEvent.title}${selectedEvent.speaker ? ` bersama ${selectedEvent.speaker}` : ''}.`
+      : 'Informasi dan pendaftaran resmi kajian Yayasan Tarbiyah Sunnah.',
+  });
   const isPastEvent = isEventPast(selectedEvent);
   const isVenueEvent = selectedEvent?.deliveryMode !== 'online';
   const locationQuery =

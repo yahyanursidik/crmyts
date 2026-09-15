@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { BriefcaseBusiness, Calendar, CheckCircle2, MapPin, MessageSquare, Plus, Send, Ticket, Trash2, UserRound, Users } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
@@ -7,6 +8,7 @@ import { PortalBackground } from '@/components/common/PortalBackground';
 import { ParticipantQrCode } from './ParticipantQrCode';
 import { buildParticipantPortalPath, buildTelegramShareUrl, buildWhatsAppShareUrl, formatTicketShareMessageSingle } from '@/lib/participantTicket';
 import { parseRegistrationResponse } from './registrationResponse';
+import { usePageMetadata } from '@/lib/pageMetadata';
 
 interface StaffEvent {
   id: string;
@@ -78,6 +80,10 @@ export const StaffEventRegistrationPage: React.FC = () => {
   const [loadError, setLoadError] = useState('');
   const [submitError, setSubmitError] = useState('');
   const [success, setSuccess] = useState<StaffRegistrationSuccess | null>(null);
+  usePageMetadata({
+    title: data ? `${data.event.title} | Pendaftaran Staff YTS` : 'Pendaftaran Staff Kajian | Yayasan Tarbiyah Sunnah',
+    description: data ? `Pendaftaran staff Yayasan untuk ${data.event.title}.` : 'Pendaftaran staff kajian Yayasan Tarbiyah Sunnah.',
+  });
 
   useEffect(() => {
     if (!id || !token) return;
