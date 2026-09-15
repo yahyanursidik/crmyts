@@ -22,6 +22,13 @@ import { buildParticipantPortalPath, extractTicketCode } from '../../../src/lib/
 import { isEventPast } from '../../../src/lib/eventUtils';
 import { createMemorableTicketCode } from '../events/participantCodes';
 import {
+  hasValidStaffRegistrationToken,
+  isRegularRegistration,
+  isSpecialInviteRegistration,
+  isStaffRegistration,
+  STAFF_REGISTRATION_CHANNEL,
+} from '../events/registrationChannels';
+import {
   getPersonsAttendanceStats,
   getSinglePersonAttendanceStats,
   getLoyaltyTierInfo,
@@ -91,6 +98,20 @@ const publicEventRegistrationSchema = z.object({
   referralCode: z.string().trim().min(2).max(80).optional().nullable(),
   inviteCode: z.string().trim().min(2).max(80).optional().nullable(),
   additionalParticipants: z.array(additionalParticipantSchema).optional().nullable(),
+});
+
+const publicStaffEventRegistrationSchema = z.object({
+  eventId: z.string().uuid('Kajian wajib dipilih'),
+  staffToken: z.string().min(24, 'Tautan pendaftaran staff tidak valid').max(128),
+  fullName: z.string().min(2, 'Nama lengkap minimal 2 karakter'),
+  phone: z.string().min(8, 'Nomor WhatsApp wajib diisi'),
+  gender: z.enum(['ikhwan', 'akhwat']).nullable().optional(),
+  unitName: z.string().min(2, 'Unit atau divisi wajib diisi').max(120),
+  roleName: z.string().min(2, 'Peran atau tugas wajib diisi').max(120),
+  employeeNumber: z.string().max(80).optional().nullable(),
+  email: optionalEmailSchema,
+  notes: z.string().max(1000).optional().nullable(),
+  agreedToRules: z.boolean().default(true),
 });
 
 function safeWhatsAppGroupUrl(value?: string | null): string | null {
@@ -310,20 +331,8 @@ export function registerPublicPortalRoutes(router: Router) {
           const carsCount = atts.filter((a) => a.vehicleType === 'car').length;
           const motorcyclesCount = atts.filter((a) => a.vehicleType === 'motorcycle').length;
 
-          const inviteAtts = atts.filter((a) =>
-            (a.registrationData as any)?.isSpecialInvite === true ||
-            (a.registrationData as any)?.inviteSource === 'admin_invite' ||
-            (a.registrationData as any)?.inviteSource === 'admin_dashboard' ||
-            Boolean(a.referredByAttendanceId)
-          );
-          const regularAtts = atts.filter((a) =>
-            !(
-              (a.registrationData as any)?.isSpecialInvite === true ||
-              (a.registrationData as any)?.inviteSource === 'admin_invite' ||
-              (a.registrationData as any)?.inviteSource === 'admin_dashboard' ||
-              Boolean(a.referredByAttendanceId)
-            )
-          );
+          const inviteAtts = atts.filter(isSpecialInviteRegistration);
+          const regularAtts = atts.filter(isRegularRegistration);
 
           const specialInviteCount = inviteAtts.length;
           const specialInviteIkhwanCount = inviteAtts.filter((a) => a.person?.gender === 'ikhwan').length;
@@ -712,12 +721,7 @@ export function registerPublicPortalRoutes(router: Router) {
     }
 
     const atts = targetEvent.attendances || [];
-    const inviteAtts = atts.filter((a) =>
-      (a.registrationData as any)?.isSpecialInvite === true ||
-      (a.registrationData as any)?.inviteSource === 'admin_invite' ||
-      (a.registrationData as any)?.inviteSource === 'admin_dashboard' ||
-      Boolean(a.referredByAttendanceId)
-    );
+    const inviteAtts = atts.filter(isSpecialInviteRegistration);
     const inviteIkhwan = inviteAtts.filter((a) => a.person?.gender === 'ikhwan').length;
     const inviteAkhwat = inviteAtts.filter((a) => a.person?.gender === 'akhwat').length;
 
@@ -749,6 +753,158 @@ export function registerPublicPortalRoutes(router: Router) {
 
   router.get('/api/public/events/:id/check-invitation', handleCheckInvitation);
   router.get('/api/public/events/:id/check-referral', handleCheckInvitation);
+
+  // Staff route intentionally requires a per-event secret and never exposes it in public event data.
+  router.get('/api/public/events/:id/staff-registration', async (ctx) => {
+    const eventId = ctx.params.id;
+    const staffToken = typeof ctx.query.token === 'string' ? ctx.query.token : null;
+    if (!eventId) return errorResponse('VALIDATION_ERROR', 'ID kajian diperlukan', 400, ctx.requestId);
+
+    const targetEvent = await getDb().query.events.findFirst({
+      where: eq(events.id, eventId),
+      with: { attendances: { with: { person: { columns: { id: true, gender: true } } } } },
+    });
+
+    if (!targetEvent || !hasValidStaffRegistrationToken(staffToken, targetEvent.staffRegistrationToken)) {
+      return errorResponse('NOT_FOUND', 'Tautan pendaftaran staff tidak valid atau sudah diganti.', 404, ctx.requestId);
+    }
+
+    const staffAtts = (targetEvent.attendances || []).filter(isStaffRegistration);
+    const staffIkhwan = staffAtts.filter((a) => a.person?.gender === 'ikhwan').length;
+    const staffAkhwat = staffAtts.filter((a) => a.person?.gender === 'akhwat').length;
+    const isPast = isEventPast(targetEvent);
+    const isFull = Boolean(
+      (targetEvent.quotaStaff && staffAtts.length >= targetEvent.quotaStaff) ||
+      (targetEvent.quotaStaffIkhwan && staffIkhwan >= targetEvent.quotaStaffIkhwan) ||
+      (targetEvent.quotaStaffAkhwat && staffAkhwat >= targetEvent.quotaStaffAkhwat)
+    );
+
+    return successResponse(
+      {
+        event: {
+          id: targetEvent.id,
+          title: targetEvent.title,
+          category: targetEvent.category,
+          speaker: targetEvent.speaker,
+          description: targetEvent.description,
+          startAt: targetEvent.startAt,
+          endAt: targetEvent.endAt,
+          deliveryMode: targetEvent.deliveryMode,
+          locationName: targetEvent.locationName,
+          locationAddress: targetEvent.locationAddress,
+          googleMapsUrl: targetEvent.googleMapsUrl,
+          locationDirections: targetEvent.locationDirections,
+          showGoogleMaps: targetEvent.showGoogleMaps,
+          targetAudience: targetEvent.targetAudience,
+          venueRules: targetEvent.venueRules || [],
+          customVenueRules: targetEvent.customVenueRules,
+          formConfig: { requireRulesAgreement: targetEvent.formConfig?.requireRulesAgreement !== false },
+          isRegistrationOpen: targetEvent.isStaffRegistrationOpen && !isPast && !isFull,
+          isPast,
+        },
+        quota: {
+          total: targetEvent.quotaStaff,
+          ikhwan: targetEvent.quotaStaffIkhwan,
+          akhwat: targetEvent.quotaStaffAkhwat,
+          used: staffAtts.length,
+          usedIkhwan: staffIkhwan,
+          usedAkhwat: staffAkhwat,
+          remaining: targetEvent.quotaStaff ? Math.max(0, targetEvent.quotaStaff - staffAtts.length) : null,
+        },
+      },
+      { requestId: ctx.requestId }
+    );
+  });
+
+  router.post(
+    '/api/public/register-staff-event',
+    validateBody(publicStaffEventRegistrationSchema, async (ctx, body) => {
+      const db = getDb();
+      const targetEvent = await db.query.events.findFirst({
+        where: eq(events.id, body.eventId),
+        with: { attendances: { with: { person: { columns: { id: true, gender: true } } } } },
+      });
+
+      if (!targetEvent || !hasValidStaffRegistrationToken(body.staffToken, targetEvent.staffRegistrationToken)) {
+        return errorResponse('NOT_FOUND', 'Tautan pendaftaran staff tidak valid atau sudah diganti.', 404, ctx.requestId);
+      }
+      if (isEventPast(targetEvent)) {
+        return errorResponse('VALIDATION_ERROR', 'Pendaftaran staff ditutup karena kajian telah berlalu.', 400, ctx.requestId);
+      }
+      if (!targetEvent.isStaffRegistrationOpen) {
+        return errorResponse('VALIDATION_ERROR', 'Pendaftaran khusus staff belum dibuka atau telah ditutup oleh pengurus.', 400, ctx.requestId);
+      }
+      if (targetEvent.formConfig?.requireRulesAgreement !== false && !body.agreedToRules) {
+        return errorResponse('VALIDATION_ERROR', 'Anda wajib menyetujui tata tertib kajian sebelum mendaftar.', 400, ctx.requestId);
+      }
+
+      const fixedGender = targetEvent.targetAudience === 'akhwat_only' ? 'akhwat' : targetEvent.targetAudience === 'ikhwan_only' ? 'ikhwan' : null;
+      const gender = fixedGender || body.gender || null;
+      if (targetEvent.targetAudience === 'umum' && !gender) {
+        return errorResponse('VALIDATION_ERROR', 'Jenis kelamin wajib dipilih untuk pendaftaran staff.', 400, ctx.requestId);
+      }
+      const staffAtts = (targetEvent.attendances || []).filter(isStaffRegistration);
+      const staffIkhwan = staffAtts.filter((a) => a.person?.gender === 'ikhwan').length;
+      const staffAkhwat = staffAtts.filter((a) => a.person?.gender === 'akhwat').length;
+      if (targetEvent.quotaStaff && staffAtts.length >= targetEvent.quotaStaff) {
+        return errorResponse('VALIDATION_ERROR', 'Kuota pendaftaran staff untuk kajian ini telah penuh.', 400, ctx.requestId);
+      }
+      if (gender === 'ikhwan' && targetEvent.quotaStaffIkhwan && staffIkhwan >= targetEvent.quotaStaffIkhwan) {
+        return errorResponse('VALIDATION_ERROR', 'Kuota pendaftaran staff Ikhwan telah penuh.', 400, ctx.requestId);
+      }
+      if (gender === 'akhwat' && targetEvent.quotaStaffAkhwat && staffAkhwat >= targetEvent.quotaStaffAkhwat) {
+        return errorResponse('VALIDATION_ERROR', 'Kuota pendaftaran staff Akhwat telah penuh.', 400, ctx.requestId);
+      }
+
+      const phoneNorm = normalizeIndonesianPhone(body.phone);
+      let person = await db.query.persons.findFirst({ where: eq(persons.phoneE164, phoneNorm) });
+      if (!person) {
+        const [createdPerson] = await db.insert(persons).values({
+          fullName: body.fullName,
+          phoneE164: phoneNorm,
+          email: body.email?.trim() ? body.email.trim().toLowerCase() : null,
+          gender,
+          sourceCode: 'staff_event_registration',
+          engagementStatus: 'baru',
+          preferredChannel: 'whatsapp',
+        }).returning();
+        person = createdPerson;
+      }
+
+      const existingAttendance = person
+        ? await db.query.eventAttendance.findFirst({ where: and(eq(eventAttendance.eventId, targetEvent.id), eq(eventAttendance.personId, person.id)) })
+        : null;
+      if (existingAttendance) {
+        return errorResponse('CONFLICT', 'Nomor WhatsApp ini sudah terdaftar pada kajian ini.', 409, ctx.requestId);
+      }
+
+      const ticketCode = createMemorableTicketCode();
+      await db.insert(eventAttendance).values({
+        eventId: targetEvent.id,
+        personId: person!.id,
+        source: 'form_registration',
+        status: 'registered',
+        ticketCode,
+        paymentStatus: 'free',
+        vehicleType: 'none',
+        agreedToRules: body.agreedToRules,
+        registrationData: {
+          registrationChannel: STAFF_REGISTRATION_CHANNEL,
+          unitName: body.unitName.trim(),
+          roleName: body.roleName.trim(),
+          employeeNumber: body.employeeNumber?.trim() || null,
+          notes: body.notes?.trim() || null,
+        },
+      });
+
+      return successResponse({
+        ticketCode,
+        participantPortalPath: buildParticipantPortalPath(targetEvent.id, ticketCode),
+        participant: { name: body.fullName, gender, unitName: body.unitName, roleName: body.roleName },
+        event: { id: targetEvent.id, title: targetEvent.title, speaker: targetEvent.speaker, startAt: targetEvent.startAt, locationName: targetEvent.locationName },
+      }, { requestId: ctx.requestId }, 201);
+    })
+  );
 
   // 3c. GET /api/public/events/:id (Public Event Detail by ID)
   router.get('/api/public/events/:id', async (ctx) => {
@@ -787,20 +943,8 @@ export function registerPublicPortalRoutes(router: Router) {
     const motorcyclesCount = atts.filter((a) => a.vehicleType === 'motorcycle').length;
     const isPast = isEventPast(targetEvent);
 
-    const inviteAtts = atts.filter((a) =>
-      (a.registrationData as any)?.isSpecialInvite === true ||
-      (a.registrationData as any)?.inviteSource === 'admin_invite' ||
-      (a.registrationData as any)?.inviteSource === 'admin_dashboard' ||
-      Boolean(a.referredByAttendanceId)
-    );
-    const regularAtts = atts.filter((a) =>
-      !(
-        (a.registrationData as any)?.isSpecialInvite === true ||
-        (a.registrationData as any)?.inviteSource === 'admin_invite' ||
-        (a.registrationData as any)?.inviteSource === 'admin_dashboard' ||
-        Boolean(a.referredByAttendanceId)
-      )
-    );
+    const inviteAtts = atts.filter(isSpecialInviteRegistration);
+    const regularAtts = atts.filter(isRegularRegistration);
 
     const specialInviteCount = inviteAtts.length;
     const specialInviteIkhwanCount = inviteAtts.filter((a) => a.person?.gender === 'ikhwan').length;
@@ -1047,20 +1191,8 @@ export function registerPublicPortalRoutes(router: Router) {
       const vehicleType = targetEvent.formConfig?.collectVehicle === false ? 'none' : body.vehicleType;
       const vehiclePlateNumber = vehicleType === 'none' ? null : body.vehiclePlateNumber || null;
 
-      const existingInviteAtts = atts.filter((a) =>
-        (a.registrationData as any)?.isSpecialInvite === true ||
-        (a.registrationData as any)?.inviteSource === 'admin_invite' ||
-        (a.registrationData as any)?.inviteSource === 'admin_dashboard' ||
-        Boolean(a.referredByAttendanceId)
-      );
-      const existingRegAtts = atts.filter((a) =>
-        !(
-          (a.registrationData as any)?.isSpecialInvite === true ||
-          (a.registrationData as any)?.inviteSource === 'admin_invite' ||
-          (a.registrationData as any)?.inviteSource === 'admin_dashboard' ||
-          Boolean(a.referredByAttendanceId)
-        )
-      );
+      const existingInviteAtts = atts.filter(isSpecialInviteRegistration);
+      const existingRegAtts = atts.filter(isRegularRegistration);
 
       const inviteIkhwan = existingInviteAtts.filter((a) => a.person?.gender === 'ikhwan').length;
       const inviteAkhwat = existingInviteAtts.filter((a) => a.person?.gender === 'akhwat').length;

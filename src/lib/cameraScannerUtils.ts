@@ -29,6 +29,26 @@ export interface CandidateResolution {
 }
 
 /**
+ * Lists camera inputs without requesting a second camera stream. This is
+ * essential on iOS Safari: Html5Qrcode.getCameras() opens a temporary stream,
+ * which can interrupt an already active rear-camera scanner.
+ */
+export async function enumerateVideoInputDevices(): Promise<CameraDeviceItem[]> {
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) return [];
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  return devices
+    .filter((device) => device.kind === 'videoinput')
+    .map((device) => ({ id: device.deviceId, label: device.label }));
+}
+
+export function cameraStartTargetKey(target: CameraStartTarget): string {
+  if (typeof target === 'string') return `id:${target}`;
+  const deviceId = typeof target.deviceId === 'object' ? target.deviceId.exact : target.deviceId;
+  const facingMode = typeof target.facingMode === 'object' ? target.facingMode.exact : target.facingMode;
+  return `device:${deviceId || ''}|facing:${facingMode || ''}`;
+}
+
+/**
  * Detects if the current user agent is an Apple iOS or iPadOS device (iPhone, iPad, iPod Touch).
  * Handles modern iPadOS where Safari requests the desktop website (MacIntel + maxTouchPoints > 1).
  */

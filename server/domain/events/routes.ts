@@ -8,6 +8,7 @@ import { desc, eq, and, inArray, sql, or, ilike } from 'drizzle-orm';
 import { normalizeIndonesianPhone } from '../../lib/phone';
 import { extractTicketCode } from '../../../src/lib/participantTicket';
 import { createMemorableTicketCode } from './participantCodes';
+import { createStaffRegistrationToken, isSpecialInviteRegistration, isStaffRegistration } from './registrationChannels';
 import { logAuditEvent } from '../../audit/service';
 import {
   getPersonsAttendanceStats,
@@ -46,7 +47,11 @@ const createEventSchema = z.object({
   quotaInvite: z.number().int().min(0).optional().nullable(),
   quotaInviteIkhwan: z.number().int().min(0).optional().nullable(),
   quotaInviteAkhwat: z.number().int().min(0).optional().nullable(),
+  quotaStaff: z.number().int().min(0).optional().nullable(),
+  quotaStaffIkhwan: z.number().int().min(0).optional().nullable(),
+  quotaStaffAkhwat: z.number().int().min(0).optional().nullable(),
   isRegistrationOpen: z.boolean().default(true),
+  isStaffRegistrationOpen: z.boolean().default(false),
   
   // Logistics & Rules
   carParkingQuota: z.number().int().min(0).optional().nullable(),
@@ -206,10 +211,8 @@ export function registerEventsRoutes(router: Router) {
 
       const participants = eventItem.attendances.map((att) => {
         const pStats = attendanceStatsMap.get(att.personId);
-        const isSpecialInvite =
-          (att.registrationData as any)?.isSpecialInvite === true ||
-          (att.registrationData as any)?.inviteSource === 'admin_invite' ||
-          Boolean(att.referredByAttendanceId);
+        const isStaffRegistrant = isStaffRegistration(att);
+        const isSpecialInvite = isSpecialInviteRegistration(att);
 
         return {
           id: att.id,
@@ -225,6 +228,7 @@ export function registerEventsRoutes(router: Router) {
           ticketCode: att.ticketCode,
           referralCode: att.referralCode,
           isSpecialInvite,
+          isStaffRegistration: isStaffRegistrant,
           referredByAttendanceId: att.referredByAttendanceId,
           
           // Attendance History & Loyalty
@@ -266,9 +270,12 @@ export function registerEventsRoutes(router: Router) {
       const specialInviteCount = participants.filter((p) => p.isSpecialInvite).length;
       const specialInviteIkhwanCount = participants.filter((p) => p.isSpecialInvite && p.personGender === 'ikhwan').length;
       const specialInviteAkhwatCount = participants.filter((p) => p.isSpecialInvite && p.personGender === 'akhwat').length;
-      const regularCount = participants.filter((p) => !p.isSpecialInvite).length;
-      const regularIkhwanCount = participants.filter((p) => !p.isSpecialInvite && p.personGender === 'ikhwan').length;
-      const regularAkhwatCount = participants.filter((p) => !p.isSpecialInvite && p.personGender === 'akhwat').length;
+      const staffCount = participants.filter((p) => p.isStaffRegistration).length;
+      const staffIkhwanCount = participants.filter((p) => p.isStaffRegistration && p.personGender === 'ikhwan').length;
+      const staffAkhwatCount = participants.filter((p) => p.isStaffRegistration && p.personGender === 'akhwat').length;
+      const regularCount = participants.filter((p) => !p.isSpecialInvite && !p.isStaffRegistration).length;
+      const regularIkhwanCount = participants.filter((p) => !p.isSpecialInvite && !p.isStaffRegistration && p.personGender === 'ikhwan').length;
+      const regularAkhwatCount = participants.filter((p) => !p.isSpecialInvite && !p.isStaffRegistration && p.personGender === 'akhwat').length;
       const firstTimerCount = participants.filter((p) => p.currentKajianNumber <= 1).length;
       const returningCount = participants.filter((p) => p.currentKajianNumber > 1).length;
 
@@ -289,6 +296,9 @@ export function registerEventsRoutes(router: Router) {
           specialInviteCount,
           specialInviteIkhwanCount,
           specialInviteAkhwatCount,
+          staffCount,
+          staffIkhwanCount,
+          staffAkhwatCount,
           regularCount,
           regularIkhwanCount,
           regularAkhwatCount,
@@ -355,7 +365,12 @@ export function registerEventsRoutes(router: Router) {
             quotaInvite: body.quotaInvite ? body.quotaInvite : null,
             quotaInviteIkhwan: body.quotaInviteIkhwan ? body.quotaInviteIkhwan : null,
             quotaInviteAkhwat: body.quotaInviteAkhwat ? body.quotaInviteAkhwat : null,
+            quotaStaff: body.quotaStaff ? body.quotaStaff : null,
+            quotaStaffIkhwan: body.quotaStaffIkhwan ? body.quotaStaffIkhwan : null,
+            quotaStaffAkhwat: body.quotaStaffAkhwat ? body.quotaStaffAkhwat : null,
             isRegistrationOpen: body.isRegistrationOpen !== false,
+            isStaffRegistrationOpen: body.isStaffRegistrationOpen === true,
+            staffRegistrationToken: createStaffRegistrationToken(),
             
             carParkingQuota: body.carParkingQuota ? body.carParkingQuota : null,
             motorcycleParkingQuota: body.motorcycleParkingQuota ? body.motorcycleParkingQuota : null,
@@ -425,7 +440,11 @@ export function registerEventsRoutes(router: Router) {
         if (body.quotaInvite !== undefined) updatePayload.quotaInvite = body.quotaInvite ? body.quotaInvite : null;
         if (body.quotaInviteIkhwan !== undefined) updatePayload.quotaInviteIkhwan = body.quotaInviteIkhwan ? body.quotaInviteIkhwan : null;
         if (body.quotaInviteAkhwat !== undefined) updatePayload.quotaInviteAkhwat = body.quotaInviteAkhwat ? body.quotaInviteAkhwat : null;
+        if (body.quotaStaff !== undefined) updatePayload.quotaStaff = body.quotaStaff ? body.quotaStaff : null;
+        if (body.quotaStaffIkhwan !== undefined) updatePayload.quotaStaffIkhwan = body.quotaStaffIkhwan ? body.quotaStaffIkhwan : null;
+        if (body.quotaStaffAkhwat !== undefined) updatePayload.quotaStaffAkhwat = body.quotaStaffAkhwat ? body.quotaStaffAkhwat : null;
         if (body.isRegistrationOpen !== undefined) updatePayload.isRegistrationOpen = body.isRegistrationOpen;
+        if (body.isStaffRegistrationOpen !== undefined) updatePayload.isStaffRegistrationOpen = body.isStaffRegistrationOpen;
         
         if (body.carParkingQuota !== undefined) updatePayload.carParkingQuota = body.carParkingQuota ? body.carParkingQuota : null;
         if (body.motorcycleParkingQuota !== undefined) updatePayload.motorcycleParkingQuota = body.motorcycleParkingQuota ? body.motorcycleParkingQuota : null;
@@ -443,6 +462,35 @@ export function registerEventsRoutes(router: Router) {
         return successResponse(updated, { requestId: ctx.requestId });
       })
     )
+  );
+
+  // Regenerating a link immediately invalidates the previous staff-only link.
+  router.post(
+    '/api/events/:id/staff-registration-token',
+    requireAuth(async (ctx) => {
+      const eventId = ctx.params.id;
+      if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
+      const [updated] = await getDb()
+        .update(events)
+        .set({ staffRegistrationToken: createStaffRegistrationToken(), updatedAt: new Date() })
+        .where(eq(events.id, eventId))
+        .returning();
+      if (!updated) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
+      try {
+        await logAuditEvent({
+          actorUserId: ctx.user?.id,
+          action: 'rotate_event_staff_registration_token',
+          entityType: 'event',
+          entityId: eventId,
+          beforeJson: { eventId },
+          reason: 'Regenerasi tautan pendaftaran staff kajian',
+          requestId: ctx.requestId,
+        });
+      } catch (error) {
+        console.error('Gagal mencatat audit regenerasi tautan staff:', error);
+      }
+      return successResponse({ staffRegistrationToken: updated.staffRegistrationToken }, { requestId: ctx.requestId });
+    })
   );
 
   // 5. DELETE /api/events/:id (Delete / cancel event)

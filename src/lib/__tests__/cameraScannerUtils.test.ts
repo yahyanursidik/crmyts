@@ -8,6 +8,7 @@ import {
   resolveCameraStartCandidates,
   areEqualDevices,
   inspectActiveStreamTrack,
+  cameraStartTargetKey,
   CameraDeviceItem,
 } from '../cameraScannerUtils';
 
@@ -278,6 +279,15 @@ describe('cameraScannerUtils', () => {
       expect(areEqualDevices(listA, listB)).toBe(true);
       expect(areEqualDevices(listA, listC)).toBe(false);
       expect(areEqualDevices(listA, listA.slice(0, 1))).toBe(false);
+    });
+  });
+
+  describe('camera start target keys', () => {
+    it('makes constraint targets comparable while preserving distinct device IDs', () => {
+      expect(cameraStartTargetKey('back-camera-id')).toBe('id:back-camera-id');
+      expect(cameraStartTargetKey({ facingMode: { exact: 'environment' } })).toBe('device:|facing:environment');
+      expect(cameraStartTargetKey({ deviceId: { exact: 'back-camera-id' } })).toBe('device:back-camera-id|facing:');
+      expect(cameraStartTargetKey({ facingMode: 'environment' })).not.toBe(cameraStartTargetKey({ facingMode: 'user' }));
     });
   });
 

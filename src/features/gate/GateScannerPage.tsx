@@ -51,6 +51,8 @@ import {
   isRearCameraLabel,
   isFrontCameraLabel,
   inspectActiveStreamTrack,
+  enumerateVideoInputDevices,
+  cameraStartTargetKey,
 } from '@/lib/cameraScannerUtils';
 import { apiClient } from '@/lib/apiClient';
 import { extractTicketCode } from '@/lib/participantTicket';
@@ -633,7 +635,7 @@ export const GateScannerPage: React.FC = () => {
 
   // Start Camera Stream (Stable callback using refs to prevent re-render loops)
   const startCameraScanner = useCallback(
-    async (overrideTarget?: { deviceId?: string; facingMode?: 'environment' | 'user'; isRecoveryAttempt?: boolean }) => {
+    async (overrideTarget?: { deviceId?: string; facingMode?: 'environment' | 'user' }) => {
       // If already scanning and active with no overrideTarget, don't restart (prevents flickering)
       if (html5QrCodeRef.current?.isScanning && cameraStateRef.current === 'active' && !overrideTarget) {
         return;
@@ -709,9 +711,19 @@ export const GateScannerPage: React.FC = () => {
           }
         };
 
-        // 2. Discover available cameras (using cached devices; avoid pre-start getCameras on iOS Safari to prevent stream contention AbortError)
+        // 2. Discover camera labels without opening a competing stream on iOS Safari.
         let devices = availableCamerasRef.current;
-        if ((!devices || devices.length === 0) && !isIOSDevice() && !isSafariBrowser()) {
+        const isAppleWebKit = isIOSDevice() || isSafariBrowser();
+        if ((!devices || devices.length === 0) && isAppleWebKit) {
+          try {
+            devices = await enumerateVideoInputDevices();
+            if (devices.length > 0 && !areEqualDevices(availableCamerasRef.current, devices)) {
+              setAvailableCameras(devices);
+            }
+          } catch {
+            devices = [];
+          }
+        } else if ((!devices || devices.length === 0) && !isAppleWebKit) {
           try {
             devices = await Html5Qrcode.getCameras();
             if (devices && devices.length > 0) {
@@ -748,11 +760,51 @@ export const GateScannerPage: React.FC = () => {
 
         let started = false;
         let lastErr: any = null;
+        let refreshedAfterWrongFacing = false;
+        const candidates = [...resolution.candidates];
+        const candidateKeys = new Set(candidates.map(cameraStartTargetKey));
 
-        // Try candidate targets in prioritized order
-        for (const candidate of resolution.candidates) {
+        // A soft environment constraint may still start the front camera on
+        // WebKit. Verify the active track before accepting a candidate.
+        for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex++) {
+          const candidate = candidates[candidateIndex]!;
           try {
             await qrScanner.start(candidate, scanConfig, qrSuccessCallback, () => {});
+
+            const inspection = inspectActiveStreamTrack('gate-page-qr-reader');
+            const runningSettings = (typeof qrScanner.getRunningTrackSettings === 'function' ? qrScanner.getRunningTrackSettings() : {}) as MediaTrackSettings;
+            const activeFacing = String(runningSettings.facingMode || inspection.facingMode || '').toLowerCase();
+            const gotFrontCamera = activeFacing === 'user' || inspection.isFront;
+
+            if (resolution.expectedFacing === 'environment' && gotFrontCamera) {
+              lastErr = new Error('Safari masih memilih kamera depan saat kamera belakang diminta.');
+              try {
+                await qrScanner.stop();
+              } catch {}
+
+              // The first successful permission request unlocks iOS device labels.
+              // Add the newly visible physical rear-camera IDs as final candidates.
+              if (isAppleWebKit && !refreshedAfterWrongFacing) {
+                refreshedAfterWrongFacing = true;
+                try {
+                  const refreshed = await enumerateVideoInputDevices();
+                  if (refreshed.length > 0) {
+                    devices = refreshed;
+                    if (!areEqualDevices(availableCamerasRef.current, refreshed)) setAvailableCameras(refreshed);
+                    const physicalRearFallback = resolveCameraStartCandidates('environment', null, refreshed);
+                    for (const fallback of physicalRearFallback.candidates) {
+                      const key = cameraStartTargetKey(fallback);
+                      if (!candidateKeys.has(key)) {
+                        candidateKeys.add(key);
+                        candidates.push(fallback);
+                      }
+                    }
+                  }
+                } catch {}
+              }
+              await sleep(isAppleWebKit ? 350 : 100);
+              continue;
+            }
             started = true;
             break;
           } catch (err) {
@@ -776,36 +828,9 @@ export const GateScannerPage: React.FC = () => {
           setSelectedCameraId(resolution.suggestedDeviceId);
         }
 
-        // Active Stream Verification & Auto-Recovery (Crucial for iOS Safari / iPadOS)
+        // Refresh labels after permission without opening a second media stream.
         try {
-          const inspection = inspectActiveStreamTrack('gate-page-qr-reader');
-          const runningSettings = (typeof qrScanner.getRunningTrackSettings === 'function' ? qrScanner.getRunningTrackSettings() : {}) as any;
-          const activeFacing = (runningSettings?.facingMode || inspection.facingMode || '').toLowerCase();
-          const activeIsFront = activeFacing === 'user' || inspection.isFront;
-
-          if (requestedMode === 'environment' && activeIsFront && !overrideTarget?.isRecoveryAttempt) {
-            console.warn('[GateScannerPage] Detected front camera active despite requesting environment. Initiating auto-recovery with exact constraint...');
-            try {
-              if (qrScanner.isScanning) {
-                await qrScanner.stop();
-              }
-              qrScanner.clear();
-            } catch {}
-            await sleep(250);
-            await startCameraScanner({
-              facingMode: 'environment',
-              deviceId: undefined,
-              isRecoveryAttempt: true,
-            });
-            return;
-          }
-        } catch (inspectErr) {
-          console.warn('[GateScannerPage] Active track inspection warning:', inspectErr);
-        }
-
-        // Refresh devices list with freshly populated labels (post-permission) without redundant re-renders
-        try {
-          const refreshed = await Html5Qrcode.getCameras();
+          const refreshed = isAppleWebKit ? await enumerateVideoInputDevices() : await Html5Qrcode.getCameras();
           if (refreshed?.length && !areEqualDevices(availableCamerasRef.current, refreshed)) {
             setAvailableCameras(refreshed);
           }
@@ -840,7 +865,7 @@ export const GateScannerPage: React.FC = () => {
           setCameraErrorDetail('Tidak ada perangkat kamera yang terdeteksi di perangkat ini.');
         } else if (errStr.includes('abort') || errStr.includes('notreadable') || errStr.includes('trackstart')) {
           setCameraState('idle');
-          setCameraErrorDetail('Sensor kamera sedang dilepaskan sistem. Ketuk tombol "Aktifkan Kamera" di bawah.');
+          setCameraErrorDetail('Sensor kamera sedang dilepaskan sistem. Tunggu sesaat, lalu ketuk tombol "Aktifkan Kamera" kembali.');
         } else {
           setCameraState('error');
           setCameraErrorDetail(err.message || 'Gagal menyalakan streaming video kamera.');
@@ -852,7 +877,7 @@ export const GateScannerPage: React.FC = () => {
     []
   );
 
-  // Switch front/back with pure exact facingMode on iOS Safari & deviceId resolution for Android
+  // Switch front/back with a full stream release before requesting the next sensor.
   const handleToggleFacingMode = async () => {
     const currentFacing = facingModeRef.current;
     const nextFacing: 'environment' | 'user' = currentFacing === 'environment' ? 'user' : 'environment';
@@ -1803,11 +1828,13 @@ export const GateScannerPage: React.FC = () => {
                             setSelectedCameraId(val);
                             if (val) {
                               const found = availableCameras.find((c) => c.id === val);
-                              if (found) {
-                                if (isRearCameraLabel(found.label)) setFacingMode('environment');
-                                else if (isFrontCameraLabel(found.label)) setFacingMode('user');
-                              }
-                              startCameraScanner({ deviceId: val });
+                              const requestedFacing = found && isRearCameraLabel(found.label)
+                                ? 'environment'
+                                : found && isFrontCameraLabel(found.label)
+                                  ? 'user'
+                                  : facingModeRef.current;
+                              setFacingMode(requestedFacing);
+                              startCameraScanner({ deviceId: val, facingMode: requestedFacing });
                             } else {
                               startCameraScanner();
                             }
