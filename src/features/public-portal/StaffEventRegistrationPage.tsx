@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import React, { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { BriefcaseBusiness, Calendar, CheckCircle2, MapPin, MessageSquare, Plus, Send, Ticket, Trash2, UserRound, Users } from 'lucide-react';
 import { BrandEmblem } from '@/components/common/BrandLogo';
