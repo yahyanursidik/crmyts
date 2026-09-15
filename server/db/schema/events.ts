@@ -1,5 +1,5 @@
 import { pgTable, uuid, text, timestamp, uniqueIndex, index, integer, boolean, jsonb } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 import { appUsers } from './identity';
 import { persons } from './people';
 import { eventStatusEnum, deliveryModeEnum, attendanceSourceEnum } from './enums';
@@ -85,7 +85,13 @@ export const events = pgTable(
     quotaInvite: integer('quota_invite'),
     quotaInviteIkhwan: integer('quota_invite_ikhwan'),
     quotaInviteAkhwat: integer('quota_invite_akhwat'),
+    // Jalur internal staff yayasan memiliki kapasitas dan tautan sendiri.
+    quotaStaff: integer('quota_staff'),
+    quotaStaffIkhwan: integer('quota_staff_ikhwan'),
+    quotaStaffAkhwat: integer('quota_staff_akhwat'),
     isRegistrationOpen: boolean('is_registration_open').default(true).notNull(),
+    isStaffRegistrationOpen: boolean('is_staff_registration_open').default(false).notNull(),
+    staffRegistrationToken: text('staff_registration_token'),
     
     // Parking & Logistics
     carParkingQuota: integer('car_parking_quota'),
@@ -116,6 +122,9 @@ export const events = pgTable(
     startAtIdx: index('idx_events_start_at').on(t.startAt),
     statusIdx: index('idx_events_status').on(t.status),
     targetAudienceIdx: index('idx_events_target_audience').on(t.targetAudience),
+    staffRegistrationTokenIdx: uniqueIndex('idx_events_staff_registration_token')
+      .on(t.staffRegistrationToken)
+      .where(sql`${t.staffRegistrationToken} is not null`),
   })
 );
 

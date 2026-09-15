@@ -27,6 +27,7 @@ import {
   Send,
   ExternalLink,
   Pencil,
+  BriefcaseBusiness,
 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -87,6 +88,7 @@ interface ParticipantItem {
   ticketCode?: string;
   referralCode?: string | null;
   isSpecialInvite?: boolean;
+  isStaffRegistration?: boolean;
   referredByAttendanceId?: string | null;
   referrerName?: string | null;
   referrerCode?: string | null;
@@ -132,7 +134,12 @@ interface EventDetail {
   quotaInvite?: number | null;
   quotaInviteIkhwan?: number | null;
   quotaInviteAkhwat?: number | null;
+  quotaStaff?: number | null;
+  quotaStaffIkhwan?: number | null;
+  quotaStaffAkhwat?: number | null;
   isRegistrationOpen: boolean;
+  isStaffRegistrationOpen?: boolean;
+  staffRegistrationToken?: string | null;
   
   carParkingQuota?: number | null;
   motorcycleParkingQuota?: number | null;
@@ -154,6 +161,9 @@ interface EventDetail {
   regularCount?: number;
   regularIkhwanCount?: number;
   regularAkhwatCount?: number;
+  staffCount?: number;
+  staffIkhwanCount?: number;
+  staffAkhwatCount?: number;
   adminInviteCode?: string;
 }
 
@@ -230,6 +240,8 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   const [activeTab, setActiveTab] = useState<'participants' | 'settings' | 'form_builder' | 'rules'>('participants');
   const [saving, setSaving] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedStaffLink, setCopiedStaffLink] = useState(false);
+  const [rotatingStaffLink, setRotatingStaffLink] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
 
@@ -247,6 +259,10 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   const [quotaInvite, setQuotaInvite] = useState<number | ''>('');
   const [quotaInviteIkhwan, setQuotaInviteIkhwan] = useState<number | ''>('');
   const [quotaInviteAkhwat, setQuotaInviteAkhwat] = useState<number | ''>('');
+  const [quotaStaff, setQuotaStaff] = useState<number | ''>('');
+  const [quotaStaffIkhwan, setQuotaStaffIkhwan] = useState<number | ''>('');
+  const [quotaStaffAkhwat, setQuotaStaffAkhwat] = useState<number | ''>('');
+  const [isStaffRegistrationOpen, setIsStaffRegistrationOpen] = useState(false);
   const [carParkingQuota, setCarParkingQuota] = useState<number | ''>('');
   const [motorcycleParkingQuota, setMotorcycleParkingQuota] = useState<number | ''>('');
   const [venueRules, setVenueRules] = useState<string[]>([]);
@@ -346,6 +362,10 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       setQuotaInvite(res.data.quotaInvite || '');
       setQuotaInviteIkhwan(res.data.quotaInviteIkhwan || '');
       setQuotaInviteAkhwat(res.data.quotaInviteAkhwat || '');
+      setQuotaStaff(res.data.quotaStaff || '');
+      setQuotaStaffIkhwan(res.data.quotaStaffIkhwan || '');
+      setQuotaStaffAkhwat(res.data.quotaStaffAkhwat || '');
+      setIsStaffRegistrationOpen(res.data.isStaffRegistrationOpen === true);
       setCarParkingQuota(res.data.carParkingQuota || '');
       setMotorcycleParkingQuota(res.data.motorcycleParkingQuota || '');
       setVenueRules(res.data.venueRules || []);
@@ -411,6 +431,27 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
     setTimeout(() => setCopiedLink(false), 2500);
   };
 
+  const handleCopyStaffLink = () => {
+    if (!eventData?.staffRegistrationToken) return;
+    navigator.clipboard.writeText(`${window.location.origin}/kajian/${eventId}/staff/${eventData.staffRegistrationToken}`);
+    setCopiedStaffLink(true);
+    showToast('Tautan pendaftaran staff berhasil disalin.');
+    setTimeout(() => setCopiedStaffLink(false), 2500);
+  };
+
+  const handleRotateStaffLink = async () => {
+    try {
+      setRotatingStaffLink(true);
+      const res = await apiClient<{ staffRegistrationToken: string }>(`/events/${eventId}/staff-registration-token`, { method: 'POST' });
+      setEventData((current) => current ? { ...current, staffRegistrationToken: res.data.staffRegistrationToken } : current);
+      showToast('Tautan staff baru dibuat. Tautan sebelumnya tidak lagi berlaku.');
+    } catch (err: any) {
+      showToast(err.message || 'Gagal membuat tautan staff baru.', 'error');
+    } finally {
+      setRotatingStaffLink(false);
+    }
+  };
+
   const handleToggleRegistration = async () => {
     if (!eventData) return;
     try {
@@ -449,6 +490,10 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           quotaInvite: quotaInvite ? Number(quotaInvite) : null,
           quotaInviteIkhwan: quotaInviteIkhwan ? Number(quotaInviteIkhwan) : null,
           quotaInviteAkhwat: quotaInviteAkhwat ? Number(quotaInviteAkhwat) : null,
+          quotaStaff: quotaStaff ? Number(quotaStaff) : null,
+          quotaStaffIkhwan: quotaStaffIkhwan ? Number(quotaStaffIkhwan) : null,
+          quotaStaffAkhwat: quotaStaffAkhwat ? Number(quotaStaffAkhwat) : null,
+          isStaffRegistrationOpen,
           carParkingQuota: carParkingQuota ? Number(carParkingQuota) : null,
           motorcycleParkingQuota: motorcycleParkingQuota ? Number(motorcycleParkingQuota) : null,
           venueRules,
@@ -1306,6 +1351,11 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                                   ✨ Undangan Panitia
                                 </span>
                               )}
+                              {p.isStaffRegistration && (
+                                <span className="mt-1 ml-1 inline-block rounded bg-indigo-50 border border-indigo-300 px-1.5 py-0.5 text-[9px] font-sans font-bold text-indigo-800">
+                                  Staff Yayasan
+                                </span>
+                              )}
                             </td>
                             <td className="p-3.5">
                               {p.vehicleType === 'car' && (
@@ -1839,6 +1889,25 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                         className="w-full p-2.5 border border-emerald-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                       />
                     </div>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-indigo-50/60 rounded-2xl border border-indigo-200 space-y-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-indigo-950 flex items-center gap-1.5"><BriefcaseBusiness className="w-3.5 h-3.5 text-indigo-700" /> 3C. Jalur Staff Yayasan</span>
+                      <p className="mt-1 text-[11px] text-indigo-800">Kuota ini terpisah dari reguler dan undangan. Form staff hanya bisa diakses lewat tautan rahasia di bawah.</p>
+                    </div>
+                    <label className="inline-flex items-center gap-2 text-xs font-bold text-indigo-950"><input type="checkbox" checked={isStaffRegistrationOpen} onChange={(e) => setIsStaffRegistrationOpen(e.target.checked)} className="h-4 w-4 accent-indigo-700" /> Pendaftaran staff dibuka</label>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <label className="block text-xs font-bold text-indigo-950">Total kuota staff<input type="number" min="0" value={quotaStaff} onChange={(e) => setQuotaStaff(e.target.value === '' ? '' : Number(e.target.value))} placeholder="Misal: 30" className="mt-1 w-full p-2.5 border border-indigo-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" /></label>
+                    <label className="block text-xs font-bold text-indigo-950">Staff Ikhwan<input type="number" min="0" value={quotaStaffIkhwan} onChange={(e) => setQuotaStaffIkhwan(e.target.value === '' ? '' : Number(e.target.value))} placeholder="Misal: 15" className="mt-1 w-full p-2.5 border border-indigo-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" /></label>
+                    <label className="block text-xs font-bold text-indigo-950">Staff Akhwat<input type="number" min="0" value={quotaStaffAkhwat} onChange={(e) => setQuotaStaffAkhwat(e.target.value === '' ? '' : Number(e.target.value))} placeholder="Misal: 15" className="mt-1 w-full p-2.5 border border-indigo-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" /></label>
+                  </div>
+                  <div className="flex flex-col gap-2 border-t border-indigo-200 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="text-[11px] text-indigo-800">Terdaftar: {eventData.staffCount || 0}{eventData.quotaStaff ? ` / ${eventData.quotaStaff}` : ''}</span>
+                    <div className="flex gap-2"><button type="button" onClick={handleCopyStaffLink} disabled={!eventData.staffRegistrationToken} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-300 bg-white px-3 py-2 text-xs font-bold text-indigo-800 disabled:opacity-50"><Copy className="w-3.5 h-3.5" />{copiedStaffLink ? 'Tersalin' : 'Salin tautan staff'}</button><button type="button" onClick={handleRotateStaffLink} disabled={rotatingStaffLink} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><RotateCcw className="w-3.5 h-3.5" />{rotatingStaffLink ? 'Membuat...' : 'Ganti tautan'}</button></div>
                   </div>
                 </div>
               </div>

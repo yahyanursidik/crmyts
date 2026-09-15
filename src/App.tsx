@@ -22,6 +22,7 @@ import { AutomationPage } from './features/automation/AutomationPage';
 import { DonorPipelinePage } from './features/donors/DonorPipelinePage';
 import { DonationsPortalPage } from './features/public-portal/DonationsPortalPage';
 import { EventsPortalPage } from './features/public-portal/EventsPortalPage';
+import { StaffEventRegistrationPage } from './features/public-portal/StaffEventRegistrationPage';
 import { BazaarCatalogPortalPage } from './features/public-portal/BazaarCatalogPortalPage';
 import { BazaarPortalPage } from './features/public-portal/BazaarPortalPage';
 import { BazaarSurveyPortalPage } from './features/public-portal/BazaarSurveyPortalPage';
@@ -131,6 +132,7 @@ export function App() {
               <Route path="/donasi" element={<DonationsPortalPage />} />
               <Route path="/berbagi" element={<DonationsPortalPage />} />
               <Route path="/kajian" element={<EventsPortalPage />} />
+              <Route path="/kajian/:id/staff/:token" element={<StaffEventRegistrationPage />} />
               <Route path="/kajian/:id" element={<EventsPortalPage />} />
               {/* Standalone Public Catalog Pages */}
               <Route path="/bazar" element={<BazaarCatalogPortalPage />} />
