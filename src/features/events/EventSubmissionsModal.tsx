@@ -17,6 +17,7 @@ import {
   Trash2,
   RefreshCw,
   Mail,
+  Pencil,
 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -205,6 +206,9 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   const [selectedForPaymentVerify, setSelectedForPaymentVerify] = useState<ParticipantPaymentData | null>(null);
   const [togglingAttendanceId, setTogglingAttendanceId] = useState<string | null>(null);
   const [emailSendingAttendanceId, setEmailSendingAttendanceId] = useState<string | null>(null);
+  const [editingParticipant, setEditingParticipant] = useState<ParticipantItem | null>(null);
+  const [participantEditSaving, setParticipantEditSaving] = useState(false);
+  const [participantEditForm, setParticipantEditForm] = useState({ fullName: '', phone: '', email: '', cityRegency: '' });
   const [showBroadcastComposer, setShowBroadcastComposer] = useState(false);
   const [showBroadcastConfirm, setShowBroadcastConfirm] = useState(false);
   const [broadcastSubject, setBroadcastSubject] = useState('');
@@ -304,6 +308,35 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
       showToast(err.message || 'E-tiket gagal dikirim.', 'error');
     } finally {
       setEmailSendingAttendanceId(null);
+    }
+  };
+
+  const openParticipantEditor = (participant: ParticipantItem) => {
+    setEditingParticipant(participant);
+    setParticipantEditForm({
+      fullName: participant.personName,
+      phone: participant.personPhone === '-' ? '' : participant.personPhone,
+      email: participant.personEmail || '',
+      cityRegency: participant.personCity || '',
+    });
+  };
+
+  const handleSaveParticipantEdit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editingParticipant) return;
+    try {
+      setParticipantEditSaving(true);
+      const response = await apiClient<{ message: string }>(`/events/${eventId}/attendances/${editingParticipant.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(participantEditForm),
+      });
+      showToast(response.data?.message || 'Data peserta diperbarui. Kode tiket dan QR tetap sama.');
+      setEditingParticipant(null);
+      await loadEventDetail();
+    } catch (err: any) {
+      showToast(err.message || 'Data peserta gagal diperbarui.', 'error');
+    } finally {
+      setParticipantEditSaving(false);
     }
   };
 
@@ -1156,6 +1189,14 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                                 </button>
                                 <button
                                   type="button"
+                                  onClick={() => openParticipantEditor(p)}
+                                  className="p-1.5 text-surface-500 hover:text-brand-900 hover:bg-cream-100 rounded-lg border border-transparent hover:border-cream-300 transition-all active:scale-95"
+                                  title="Edit nama dan kontak peserta tanpa mengubah kode tiket atau QR"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
                                   onClick={() => handleResendTicketEmail(p)}
                                   disabled={!p.personEmail || emailSendingAttendanceId === p.id}
                                   className="p-1.5 text-sky-600 hover:text-sky-800 hover:bg-sky-50 rounded-lg border border-transparent hover:border-sky-200 transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
@@ -1295,6 +1336,15 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                             </button>
                             <button
                               type="button"
+                              onClick={() => openParticipantEditor(p)}
+                              className="px-2 py-1 text-brand-800 hover:text-brand-950 hover:bg-cream-100 border border-cream-300 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all"
+                              title="Edit kontak tanpa mengubah tiket atau QR"
+                            >
+                              <Pencil className="w-3 h-3" />
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => handleResendTicketEmail(p)}
                               disabled={!p.personEmail || emailSendingAttendanceId === p.id}
                               className="px-2 py-1 text-sky-700 hover:text-sky-900 hover:bg-sky-50 border border-sky-200 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all disabled:cursor-not-allowed disabled:opacity-35"
@@ -1403,6 +1453,29 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
           )}
         </div>
       </div>
+
+      {editingParticipant && (
+        <div className="fixed inset-0 z-70 bg-surface-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <form onSubmit={handleSaveParticipantEdit} className="bg-[#fbfaf6] rounded-2xl max-w-md w-full p-5 shadow-2xl border border-cream-300 space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-full bg-cream-100 text-brand-900 border border-cream-300"><Pencil className="w-3 h-3" /> Edit Peserta Kajian</div>
+                <h3 className="mt-2 text-base font-black text-brand-950">Perbarui Data Kontak</h3>
+              </div>
+              <button type="button" onClick={() => setEditingParticipant(null)} disabled={participantEditSaving} className="p-1.5 text-surface-400 hover:text-surface-700 rounded-lg"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
+              Kode tiket <strong>{editingParticipant.ticketCode || '-'}</strong> dan QR peserta tidak akan diganti. Presensi, kuota, pembayaran, dan jalur pendaftaran juga tetap.
+            </div>
+            <label className="block"><span className="block text-xs font-bold text-surface-800 mb-1.5">Nama Lengkap</span><input required value={participantEditForm.fullName} onChange={(event) => setParticipantEditForm((form) => ({ ...form, fullName: event.target.value }))} maxLength={160} className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-brand-700 focus:outline-none" /></label>
+            <label className="block"><span className="block text-xs font-bold text-surface-800 mb-1.5">Nomor WhatsApp</span><input required inputMode="tel" value={participantEditForm.phone} onChange={(event) => setParticipantEditForm((form) => ({ ...form, phone: event.target.value }))} maxLength={24} className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-brand-700 focus:outline-none" /></label>
+            <label className="block"><span className="block text-xs font-bold text-surface-800 mb-1.5">Email</span><input type="email" value={participantEditForm.email} onChange={(event) => setParticipantEditForm((form) => ({ ...form, email: event.target.value }))} maxLength={254} className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-brand-700 focus:outline-none" /></label>
+            <label className="block"><span className="block text-xs font-bold text-surface-800 mb-1.5">Kota / Domisili</span><input value={participantEditForm.cityRegency} onChange={(event) => setParticipantEditForm((form) => ({ ...form, cityRegency: event.target.value }))} maxLength={120} className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-brand-700 focus:outline-none" /></label>
+            <p className="text-[11px] leading-relaxed text-surface-500">Data kontak ini adalah profil master jamaah dan dapat dipakai pada riwayat kajian lain. Nomor yang telah dipakai peserta lain di kajian ini akan ditolak untuk mencegah data ganda.</p>
+            <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={() => setEditingParticipant(null)} disabled={participantEditSaving} className="px-4 py-2.5 rounded-xl border border-cream-300 bg-white text-surface-700 text-xs font-bold">Batal</button><button type="submit" disabled={participantEditSaving} className="px-4 py-2.5 rounded-xl bg-brand-800 hover:bg-brand-900 text-white text-xs font-bold inline-flex items-center gap-2 disabled:opacity-50">{participantEditSaving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Pencil className="w-3.5 h-3.5" />} Simpan Perubahan</button></div>
+          </form>
+        </div>
+      )}
 
       {showBroadcastComposer && data && (
         <div className="fixed inset-0 z-70 bg-surface-950/60 backdrop-blur-xs flex items-center justify-center p-4">

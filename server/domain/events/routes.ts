@@ -5,7 +5,7 @@ import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import { events, eventAttendance, persons } from '../../db/schema';
 import { desc, eq, and, inArray, sql, or, ilike } from 'drizzle-orm';
-import { normalizeIndonesianPhone } from '../../lib/phone';
+import { isValidE164, normalizeIndonesianPhone } from '../../lib/phone';
 import { extractTicketCode } from '../../../src/lib/participantTicket';
 import { createMemorableTicketCode } from './participantCodes';
 import { createStaffRegistrationToken, isSpecialInviteRegistration, isStaffFamilyRegistration, isStaffRegistration } from './registrationChannels';
@@ -81,6 +81,13 @@ const eventBroadcastTemplateSchema = z.object({
   name: z.string().trim().min(3, 'Nama template minimal 3 karakter.').max(100),
   subject: z.string().trim().min(3).max(160),
   message: z.string().trim().min(3).max(5000),
+});
+
+const editEventParticipantSchema = z.object({
+  fullName: z.string().trim().min(3, 'Nama lengkap minimal 3 karakter.').max(160),
+  phone: z.string().trim().min(8, 'Nomor WhatsApp tidak valid.').max(24),
+  email: z.string().trim().email('Email tidak valid.').optional().or(z.literal('')),
+  cityRegency: z.string().trim().max(120).optional().or(z.literal('')),
 });
 
 export function registerEventsRoutes(router: Router) {
@@ -825,6 +832,60 @@ export function registerEventsRoutes(router: Router) {
         { requestId: ctx.requestId }
       );
     })
+  );
+
+  // 7a. PATCH participant contact details. Ticket/QR and attendance fields are intentionally immutable here.
+  router.patch(
+    '/api/events/:id/attendances/:attendanceId',
+    requireAuth(validateBody(editEventParticipantSchema, async (ctx, body) => {
+      const db = getDb();
+      const eventId = ctx.params.id;
+      const attendanceId = ctx.params.attendanceId;
+      if (!eventId || !attendanceId) return errorResponse('VALIDATION_ERROR', 'Kajian dan peserta diperlukan.', 400, ctx.requestId);
+
+      const attendance = await db.query.eventAttendance.findFirst({
+        where: and(eq(eventAttendance.id, attendanceId), eq(eventAttendance.eventId, eventId)),
+        with: { person: true },
+      });
+      if (!attendance?.person) return errorResponse('NOT_FOUND', 'Peserta kajian tidak ditemukan.', 404, ctx.requestId);
+
+      const phoneE164 = normalizeIndonesianPhone(body.phone);
+      if (!isValidE164(phoneE164)) return errorResponse('VALIDATION_ERROR', 'Nomor WhatsApp harus menggunakan format yang valid.', 400, ctx.requestId);
+
+      const phoneOwner = await db.query.persons.findFirst({ where: eq(persons.phoneE164, phoneE164), columns: { id: true, fullName: true } });
+      if (phoneOwner && phoneOwner.id !== attendance.personId) {
+        const sameEvent = await db.query.eventAttendance.findFirst({
+          where: and(eq(eventAttendance.eventId, eventId), eq(eventAttendance.personId, phoneOwner.id)),
+          columns: { id: true },
+        });
+        if (sameEvent) return errorResponse('CONFLICT', `Nomor ini sudah digunakan peserta lain pada kajian ini (${phoneOwner.fullName}).`, 409, ctx.requestId);
+      }
+
+      const before = { fullName: attendance.person.fullName, phoneE164: attendance.person.phoneE164, email: attendance.person.email, cityRegency: attendance.person.cityRegency, ticketCode: attendance.ticketCode };
+      const [updatedPerson] = await db.update(persons).set({
+        fullName: body.fullName,
+        phoneE164,
+        email: body.email || null,
+        cityRegency: body.cityRegency || null,
+        updatedAt: new Date(),
+      }).where(eq(persons.id, attendance.personId)).returning();
+
+      await logAuditEvent({
+        actorUserId: ctx.user?.id,
+        action: 'edit_event_participant_contact',
+        entityType: 'event_attendance',
+        entityId: attendanceId,
+        beforeJson: before,
+        afterJson: { fullName: updatedPerson.fullName, phoneE164: updatedPerson.phoneE164, email: updatedPerson.email, cityRegency: updatedPerson.cityRegency, ticketCode: attendance.ticketCode, ticketPreserved: true },
+        reason: 'Perbaikan kontak peserta kajian tanpa mengganti tiket atau QR.',
+        requestId: ctx.requestId,
+      });
+
+      return successResponse({
+        message: 'Data peserta diperbarui. Kode tiket dan QR tetap sama.',
+        participant: { id: attendance.id, personId: attendance.personId, personName: updatedPerson.fullName, personPhone: updatedPerson.phoneE164, personEmail: updatedPerson.email, personCity: updatedPerson.cityRegency, ticketCode: attendance.ticketCode },
+      }, { requestId: ctx.requestId });
+    }))
   );
 
   // 7d. POST /api/events/:id/attendances/:attendanceId/email-ticket (Resend current e-ticket after data correction)
