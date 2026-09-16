@@ -17,6 +17,7 @@ import {
 import { getEventEmailSettings, sendEventTicketEmail } from './emailNotifications';
 import { dispatchEventBroadcast, dispatchEventReminders, listEventBroadcastSummaries } from './reminderDispatch';
 import { getBroadcastDailyQuota } from '../../email/broadcastQuota';
+import { createQueuedEventBroadcast, listEventEmailTemplates, listQueuedEventBroadcasts, processQueuedEventBroadcast, saveEventEmailTemplate } from './broadcastQueue';
 
 const createEventSchema = z.object({
   title: z.string().min(3, 'Judul kajian minimal 3 karakter'),
@@ -72,6 +73,14 @@ const updateEventSchema = createEventSchema.partial().extend({
 const eventBroadcastEmailSchema = z.object({
   subject: z.string().trim().min(3, 'Subjek email minimal 3 karakter.').max(160, 'Subjek email maksimal 160 karakter.'),
   message: z.string().trim().min(3, 'Isi email minimal 3 karakter.').max(5000, 'Isi email maksimal 5000 karakter.'),
+  batchSize: z.number().int().min(25).max(100).optional(),
+  templateId: z.string().uuid().optional().nullable(),
+});
+
+const eventBroadcastTemplateSchema = z.object({
+  name: z.string().trim().min(3, 'Nama template minimal 3 karakter.').max(100),
+  subject: z.string().trim().min(3).max(160),
+  message: z.string().trim().min(3).max(5000),
 });
 
 export function registerEventsRoutes(router: Router) {
@@ -932,7 +941,10 @@ export function registerEventsRoutes(router: Router) {
         const event = await db.query.events.findFirst({ where: eq(events.id, eventId) });
         if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan.', 404, ctx.requestId);
 
-        const result = await dispatchEventBroadcast(db, event, body);
+        // Admin starts the campaign explicitly. The first safe batch is sent now;
+        // Netlify continues only this already-approved campaign in later batches.
+        const queued = await createQueuedEventBroadcast(db, event, { ...body, createdBy: ctx.user?.id });
+        const result = await processQueuedEventBroadcast(db, event, queued.campaignId);
         await logAuditEvent({
           actorUserId: ctx.user?.id,
           action: 'send_event_email_broadcast',
@@ -941,6 +953,7 @@ export function registerEventsRoutes(router: Router) {
           afterJson: {
             subject: body.subject,
             messageLength: body.message.length,
+            ...queued,
             ...result,
           },
           reason: 'Broadcast email manual khusus peserta kajian',
@@ -948,10 +961,11 @@ export function registerEventsRoutes(router: Router) {
         });
 
         return successResponse({
+          ...queued,
           ...result,
           message: result.quotaReached
-            ? `Broadcast dihentikan pada batas kuota harian. ${result.sent} email berhasil dikirim.`
-            : `${result.sent} email berhasil dikirim ke peserta kajian.`,
+            ? `Antrian ${queued.targetCount} email dibuat. Batch awal mengirim ${result.sent}; sisanya menunggu kuota WIB berikutnya.`
+            : `Antrian ${queued.targetCount} email dibuat. Batch awal mengirim ${result.sent} email dan sisanya diproses bertahap.`,
         }, { requestId: ctx.requestId });
       })
     )
@@ -967,9 +981,23 @@ export function registerEventsRoutes(router: Router) {
       const event = await db.query.events.findFirst({ where: eq(events.id, eventId), columns: { id: true } });
       if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan.', 404, ctx.requestId);
 
-      const broadcasts = await listEventBroadcastSummaries(db, eventId);
+      const broadcasts = await listQueuedEventBroadcasts(db, eventId).catch(() => listEventBroadcastSummaries(db, eventId));
       return successResponse(broadcasts, { requestId: ctx.requestId });
     })
+  );
+
+  router.get(
+    '/api/events/:id/email-broadcast-templates',
+    requireAuth(async (ctx) => successResponse(await listEventEmailTemplates(getDb()), { requestId: ctx.requestId }))
+  );
+
+  router.post(
+    '/api/events/:id/email-broadcast-templates',
+    requireAuth(validateBody(eventBroadcastTemplateSchema, async (ctx, body) => {
+      const template = await saveEventEmailTemplate(getDb(), { ...body, createdBy: ctx.user?.id });
+      await logAuditEvent({ actorUserId: ctx.user?.id, action: 'save_event_email_broadcast_template', entityType: 'event', entityId: ctx.params.id, afterJson: { templateId: template.id, name: template.name }, requestId: ctx.requestId });
+      return successResponse(template, { requestId: ctx.requestId }, 201);
+    }))
   );
 
   // 7d. POST /api/events/:id/attendances/bulk-checkin (Bulk Check-in / Uncheck-in)

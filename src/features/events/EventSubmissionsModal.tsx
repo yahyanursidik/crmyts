@@ -139,6 +139,17 @@ interface EventBroadcastSummary {
   unsubscribedCount: number;
   failedCount: number;
   noNegativeSignalCount: number;
+  status?: 'queued' | 'running' | 'completed' | 'paused' | 'cancelled';
+  duplicateSkippedCount?: number;
+  batchSize?: number;
+}
+
+interface EventBroadcastTemplate {
+  id: string;
+  name: string;
+  subject: string;
+  message: string;
+  updatedAt: string;
 }
 
 function formatEventDateTimeWib(value: string): string {
@@ -200,6 +211,11 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   const [broadcastMessage, setBroadcastMessage] = useState('');
   const [broadcastSending, setBroadcastSending] = useState(false);
   const [broadcastHistory, setBroadcastHistory] = useState<EventBroadcastSummary[]>([]);
+  const [broadcastTemplates, setBroadcastTemplates] = useState<EventBroadcastTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [templateName, setTemplateName] = useState('');
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [broadcastBatchSize, setBroadcastBatchSize] = useState(100);
 
   // Toast
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -225,6 +241,13 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
         // Delivery analytics must not prevent the participant list from loading.
         console.warn('Failed to load event broadcast history:', historyError);
         setBroadcastHistory([]);
+      }
+      try {
+        const templates = await apiClient<EventBroadcastTemplate[]>(`/events/${eventId}/email-broadcast-templates`);
+        setBroadcastTemplates(templates.data || []);
+      } catch (templateError) {
+        console.warn('Failed to load event broadcast templates:', templateError);
+        setBroadcastTemplates([]);
       }
     } catch (err: any) {
       console.error('Failed to load event submissions:', err);
@@ -301,12 +324,44 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
     setShowBroadcastConfirm(true);
   };
 
+  const handleSelectTemplate = (templateId: string) => {
+    setSelectedTemplateId(templateId);
+    const template = broadcastTemplates.find((item) => item.id === templateId);
+    if (!template) return;
+    setBroadcastSubject(template.subject);
+    setBroadcastMessage(template.message);
+  };
+
+  const handleSaveTemplate = async () => {
+    if (templateName.trim().length < 3 || broadcastSubject.trim().length < 3 || broadcastMessage.trim().length < 3) {
+      showToast('Isi nama, subjek, dan pesan sebelum menyimpan template.', 'error');
+      return;
+    }
+    try {
+      setSavingTemplate(true);
+      const response = await apiClient<EventBroadcastTemplate>(`/events/${eventId}/email-broadcast-templates`, {
+        method: 'POST',
+        body: JSON.stringify({ name: templateName.trim(), subject: broadcastSubject.trim(), message: broadcastMessage.trim() }),
+      });
+      if (response.data) {
+        setBroadcastTemplates((items) => [response.data!, ...items]);
+        setSelectedTemplateId(response.data.id);
+        setTemplateName('');
+        showToast('Template BC berhasil disimpan.');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Template BC gagal disimpan.', 'error');
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
   const handleSendBroadcast = async () => {
     try {
       setBroadcastSending(true);
       const response = await apiClient<{ message: string }>(`/events/${eventId}/email-broadcast`, {
         method: 'POST',
-        body: JSON.stringify({ subject: broadcastSubject.trim(), message: broadcastMessage.trim() }),
+        body: JSON.stringify({ subject: broadcastSubject.trim(), message: broadcastMessage.trim(), batchSize: broadcastBatchSize, templateId: selectedTemplateId || null }),
       });
       showToast(response.data?.message || 'Broadcast email berhasil dikirim.');
       setShowBroadcastConfirm(false);
@@ -1375,6 +1430,23 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
               </div>
             </div>
 
+            <section className="border border-cream-200 bg-white rounded-xl p-3 space-y-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-black text-brand-950">Template Pesan</span>
+                <span className="text-[10px] text-surface-500">Simpan dan gunakan kembali</span>
+              </div>
+              <select value={selectedTemplateId} onChange={(event) => handleSelectTemplate(event.target.value)} className="w-full px-3 py-2 border border-cream-300 rounded-lg text-xs font-medium bg-white">
+                <option value="">Tulis pesan baru atau pilih template</option>
+                {broadcastTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+              </select>
+              <div className="flex gap-2">
+                <input value={templateName} onChange={(event) => setTemplateName(event.target.value)} maxLength={100} placeholder="Nama template, mis. Koreksi waktu kajian" className="min-w-0 flex-1 px-3 py-2 border border-cream-300 rounded-lg text-xs bg-white" />
+                <button type="button" onClick={handleSaveTemplate} disabled={savingTemplate} className="px-3 py-2 rounded-lg border border-sky-200 bg-sky-50 text-sky-800 text-xs font-bold disabled:opacity-50">
+                  {savingTemplate ? 'Menyimpan...' : 'Simpan'}
+                </button>
+              </div>
+            </section>
+
             <section className="border border-cream-200 bg-white rounded-xl p-3 space-y-2.5" aria-label="Riwayat status broadcast email">
               <div className="flex items-baseline justify-between gap-3">
                 <h4 className="text-xs font-black text-brand-950">Riwayat BC</h4>
@@ -1386,9 +1458,10 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                     <div key={broadcast.id} className="border border-cream-200 rounded-lg p-2.5 space-y-2">
                       <div className="flex items-start justify-between gap-3">
                         <p className="text-[11px] font-bold text-surface-800 leading-snug line-clamp-2">{broadcast.subject}</p>
-                        <time className="shrink-0 text-[10px] text-surface-500" dateTime={broadcast.createdAt}>
-                          {new Date(broadcast.createdAt).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Jakarta' })}
-                        </time>
+                        <div className="shrink-0 text-right">
+                          <time className="block text-[10px] text-surface-500" dateTime={broadcast.createdAt}>{new Date(broadcast.createdAt).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Jakarta' })}</time>
+                          {broadcast.status && <span className="text-[10px] font-bold text-sky-800 capitalize">{broadcast.status === 'running' ? 'Berjalan' : broadcast.status === 'queued' ? 'Menunggu' : broadcast.status === 'completed' ? 'Selesai' : broadcast.status}</span>}
+                        </div>
                       </div>
                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
                         <span className="text-surface-600">Target <strong className="text-brand-950">{broadcast.intendedRecipients}</strong></span>
@@ -1398,6 +1471,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                         <span className="text-sky-700">Tautan diklik <strong>{broadcast.clickedCount}</strong></span>
                         <span className="text-rose-700">Gagal / bounce <strong>{broadcast.failedCount}</strong></span>
                         <span className="text-amber-800">Belum diproses <strong>{broadcast.unattemptedCount}</strong></span>
+                        {(broadcast.duplicateSkippedCount || 0) > 0 && <span className="text-surface-500">Duplikat dilewati <strong>{broadcast.duplicateSkippedCount}</strong></span>}
                         <span className="text-amber-800">Tanpa laporan gagal <strong>{broadcast.noNegativeSignalCount}</strong></span>
                         <span className="text-surface-500">Unsubscribe <strong>{broadcast.unsubscribedCount}</strong></span>
                       </div>
@@ -1429,7 +1503,15 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
               <span className="block text-xs font-bold text-surface-800 mb-1.5">Isi Pesan</span>
               <textarea value={broadcastMessage} onChange={(e) => setBroadcastMessage(e.target.value)} maxLength={5000} required rows={6} className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-sky-600 focus:outline-none resize-y" />
             </label>
-            <p className="text-[11px] text-surface-500 leading-relaxed">Email memuat detail kajian terbaru dalam WIB. Hanya peserta dari kajian ini yang memiliki email akan diproses.</p>
+            <label className="block">
+              <span className="block text-xs font-bold text-surface-800 mb-1.5">Ukuran Batch</span>
+              <select value={broadcastBatchSize} onChange={(event) => setBroadcastBatchSize(Number(event.target.value))} className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white">
+                <option value={25}>25 email per proses</option>
+                <option value={50}>50 email per proses</option>
+                <option value={100}>100 email per proses (disarankan)</option>
+              </select>
+            </label>
+            <p className="text-[11px] text-surface-500 leading-relaxed">Admin memulai kampanye ini sekali. Sistem melanjutkan batch antrian setiap 15 menit hanya untuk kampanye ini, tetap maksimal 400 email per hari WIB. Email ganda dalam satu kampanye dan isi yang sama dalam 24 jam akan dilewati.</p>
             <div className="flex justify-end gap-2 pt-1">
               <button type="button" onClick={() => setShowBroadcastComposer(false)} className="px-4 py-2.5 rounded-xl border border-cream-300 bg-white text-surface-700 text-xs font-bold">Batal</button>
               <button type="submit" className="px-4 py-2.5 rounded-xl bg-sky-700 hover:bg-sky-800 text-white text-xs font-bold inline-flex items-center gap-2"><Mail className="w-3.5 h-3.5" /> Lanjutkan</button>
@@ -1442,8 +1524,8 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
         <ConfirmDialog
           isOpen={true}
           title="Kirim Broadcast Email?"
-          message={<div className="space-y-2"><p>Pesan akan dikirim hanya kepada maksimal <strong>{data.emailRecipientCount || 0}</strong> alamat email unik peserta kajian ini.</p><p className="text-[11px] text-amber-800">Pengiriman berhenti otomatis ketika batas broadcast harian tercapai. Isi yang sama tidak dikirim ulang ke penerima yang sama dalam 24 jam.</p></div>}
-          confirmLabel="Kirim Broadcast"
+          message={<div className="space-y-2"><p>Kampanye akan dibuat untuk maksimal <strong>{data.emailRecipientCount || 0}</strong> email unik peserta kajian ini. Batch awal memproses hingga <strong>{broadcastBatchSize}</strong> email.</p><p className="text-[11px] text-amber-800">Setelah Anda mulai, batch berikutnya diteruskan dari antrian setiap 15 menit, maksimal 400 email per hari WIB. Email yang sama tidak akan dikirim dua kali dalam kampanye ini; isi yang sama juga dilewati selama 24 jam.</p></div>}
+          confirmLabel="Mulai Antrian BC"
           cancelLabel="Kembali"
           variant="warning"
           loading={broadcastSending}

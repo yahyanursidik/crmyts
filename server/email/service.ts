@@ -133,6 +133,8 @@ export interface SendMailOptions {
   html: string;
   text?: string;
   replyTo?: string;
+  /** Stable ID supplied by a durable queue so a retried job remains traceable. */
+  messageId?: string;
 }
 
 /**
@@ -151,7 +153,7 @@ export async function sendEmail(options: SendMailOptions): Promise<{ success: bo
 
   try {
     const results = await Promise.all(recipients.map(async (recipient) => {
-      const messageId = `yts-${randomUUID()}`;
+      const messageId = options.messageId || `yts-${randomUUID()}`;
       const { response, payload } = await mailketingRequest(env.MAILKETING_API_ENDPOINT, {
         method: 'POST',
         headers: mailketingHeaders(env.MAILKETING_API_TOKEN),
@@ -361,6 +363,7 @@ export async function sendEventAnnouncementEmail(params: {
   startAtFormatted: string;
   locationName: string;
   ticketCode: string;
+  messageId?: string;
 }) {
   const content = `
     <p>Assalamu'alaikum Warahmatullahi Wabarakatuh, <strong>${escapeEmailHtml(params.recipientName)}</strong>.</p>
@@ -378,6 +381,7 @@ export async function sendEventAnnouncementEmail(params: {
     to: params.recipientEmail,
     subject: params.subject,
     html: renderEmailLayout(params.subject, content),
+    messageId: params.messageId,
   });
 }
 

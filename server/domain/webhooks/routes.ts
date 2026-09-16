@@ -78,7 +78,14 @@ export function registerWebhookRoutes(router: Router) {
       try {
         const { getDb } = await import('../../db/client');
         const { recordEventBroadcastWebhook } = await import('../events/reminderDispatch');
-        await recordEventBroadcastWebhook(getDb(), {
+        const { recordQueuedBroadcastWebhook } = await import('../events/broadcastQueue');
+        const db = getDb();
+        await recordEventBroadcastWebhook(db, {
+          type: payload.type as 'emailopen' | 'emailclick' | 'bounce' | 'unsubscribe',
+          messageId: payload.message_id,
+          occurredAt: payload.date,
+        });
+        await recordQueuedBroadcastWebhook(db, {
           type: payload.type as 'emailopen' | 'emailclick' | 'bounce' | 'unsubscribe',
           messageId: payload.message_id,
           occurredAt: payload.date,

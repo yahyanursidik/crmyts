@@ -76,6 +76,21 @@ describe('Official Email Service (Mailketing)', () => {
     });
   });
 
+  it('preserves a queue-assigned message id so retries stay traceable', async () => {
+    const fetchMock = mockMailketingSuccess('queue-message-id');
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(sendEmail({
+      to: 'jamaah@example.com',
+      subject: 'Koreksi Waktu Kajian',
+      html: '<p>Waktu terbaru</p>',
+      messageId: 'yts-campaign-recipient-001',
+    })).resolves.toMatchObject({ success: true });
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toMatchObject({ message_id: 'yts-campaign-recipient-001' });
+  });
+
   it('checks Mailketing credits without sending an email', async () => {
     const fetchMock = mockMailketingSuccess();
     vi.stubGlobal('fetch', fetchMock);
