@@ -15,7 +15,7 @@ import {
   getSinglePersonAttendanceStats,
 } from './attendanceHistory';
 import { getEventEmailSettings, sendEventTicketEmail } from './emailNotifications';
-import { dispatchEventBroadcast, dispatchEventReminders, listEventBroadcastSummaries } from './reminderDispatch';
+import { dispatchEventReminders, listEventBroadcastSummaries } from './reminderDispatch';
 import { getBroadcastDailyQuota } from '../../email/broadcastQuota';
 import { createQueuedEventBroadcast, listEventEmailTemplates, listQueuedEventBroadcasts, processQueuedEventBroadcast, saveEventEmailTemplate } from './broadcastQueue';
 
@@ -869,6 +869,7 @@ export function registerEventsRoutes(router: Router) {
         cityRegency: body.cityRegency || null,
         updatedAt: new Date(),
       }).where(eq(persons.id, attendance.personId)).returning();
+      if (!updatedPerson) return errorResponse('INTERNAL_ERROR', 'Data peserta tidak berhasil diperbarui.', 500, ctx.requestId);
 
       await logAuditEvent({
         actorUserId: ctx.user?.id,

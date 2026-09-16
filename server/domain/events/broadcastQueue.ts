@@ -124,13 +124,14 @@ export async function saveEventEmailTemplate(db: any, input: { name: string; sub
     RETURNING id, name, subject, message, updated_at
   `);
   const row = rows(result)[0];
+  if (!row) throw new Error('Template email gagal disimpan.');
   return { id: row.id, name: row.name, subject: row.subject, message: row.message, updatedAt: new Date(row.updated_at).toISOString() };
 }
 
 export async function createQueuedEventBroadcast(
   db: any,
   event: EventEmailEvent,
-  input: { subject: string; message: string; batchSize?: number; templateId?: string; createdBy?: string }
+  input: { subject: string; message: string; batchSize?: number; templateId?: string | null; createdBy?: string }
 ): Promise<{ campaignId: string; targetCount: number; duplicateSkippedCount: number; skippedNoEmail: number; batchSize: number }> {
   await ensureEventBroadcastQueueTables(db);
   const attendances: Attendance[] = await db.query.eventAttendance.findMany({ where: eq(eventAttendance.eventId, event.id), with: { person: true } });
