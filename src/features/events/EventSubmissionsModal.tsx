@@ -125,6 +125,22 @@ interface EventDetailData {
   } | null;
 }
 
+interface EventBroadcastSummary {
+  id: string;
+  subject: string;
+  createdAt: string;
+  intendedRecipients: number;
+  attemptedCount: number;
+  unattemptedCount: number;
+  providerAcceptedCount: number;
+  openedCount: number;
+  clickedCount: number;
+  bouncedCount: number;
+  unsubscribedCount: number;
+  failedCount: number;
+  noNegativeSignalCount: number;
+}
+
 interface EventSubmissionsModalProps {
   eventId: string;
   isOpen: boolean;
@@ -167,6 +183,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   const [broadcastSubject, setBroadcastSubject] = useState('');
   const [broadcastMessage, setBroadcastMessage] = useState('');
   const [broadcastSending, setBroadcastSending] = useState(false);
+  const [broadcastHistory, setBroadcastHistory] = useState<EventBroadcastSummary[]>([]);
 
   // Toast
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -184,6 +201,14 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
         setData(res.data);
         setBroadcastSubject((current) => current || `Pembaruan informasi kajian: ${res.data.title}`);
         setBroadcastMessage((current) => current || 'Bismillah, terdapat pembaruan informasi mengenai kajian. Mohon perhatikan jadwal dan lokasi terbaru pada email ini.');
+      }
+      try {
+        const broadcasts = await apiClient<EventBroadcastSummary[]>(`/events/${eventId}/email-broadcasts`);
+        setBroadcastHistory(broadcasts.data || []);
+      } catch (historyError) {
+        // Delivery analytics must not prevent the participant list from loading.
+        console.warn('Failed to load event broadcast history:', historyError);
+        setBroadcastHistory([]);
       }
     } catch (err: any) {
       console.error('Failed to load event submissions:', err);
@@ -269,7 +294,6 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
       });
       showToast(response.data?.message || 'Broadcast email berhasil dikirim.');
       setShowBroadcastConfirm(false);
-      setShowBroadcastComposer(false);
       await loadEventDetail();
     } catch (err: any) {
       showToast(err.message || 'Broadcast email gagal dikirim.', 'error');
@@ -1311,7 +1335,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
 
       {showBroadcastComposer && data && (
         <div className="fixed inset-0 z-70 bg-surface-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <form onSubmit={handleBroadcastSubmit} className="bg-[#fbfaf6] rounded-2xl max-w-lg w-full p-5 shadow-2xl border border-cream-300 space-y-4">
+          <form onSubmit={handleBroadcastSubmit} className="bg-[#fbfaf6] rounded-2xl max-w-lg w-full max-h-[calc(100vh-2rem)] overflow-y-auto p-5 shadow-2xl border border-cream-300 space-y-4">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-full bg-sky-100 text-sky-900 border border-sky-200">
@@ -1334,6 +1358,41 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                 <span className="text-sm font-black text-brand-950">{data.emailBroadcastQuota?.remainingToday ?? '-'} / {data.emailBroadcastQuota?.dailyLimit ?? '-'}</span>
               </div>
             </div>
+
+            {broadcastHistory.length > 0 && (
+              <section className="border border-cream-200 bg-white rounded-xl p-3 space-y-2.5" aria-label="Riwayat status broadcast email">
+                <div className="flex items-baseline justify-between gap-3">
+                  <h4 className="text-xs font-black text-brand-950">Riwayat BC</h4>
+                  <span className="text-[10px] font-medium text-surface-500">Maks. 10 pengiriman terakhir</span>
+                </div>
+                <div className="space-y-2">
+                  {broadcastHistory.slice(0, 3).map((broadcast) => (
+                    <div key={broadcast.id} className="border border-cream-200 rounded-lg p-2.5 space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-[11px] font-bold text-surface-800 leading-snug line-clamp-2">{broadcast.subject}</p>
+                        <time className="shrink-0 text-[10px] text-surface-500" dateTime={broadcast.createdAt}>
+                          {new Date(broadcast.createdAt).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Jakarta' })}
+                        </time>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
+                        <span className="text-surface-600">Target <strong className="text-brand-950">{broadcast.intendedRecipients}</strong></span>
+                        <span className="text-surface-600">Diproses <strong className="text-brand-950">{broadcast.attemptedCount}</strong></span>
+                        <span className="text-emerald-700">Diterima provider <strong>{broadcast.providerAcceptedCount}</strong></span>
+                        <span className="text-sky-700">Dibuka <strong>{broadcast.openedCount}</strong></span>
+                        <span className="text-sky-700">Tautan diklik <strong>{broadcast.clickedCount}</strong></span>
+                        <span className="text-rose-700">Gagal / bounce <strong>{broadcast.failedCount}</strong></span>
+                        <span className="text-amber-800">Belum diproses <strong>{broadcast.unattemptedCount}</strong></span>
+                        <span className="text-amber-800">Tanpa laporan gagal <strong>{broadcast.noNegativeSignalCount}</strong></span>
+                        <span className="text-surface-500">Unsubscribe <strong>{broadcast.unsubscribedCount}</strong></span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[10px] leading-relaxed text-surface-500">
+                  “Diterima provider” berarti Mailketing menerima pengiriman. Status buka, bounce, dan unsubscribe diperbarui dari webhook Mailketing; email tidak dapat memastikan pesan benar-benar dibaca di kotak masuk.
+                </p>
+              </section>
+            )}
 
             <label className="block">
               <span className="block text-xs font-bold text-surface-800 mb-1.5">Subjek Email</span>

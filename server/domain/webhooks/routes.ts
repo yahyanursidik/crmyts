@@ -71,6 +71,25 @@ export function registerWebhookRoutes(router: Router) {
       }
     }
 
+    // A provider acknowledgement is not proof of inbox delivery. Keep the
+    // per-recipient campaign record in sync only when Mailketing sends an
+    // auditable event tied to the message ID.
+    if (env.DATABASE_URL && payload.message_id && ['emailopen', 'emailclick', 'bounce', 'unsubscribe'].includes(payload.type)) {
+      try {
+        const { getDb } = await import('../../db/client');
+        const { recordEventBroadcastWebhook } = await import('../events/reminderDispatch');
+        await recordEventBroadcastWebhook(getDb(), {
+          type: payload.type as 'emailopen' | 'emailclick' | 'bounce' | 'unsubscribe',
+          messageId: payload.message_id,
+          occurredAt: payload.date,
+        });
+      } catch (err) {
+        // Never reject Mailketing's retryable webhook solely because optional
+        // analytics persistence is temporarily unavailable.
+        console.warn('[Mailketing Webhook Event Broadcast Tracking Err]:', err);
+      }
+    }
+
     await logAuditEvent({
       action: `mailketing_webhook_${payload.type}`,
       entityType: 'mailketing_webhook',

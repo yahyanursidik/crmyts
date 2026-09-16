@@ -15,7 +15,7 @@ import {
   getSinglePersonAttendanceStats,
 } from './attendanceHistory';
 import { getEventEmailSettings, sendEventTicketEmail } from './emailNotifications';
-import { dispatchEventBroadcast, dispatchEventReminders } from './reminderDispatch';
+import { dispatchEventBroadcast, dispatchEventReminders, listEventBroadcastSummaries } from './reminderDispatch';
 import { getBroadcastDailyQuota } from '../../email/broadcastQuota';
 
 const createEventSchema = z.object({
@@ -955,6 +955,21 @@ export function registerEventsRoutes(router: Router) {
         }, { requestId: ctx.requestId });
       })
     )
+  );
+
+  // 7g. GET /api/events/:id/email-broadcasts (Persisted, provider-confirmed broadcast metrics)
+  router.get(
+    '/api/events/:id/email-broadcasts',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const eventId = ctx.params.id;
+      if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+      const event = await db.query.events.findFirst({ where: eq(events.id, eventId), columns: { id: true } });
+      if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan.', 404, ctx.requestId);
+
+      const broadcasts = await listEventBroadcastSummaries(db, eventId);
+      return successResponse(broadcasts, { requestId: ctx.requestId });
+    })
   );
 
   // 7d. POST /api/events/:id/attendances/bulk-checkin (Bulk Check-in / Uncheck-in)
