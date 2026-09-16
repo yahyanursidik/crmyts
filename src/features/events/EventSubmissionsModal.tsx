@@ -141,6 +141,22 @@ interface EventBroadcastSummary {
   noNegativeSignalCount: number;
 }
 
+function formatEventDateTimeWib(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Waktu kajian belum tersedia';
+
+  return `${new Intl.DateTimeFormat('id-ID', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'Asia/Jakarta',
+  }).format(date)} WIB`;
+}
+
 interface EventSubmissionsModalProps {
   eventId: string;
   isOpen: boolean;
@@ -712,7 +728,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                   title="Kirim broadcast email hanya kepada peserta kajian ini yang memiliki email"
                 >
                   <Mail className="w-3.5 h-3.5" />
-                  <span>BC Email ({data?.emailRecipientCount || 0})</span>
+                  <span>BC Email & Riwayat ({data?.emailRecipientCount || 0})</span>
                 </button>
 
                 <button
@@ -1339,7 +1355,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-full bg-sky-100 text-sky-900 border border-sky-200">
-                  <Mail className="w-3 h-3" /> Broadcast Peserta Kajian
+                  <Mail className="w-3 h-3" /> BC Email & Riwayat Kajian
                 </div>
                 <h3 className="mt-2 text-base font-black text-brand-950">Kirim Informasi ke Peserta</h3>
               </div>
@@ -1359,12 +1375,12 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
               </div>
             </div>
 
-            {broadcastHistory.length > 0 && (
-              <section className="border border-cream-200 bg-white rounded-xl p-3 space-y-2.5" aria-label="Riwayat status broadcast email">
-                <div className="flex items-baseline justify-between gap-3">
-                  <h4 className="text-xs font-black text-brand-950">Riwayat BC</h4>
-                  <span className="text-[10px] font-medium text-surface-500">Maks. 10 pengiriman terakhir</span>
-                </div>
+            <section className="border border-cream-200 bg-white rounded-xl p-3 space-y-2.5" aria-label="Riwayat status broadcast email">
+              <div className="flex items-baseline justify-between gap-3">
+                <h4 className="text-xs font-black text-brand-950">Riwayat BC</h4>
+                <span className="text-[10px] font-medium text-surface-500">Maks. 10 pengiriman terakhir</span>
+              </div>
+              {broadcastHistory.length > 0 ? (
                 <div className="space-y-2">
                   {broadcastHistory.slice(0, 3).map((broadcast) => (
                     <div key={broadcast.id} className="border border-cream-200 rounded-lg p-2.5 space-y-2">
@@ -1388,11 +1404,22 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                     </div>
                   ))}
                 </div>
-                <p className="text-[10px] leading-relaxed text-surface-500">
-                  “Diterima provider” berarti Mailketing menerima pengiriman. Status buka, bounce, dan unsubscribe diperbarui dari webhook Mailketing; email tidak dapat memastikan pesan benar-benar dibaca di kotak masuk.
+              ) : (
+                <p className="text-[11px] leading-relaxed text-surface-500">
+                  Belum ada BC yang tercatat. Setelah pengiriman pertama, target, proses, penerimaan provider, buka, klik, gagal/bounce, unsubscribe, dan sisa akibat kuota akan tampil di sini.
                 </p>
-              </section>
-            )}
+              )}
+              <p className="text-[10px] leading-relaxed text-surface-500">
+                “Diterima provider” berarti Mailketing menerima pengiriman. Status buka, bounce, dan unsubscribe diperbarui dari webhook Mailketing; email tidak dapat memastikan pesan benar-benar dibaca di kotak masuk.
+              </p>
+            </section>
+
+            <section className="border border-sky-200 bg-sky-50/60 rounded-xl p-3" aria-label="Detail kajian yang akan dilampirkan pada email">
+              <span className="block text-[10px] uppercase font-black tracking-wider text-sky-800">Detail otomatis di setiap email</span>
+              <p className="mt-1 text-xs font-bold text-sky-950">{data.title}</p>
+              <p className="mt-0.5 text-[11px] text-sky-800">Waktu: {formatEventDateTimeWib(data.startAt)}</p>
+              <p className="mt-0.5 text-[11px] text-sky-800">Lokasi: {data.locationName || 'Masjid Tarbiyah Sunnah'}</p>
+            </section>
 
             <label className="block">
               <span className="block text-xs font-bold text-surface-800 mb-1.5">Subjek Email</span>
