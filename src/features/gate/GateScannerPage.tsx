@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router';
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router';
 import {
   QrCode,
   Camera,
@@ -204,7 +204,11 @@ const getGreetingInfo = (p?: ParticipantItem | null) => {
 export const GateScannerPage: React.FC = () => {
   const params = useParams<{ id?: string; eventId?: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const activeEventId = params.id || params.eventId || null;
+  const accessTokenFromUrl = searchParams.get('access')?.trim() || '';
+  const [gateAccessToken, setGateAccessToken] = useState(accessTokenFromUrl);
+  const [gateAccessError, setGateAccessError] = useState<string | null>(null);
 
   // Station Settings
   const [stationName, setStationName] = useState<string>(() => {
@@ -220,6 +224,7 @@ export const GateScannerPage: React.FC = () => {
   // Events List for Selector
   const [eventsList, setEventsList] = useState<GateEvent[]>([]);
   const [loadingEventsList, setLoadingEventsList] = useState(false);
+  const [eventsListError, setEventsListError] = useState<string | null>(null);
 
   // Current Event & Participants Data
   const [eventData, setEventData] = useState<GateEvent | null>(null);
@@ -384,43 +389,69 @@ export const GateScannerPage: React.FC = () => {
   const loadEventsList = useCallback(async () => {
     try {
       setLoadingEventsList(true);
+      setEventsListError(null);
       const res = await apiClient<{ events: GateEvent[] }>('/public/gate/events');
       if (res.data?.events) {
         setEventsList(res.data.events);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.warn('Gagal mengambil daftar event gate:', e);
+      setEventsList([]);
+      setEventsListError(e?.message || 'Daftar kajian Gate belum dapat dimuat. Periksa koneksi lalu coba lagi.');
     } finally {
       setLoadingEventsList(false);
     }
   }, []);
 
+  useEffect(() => {
+    if (!activeEventId || typeof window === 'undefined') return;
+    const storageKey = `crm_gate_access_${activeEventId}`;
+    if (accessTokenFromUrl) {
+      window.sessionStorage.setItem(storageKey, accessTokenFromUrl);
+      setGateAccessToken(accessTokenFromUrl);
+      return;
+    }
+    setGateAccessToken(window.sessionStorage.getItem(storageKey) || '');
+  }, [activeEventId, accessTokenFromUrl]);
+
   // Fetch Event Operational Data
-  const loadEventData = useCallback(async (eventId: string, isSilent = false) => {
+  const loadEventData = useCallback(async (eventId: string, isSilent = false, tokenOverride?: string) => {
     try {
       if (!isSilent) setLoadingData(true);
       else setRefreshing(true);
+
+      const accessToken = tokenOverride ?? gateAccessToken;
 
       const res = await apiClient<{
         event: GateEvent;
         stats: GateStats;
         participants: ParticipantItem[];
         recentCheckIns: ParticipantItem[];
-      }>(`/public/gate/events/${eventId}`);
+      }>(`/public/gate/events/${eventId}`, {
+        headers: accessToken ? { 'X-Gate-Access': accessToken } : undefined,
+      });
 
       if (res.data) {
         setEventData(res.data.event);
         setStats(res.data.stats);
         setParticipants(res.data.participants);
         setRecentCheckIns(res.data.recentCheckIns);
+        setGateAccessError(null);
       }
     } catch (e: any) {
       console.warn('Gagal mengambil data event gate:', e);
+      if (e?.statusCode === 403) {
+        setEventData(null);
+        setParticipants([]);
+        setStats(null);
+        setRecentCheckIns([]);
+        setGateAccessError(e.message || 'Tautan Gate privat diperlukan untuk membuka data presensi.');
+      }
     } finally {
       setLoadingData(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [gateAccessToken]);
 
   // Auto-load events list or active event
   useEffect(() => {
@@ -433,12 +464,12 @@ export const GateScannerPage: React.FC = () => {
 
   // Periodic auto-sync every 30s
   useEffect(() => {
-    if (!activeEventId) return;
+    if (!activeEventId || !eventData || gateAccessError) return;
     const timer = setInterval(() => {
       loadEventData(activeEventId, true);
     }, 30000);
     return () => clearInterval(timer);
-  }, [activeEventId, loadEventData]);
+  }, [activeEventId, eventData, gateAccessError, loadEventData]);
 
   // Stop camera helper
   const stopCameraScanner = useCallback(async () => {
@@ -468,7 +499,7 @@ export const GateScannerPage: React.FC = () => {
   // Execute Scan Check-In (Core Function)
   const handleExecuteScan = useCallback(
     async (params: { ticketCode?: string; attendanceId?: string; query?: string }) => {
-      if (!activeEventId || scanInFlightRef.current) return;
+      if (!activeEventId || !eventData || gateAccessError || scanInFlightRef.current) return;
       scanInFlightRef.current = true;
 
       const nowTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
@@ -476,6 +507,7 @@ export const GateScannerPage: React.FC = () => {
       try {
         const res = await apiClient<ScanResponse>(`/public/gate/events/${activeEventId}/scan`, {
           method: 'POST',
+          headers: gateAccessToken ? { 'X-Gate-Access': gateAccessToken } : undefined,
           body: JSON.stringify({
             ...params,
             gateName: stationName,
@@ -555,13 +587,13 @@ export const GateScannerPage: React.FC = () => {
         scanInFlightRef.current = false;
       }
     },
-    [activeEventId, stationName, officerName, playFeedbackTone, triggerHaptic]
+    [activeEventId, eventData, gateAccessError, stationName, officerName, gateAccessToken, playFeedbackTone, triggerHaptic]
   );
   handleExecuteScanRef.current = handleExecuteScan;
 
   // 1-Click Manual Toggle Check-in / Undo
   const handleToggleAttendance = async (participant: ParticipantItem) => {
-    if (!activeEventId || actionLoadingId) return;
+    if (!activeEventId || !eventData || gateAccessError || actionLoadingId) return;
     setActionLoadingId(participant.id);
 
     const targetStatus = participant.status === 'attended' ? 'registered' : 'attended';
@@ -574,6 +606,7 @@ export const GateScannerPage: React.FC = () => {
         `/public/gate/events/${activeEventId}/toggle-checkin`,
         {
           method: 'POST',
+          headers: gateAccessToken ? { 'X-Gate-Access': gateAccessToken } : undefined,
           body: JSON.stringify({
             attendanceId: participant.id,
             targetStatus,
@@ -631,6 +664,21 @@ export const GateScannerPage: React.FC = () => {
     } finally {
       setActionLoadingId(null);
     }
+  };
+
+  const handleGateAccessSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!activeEventId) return;
+    const token = gateAccessToken.trim();
+    if (!token) {
+      setGateAccessError('Masukkan kode akses atau buka tautan Gate privat yang diberikan admin.');
+      return;
+    }
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem(`crm_gate_access_${activeEventId}`, token);
+    }
+    setGateAccessError(null);
+    loadEventData(activeEventId, false, token);
   };
 
   // Start Camera Stream (Stable callback using refs to prevent re-render loops)
@@ -971,6 +1019,7 @@ export const GateScannerPage: React.FC = () => {
 
   // Hardware Scanner Gun Listener (USB / Bluetooth 2D Scanner Keystrokes)
   useEffect(() => {
+    if (!activeEventId || !eventData || gateAccessError) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       const isInputFocused =
@@ -1011,11 +1060,11 @@ export const GateScannerPage: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleExecuteScan]);
+  }, [activeEventId, eventData, gateAccessError, handleExecuteScan]);
 
   // Camera Mount Lifecycle (only starts on camera tab entry, only stops on leaving camera tab or unmount)
   useEffect(() => {
-    if (activeEventId && activeTab === 'camera') {
+    if (activeEventId && eventData && !gateAccessError && activeTab === 'camera') {
       let cancelled = false;
       const timer = setTimeout(() => {
         if (!cancelled) {
@@ -1031,7 +1080,7 @@ export const GateScannerPage: React.FC = () => {
     } else {
       stopCameraScanner();
     }
-  }, [activeEventId, activeTab]);
+  }, [activeEventId, eventData, gateAccessError, activeTab, startCameraScanner, stopCameraScanner]);
 
   // Copy URL
   const copyOriginToClipboard = () => {
@@ -1127,12 +1176,24 @@ export const GateScannerPage: React.FC = () => {
               <RefreshCw className="w-8 h-8 animate-spin text-emerald-500 mb-3" />
               <p className="text-sm">Memuat daftar acara aktif...</p>
             </div>
+          ) : eventsListError ? (
+            <div className="text-center py-16 px-4 bg-slate-900/40 rounded-2xl border border-rose-500/30">
+              <AlertTriangle className="w-12 h-12 text-rose-400 mx-auto mb-3" />
+              <h3 className="text-lg font-semibold text-slate-100 mb-1">Daftar Kajian Belum Dapat Dimuat</h3>
+              <p className="text-sm text-slate-400 max-w-md mx-auto mb-4">{eventsListError}</p>
+              <button
+                onClick={loadEventsList}
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white"
+              >
+                Coba Muat Lagi
+              </button>
+            </div>
           ) : eventsList.length === 0 ? (
             <div className="text-center py-16 px-4 bg-slate-900/40 rounded-2xl border border-slate-800">
               <Calendar className="w-12 h-12 text-slate-600 mx-auto mb-3" />
               <h3 className="text-lg font-semibold text-slate-300 mb-1">Belum Ada Kajian Aktif</h3>
               <p className="text-sm text-slate-400 max-w-md mx-auto mb-4">
-                Saat ini belum ada kajian atau event yang berstatus aktif atau dipublikasikan.
+                Belum ada kajian berstatus terjadwal atau sedang berlangsung yang dapat dibuka untuk presensi.
               </p>
               <button
                 onClick={loadEventsList}
@@ -1273,6 +1334,52 @@ export const GateScannerPage: React.FC = () => {
             </div>
           </div>
         )}
+      </div>
+    );
+  }
+
+  if (gateAccessError) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
+        <main className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300">
+            <Lock className="h-6 w-6" />
+          </div>
+          <h1 className="text-center text-xl font-bold text-white">Akses Gate Privat</h1>
+          <p className="mt-2 text-center text-sm leading-relaxed text-slate-400">
+            Untuk melindungi data peserta dan presensi, pos Gate ini hanya dapat dibuka dari tautan privat yang diberikan admin kajian.
+          </p>
+          <p className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-200">
+            {gateAccessError}
+          </p>
+
+          <form onSubmit={handleGateAccessSubmit} className="mt-5 space-y-3">
+            <label className="block text-xs font-semibold text-slate-300" htmlFor="gate-access-token">
+              Kode akses Gate
+            </label>
+            <input
+              id="gate-access-token"
+              type="text"
+              value={gateAccessToken}
+              onChange={(e) => setGateAccessToken(e.target.value.trim())}
+              placeholder="Tempel kode dari tautan privat"
+              autoComplete="off"
+              className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-500"
+            />
+            <button
+              type="submit"
+              disabled={loadingData}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loadingData ? <RefreshCw className="h-4 w-4 animate-spin" /> : <QrCode className="h-4 w-4" />}
+              Buka Gate Scanner
+            </button>
+          </form>
+
+          <Link to="/gate" className="mt-4 block text-center text-xs font-semibold text-emerald-400 hover:text-emerald-300">
+            Kembali ke portal Gate
+          </Link>
+        </main>
       </div>
     );
   }

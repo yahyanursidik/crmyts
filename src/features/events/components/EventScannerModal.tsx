@@ -95,6 +95,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [openingPublicGate, setOpeningPublicGate] = useState(false);
 
   // Camera State Management
   const [cameraState, setCameraState] = useState<'idle' | 'requesting' | 'active' | 'denied' | 'insecure' | 'not_found' | 'unsupported' | 'error'>('idle');
@@ -922,6 +923,32 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
     handleExecuteScan({ phoneQuery: phoneQuery.trim() });
   };
 
+  const handleOpenPublicGate = async () => {
+    if (openingPublicGate) return;
+    const popup = window.open('', '_blank');
+    try {
+      setOpeningPublicGate(true);
+      const res = await apiClient<{ gateAccessToken: string }>(`/events/${eventId}/gate-access`);
+      const accessToken = res.data?.gateAccessToken;
+      if (!accessToken) throw new Error('Tautan privat Gate tidak dapat dibuat.');
+      const url = `${window.location.origin}/gate/${eventId}?access=${encodeURIComponent(accessToken)}`;
+      if (popup) {
+        popup.location.replace(url);
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+    } catch (err: any) {
+      popup?.close();
+      setScanStatus({
+        type: 'error',
+        title: 'Tautan Gate belum dapat dibuka',
+        message: err.message || 'Silakan coba lagi atau periksa koneksi Anda.',
+      });
+    } finally {
+      setOpeningPublicGate(false);
+    }
+  };
+
   // Participants list & realtime calculations
   const participantsList: any[] = eventData?.participants || [];
   const filteredParticipants = participantsList.filter((p: any) => {
@@ -984,16 +1011,16 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
             </button>
 
             {/* Standalone Gate Link */}
-            <a
-              href={`/gate/${eventId}`}
-              target="_blank"
-              rel="noreferrer"
-              title="Buka Halaman Gate Mandiri (Bisa Dibagikan Tanpa Login)"
-              className="p-2 bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-600/30 rounded-xl transition-all hidden sm:flex items-center gap-1.5 text-xs font-semibold"
+            <button
+              type="button"
+              onClick={handleOpenPublicGate}
+              disabled={openingPublicGate}
+              title="Buka tautan Gate privat untuk dibagikan kepada petugas lapangan"
+              className="p-2 bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-600/30 rounded-xl transition-all hidden sm:flex items-center gap-1.5 text-xs font-semibold disabled:cursor-wait disabled:opacity-60"
             >
-              <ExternalLink className="w-4 h-4" />
-              <span>Gate Mandiri (Tanpa Login)</span>
-            </a>
+              {openingPublicGate ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
+              <span>{openingPublicGate ? 'Menyiapkan...' : 'Buka Gate Privat'}</span>
+            </button>
 
             {/* Fullscreen Toggle */}
             <button

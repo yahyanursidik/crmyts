@@ -65,6 +65,7 @@ interface ParticipantItem {
   referrerName?: string | null;
   referrerCode?: string | null;
   referralCount?: number;
+  duplicatePhoneCount?: number;
 
   // Attendance History & Loyalty
   pastAttendedCount?: number;
@@ -153,6 +154,19 @@ interface EventBroadcastTemplate {
   updatedAt: string;
 }
 
+interface EventBroadcastToday {
+  sentToday: number;
+  attemptedToday: number;
+  failedToday: number;
+  queuedForEvent: number;
+  sentRecipients: Array<{
+    email: string;
+    recipientName: string;
+    subject: string;
+    sentAt: string;
+  }>;
+}
+
 function formatEventDateTimeWib(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'Waktu kajian belum tersedia';
@@ -215,6 +229,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   const [broadcastMessage, setBroadcastMessage] = useState('');
   const [broadcastSending, setBroadcastSending] = useState(false);
   const [broadcastHistory, setBroadcastHistory] = useState<EventBroadcastSummary[]>([]);
+  const [broadcastToday, setBroadcastToday] = useState<EventBroadcastToday | null>(null);
   const [broadcastTemplates, setBroadcastTemplates] = useState<EventBroadcastTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [templateName, setTemplateName] = useState('');
@@ -245,6 +260,13 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
         // Delivery analytics must not prevent the participant list from loading.
         console.warn('Failed to load event broadcast history:', historyError);
         setBroadcastHistory([]);
+      }
+      try {
+        const today = await apiClient<EventBroadcastToday>(`/events/${eventId}/email-broadcasts/today`);
+        setBroadcastToday(today.data || null);
+      } catch (todayError) {
+        console.warn('Failed to load event broadcast daily delivery:', todayError);
+        setBroadcastToday(null);
       }
       try {
         const templates = await apiClient<EventBroadcastTemplate[]>(`/events/${eventId}/email-broadcast-templates`);
@@ -1021,6 +1043,9 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                                 <div>
                                   <div className="flex items-center gap-1.5 flex-wrap">
                                     <p className="font-bold text-brand-950 text-xs">{p.personName}</p>
+                                    {(p.duplicatePhoneCount || 0) > 1 && (
+                                      <span title="Ada lebih dari satu tiket dengan nomor WhatsApp fisik yang sama. Periksa dan hapus tiket duplikat bila diperlukan." className="text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-rose-100 text-rose-900 border border-rose-200">Nomor sama ({p.duplicatePhoneCount})</span>
+                                    )}
                                     {p.familyRelationship && (
                                       <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200">
                                         {p.familyRelationship} {p.age ? `(${p.age} thn)` : ''}
@@ -1248,6 +1273,9 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                             <div>
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <h4 className="font-bold text-brand-950 text-sm">{p.personName}</h4>
+                                {(p.duplicatePhoneCount || 0) > 1 && (
+                                  <span title="Ada lebih dari satu tiket dengan nomor WhatsApp fisik yang sama. Periksa dan hapus tiket duplikat bila diperlukan." className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-rose-100 text-rose-900 border border-rose-200">Nomor sama ({p.duplicatePhoneCount})</span>
+                                )}
                                 <span
                                   className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
                                     p.personGender === 'ikhwan'
@@ -1498,10 +1526,37 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                 <span className="text-sm font-black text-brand-950">{data.emailRecipientCount || 0} email unik</span>
               </div>
               <div className="p-3 bg-white border border-cream-200 rounded-xl">
-                <span className="text-[10px] uppercase font-bold text-surface-400 block">Sisa Hari Ini</span>
+                <span className="text-[10px] uppercase font-bold text-surface-400 block">Sisa Kuota Global</span>
                 <span className="text-sm font-black text-brand-950">{data.emailBroadcastQuota?.remainingToday ?? '-'} / {data.emailBroadcastQuota?.dailyLimit ?? '-'}</span>
               </div>
             </div>
+
+            <section className="border border-sky-200 bg-sky-50/60 rounded-xl p-3 space-y-2.5" aria-label="Status broadcast kajian hari ini">
+              <div className="flex items-baseline justify-between gap-3">
+                <h4 className="text-xs font-black text-sky-950">BC Kajian Hari Ini</h4>
+                <span className="text-[10px] text-sky-800">Tanggal dan batas mengikuti WIB</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <div className="rounded-lg border border-sky-100 bg-white px-2.5 py-2"><span className="block text-surface-500">Terkirim ke peserta</span><strong className="text-base text-sky-950">{broadcastToday?.sentToday ?? 0}</strong></div>
+                <div className="rounded-lg border border-sky-100 bg-white px-2.5 py-2"><span className="block text-surface-500">Menunggu dari kajian ini</span><strong className="text-base text-amber-800">{broadcastToday?.queuedForEvent ?? 0}</strong></div>
+                <div className="rounded-lg border border-sky-100 bg-white px-2.5 py-2"><span className="block text-surface-500">Percobaan pengiriman</span><strong className="text-base text-brand-950">{broadcastToday?.attemptedToday ?? 0}</strong></div>
+                <div className="rounded-lg border border-sky-100 bg-white px-2.5 py-2"><span className="block text-surface-500">Gagal / bounce hari ini</span><strong className="text-base text-rose-700">{broadcastToday?.failedToday ?? 0}</strong></div>
+              </div>
+              {broadcastToday?.sentRecipients.length ? (
+                <details className="rounded-lg border border-sky-100 bg-white px-2.5 py-2 text-[11px]">
+                  <summary className="cursor-pointer font-bold text-sky-900">Lihat email yang terkirim hari ini ({broadcastToday.sentRecipients.length}{broadcastToday.sentRecipients.length === 40 ? '+' : ''})</summary>
+                  <div className="mt-2 max-h-36 overflow-y-auto divide-y divide-sky-100">
+                    {broadcastToday.sentRecipients.map((recipient, index) => (
+                      <div key={`${recipient.email}-${recipient.sentAt}-${index}`} className="py-1.5">
+                        <p className="font-semibold text-surface-800 break-all">{recipient.recipientName} - {recipient.email}</p>
+                        <p className="text-[10px] text-surface-500">{new Date(recipient.sentAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' })} WIB</p>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              ) : <p className="text-[11px] text-sky-800">Belum ada email BC kajian ini yang tercatat terkirim hari ini.</p>}
+              <p className="text-[10px] leading-relaxed text-surface-500">Sisa kuota di atas adalah kapasitas seluruh sistem email hari ini. Angka terkirim di bagian ini hanya untuk BC peserta kajian yang sedang dibuka.</p>
+            </section>
 
             <section className="border border-cream-200 bg-white rounded-xl p-3 space-y-2.5">
               <div className="flex items-center justify-between gap-3">

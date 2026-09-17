@@ -1635,6 +1635,15 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
             findMany: vi.fn().mockResolvedValue(mockEvents),
           },
         },
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              groupBy: vi.fn().mockResolvedValue([
+                { eventId: '018f0000-0000-0000-0000-000000000099', total: 2, checkedIn: 1 },
+              ]),
+            }),
+          }),
+        }),
       };
 
       vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
@@ -1669,7 +1678,7 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
         quota: 200,
         quotaIkhwan: 100,
         quotaAkhwat: 100,
-        status: 'in_progress',
+        status: 'ongoing',
         attendances: [
           {
             id: 'att_1',
@@ -1748,6 +1757,74 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
       expect(body.data.recentCheckIns[0].personGender).toBe('ikhwan');
     });
 
+    it('protects a provisioned Gate link from exposing participant data or changing attendance without its private token', async () => {
+      const privateToken = 'private-gate-token-for-test';
+      const findAttendance = vi.fn();
+      const mockDb = {
+        query: {
+          events: {
+            findFirst: vi.fn().mockResolvedValue({
+              id: '018f0000-0000-0000-0000-000000000099',
+              title: 'Kajian Privat',
+              category: 'kajian',
+              speaker: null,
+              startAt: new Date('2026-09-17T01:00:00.000Z'),
+              endAt: null,
+              locationName: 'Masjid Tarbiyah Sunnah',
+              targetAudience: 'umum',
+              quota: 100,
+              quotaIkhwan: 50,
+              quotaAkhwat: 50,
+              venueRules: [],
+              customVenueRules: null,
+              status: 'scheduled',
+              formConfig: { gateAccessToken: privateToken },
+              attendances: [],
+            }),
+          },
+          eventAttendance: {
+            findFirst: findAttendance,
+          },
+        },
+      };
+      vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+
+      const blockedDetail = await router.handle({
+        path: '/api/public/gate/events/018f0000-0000-0000-0000-000000000099',
+        method: 'GET',
+        headers: {},
+        query: {},
+        params: { id: '018f0000-0000-0000-0000-000000000099' },
+        body: null,
+        requestId: 'req_gate_private_detail_blocked',
+      });
+      expect(blockedDetail.statusCode).toBe(403);
+
+      const blockedScan = await router.handle({
+        path: '/api/public/gate/events/018f0000-0000-0000-0000-000000000099/scan',
+        method: 'POST',
+        headers: {},
+        query: {},
+        params: { id: '018f0000-0000-0000-0000-000000000099' },
+        body: { ticketCode: 'KJN-1234', gateName: 'Pintu Utama' },
+        requestId: 'req_gate_private_scan_blocked',
+      });
+      expect(blockedScan.statusCode).toBe(403);
+      expect(findAttendance).not.toHaveBeenCalled();
+
+      const allowedDetail = await router.handle({
+        path: '/api/public/gate/events/018f0000-0000-0000-0000-000000000099',
+        method: 'GET',
+        headers: { 'x-gate-access': privateToken },
+        query: {},
+        params: { id: '018f0000-0000-0000-0000-000000000099' },
+        body: null,
+        requestId: 'req_gate_private_detail_allowed',
+      });
+      expect(allowedDetail.statusCode).toBe(200);
+      expect(JSON.parse(allowedDetail.body).data.event.title).toBe('Kajian Privat');
+    });
+
     it('POST /api/public/gate/events/:id/scan checks in unregistered ticket and warns on duplicate check-in', async () => {
       let currentStatus = 'registered';
       let currentCheckInAt: any = null;
@@ -1773,6 +1850,9 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
 
       const mockDb = {
         query: {
+          events: {
+            findFirst: vi.fn().mockResolvedValue({ id: '018f0000-0000-0000-0000-000000000099', formConfig: {} }),
+          },
           eventAttendance: {
             findFirst: vi.fn().mockImplementation(() => {
               return Promise.resolve({
@@ -1870,6 +1950,9 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
 
       const mockDb = {
         query: {
+          events: {
+            findFirst: vi.fn().mockResolvedValue({ id: '018f0000-0000-0000-0000-000000000099', formConfig: {} }),
+          },
           eventAttendance: {
             findFirst: vi.fn().mockResolvedValue(mockTarget),
           },

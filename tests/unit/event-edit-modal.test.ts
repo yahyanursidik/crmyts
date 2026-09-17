@@ -103,7 +103,7 @@ describe('Event Edit Feature (PUT /api/events/:id & GET /api/events/:id)', () =>
       startAt: '2026-10-05T08:30:00.000Z',
       endAt: '2026-10-05T11:45:00.000Z',
       deliveryMode: 'hybrid',
-      status: 'in_progress',
+      status: 'ongoing',
       isRegistrationOpen: true,
       locationName: 'Masjid Agung Al-Ukhuwah Bandung',
       locationAddress: 'Jl. Wastukencana No. 27, Babakan Ciamis, Kota Bandung',
@@ -149,7 +149,7 @@ describe('Event Edit Feature (PUT /api/events/:id & GET /api/events/:id)', () =>
     expect(body.data.category).toBe('Tabligh Akbar');
     expect(body.data.speaker).toBe('Ustadz Dr. Syafiq Riza Basalamah, M.A.');
     expect(body.data.deliveryMode).toBe('hybrid');
-    expect(body.data.status).toBe('in_progress');
+    expect(body.data.status).toBe('ongoing');
     expect(body.data.meetingUrl).toBe('https://youtube.com/live/kajian-akbar-tauhid');
     expect(body.data.isPaid).toBe(true);
     expect(body.data.priceRupiah).toBe(35000);

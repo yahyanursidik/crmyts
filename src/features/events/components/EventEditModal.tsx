@@ -58,7 +58,7 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
   const [startAt, setStartAt] = useState('');
   const [endAt, setEndAt] = useState('');
   const [deliveryMode, setDeliveryMode] = useState<'offline' | 'online' | 'hybrid'>('offline');
-  const [status, setStatus] = useState<'scheduled' | 'in_progress' | 'completed' | 'canceled'>('scheduled');
+  const [status, setStatus] = useState<'scheduled' | 'ongoing' | 'completed' | 'cancelled'>('scheduled');
   const [isRegistrationOpen, setIsRegistrationOpen] = useState(true);
 
   // Location & Online
@@ -348,9 +348,9 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
                       className="w-full p-2.5 bg-[#FBF9F4] border border-[#1B4332]/14 rounded-xl text-xs font-bold text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
                     >
                       <option value="scheduled">🗓️ Terjadwal (Scheduled)</option>
-                      <option value="in_progress">🔴 Sedang Berlangsung (In Progress)</option>
+                      <option value="ongoing">🔴 Sedang Berlangsung</option>
                       <option value="completed">✅ Selesai (Completed)</option>
-                      <option value="canceled">❌ Dibatalkan (Canceled)</option>
+                      <option value="cancelled">❌ Dibatalkan</option>
                     </select>
                   </div>
                 </div>

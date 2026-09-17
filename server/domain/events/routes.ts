@@ -17,7 +17,8 @@ import {
 import { getEventEmailSettings, sendEventTicketEmail } from './emailNotifications';
 import { dispatchEventReminders, listEventBroadcastSummaries } from './reminderDispatch';
 import { getBroadcastDailyQuota } from '../../email/broadcastQuota';
-import { createQueuedEventBroadcast, listEventEmailTemplates, listQueuedEventBroadcasts, processQueuedEventBroadcast, saveEventEmailTemplate } from './broadcastQueue';
+import { createQueuedEventBroadcast, getEventBroadcastToday, listEventEmailTemplates, listQueuedEventBroadcasts, processQueuedEventBroadcast, saveEventEmailTemplate } from './broadcastQueue';
+import { ensureEventRegistrationPhoneGuard, findEventRegistrationByPhone, isDuplicateEventPhoneError } from './registrationPhoneGuard';
 
 const createEventSchema = z.object({
   title: z.string().min(3, 'Judul kajian minimal 3 karakter'),
@@ -67,7 +68,7 @@ const createEventSchema = z.object({
 });
 
 const updateEventSchema = createEventSchema.partial().extend({
-  status: z.enum(['scheduled', 'in_progress', 'completed', 'canceled']).optional(),
+  status: z.enum(['scheduled', 'ongoing', 'completed', 'cancelled']).optional(),
 });
 
 const eventBroadcastEmailSchema = z.object({
@@ -285,6 +286,20 @@ export function registerEventsRoutes(router: Router) {
         };
       });
 
+      // Existing legacy duplicates stay visible for an admin decision; they are
+      // not deleted automatically because either ticket may contain payment or
+      // gate history. New duplicates are blocked by the registration guard.
+      const physicalPhoneCounts = new Map<string, number>();
+      for (const participant of participants) {
+        if (/^\+[1-9][0-9]{7,14}$/.test(participant.personPhone)) {
+          physicalPhoneCounts.set(participant.personPhone, (physicalPhoneCounts.get(participant.personPhone) || 0) + 1);
+        }
+      }
+      const participantsWithDuplicateContact = participants.map((participant) => ({
+        ...participant,
+        duplicatePhoneCount: physicalPhoneCounts.get(participant.personPhone) || 0,
+      }));
+
       const ikhwanCount = participants.filter((p) => p.personGender === 'ikhwan').length;
       const akhwatCount = participants.filter((p) => p.personGender === 'akhwat').length;
       const carsCount = participants.filter((p) => p.vehicleType === 'car').length;
@@ -317,7 +332,7 @@ export function registerEventsRoutes(router: Router) {
         {
           ...eventItem,
           adminInviteCode,
-          participants,
+          participants: participantsWithDuplicateContact,
           totalParticipants: participants.length,
           attendedCount: participants.filter((p) => p.status === 'attended').length,
           ikhwanCount,
@@ -367,8 +382,9 @@ export function registerEventsRoutes(router: Router) {
           allowMultiParticipant: false,
           maxMultiParticipants: 10,
           allowStaffFamilyRegistration: false,
-          maxStaffFamilyParticipants: 4,
-          customFields: [],
+            maxStaffFamilyParticipants: 4,
+            gateAccessToken: createStaffRegistrationToken(),
+            customFields: [],
           whatsappMessageTemplate:
             "Bismillah. Pendaftaran kajian Anda telah terkonfirmasi. Tiket: {{ticket_code}}. Mohon hadir 15 menit sebelum acara dimulai dan menaati tata tertib majelis. Barakallahu fiikum.",
         };
@@ -834,6 +850,45 @@ export function registerEventsRoutes(router: Router) {
     })
   );
 
+  // The public gate remains login-free for field volunteers, but its private
+  // URL is protected by an event-specific random token instead of exposing
+  // participant data to anyone who guesses an event ID.
+  router.get(
+    '/api/events/:id/gate-access',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const eventId = ctx.params.id;
+      if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
+      const event = await db.query.events.findFirst({ where: eq(events.id, eventId) });
+      if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
+
+      const formConfig = { ...(event.formConfig || {}) } as Record<string, any>;
+      const existingToken = typeof formConfig.gateAccessToken === 'string' ? formConfig.gateAccessToken : '';
+      const gateAccessToken = existingToken || createStaffRegistrationToken();
+      if (!existingToken) {
+        formConfig.gateAccessToken = gateAccessToken;
+        await db.update(events).set({ formConfig, updatedAt: new Date() }).where(eq(events.id, eventId));
+      }
+      return successResponse({ gateAccessToken }, { requestId: ctx.requestId });
+    })
+  );
+
+  router.post(
+    '/api/events/:id/gate-access',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const eventId = ctx.params.id;
+      if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
+      const event = await db.query.events.findFirst({ where: eq(events.id, eventId) });
+      if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
+
+      const formConfig = { ...(event.formConfig || {}), gateAccessToken: createStaffRegistrationToken() };
+      const [updated] = await db.update(events).set({ formConfig, updatedAt: new Date() }).where(eq(events.id, eventId)).returning();
+      await logAuditEvent({ actorUserId: ctx.user?.id, action: 'rotate_event_gate_access', entityType: 'event', entityId: eventId, afterJson: { rotated: true }, reason: 'Regenerasi tautan privat gate scanner', requestId: ctx.requestId });
+      return successResponse({ gateAccessToken: (updated?.formConfig as any)?.gateAccessToken }, { requestId: ctx.requestId });
+    })
+  );
+
   // 7a. PATCH participant contact details. Ticket/QR and attendance fields are intentionally immutable here.
   router.patch(
     '/api/events/:id/attendances/:attendanceId',
@@ -1045,6 +1100,21 @@ export function registerEventsRoutes(router: Router) {
 
       const broadcasts = await listQueuedEventBroadcasts(db, eventId).catch(() => listEventBroadcastSummaries(db, eventId));
       return successResponse(broadcasts, { requestId: ctx.requestId });
+    })
+  );
+
+  // Event-specific count for the current WIB day. This remains separate from
+  // the global SMTP quota because other automation may also use that quota.
+  router.get(
+    '/api/events/:id/email-broadcasts/today',
+    requireAuth(async (ctx) => {
+      const db = getDb();
+      const eventId = ctx.params.id;
+      if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+      const event = await db.query.events.findFirst({ where: eq(events.id, eventId), columns: { id: true } });
+      if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan.', 404, ctx.requestId);
+
+      return successResponse(await getEventBroadcastToday(db, eventId), { requestId: ctx.requestId });
     })
   );
 
@@ -1438,6 +1508,10 @@ export function registerEventsRoutes(router: Router) {
         return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
       }
 
+      await ensureEventRegistrationPhoneGuard(db).catch((error) => {
+        console.error('Event registration phone guard unavailable:', error);
+      });
+
       const atts = targetEvent.attendances || [];
       const regGender = gender || 'ikhwan';
 
@@ -1486,6 +1560,10 @@ export function registerEventsRoutes(router: Router) {
       }
 
       const phoneNorm = normalizeIndonesianPhone(phone);
+      const existingPhoneRegistration = await findEventRegistrationByPhone(db, eventId, phoneNorm);
+      if (existingPhoneRegistration) {
+        return errorResponse('CONFLICT', `Nomor WhatsApp ini sudah memiliki tiket ${existingPhoneRegistration.ticketCode || 'peserta'} pada kajian ini.`, 409, ctx.requestId);
+      }
 
       let person = await db.query.persons.findFirst({
         where: eq(persons.phoneE164, phoneNorm),
@@ -1603,6 +1681,10 @@ export function registerEventsRoutes(router: Router) {
         return errorResponse('NOT_FOUND', 'Kajian / Event tidak ditemukan', 404, ctx.requestId);
       }
 
+      await ensureEventRegistrationPhoneGuard(db).catch((error) => {
+        console.error('Event registration phone guard unavailable:', error);
+      });
+
       // Fetch all existing attendances for this event to detect duplicates quickly
       const existingAttendances = await db.query.eventAttendance.findMany({
         where: eq(eventAttendance.eventId, eventId),
@@ -1666,6 +1748,11 @@ export function registerEventsRoutes(router: Router) {
 
         try {
           const phoneNorm = normalizeIndonesianPhone(rawPhone);
+          const existingPhoneRegistration = await findEventRegistrationByPhone(db, eventId, phoneNorm);
+          if (existingPhoneRegistration) {
+            skippedCount++;
+            continue;
+          }
 
           // Find or create Person
           let person = personByPhoneMap.get(phoneNorm);
@@ -1770,7 +1857,9 @@ export function registerEventsRoutes(router: Router) {
             row: rowNum,
             name: fullName,
             phone: rawPhone,
-            reason: err.message || 'Terjadi kesalahan sistem',
+            reason: isDuplicateEventPhoneError(err)
+              ? 'Nomor WhatsApp ini sudah terdaftar pada kajian ini'
+              : err.message || 'Terjadi kesalahan sistem',
           });
         }
       }

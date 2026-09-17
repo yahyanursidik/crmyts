@@ -47,6 +47,19 @@ export type QueuedEventBroadcastSummary = {
   batchSize: number;
 };
 
+export type EventBroadcastToday = {
+  sentToday: number;
+  attemptedToday: number;
+  failedToday: number;
+  queuedForEvent: number;
+  sentRecipients: Array<{
+    email: string;
+    recipientName: string;
+    subject: string;
+    sentAt: string;
+  }>;
+};
+
 export async function ensureEventBroadcastQueueTables(db: any): Promise<void> {
   await db.execute(sql.raw(`
     CREATE TABLE IF NOT EXISTS event_email_templates (
@@ -90,6 +103,7 @@ export async function ensureEventBroadcastQueueTables(db: any): Promise<void> {
       error text,
       created_at timestamptz NOT NULL DEFAULT now(),
       processing_started_at timestamptz,
+      last_attempted_at timestamptz,
       sent_at timestamptz,
       opened_at timestamptz,
       clicked_at timestamptz,
@@ -97,6 +111,7 @@ export async function ensureEventBroadcastQueueTables(db: any): Promise<void> {
       unsubscribed_at timestamptz,
       UNIQUE(campaign_id, email)
     )`));
+  await db.execute(sql.raw(`ALTER TABLE event_email_broadcast_recipients ADD COLUMN IF NOT EXISTS last_attempted_at timestamptz`));
   await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_event_email_campaign_event_created ON event_email_broadcast_campaigns(event_id, created_at DESC)`));
   await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_event_email_recipient_pending ON event_email_broadcast_recipients(campaign_id, status, created_at)`));
   await db.execute(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS idx_event_email_recipient_message_id ON event_email_broadcast_recipients(message_id)`));
@@ -192,7 +207,7 @@ async function claimBatch(db: any, campaignId: string, limit: number): Promise<D
       LIMIT ${limit}
     )
     UPDATE event_email_broadcast_recipients recipients
-    SET status = 'processing', attempts = attempts + 1, processing_started_at = now()
+    SET status = 'processing', attempts = attempts + 1, processing_started_at = now(), last_attempted_at = now()
     FROM selected WHERE recipients.id = selected.id
     RETURNING recipients.*
   `);
@@ -278,6 +293,50 @@ export async function listQueuedEventBroadcasts(db: any, eventId: string): Promi
       duplicateSkippedCount: count(row.duplicate_skipped_count), batchSize: count(row.batch_size),
     } as QueuedEventBroadcastSummary;
   });
+}
+
+/** Admin-only event-specific delivery view. Global quota is intentionally read
+ * separately so the UI does not mistake another campaign's usage as this
+ * event's delivery count. */
+export async function getEventBroadcastToday(db: any, eventId: string): Promise<EventBroadcastToday> {
+  await ensureEventBroadcastQueueTables(db);
+  const result = await db.execute(sql`
+    WITH today AS (
+      SELECT date_trunc('day', now() AT TIME ZONE 'Asia/Jakarta') AT TIME ZONE 'Asia/Jakarta' AS starts_at
+    )
+    SELECT
+      count(recipients.id) FILTER (WHERE recipients.sent_at >= today.starts_at)::int AS sent_today,
+      count(recipients.id) FILTER (WHERE recipients.last_attempted_at >= today.starts_at)::int AS attempted_today,
+      count(recipients.id) FILTER (WHERE recipients.status IN ('failed', 'bounced') AND recipients.last_attempted_at >= today.starts_at)::int AS failed_today,
+      count(recipients.id) FILTER (WHERE recipients.status IN ('queued', 'processing'))::int AS queued_for_event
+    FROM event_email_broadcast_campaigns campaigns
+    LEFT JOIN event_email_broadcast_recipients recipients ON recipients.campaign_id = campaigns.id
+    CROSS JOIN today
+    WHERE campaigns.event_id = ${eventId}::uuid
+  `);
+  const summary = rows(result)[0] || {};
+  const recentResult = await db.execute(sql`
+    SELECT recipients.email, recipients.recipient_name, recipients.sent_at, campaigns.subject
+    FROM event_email_broadcast_recipients recipients
+    INNER JOIN event_email_broadcast_campaigns campaigns ON campaigns.id = recipients.campaign_id
+    WHERE campaigns.event_id = ${eventId}::uuid
+      AND recipients.sent_at >= (date_trunc('day', now() AT TIME ZONE 'Asia/Jakarta') AT TIME ZONE 'Asia/Jakarta')
+    ORDER BY recipients.sent_at DESC
+    LIMIT 40
+  `);
+
+  return {
+    sentToday: count(summary.sent_today),
+    attemptedToday: count(summary.attempted_today),
+    failedToday: count(summary.failed_today),
+    queuedForEvent: count(summary.queued_for_event),
+    sentRecipients: rows(recentResult).map((row) => ({
+      email: String(row.email || ''),
+      recipientName: String(row.recipient_name || 'Jamaah YTS'),
+      subject: String(row.subject || ''),
+      sentAt: new Date(row.sent_at).toISOString(),
+    })),
+  };
 }
 
 export async function processPendingEventBroadcasts(db: any): Promise<void> {

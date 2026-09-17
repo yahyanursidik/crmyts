@@ -36,9 +36,13 @@ export function createStaffRegistrationToken(): string {
   return randomBytes(24).toString('base64url');
 }
 
-export function hasValidStaffRegistrationToken(provided: string | null | undefined, expected: string | null | undefined): boolean {
+export function hasValidSecretToken(provided: string | null | undefined, expected: string | null | undefined): boolean {
   if (!provided || !expected) return false;
   const providedBuffer = Buffer.from(provided);
   const expectedBuffer = Buffer.from(expected);
   return providedBuffer.length === expectedBuffer.length && timingSafeEqual(providedBuffer, expectedBuffer);
+}
+
+export function hasValidStaffRegistrationToken(provided: string | null | undefined, expected: string | null | undefined): boolean {
+  return hasValidSecretToken(provided, expected);
 }

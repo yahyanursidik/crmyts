@@ -24,6 +24,7 @@ import { isEventPast } from '../../../src/lib/eventUtils';
 import { createMemorableTicketCode } from '../events/participantCodes';
 import {
   hasValidStaffRegistrationToken,
+  hasValidSecretToken,
   isRegularRegistration,
   isSpecialInviteRegistration,
   isStaffFamilyRegistration,
@@ -43,6 +44,7 @@ import {
   sendWaqfInquiryConfirmationEmail,
 } from '../../email/service';
 import { formatEventDateTimeWib, getEventEmailSettings } from '../events/emailNotifications';
+import { ensureEventRegistrationPhoneGuard, findEventRegistrationByPhone } from '../events/registrationPhoneGuard';
 import { ensureS3StorageUrl, uploadPublicProofFile } from '../../storage/providers/s3';
 
 const optionalEmailSchema = z
@@ -157,6 +159,12 @@ async function withEventRegistrationLock<T>(
   eventId: string,
   operation: (tx: RegistrationDatabase) => Promise<T>
 ): Promise<T> {
+  // This is intentionally best-effort during rollout. The per-event transaction
+  // below still protects public registrations if a legacy database user has not
+  // yet been granted permission to install the database guard.
+  await ensureEventRegistrationPhoneGuard(db).catch((error) => {
+    console.error('Event registration phone guard unavailable:', error);
+  });
   const databaseWithOptionalTransaction = db as unknown as {
     transaction?: (callback: (tx: AppTransaction) => Promise<T>) => Promise<T>;
   };
@@ -171,6 +179,25 @@ async function withEventRegistrationLock<T>(
     await tx.execute(sql`SELECT id FROM events WHERE id = ${eventId} FOR UPDATE`);
     return operation(tx);
   });
+}
+
+function gateAccessTokenFromRequest(ctx: { headers: Record<string, string | undefined>; query: Record<string, string | undefined> }): string | null {
+  const value = ctx.headers['x-gate-access'] || ctx.headers['X-Gate-Access'] || ctx.query.access;
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+/**
+ * Gate scanner is intentionally usable without a user account. A per-event
+ * token is still required before participant names, contacts, or check-in
+ * controls are exposed. Legacy events become protected as soon as an admin
+ * opens their scanner link and the token is provisioned.
+ */
+function requireGateAccess(ctx: { headers: Record<string, string | undefined>; query: Record<string, string | undefined> }, event: { formConfig?: Record<string, any> | null }) {
+  const expected = typeof event.formConfig?.gateAccessToken === 'string' ? event.formConfig.gateAccessToken : null;
+  if (!expected) return null;
+  return hasValidSecretToken(gateAccessTokenFromRequest(ctx), expected)
+    ? null
+    : 'Tautan Gate tidak valid atau sudah diganti oleh admin. Gunakan tautan privat terbaru dari panitia.';
 }
 
 export function registerPublicPortalRoutes(router: Router) {
@@ -945,6 +972,10 @@ export function registerPublicPortalRoutes(router: Router) {
       }
 
       const phoneNorm = normalizeIndonesianPhone(body.phone);
+      const existingPhoneRegistration = await findEventRegistrationByPhone(db, targetEvent.id, phoneNorm);
+      if (existingPhoneRegistration) {
+        return errorResponse('CONFLICT', 'Nomor WhatsApp ini sudah terdaftar pada kajian ini. Data dan tiket sebelumnya tetap digunakan.', 409, ctx.requestId);
+      }
       let person = await db.query.persons.findFirst({ where: eq(persons.phoneE164, phoneNorm) });
       const primaryNameKey = body.fullName.trim().toLocaleLowerCase('id-ID');
       const familyNameKeys = new Set<string>();
@@ -1222,6 +1253,11 @@ export function registerPublicPortalRoutes(router: Router) {
         return errorResponse('NOT_FOUND', 'Jadwal kajian tidak ditemukan', 404, ctx.requestId);
       }
 
+      // Prefer the participant already registered with this physical number.
+      // This also heals lookup behavior when old duplicate person profiles
+      // exist without allowing a second ticket to be created.
+      const existingPhoneRegistration = await findEventRegistrationByPhone(db, targetEvent.id, phoneNorm);
+
       if (isEventPast(targetEvent)) {
         return errorResponse(
           'VALIDATION_ERROR',
@@ -1411,9 +1447,9 @@ export function registerPublicPortalRoutes(router: Router) {
       }
 
       // Find or create person record
-      let person = await db.query.persons.findFirst({
-        where: eq(persons.phoneE164, phoneNorm),
-      });
+      let person = existingPhoneRegistration
+        ? await db.query.persons.findFirst({ where: eq(persons.id, existingPhoneRegistration.personId) })
+        : await db.query.persons.findFirst({ where: eq(persons.phoneE164, phoneNorm) });
 
       if (!person) {
         const [newPerson] = await db
@@ -1446,9 +1482,11 @@ export function registerPublicPortalRoutes(router: Router) {
       }
 
       // Check if already registered for this event
-      const existingAttendance = await db.query.eventAttendance.findFirst({
-        where: sql`${eventAttendance.eventId} = ${body.eventId} AND ${eventAttendance.personId} = ${person.id}`,
-      });
+      const existingAttendance = existingPhoneRegistration
+        ? await db.query.eventAttendance.findFirst({ where: eq(eventAttendance.id, existingPhoneRegistration.attendanceId) })
+        : await db.query.eventAttendance.findFirst({
+            where: sql`${eventAttendance.eventId} = ${body.eventId} AND ${eventAttendance.personId} = ${person.id}`,
+          });
 
       const isGroup = additionalList.length > 0;
       const totalParticipantsCount = 1 + additionalList.length;
@@ -2333,25 +2371,33 @@ export function registerPublicPortalRoutes(router: Router) {
   // 7a. GET /api/public/gate/events (List Active & Upcoming Events for Gate Selector)
   router.get('/api/public/gate/events', async (ctx) => {
     const db = getDb();
+    // Do not eagerly load every participant for the selector. Large kajian can
+    // have thousands of registrations and previously made this public endpoint
+    // slow enough to fail before the Gate page could render.
     const scheduledEvents = await db.query.events.findMany({
+      where: inArray(events.status, ['scheduled', 'ongoing']),
       orderBy: [desc(events.startAt)],
       limit: 25,
-      with: {
-        attendances: {
-          with: {
-            person: {
-              columns: { id: true, gender: true },
-            },
-          },
-        },
-      },
     });
 
+    const eventIds = scheduledEvents.map((event) => event.id);
+    const attendanceStats = eventIds.length
+      ? await db
+          .select({
+            eventId: eventAttendance.eventId,
+            total: sql<number>`cast(count(${eventAttendance.id}) as integer)`,
+            checkedIn: sql<number>`cast(count(case when ${eventAttendance.status} = 'attended' then 1 end) as integer)`,
+          })
+          .from(eventAttendance)
+          .where(inArray(eventAttendance.eventId, eventIds))
+          .groupBy(eventAttendance.eventId)
+      : [];
+    const statsByEventId = new Map(attendanceStats.map((stat) => [stat.eventId, stat]));
+
     const formatted = scheduledEvents.map((ev) => {
-      const atts = ev.attendances || [];
-      const checkedInCount = atts.filter((a) => a.status === 'attended').length;
-      const ikhwanCount = atts.filter((a) => a.person?.gender === 'ikhwan').length;
-      const akhwatCount = atts.filter((a) => a.person?.gender === 'akhwat').length;
+      const stats = statsByEventId.get(ev.id);
+      const totalRegistered = Number(stats?.total || 0);
+      const checkedInCount = Number(stats?.checkedIn || 0);
 
       return {
         id: ev.id,
@@ -2365,12 +2411,10 @@ export function registerPublicPortalRoutes(router: Router) {
         minAge: ev.minAge || null,
         quota: ev.quota,
         status: ev.status,
-        attendanceCount: atts.length,
-        totalRegistered: atts.length,
+        attendanceCount: totalRegistered,
+        totalRegistered,
         checkedInCount,
         totalCheckedIn: checkedInCount,
-        ikhwanCount,
-        akhwatCount,
       };
     });
 
@@ -2400,6 +2444,9 @@ export function registerPublicPortalRoutes(router: Router) {
     if (!targetEvent) {
       return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
     }
+
+    const gateAccessError = requireGateAccess(ctx, targetEvent);
+    if (gateAccessError) return errorResponse('FORBIDDEN', gateAccessError, 403, ctx.requestId);
 
     const atts = targetEvent.attendances || [];
     const checkedInAtts = atts.filter((a) => a.status === 'attended');
@@ -2546,6 +2593,16 @@ export function registerPublicPortalRoutes(router: Router) {
       if (!eventId) {
         return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
       }
+
+      // Check access before resolving ticket, phone, or name so a leaked event
+      // ID cannot be used as a participant lookup endpoint.
+      const gateEvent = await db.query.events.findFirst({
+        where: eq(events.id, eventId),
+        columns: { id: true, formConfig: true },
+      });
+      if (!gateEvent) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
+      const gateAccessError = requireGateAccess(ctx, gateEvent);
+      if (gateAccessError) return errorResponse('FORBIDDEN', gateAccessError, 403, ctx.requestId);
 
       let targetAttendance: any = null;
 
@@ -2731,6 +2788,14 @@ export function registerPublicPortalRoutes(router: Router) {
         return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
       }
       const { attendanceId, targetStatus, gateName } = body;
+
+      const gateEvent = await db.query.events.findFirst({
+        where: eq(events.id, eventId),
+        columns: { id: true, formConfig: true },
+      });
+      if (!gateEvent) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
+      const gateAccessError = requireGateAccess(ctx, gateEvent);
+      if (gateAccessError) return errorResponse('FORBIDDEN', gateAccessError, 403, ctx.requestId);
 
       const target = await db.query.eventAttendance.findFirst({
         where: and(eq(eventAttendance.id, attendanceId), eq(eventAttendance.eventId, eventId)),

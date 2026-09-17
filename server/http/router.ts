@@ -55,7 +55,7 @@ export class Router {
         statusCode: 204,
         headers: {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Request-ID',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Request-ID, X-Gate-Access',
           'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
         },
         body: '',

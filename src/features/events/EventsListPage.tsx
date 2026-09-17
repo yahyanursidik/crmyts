@@ -374,7 +374,7 @@ export const EventsListPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 2b. Gate Scanner Lapangan (Tanpa Login) Banner */}
+      {/* 2b. Gate Scanner Lapangan */}
       <div className="p-4 bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 border border-slate-700/60 rounded-2xl shadow-2xs flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-slate-100">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center shrink-0 text-emerald-400">
@@ -383,14 +383,14 @@ export const EventsListPage: React.FC = () => {
           <div>
             <div className="flex items-center gap-2">
               <h4 className="text-sm sm:text-base font-bold text-white">
-                Gate Scanner Mandiri (Tanpa Login)
+                Gate Scanner Panitia
               </h4>
               <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                 /gate
               </span>
             </div>
             <p className="text-xs text-slate-300/80 mt-0.5 leading-relaxed font-normal">
-              Akses cepat panitia pintu di lapangan untuk presensi jamaah (kamera, foto QR, scanner gun, dan 1-klik manual) tanpa akun login.
+              Akses cepat panitia pintu untuk presensi jamaah. Gunakan tombol Scanner pada detail kajian untuk membuat tautan Gate privat tanpa akun login.
             </p>
           </div>
         </div>
@@ -402,18 +402,18 @@ export const EventsListPage: React.FC = () => {
             rel="noreferrer"
             className="py-2 px-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-xs transition-all shadow-xs flex items-center gap-1.5 active:scale-98"
           >
-            <span>Buka Gate Scanner</span>
+            <span>Buka Portal Gate</span>
             <ExternalLink className="w-3.5 h-3.5" />
           </a>
           <button
             onClick={() => {
               navigator.clipboard.writeText(`${window.location.origin}/gate`);
-              showToast('Link Gate Scanner Mandiri (/gate) berhasil disalin!');
+              showToast('Portal Gate Scanner (/gate) berhasil disalin. Tautan privat dibuat dari Scanner di detail kajian.');
             }}
             className="py-2 px-3 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 border border-white/20"
           >
             <Copy className="w-3.5 h-3.5" />
-            <span>Salin Link Gate</span>
+            <span>Salin Portal Gate</span>
           </button>
         </div>
       </div>
@@ -533,7 +533,7 @@ export const EventsListPage: React.FC = () => {
               { id: 'all', label: 'Semua Kajian' },
               { id: 'open_reg', label: 'Pendaftaran Buka' },
               { id: 'scheduled', label: 'Terjadwal' },
-              { id: 'in_progress', label: 'Sedang Berlangsung' },
+              { id: 'ongoing', label: 'Sedang Berlangsung' },
               { id: 'completed', label: 'Selesai' },
             ].map((st) => (
               <button
