@@ -1,11 +1,56 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Router } from '../../server/http/router';
-import { registerAutomationRoutes } from '../../server/domain/automation/routes';
+import { isDripCampaignDue, registerAutomationRoutes } from '../../server/domain/automation/routes';
 import { resetServerEnvCache } from '../../server/config/env';
 import * as client from '../../server/db/client';
 import { ROLES, PERMISSIONS } from '../../server/permissions/constants';
 
 describe('Drip Email Campaign Endpoints', () => {
+  it('only schedules admin-enabled campaigns after their WIB start hour', () => {
+    const campaign = { automaticEnabled: true, status: 'running' as const,
+      createdBy: '018f9999-0000-7000-8000-111111111111', startDateWib: '2026-09-27', sendHourWib: 8 };
+    expect(isDripCampaignDue(campaign, new Date('2026-09-27T00:59:00Z'))).toBe(false);
+    expect(isDripCampaignDue(campaign, new Date('2026-09-27T01:00:00Z'))).toBe(true);
+    expect(isDripCampaignDue({ ...campaign, automaticEnabled: false }, new Date('2026-09-27T01:00:00Z'))).toBe(false);
+    expect(isDripCampaignDue({ ...campaign, status: 'paused' }, new Date('2026-09-27T01:00:00Z'))).toBe(false);
+    expect(isDripCampaignDue({ ...campaign, startDateWib: '2026-09-28' }, new Date('2026-09-27T01:00:00Z'))).toBe(false);
+    expect(isDripCampaignDue({ ...campaign, createdBy: null }, new Date('2026-09-27T01:00:00Z'))).toBe(false);
+  });
+
+  it('rejects a newly enabled automatic schedule whose start date has passed', async () => {
+    const router = new Router();
+    registerAutomationRoutes(router);
+    vi.spyOn(client, 'getDb').mockReturnValue({} as any);
+    const response = await router.handle({
+      requestId: 'req_past_schedule', method: 'POST', path: '/api/automation/email-campaigns',
+      headers: {}, query: {}, params: {}, user: adminUser,
+      body: { title: 'Jadwal Lama', subject: 'Subjek kampanye lama', bodyHtml: '<p>Pesan untuk jamaah</p>',
+        automaticEnabled: true, startDateWib: '2020-01-01' },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body).error.message).toContain('masa lalu');
+  });
+
+  it('blocks edits while the campaign dispatch lock is active', async () => {
+    const router = new Router();
+    registerAutomationRoutes(router);
+    const update = vi.fn();
+    vi.spyOn(client, 'getDb').mockReturnValue({
+      query: { emailCampaigns: { findFirst: vi.fn().mockResolvedValue({
+        id: '018f9999-0000-7000-8000-222222222222', status: 'running',
+        dispatchLockUntil: new Date(Date.now() + 60_000),
+      }) } }, update,
+    } as any);
+    const response = await router.handle({
+      requestId: 'req_locked_edit', method: 'PUT',
+      path: '/api/automation/email-campaigns/018f9999-0000-7000-8000-222222222222',
+      headers: {}, query: {}, params: { id: '018f9999-0000-7000-8000-222222222222' },
+      user: adminUser, body: { title: 'Nama Baru' },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(update).not.toHaveBeenCalled();
+  });
+
   const adminUser = {
     id: '018f9999-0000-7000-8000-111111111111',
     authSubject: 'sub_admin_drip',

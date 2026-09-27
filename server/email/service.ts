@@ -140,17 +140,18 @@ export interface SendMailOptions {
 /**
  * Low-level send mail function
  */
-export async function sendEmail(options: SendMailOptions): Promise<{ success: boolean; messageId?: string; error?: string }> {
+export async function sendEmail(options: SendMailOptions): Promise<{ success: boolean; messageId?: string; error?: string; definitiveFailure?: boolean }> {
   const env = getServerEnv();
   if (!env.MAILKETING_API_TOKEN) {
-    return { success: false, error: 'MAILKETING_API_TOKEN belum dikonfigurasi pada environment server.' };
+    return { success: false, error: 'MAILKETING_API_TOKEN belum dikonfigurasi pada environment server.', definitiveFailure: true };
   }
 
   const recipients = Array.isArray(options.to) ? options.to : [options.to];
   if (recipients.length === 0) {
-    return { success: false, error: 'Alamat email penerima wajib diisi.' };
+    return { success: false, error: 'Alamat email penerima wajib diisi.', definitiveFailure: true };
   }
 
+  let definitiveFailure = false;
   try {
     const results = await Promise.all(recipients.map(async (recipient) => {
       const messageId = options.messageId || `yts-${randomUUID()}`;
@@ -168,6 +169,7 @@ export async function sendEmail(options: SendMailOptions): Promise<{ success: bo
       });
 
       if (!response.ok || payload?.success === false) {
+        definitiveFailure = true;
         throw new Error(readMailketingError(payload, `Mailketing merespons HTTP ${response.status}.`));
       }
       return payload?.data?.message_id || messageId;
@@ -177,7 +179,7 @@ export async function sendEmail(options: SendMailOptions): Promise<{ success: bo
   } catch (err: any) {
     const isTimeout = err?.name === 'AbortError';
     console.error('[Mailketing Send Error]:', err?.message || err);
-    return { success: false, error: isTimeout ? 'Pengiriman email ke Mailketing melebihi batas waktu.' : err?.message || 'Gagal mengirim email melalui Mailketing.' };
+    return { success: false, error: isTimeout ? 'Pengiriman email ke Mailketing melebihi batas waktu.' : err?.message || 'Gagal mengirim email melalui Mailketing.', definitiveFailure };
   }
 }
 
