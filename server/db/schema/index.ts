@@ -12,6 +12,7 @@ export * from './events';
 
 // Interactions & Tasks
 export * from './interactions';
+export * from './jamaahRoom';
 
 // Donations & Programs
 export * from './donations';

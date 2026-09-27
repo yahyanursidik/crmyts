@@ -30,6 +30,8 @@ import { BazaarHubPage } from './features/bazaar/BazaarHubPage';
 import { ParticipantPortalPage } from './features/public-portal/ParticipantPortalPage';
 import { GateScannerPage } from './features/gate/GateScannerPage';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { JamaahRoomPage } from './features/jamaah-room/JamaahRoomPage';
+import { JamaahRoomInboxPage } from './features/jamaah-room/JamaahRoomInboxPage';
 
 export function App() {
   return (
@@ -56,6 +58,10 @@ export function App() {
             {
               name: 'interactions',
               list: '/interactions',
+            },
+            {
+              name: 'jamaah-room',
+              list: '/ruang-jamaah/kelola',
             },
             {
               name: 'tasks',
@@ -116,6 +122,7 @@ export function App() {
                 <Route path="events" element={<EventsListPage />} />
                 <Route path="bazaar" element={<BazaarHubPage />} />
                 <Route path="interactions" element={<InteractionsListPage />} />
+                <Route path="ruang-jamaah/kelola" element={<JamaahRoomInboxPage />} />
                 <Route path="tasks" element={<TasksListPage />} />
                 <Route path="donations" element={<DonationsListPage />} />
                 <Route path="donors-pipeline" element={<DonorPipelinePage />} />
@@ -132,6 +139,7 @@ export function App() {
               <Route path="/donasi" element={<DonationsPortalPage />} />
               <Route path="/berbagi" element={<DonationsPortalPage />} />
               <Route path="/kajian" element={<EventsPortalPage />} />
+              <Route path="/ruang-jamaah" element={<JamaahRoomPage />} />
               <Route path="/kajian/:id/staff/:token" element={<StaffEventRegistrationPage />} />
               <Route path="/kajian/:id" element={<EventsPortalPage />} />
               {/* Standalone Public Catalog Pages */}

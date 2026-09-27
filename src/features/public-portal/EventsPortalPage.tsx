@@ -840,6 +840,13 @@ export function EventsPortalPage() {
             </Link>
 
             <Link
+              to={selectedEvent ? `/ruang-jamaah?eventId=${selectedEvent.id}` : '/ruang-jamaah'}
+              className="hidden lg:flex px-3 py-2 rounded-xl text-xs font-bold text-slate-700 hover:text-emerald-950 hover:bg-emerald-50 items-center gap-1.5 transition-all border border-slate-200/80 bg-white"
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-teal-700" /> Ruang Jamaah
+            </Link>
+
+            <Link
               to="/donasi"
               className="hidden md:flex px-3 py-2 rounded-xl text-xs font-bold text-slate-700 hover:text-emerald-950 hover:bg-emerald-50 items-center gap-1.5 transition-all border border-slate-200/80 shadow-2xs bg-white"
             >
@@ -888,6 +895,7 @@ export function EventsPortalPage() {
             </Link>
 
             <div className="flex items-center gap-2 flex-wrap">
+              <Link to={`/ruang-jamaah?eventId=${selectedEvent.id}`} className="inline-flex items-center gap-1.5 rounded-xl border border-teal-200 bg-white px-3 py-1.5 text-xs font-bold text-teal-900"><MessageSquare className="h-3.5 w-3.5" /> Sampaikan masukan</Link>
               <button
                 type="button"
                 onClick={() => handleCopyShareLink(selectedEvent.id)}
@@ -3325,7 +3333,7 @@ export function EventsPortalPage() {
 
           <div className="flex flex-col sm:flex-row justify-between items-center gap-4 text-xs text-teal-300/60">
             <p>© {new Date().getFullYear()} Yayasan Tarbiyah Sunnah. Seluruh Hak Cipta Dilindungi Undang-Undang.</p>
-            <p className="font-mono text-[11px]">Portal Majelis Ilmu & Pendaftaran E-Tiket</p>
+            <Link to={selectedEvent ? `/ruang-jamaah?eventId=${selectedEvent.id}` : '/ruang-jamaah'} className="text-teal-100 hover:text-white">Ruang Jamaah · Kami mendengar</Link>
           </div>
         </div>
       </footer>
