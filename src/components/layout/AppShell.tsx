@@ -94,6 +94,13 @@ const NAV_GROUPS: NavGroup[] = [
         description: 'Log Chat & Kontak Jamaah',
       },
       {
+        name: 'Ruang Jamaah',
+        href: '/ruang-jamaah/kelola',
+        icon: MessageSquare,
+        permission: PERMISSIONS.INTERACTIONS_VIEW,
+        description: 'Saran, kebutuhan, pertanyaan & cerita',
+      },
+      {
         name: 'Tugas & Follow-Up',
         href: '/tasks',
         icon: CheckSquare,
@@ -184,6 +191,7 @@ const PAGE_TITLES: Record<string, string> = {
   'events': 'Kajian, Daurah & Presensi',
   'bazaar': 'Bazar & Tenant Daurah',
   'interactions': 'Riwayat Sapaan & Kontak',
+  'ruang-jamaah': 'Ruang Jamaah',
   'tasks': 'Agenda Tugas & Follow-Up',
   'donations': 'Verifikasi Donasi & Infaq',
   'donors-pipeline': 'Pipeline Siklus Donatur',
