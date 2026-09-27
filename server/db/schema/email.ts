@@ -1,4 +1,4 @@
-import { date, integer, pgTable, timestamp, text, jsonb, uuid, index } from 'drizzle-orm/pg-core';
+import { boolean, date, integer, pgTable, timestamp, text, jsonb, uuid, index } from 'drizzle-orm/pg-core';
 import { appUsers } from './identity';
 
 /**
@@ -18,8 +18,9 @@ export interface DripRecipient {
   email: string;
   gender: 'ikhwan' | 'akhwat' | null;
   cityRegency: string;
-  status: 'pending' | 'sent' | 'failed' | 'blacklisted';
+  status: 'pending' | 'sent' | 'failed' | 'unknown' | 'blacklisted';
   sentAt?: string | null;
+  attemptedAt?: string | null;
   dayNumber?: number | null;
   error?: string | null;
 }
@@ -31,6 +32,8 @@ export interface DripCampaignStats {
   totalBlacklisted?: number;
   remaining: number;
   dailySentToday: number;
+  dailyAttemptedToday?: number;
+  totalUnknown?: number;
 }
 
 /**
@@ -48,6 +51,11 @@ export const emailCampaigns = pgTable(
     totalDays: integer('total_days').default(14).notNull(),
     currentDay: integer('current_day').default(1).notNull(),
     status: text('status').default('running').notNull(),
+    automaticEnabled: boolean('automatic_enabled').default(false).notNull(),
+    sendHourWib: integer('send_hour_wib').default(8).notNull(),
+    startDateWib: date('start_date_wib', { mode: 'string' }),
+    dispatchLockUntil: timestamp('dispatch_lock_until', { withTimezone: true }),
+    lastRunError: text('last_run_error'),
     filterGender: text('filter_gender').default('all').notNull(),
     stats: jsonb('stats').$type<DripCampaignStats>().notNull(),
     recipients: jsonb('recipients').$type<DripRecipient[]>().notNull(),

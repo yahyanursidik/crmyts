@@ -38,8 +38,9 @@ export interface DripRecipient {
   email: string;
   gender: 'ikhwan' | 'akhwat' | null;
   cityRegency: string;
-  status: 'pending' | 'sent' | 'failed' | 'blacklisted';
+  status: 'pending' | 'sent' | 'failed' | 'unknown' | 'blacklisted';
   sentAt?: string | null;
+  attemptedAt?: string | null;
   dayNumber?: number | null;
   error?: string | null;
 }
@@ -80,18 +81,25 @@ export interface DripEmailCampaign {
   totalDays: number;
   currentDay: number;
   status: 'draft' | 'running' | 'paused' | 'completed';
+  automaticEnabled?: boolean;
+  sendHourWib?: number;
+  startDateWib?: string | null;
+  lastRunError?: string | null;
   filterGender: 'all' | 'ikhwan' | 'akhwat';
   createdAt: string;
   updatedAt: string;
   lastDispatchedAt?: string | null;
   progressPercentage?: number;
+  processedPercentage?: number;
   stats: {
     totalRecipients: number;
     totalSent: number;
     totalFailed: number;
+    totalUnknown?: number;
     totalBlacklisted?: number;
     remaining: number;
     dailySentToday: number;
+    dailyAttemptedToday?: number;
   };
   recipients: DripRecipient[];
 }
@@ -113,6 +121,12 @@ function getInitials(name: string): string {
   return ((first[0] || 'J') + (last[0] || 'M')).toUpperCase();
 }
 
+function wibToday(): string {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)?.value;
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
 export function DripEmailCampaignTab() {
   const [campaigns, setCampaigns] = useState<DripEmailCampaign[]>([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>('');
@@ -121,7 +135,7 @@ export function DripEmailCampaignTab() {
   const [broadcastQuota, setBroadcastQuota] = useState<BroadcastDailyQuota | null>(null);
 
   // Table Filter & Pagination
-  const [statusFilter, setStatusFilter] = useState<'all' | 'sent' | 'pending' | 'failed' | 'blacklisted'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'sent' | 'pending' | 'failed' | 'unknown' | 'blacklisted'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(15);
@@ -168,6 +182,9 @@ export function DripEmailCampaignTab() {
   const [newSubject, setNewSubject] = useState('Bismillah, Salam Hangat & Doa Kebaikan dari Yayasan Tarbiyah Sunnah');
   const [newDailyQuota, setNewDailyQuota] = useState<number>(50);
   const [newTotalDays, setNewTotalDays] = useState<number>(14);
+  const [newAutomaticEnabled, setNewAutomaticEnabled] = useState(false);
+  const [newSendHourWib, setNewSendHourWib] = useState(8);
+  const [newStartDateWib, setNewStartDateWib] = useState(wibToday);
   const [newGenderFilter, setNewGenderFilter] = useState<'all' | 'ikhwan' | 'akhwat'>('all');
   const [previewMode, setPreviewMode] = useState<'editor' | 'preview'>('editor');
   const [creatingCampaign, setCreatingCampaign] = useState(false);
@@ -181,6 +198,9 @@ export function DripEmailCampaignTab() {
   const [editSubject, setEditSubject] = useState('');
   const [editDailyQuota, setEditDailyQuota] = useState<number>(50);
   const [editTotalDays, setEditTotalDays] = useState<number>(14);
+  const [editAutomaticEnabled, setEditAutomaticEnabled] = useState(false);
+  const [editSendHourWib, setEditSendHourWib] = useState(8);
+  const [editStartDateWib, setEditStartDateWib] = useState(wibToday);
   const [editBodyHtml, setEditBodyHtml] = useState('');
   const [editPreviewMode, setEditPreviewMode] = useState<'editor' | 'preview'>('editor');
   const [updatingCampaign, setUpdatingCampaign] = useState(false);
@@ -224,10 +244,12 @@ export function DripEmailCampaignTab() {
     setTimeout(() => setToastMsg(null), 4000);
   };
 
-  const fetchCampaigns = async () => {
+  const fetchCampaigns = async (silent = false) => {
     try {
-      setLoading(true);
-      setError(null);
+      if (!silent) {
+        setLoading(true);
+        setError(null);
+      }
       const [campaignResult, quotaResult] = await Promise.allSettled([
         apiClient<DripEmailCampaign[]>('/automation/email-campaigns'),
         apiClient<BroadcastDailyQuota>('/automation/email-broadcast-quota'),
@@ -237,17 +259,11 @@ export function DripEmailCampaignTab() {
       const loadedList = res.data || [];
       setCampaigns(loadedList);
       if (quotaResult.status === 'fulfilled') setBroadcastQuota(quotaResult.value.data || null);
-      if (loadedList.length > 0 && loadedList[0]) {
-        if (!selectedCampaignId || !loadedList.find((c) => c.id === selectedCampaignId)) {
-          setSelectedCampaignId(loadedList[0].id);
-        }
-      } else {
-        setSelectedCampaignId('');
-      }
+      setSelectedCampaignId((current) => loadedList.some((c) => c.id === current) ? current : loadedList[0]?.id || '');
     } catch (err: any) {
-      setError(err.message || 'Gagal memuat program campaign email');
+      if (!silent) setError(err.message || 'Gagal memuat program campaign email');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -292,6 +308,13 @@ export function DripEmailCampaignTab() {
   }, []);
 
   useEffect(() => {
+    const refresh = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void fetchCampaigns(true);
+    }, 60_000);
+    return () => window.clearInterval(refresh);
+  }, []);
+
+  useEffect(() => {
     if (activeSubTab === 'blacklist') {
       fetchBlacklist();
     }
@@ -306,7 +329,7 @@ export function DripEmailCampaignTab() {
 
   const currentCampaign = campaigns.find((c) => c.id === selectedCampaignId) || campaigns[0] || null;
   const dispatchableToday = currentCampaign
-    ? Math.min(currentCampaign.dailyQuota, currentCampaign.stats.remaining, broadcastQuota?.remainingToday ?? currentCampaign.dailyQuota)
+    ? Math.min(Math.max(0, currentCampaign.dailyQuota - (currentCampaign.stats.dailyAttemptedToday || 0)), currentCampaign.stats.remaining, broadcastQuota?.remainingToday ?? currentCampaign.dailyQuota)
     : 0;
 
   const handleDispatchToday = async () => {
@@ -527,7 +550,7 @@ export function DripEmailCampaignTab() {
         <div>
           <p className="font-bold text-amber-800 mb-1">Perhatian:</p>
           <p>
-            Seluruh antrean ({currentCampaign.stats.totalRecipients} jamaah) pada program <strong>"{currentCampaign.title}"</strong> akan dikembalikan ke status <em>Menunggu Giliran</em> dan hari pengiriman dimulai kembali dari Hari ke-1.
+            Hari program <strong>"{currentCampaign.title}"</strong> dimulai kembali dari Hari ke-1. Email yang sudah pernah dicoba tetap tercatat dan tidak akan dikirim ulang; hanya penerima yang belum diproses dapat dikirim.
           </p>
         </div>
       ),
@@ -610,6 +633,9 @@ export function DripEmailCampaignTab() {
     setEditSubject(currentCampaign.subject);
     setEditDailyQuota(currentCampaign.dailyQuota);
     setEditTotalDays(currentCampaign.totalDays);
+    setEditAutomaticEnabled(currentCampaign.automaticEnabled || false);
+    setEditSendHourWib(currentCampaign.sendHourWib ?? 8);
+    setEditStartDateWib(currentCampaign.startDateWib || wibToday());
     setEditBodyHtml(currentCampaign.bodyHtml);
     setEditPreviewMode('editor');
     setEditError(null);
@@ -629,6 +655,9 @@ export function DripEmailCampaignTab() {
           subject: editSubject.trim(),
           dailyQuota: editDailyQuota,
           totalDays: editTotalDays,
+          automaticEnabled: editAutomaticEnabled,
+          sendHourWib: editSendHourWib,
+          startDateWib: editStartDateWib,
           bodyHtml: editBodyHtml.trim(),
         }),
       });
@@ -655,6 +684,9 @@ export function DripEmailCampaignTab() {
           bodyHtml: newBodyHtml.trim(),
           dailyQuota: newDailyQuota,
           totalDays: newTotalDays,
+          automaticEnabled: newAutomaticEnabled,
+          sendHourWib: newSendHourWib,
+          startDateWib: newStartDateWib,
           filterGender: newGenderFilter,
         }),
       });
@@ -681,7 +713,7 @@ export function DripEmailCampaignTab() {
       `"${r.email}"`,
       `"${r.gender || 'Jamaah'}"`,
       `"${r.cityRegency || '-'}"`,
-      `"${r.status === 'sent' ? 'Terkirim' : r.status === 'failed' ? 'Gagal' : 'Menunggu Antrean'}"`,
+      `"${r.status === 'sent' ? 'Diterima provider' : r.status === 'failed' ? 'Gagal' : r.status === 'unknown' ? 'Status belum pasti' : r.status === 'blacklisted' ? 'Blacklist' : 'Menunggu Antrean'}"`,
       `"${r.dayNumber ? `Hari ${r.dayNumber}` : '-'}"`,
       `"${r.sentAt ? new Date(r.sentAt).toLocaleString('id-ID') : '-'}"`,
       `"${(r.error || '').replace(/"/g, '""')}"`,
@@ -749,7 +781,7 @@ export function DripEmailCampaignTab() {
               </span>
             </div>
             <p className="text-xs text-white/80 mt-0.5 max-w-2xl leading-relaxed">
-              Email sapaan dikirimkan secara bertahap (drip) 20–50 penerima per hari ke seluruh jamaah dengan email asli terverifikasi di CRM untuk menjaga performa SMTP &amp; reputasi domain.
+              Jadwal otomatis hanya berjalan setelah diaktifkan pada program. Pengiriman dimulai pada jam WIB yang dipilih, bertahap sesuai kuota program dan batas broadcast global.
             </p>
           </div>
         </div>
@@ -888,7 +920,7 @@ export function DripEmailCampaignTab() {
                   <button
                     onClick={handleResetCampaign}
                     className="px-3 py-1.5 bg-white hover:bg-[#F2EEE4] text-amber-800 rounded-xl border border-amber-200 font-semibold flex items-center gap-1.5 shadow-2xs transition-all active:scale-98"
-                    title="Mereset antrean penerima kembali ke status pending dan mulai dari Hari ke-1"
+                    title="Mulai lagi dari Hari ke-1 tanpa mengirim ulang email yang pernah dicoba"
                   >
                     <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
                     <span>Reset Progres</span>
@@ -919,6 +951,33 @@ export function DripEmailCampaignTab() {
             </div>
           )}
 
+          {currentCampaign && (
+            <section className="border-y border-[#1B4332]/12 bg-white px-4 py-3 text-xs text-[#3D4A44]" aria-label="Jadwal dan hasil kampanye">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="font-bold text-[#14352A]">{currentCampaign.automaticEnabled ? 'Jadwal otomatis aktif' : 'Jadwal otomatis belum aktif'}</p>
+                  <p className="mt-1">{currentCampaign.automaticEnabled
+                    ? `Mulai ${currentCampaign.startDateWib || '-'} · setiap hari mulai pukul ${String(currentCampaign.sendHourWib ?? 8).padStart(2, '0')}.00 WIB · maksimal ${currentCampaign.totalDays} hari`
+                    : 'Atur tanggal dan jam pada Edit Program untuk mengaktifkan pengiriman tanpa klik harian.'}</p>
+                </div>
+                <p>Terakhir diproses: {currentCampaign.lastDispatchedAt ? new Date(currentCampaign.lastDispatchedAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB' : 'Belum pernah'}</p>
+              </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#F2EEE4]" role="progressbar" aria-label="Email diterima provider" aria-valuenow={currentCampaign.stats.totalSent} aria-valuemin={0} aria-valuemax={currentCampaign.stats.totalRecipients}>
+                <div className="h-full bg-[#2F7D4F]" style={{ width: `${currentCampaign.progressPercentage || 0}%` }} />
+              </div>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                <span>Diterima provider <strong>{currentCampaign.stats.totalSent}</strong> / {currentCampaign.stats.totalRecipients} ({currentCampaign.progressPercentage || 0}%)</span>
+                <span>Diproses {currentCampaign.processedPercentage || 0}%</span>
+                <span>Hari ini {currentCampaign.stats.dailyAttemptedToday || 0} / {currentCampaign.dailyQuota} percobaan</span>
+                <span>Gagal {currentCampaign.stats.totalFailed}</span>
+                <span>Status belum pasti {currentCampaign.stats.totalUnknown || 0}</span>
+                <span>Blacklist {currentCampaign.stats.totalBlacklisted || 0}</span>
+              </div>
+              {currentCampaign.lastRunError && <p role="alert" className="mt-2 font-semibold text-rose-700">Proses terakhir: {currentCampaign.lastRunError}</p>}
+              <p className="mt-2 text-[#6B7A72]">Diterima provider tidak menjamin email sudah dibuka atau tiba di kotak masuk. Status belum pasti tidak dikirim ulang otomatis agar tidak menggandakan pesan.</p>
+            </section>
+          )}
+
           {/* 3. 4 Alert Strip KPI Cards */}
           {currentCampaign && (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -934,15 +993,15 @@ export function DripEmailCampaignTab() {
 
               <div className="p-4 bg-white rounded-xl border border-[#1B4332]/12 shadow-2xs border-l-[3px] border-l-[#2F7D4F] space-y-1">
                 <span className="text-[10.5px] font-mono font-semibold text-[#2F7D4F] uppercase tracking-wider block">
-                  PROGRES CAMPAIGN (HARI)
+                  DITERIMA PROVIDER
                 </span>
                 <div className="text-2xl sm:text-[28px] font-bold font-display text-[#2F7D4F]">
-                  Hari {currentCampaign.currentDay} / {currentCampaign.totalDays}
+                  {currentCampaign.stats.totalSent.toLocaleString('id-ID')} / {currentCampaign.stats.totalRecipients.toLocaleString('id-ID')}
                 </div>
                 <div className="text-[11.5px] text-[#6B7A72] flex items-center justify-between">
-                  <span>{currentCampaign.progressPercentage || 0}% Rampung</span>
+                  <span>{currentCampaign.progressPercentage || 0}% dari target</span>
                   <span className="font-mono font-bold text-[#14352A]">
-                    {currentCampaign.stats.totalSent}/{currentCampaign.stats.totalRecipients}
+                    Hari {currentCampaign.currentDay}/{currentCampaign.totalDays}
                   </span>
                 </div>
               </div>
@@ -983,10 +1042,10 @@ export function DripEmailCampaignTab() {
                 </div>
                 <div>
                   <h4 className="text-xs sm:text-sm font-bold text-[#1C2321] font-display">
-                    Jalankan Kuota Email Hari ke-{currentCampaign.currentDay} ({dispatchableToday} Jamaah)
+                    {currentCampaign.automaticEnabled ? 'Pengiriman otomatis aktif' : `Jalankan Kuota Email Hari ke-${currentCampaign.currentDay}`} ({dispatchableToday} Jamaah)
                   </h4>
                   <p className="text-xs text-[#6B7A72]">
-                    Sistem akan memproses {dispatchableToday} email antrean berikutnya dan mencatat histori interaksi CRM otomatis. Email dalam blacklist akan dilewati otomatis.
+                    {currentCampaign.automaticEnabled ? 'Sistem memulai pengiriman pada jadwal WIB; tombol ini hanya untuk menjalankan sisa kuota lebih awal.' : 'Pengiriman manual memproses antrean berikutnya. Aktifkan jadwal di Edit Program agar berjalan otomatis.'}
                   </p>
                 </div>
               </div>
@@ -1050,7 +1109,7 @@ export function DripEmailCampaignTab() {
 
                 <button
                   type="button"
-                  onClick={fetchCampaigns}
+                  onClick={() => void fetchCampaigns()}
                   disabled={loading}
                   className="p-2 bg-[#FBF9F4] hover:bg-[#F2EEE4] text-[#3D4A44] rounded-xl border border-[#1B4332]/12 transition-all flex items-center gap-1 text-xs font-semibold px-3"
                   title="Segarkan Data"
@@ -1070,6 +1129,7 @@ export function DripEmailCampaignTab() {
                 { key: 'pending', label: `⏳ Menunggu Giliran (${currentCampaign?.stats?.remaining ?? 0})` },
                 { key: 'blacklisted', label: `🛡️ Blacklist / Ter-skip (${currentCampaign?.stats?.totalBlacklisted ?? 0})` },
                 { key: 'failed', label: `❌ Gagal Terkirim (${currentCampaign?.stats?.totalFailed ?? 0})` },
+                { key: 'unknown', label: `Status Belum Pasti (${currentCampaign?.stats?.totalUnknown ?? 0})` },
               ].map((st) => (
                 <button
                   key={st.key}
@@ -1159,7 +1219,7 @@ export function DripEmailCampaignTab() {
                           <td className="py-3 px-3 whitespace-nowrap">
                             {r.status === 'sent' ? (
                               <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#2F7D4F]/10 text-[#2F7D4F] border border-[#2F7D4F]/25 inline-flex items-center gap-1">
-                                <CheckCircle2 className="w-3 h-3" /> Terkirim
+                                <CheckCircle2 className="w-3 h-3" /> Diterima Provider
                               </span>
                             ) : r.status === 'blacklisted' ? (
                               <span
@@ -1175,6 +1235,8 @@ export function DripEmailCampaignTab() {
                               >
                                 <AlertTriangle className="w-3 h-3" /> Gagal
                               </span>
+                            ) : r.status === 'unknown' ? (
+                              <span title={r.error || 'Status provider belum pasti; tidak dikirim ulang otomatis'} className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-900"><AlertTriangle className="h-3 w-3" /> Belum Pasti</span>
                             ) : (
                               <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-[#F2EEE4] text-[#6B7A72] border border-[#1B4332]/12 inline-flex items-center gap-1">
                                 <Clock className="w-3 h-3" /> Menunggu Antrean
@@ -1184,7 +1246,7 @@ export function DripEmailCampaignTab() {
 
                           {/* Waktu */}
                           <td className="py-3 px-4 text-right font-mono text-[10.5px] text-[#6B7A72]">
-                            {r.sentAt ? new Date(r.sentAt).toLocaleString('id-ID') : 'Belum'}
+                            {r.sentAt || r.attemptedAt ? new Date(r.sentAt || r.attemptedAt!).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB' : 'Belum'}
                           </td>
 
                           {/* Aksi / Supresi */}
@@ -1706,6 +1768,16 @@ export function DripEmailCampaignTab() {
                 </div>
               </div>
 
+              <fieldset className="space-y-3 border-t border-[#1B4332]/10 pt-4">
+                <legend className="font-bold text-[#1C2321]">Jadwal Pengiriman Otomatis</legend>
+                <label className="flex items-center gap-2 font-semibold text-[#1C2321]"><input type="checkbox" checked={editAutomaticEnabled} onChange={(e) => setEditAutomaticEnabled(e.target.checked)} /> Aktifkan setelah perubahan disimpan</label>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block font-semibold text-[#1C2321]">Tanggal mulai (WIB)<input type="date" required={editAutomaticEnabled} value={editStartDateWib} onChange={(e) => setEditStartDateWib(e.target.value)} className="mt-1 w-full rounded-md border border-[#1B4332]/20 bg-white px-3 py-2.5" /></label>
+                  <label className="block font-semibold text-[#1C2321]">Mulai pukul (WIB)<select value={editSendHourWib} onChange={(e) => setEditSendHourWib(Number(e.target.value))} className="mt-1 w-full rounded-md border border-[#1B4332]/20 bg-white px-3 py-2.5">{Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{String(hour).padStart(2, '0')}.00 WIB</option>)}</select></label>
+                </div>
+                <p className="text-[#6B7A72]">Kampanye lama tetap manual sampai diaktifkan. Jadwal dimulai pada jam pilihan, lalu memproses antrean bertahap setiap 15 menit sampai kuota hari itu habis.</p>
+              </fieldset>
+
               {/* Row 3: HTML Editor vs Live Preview */}
               <div className="space-y-2 pt-2 border-t border-[#1B4332]/10">
                 <div className="flex items-center justify-between">
@@ -1902,6 +1974,16 @@ export function DripEmailCampaignTab() {
                   </select>
                 </div>
               </div>
+
+              <fieldset className="space-y-3 border-t border-[#1B4332]/10 pt-4">
+                <legend className="font-bold text-[#1C2321]">Jadwal Pengiriman Otomatis</legend>
+                <label className="flex items-center gap-2 font-semibold text-[#1C2321]"><input type="checkbox" checked={newAutomaticEnabled} onChange={(e) => setNewAutomaticEnabled(e.target.checked)} /> Aktifkan setelah program dibuat</label>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block font-semibold text-[#1C2321]">Tanggal mulai (WIB)<input type="date" required={newAutomaticEnabled} value={newStartDateWib} onChange={(e) => setNewStartDateWib(e.target.value)} className="mt-1 w-full rounded-md border border-[#1B4332]/20 bg-white px-3 py-2.5" /></label>
+                  <label className="block font-semibold text-[#1C2321]">Mulai pukul (WIB)<select value={newSendHourWib} onChange={(e) => setNewSendHourWib(Number(e.target.value))} className="mt-1 w-full rounded-md border border-[#1B4332]/20 bg-white px-3 py-2.5">{Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{String(hour).padStart(2, '0')}.00 WIB</option>)}</select></label>
+                </div>
+                <p className="text-[#6B7A72]">Pengiriman hanya berjalan setelah jadwal diaktifkan, tetap tunduk pada blacklist dan batas broadcast global 400 per hari.</p>
+              </fieldset>
 
               {/* Dynamic Target Estimation Pill */}
               <div className="p-3 bg-[#FBF9F4] rounded-xl border border-[#1B4332]/12 flex items-center justify-between text-xs">

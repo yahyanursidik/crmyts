@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { z } from 'zod';
 import { Router } from '../../http/router';
-import { requireAuth, validateBody } from '../../http/middleware';
+import { requireAuth, validateBody, type RequestContext } from '../../http/middleware';
 import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import {
@@ -21,8 +21,11 @@ import {
 import { asc, eq, and, desc, gte, isNotNull, ne, sql, or } from 'drizzle-orm';
 import { logAuditEvent } from '../../audit/service';
 import { sendEmail, renderEmailLayout } from '../../email/service';
+import { getServerEnv } from '../../config/env';
 import { getBroadcastDailyQuota, reserveBroadcastEmailSlot } from '../../email/broadcastQuota';
 import { formatEventDateTimeWib } from '../events/emailNotifications';
+import { getJakartaDateKey } from '../../email/broadcastQuota';
+import { ROLES } from '../../permissions/constants';
 
 export type { DripRecipient, DripCampaignStats };
 
@@ -35,6 +38,12 @@ export interface DripEmailCampaign {
   totalDays: number;
   currentDay: number;
   status: 'draft' | 'running' | 'paused' | 'completed';
+  automaticEnabled?: boolean;
+  sendHourWib?: number;
+  startDateWib?: string | null;
+  lastRunError?: string | null;
+  dispatchLockUntil?: Date | string | null;
+  createdBy?: string | null;
   filterGender: 'all' | 'ikhwan' | 'akhwat';
   createdAt: string;
   updatedAt: string;
@@ -187,6 +196,11 @@ export async function ensureEmailCampaignsTableAndSeed(db: any): Promise<void> {
           total_days integer DEFAULT 14 NOT NULL,
           current_day integer DEFAULT 1 NOT NULL,
           status text DEFAULT 'running' NOT NULL,
+          automatic_enabled boolean NOT NULL DEFAULT false,
+          send_hour_wib integer NOT NULL DEFAULT 8,
+          start_date_wib date,
+          dispatch_lock_until timestamptz,
+          last_run_error text,
           filter_gender text DEFAULT 'all' NOT NULL,
           stats jsonb NOT NULL,
           recipients jsonb NOT NULL,
@@ -196,9 +210,28 @@ export async function ensureEmailCampaignsTableAndSeed(db: any): Promise<void> {
           created_by uuid REFERENCES app_users(id)
         );
       `);
+      await db.execute(sql`ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS automatic_enabled boolean NOT NULL DEFAULT false`);
+      await db.execute(sql`ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS send_hour_wib integer NOT NULL DEFAULT 8`);
+      await db.execute(sql`ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS start_date_wib date`);
+      await db.execute(sql`ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS dispatch_lock_until timestamptz`);
+      await db.execute(sql`ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS last_run_error text`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS drip_email_attempts (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        campaign_id uuid NOT NULL REFERENCES email_campaigns(id) ON DELETE CASCADE,
+        email text NOT NULL,
+        usage_date date NOT NULL,
+        status text NOT NULL DEFAULT 'claimed',
+        provider_message_id text,
+        error text,
+        claimed_at timestamptz NOT NULL DEFAULT now(),
+        finished_at timestamptz,
+        UNIQUE (campaign_id, email)
+      )`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_drip_attempts_campaign_date ON drip_email_attempts(campaign_id, usage_date)`);
     }
   } catch (tableErr) {
-    // Soft fail for unit test mocks without raw execute
+    if (db.query?.emailCampaigns?.findFirst) throw tableErr;
+    // Legacy in-memory test doubles do not support runtime DDL.
   }
 
   // 2. Check if any campaigns exist in DB
@@ -268,6 +301,9 @@ export async function ensureEmailCampaignsTableAndSeed(db: any): Promise<void> {
       totalDays: 14,
       currentDay: 1,
       status: 'running',
+      automaticEnabled: false,
+      sendHourWib: 8,
+      startDateWib: null,
       filterGender: 'all',
       createdAt: nowIso,
       updatedAt: nowIso,
@@ -347,7 +383,6 @@ async function findCampaign(db: any, campaignId: string): Promise<DripEmailCampa
 }
 
 async function saveCampaign(db: any, campaign: DripEmailCampaign): Promise<void> {
-  memoryFallbackCampaigns.set(campaign.id, campaign);
   if (db.update && db.query?.emailCampaigns) {
     try {
       await db.update(emailCampaigns).set({
@@ -358,20 +393,25 @@ async function saveCampaign(db: any, campaign: DripEmailCampaign): Promise<void>
         totalDays: campaign.totalDays,
         currentDay: campaign.currentDay,
         status: campaign.status,
+        automaticEnabled: campaign.automaticEnabled ?? false,
+        sendHourWib: campaign.sendHourWib ?? 8,
+        startDateWib: campaign.startDateWib || null,
+        lastRunError: campaign.lastRunError || null,
+        ...(campaign.createdBy ? { createdBy: campaign.createdBy } : {}),
         filterGender: campaign.filterGender,
         stats: campaign.stats,
         recipients: campaign.recipients,
         lastDispatchedAt: campaign.lastDispatchedAt ? new Date(campaign.lastDispatchedAt) : null,
         updatedAt: new Date(),
       }).where(eq(emailCampaigns.id, campaign.id));
-    } catch {
-      // Soft fail for mocked DB without update method
+    } catch (error) {
+      throw error;
     }
   }
+  memoryFallbackCampaigns.set(campaign.id, campaign);
 }
 
 async function insertCampaign(db: any, campaign: DripEmailCampaign, userId?: string): Promise<void> {
-  memoryFallbackCampaigns.set(campaign.id, campaign);
   if (db.insert && db.query?.emailCampaigns) {
     try {
       await db.insert(emailCampaigns).values({
@@ -381,10 +421,11 @@ async function insertCampaign(db: any, campaign: DripEmailCampaign, userId?: str
         lastDispatchedAt: campaign.lastDispatchedAt ? new Date(campaign.lastDispatchedAt) : null,
         createdBy: userId,
       });
-    } catch {
-      // Soft fail for mocked DB without insert method
+    } catch (error) {
+      throw error;
     }
   }
+  memoryFallbackCampaigns.set(campaign.id, campaign);
 }
 
 async function deleteCampaign(db: any, campaignId: string): Promise<void> {
@@ -402,6 +443,9 @@ const createEmailCampaignSchema = z.object({
   bodyHtml: z.string().min(10, 'Isi draf email wajib diisi'),
   dailyQuota: z.coerce.number().int().min(5).max(400).default(50),
   totalDays: z.coerce.number().int().min(1).max(60).default(14),
+  automaticEnabled: z.boolean().default(false),
+  sendHourWib: z.coerce.number().int().min(0).max(23).default(8),
+  startDateWib: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   filterGender: z.enum(['all', 'ikhwan', 'akhwat']).default('all'),
   targetScope: z.enum(['all_jamaah', 'email_only']).default('all_jamaah'),
   excludeBlacklisted: z.boolean().default(true),
@@ -419,6 +463,9 @@ const updateEmailCampaignSchema = z.object({
   bodyHtml: z.string().min(10, 'Isi draf email wajib diisi').optional(),
   dailyQuota: z.coerce.number().int().min(5).max(400).optional(),
   totalDays: z.coerce.number().int().min(1).max(60).optional(),
+  automaticEnabled: z.boolean().optional(),
+  sendHourWib: z.coerce.number().int().min(0).max(23).optional(),
+  startDateWib: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
 });
 
 const testEmailCampaignSchema = z.object({
@@ -469,6 +516,419 @@ const sendInactiveGreetingSchema = z.object({
   taskTitle: z.string().optional().nullable(),
   taskDueDate: z.string().optional().nullable(),
 });
+
+function resultRows(result: unknown): Record<string, any>[] {
+  if (Array.isArray(result)) return result;
+  if (result && typeof result === 'object' && 'rows' in result && Array.isArray(result.rows)) return result.rows;
+  return [];
+}
+
+function isValidWibDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function jakartaHour(now = new Date()): number {
+  return Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jakarta', hour: '2-digit', hourCycle: 'h23' }).format(now));
+}
+
+export function isDripCampaignDue(campaign: Pick<DripEmailCampaign, 'automaticEnabled' | 'status' | 'startDateWib' | 'sendHourWib' | 'createdBy'>, now = new Date()): boolean {
+  const today = getJakartaDateKey(now);
+  return Boolean(campaign.automaticEnabled && campaign.status === 'running' && campaign.createdBy &&
+    campaign.startDateWib && campaign.startDateWib <= today && jakartaHour(now) >= (campaign.sendHourWib ?? 8));
+}
+
+function campaignDay(campaign: DripEmailCampaign, today = getJakartaDateKey()): number {
+  const start = campaign.startDateWib || today;
+  const elapsed = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000);
+  return elapsed + 1;
+}
+
+function campaignIsDispatching(campaign: DripEmailCampaign): boolean {
+  return Boolean(campaign.dispatchLockUntil && new Date(campaign.dispatchLockUntil).getTime() > Date.now());
+}
+
+function campaignBusyResponse(campaign: DripEmailCampaign, requestId: string) {
+  return campaignIsDispatching(campaign)
+    ? errorResponse('CONFLICT', 'Pengiriman sedang berjalan. Tunggu hingga selesai lalu coba lagi.', 409, requestId)
+    : null;
+}
+
+function campaignMetrics(campaign: DripEmailCampaign) {
+  const total = campaign.recipients.length;
+  const sent = campaign.recipients.filter((r) => r.status === 'sent').length;
+  const failed = campaign.recipients.filter((r) => r.status === 'failed').length;
+  const unknown = campaign.recipients.filter((r) => r.status === 'unknown').length;
+  const blacklisted = campaign.recipients.filter((r) => r.status === 'blacklisted').length;
+  const pending = campaign.recipients.filter((r) => r.status === 'pending').length;
+  const today = getJakartaDateKey();
+  const dailySentToday = campaign.recipients.filter((r) => r.status === 'sent' && r.sentAt && getJakartaDateKey(new Date(r.sentAt)) === today).length;
+  const dailyAttemptedToday = campaign.recipients.filter((r) => {
+    const at = r.attemptedAt || r.sentAt;
+    return at && getJakartaDateKey(new Date(at)) === today;
+  }).length;
+  return {
+    ...campaign,
+    stats: { ...campaign.stats, totalRecipients: total, totalSent: sent, totalFailed: failed,
+      totalUnknown: unknown, totalBlacklisted: blacklisted, remaining: pending, dailySentToday, dailyAttemptedToday },
+    progressPercentage: total ? Math.round(sent / total * 100) : 0,
+    processedPercentage: total ? Math.round((total - pending) / total * 100) : 0,
+  };
+}
+
+async function dispatchDripCampaign(ctx: RequestContext, scheduled = false, now = new Date()) {
+  const campaignId = ctx.params?.id || '';
+  const db = getDb();
+  const durable = Boolean(db.query?.emailCampaigns?.findFirst);
+  if (durable) await ensureEmailCampaignsTableAndSeed(db);
+  let campaign = await findCampaign(db, campaignId);
+  if (!campaign) return errorResponse('NOT_FOUND', 'Program email campaign tidak ditemukan', 404, ctx.requestId);
+
+  if (campaign.status !== 'running') {
+    return errorResponse('INVALID_STATE_TRANSITION', 'Program harus berstatus berjalan sebelum email dapat dikirim.', 409, ctx.requestId);
+  }
+
+  const user = ctx.user;
+  if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+  if (durable && !getServerEnv().MAILKETING_API_TOKEN) {
+    return errorResponse('INTERNAL_ERROR', 'Token Mailketing belum dikonfigurasi; antrean email belum diproses.', 503, ctx.requestId);
+  }
+
+  const today = getJakartaDateKey(now);
+  if (scheduled && !isDripCampaignDue(campaign, now)) {
+    return successResponse({ dispatchedCount: 0, reason: 'Belum masuk jadwal WIB.' }, { requestId: ctx.requestId });
+  }
+
+  let lockAcquired = false;
+  if (durable) {
+    const claimed = resultRows(await db.execute(sql`
+      UPDATE email_campaigns SET dispatch_lock_until = now() + interval '90 seconds'
+      WHERE id = ${campaignId}::uuid AND status = 'running'
+        AND (dispatch_lock_until IS NULL OR dispatch_lock_until < now())
+      RETURNING id
+    `));
+    if (!claimed.length) return errorResponse('CONFLICT', 'Pengiriman program sedang diproses. Coba kembali nanti.', 409, ctx.requestId);
+    lockAcquired = true;
+  }
+
+  try {
+  if (durable) {
+    campaign = await findCampaign(db, campaignId);
+    if (!campaign) return errorResponse('NOT_FOUND', 'Program email campaign tidak ditemukan', 404, ctx.requestId);
+  }
+  const dayNumber = campaign.automaticEnabled && campaign.startDateWib ? campaignDay(campaign, today) : campaign.currentDay;
+  if (scheduled && dayNumber > campaign.totalDays) {
+    campaign.status = 'completed';
+    campaign.lastRunError = 'Durasi jadwal selesai; penerima yang belum diproses tetap tercatat.';
+    await saveCampaign(db, campaign);
+    return successResponse({ dispatchedCount: 0, reason: campaign.lastRunError, campaign: campaignMetrics(campaign) }, { requestId: ctx.requestId });
+  }
+  campaign.currentDay = Math.max(1, Math.min(dayNumber, campaign.totalDays));
+
+  let attemptedToday = 0;
+  if (durable) {
+    const attempts = resultRows(await db.execute(sql`
+      SELECT email, status, error, claimed_at, finished_at FROM drip_email_attempts WHERE campaign_id = ${campaignId}::uuid
+    `));
+    const byEmail = new Map(attempts.map((attempt) => [String(attempt.email).toLowerCase(), attempt]));
+    for (const recipient of campaign.recipients) {
+      const attempt = byEmail.get(recipient.email.trim().toLowerCase());
+      if (recipient.status !== 'pending' || !attempt) continue;
+      recipient.status = attempt.status === 'accepted' ? 'sent' : attempt.status === 'failed' ? 'failed' : 'unknown';
+      recipient.error = attempt.status === 'claimed' ? 'Status pengiriman belum pasti; tidak dikirim ulang otomatis.' : attempt.error || null;
+      recipient.attemptedAt = new Date(attempt.finished_at || attempt.claimed_at).toISOString();
+      if (attempt.finished_at && recipient.status === 'sent') recipient.sentAt = new Date(attempt.finished_at).toISOString();
+    }
+    const count = resultRows(await db.execute(sql`
+      SELECT count(*)::int AS count FROM drip_email_attempts
+      WHERE campaign_id = ${campaignId}::uuid AND usage_date = ${today}::date
+    `));
+    attemptedToday = Math.max(Number(count[0]?.count || 0), campaign.recipients.filter((r) => {
+      const at = r.attemptedAt || r.sentAt;
+      return at && getJakartaDateKey(new Date(at)) === today;
+    }).length);
+  }
+
+  // Auto-skip any pending recipients that are already registered in global email blacklist
+  const blacklistedSet = await getBlacklistedEmailsSet(db);
+  let newlyBlacklistedCount = 0;
+  for (const r of campaign.recipients) {
+    if (r.status === 'pending' && blacklistedSet.has(r.email.toLowerCase().trim())) {
+      r.status = 'blacklisted';
+      r.error = 'Dilewati: Terdaftar di Blacklist / Sudah pernah terkirim';
+      newlyBlacklistedCount++;
+    }
+  }
+
+  let dailyBroadcastQuota = await getBroadcastDailyQuota(db);
+  if (dailyBroadcastQuota.remainingToday === 0) {
+    return errorResponse(
+      'RATE_LIMITED',
+      `Batas broadcast email hari ini (${dailyBroadcastQuota.dailyLimit} email, WIB) telah tercapai. Pengiriman dapat dilanjutkan besok.`,
+      429,
+      ctx.requestId,
+      dailyBroadcastQuota
+    );
+  }
+
+  const dispatchAllowance = Math.min(Math.max(0, campaign.dailyQuota - attemptedToday), dailyBroadcastQuota.remainingToday, scheduled ? 5 : campaign.dailyQuota);
+  const pendingRecipients = campaign.recipients.filter((r) => r.status === 'pending').slice(0, dispatchAllowance);
+
+  if (pendingRecipients.length === 0) {
+    const hasAnyPending = campaign.recipients.some((r) => r.status === 'pending');
+    if (!hasAnyPending) {
+      campaign.status = 'completed';
+    }
+    campaign.stats.totalSent = campaign.recipients.filter((r) => r.status === 'sent').length;
+    campaign.stats.totalFailed = campaign.recipients.filter((r) => r.status === 'failed').length;
+    campaign.stats.totalUnknown = campaign.recipients.filter((r) => r.status === 'unknown').length;
+    campaign.stats.totalBlacklisted = campaign.recipients.filter((r) => r.status === 'blacklisted').length;
+    campaign.stats.remaining = campaign.recipients.filter((r) => r.status === 'pending').length;
+    campaign.updatedAt = new Date().toISOString();
+    await saveCampaign(db, campaign);
+    return successResponse({
+      message: hasAnyPending ? 'Batas pengiriman hari ini telah tercapai' : 'Semua antrean email telah selesai diproses',
+      dispatchedCount: 0,
+      skippedBlacklisted: campaign.stats.totalBlacklisted,
+      campaign,
+    }, { requestId: ctx.requestId });
+  }
+
+  // Time budget (8.5s) to guarantee serverless response before Netlify 10s timeout
+  const startTime = Date.now();
+  const TIME_BUDGET_MS = 8500;
+  const CHUNK_SIZE = 5;
+
+  let successCount = 0;
+  let failedCount = 0;
+  let validAttemptCount = 0;
+  const dispatchResults: any[] = [];
+  const dispatchCampaign = campaign;
+
+  for (let i = 0; i < pendingRecipients.length; i += CHUNK_SIZE) {
+    if (Date.now() - startTime > TIME_BUDGET_MS) {
+      console.log(`[Drip Dispatch Budget]: Reached ${Date.now() - startTime}ms, yielding response gracefully.`);
+      break;
+    }
+
+    const chunk = pendingRecipients.slice(i, i + CHUNK_SIZE);
+    const validBatch: DripRecipient[] = [];
+
+    for (const r of chunk) {
+      if (durable) {
+        const claimed = resultRows(await db.execute(sql`
+          INSERT INTO drip_email_attempts (campaign_id, email, usage_date)
+          VALUES (${campaignId}::uuid, ${r.email.trim().toLowerCase()}, ${today}::date)
+          ON CONFLICT (campaign_id, email) DO NOTHING RETURNING id
+        `));
+        if (!claimed.length) continue;
+      }
+      const reservedQuota = await reserveBroadcastEmailSlot(db);
+      if (!reservedQuota && durable) await db.execute(sql`
+        DELETE FROM drip_email_attempts WHERE campaign_id = ${campaignId}::uuid AND email = ${r.email.trim().toLowerCase()} AND status = 'claimed'
+      `);
+      if (!reservedQuota) break;
+      dailyBroadcastQuota = reservedQuota;
+      validBatch.push(r);
+    }
+
+    if (validBatch.length === 0) break;
+    validAttemptCount += validBatch.length;
+
+    const results = await Promise.allSettled(
+      validBatch.map(async (r) => {
+        const genderTitle = r.gender === 'akhwat' ? 'Ukhti' : r.gender === 'ikhwan' ? 'Akhi' : 'Bapak/Ibu';
+        const renderedHtml = dispatchCampaign.bodyHtml
+          .replace(/\{\{fullName\}\}/g, r.fullName)
+          .replace(/\{\{city\}\}/g, r.cityRegency || 'Kota Bandung')
+          .replace(/\{\{genderTitle\}\}/g, genderTitle)
+          .replace(/\{\{email\}\}/g, r.email);
+
+        const fullLayoutHtml = renderEmailLayout(dispatchCampaign.subject, renderedHtml);
+
+        let sendRes: Awaited<ReturnType<typeof sendEmail>>;
+        try { sendRes = await sendEmail({
+          to: r.email,
+          subject: dispatchCampaign.subject,
+          html: fullLayoutHtml,
+          messageId: `drip-${dispatchCampaign.id}-${crypto.createHash('sha256').update(r.email.trim().toLowerCase()).digest('hex').slice(0, 20)}`,
+        }); } catch (error) { sendRes = { success: false, error: error instanceof Error ? error.message : 'Status provider tidak diketahui.' }; }
+
+        if (durable) await db.execute(sql`
+          UPDATE drip_email_attempts SET status = ${sendRes.success ? 'accepted' : sendRes.definitiveFailure ? 'failed' : 'unknown'},
+            provider_message_id = ${sendRes.messageId || null}, error = ${sendRes.error || null}, finished_at = now()
+          WHERE campaign_id = ${campaignId}::uuid AND email = ${r.email.trim().toLowerCase()}
+        `);
+        r.attemptedAt = new Date().toISOString();
+
+        if (sendRes.success) {
+          r.status = 'sent';
+          r.sentAt = new Date().toISOString();
+          r.dayNumber = dispatchCampaign.currentDay;
+          r.error = null;
+
+          // Log CRM interaction
+          try {
+            await db.insert(interactions).values({
+              personId: r.personId,
+              channel: 'email',
+              summary: `Drip Broadcast: ${dispatchCampaign.title} (Hari ${dispatchCampaign.currentDay})`,
+              outcome: `Email sapaan terkirim ke ${r.email}`,
+              sensitivityLevel: 'standard',
+              ownerUserId: user.id,
+              createdBy: user.id,
+            });
+          } catch (err) {
+            console.warn('[CRM Drip Interaction Log Warn]:', err);
+          }
+
+          // Auto-add to email blacklist so future sends skip this email
+          try {
+            await addEmailToBlacklist(db, {
+              email: r.email,
+              reason: 'already_sent',
+              sourceCampaignId: dispatchCampaign.id,
+              personId: r.personId,
+              userId: user.id,
+              notes: `Terkirim via kampanye ${dispatchCampaign.title} (Hari ${dispatchCampaign.currentDay})`,
+            });
+          } catch (err) {
+            console.warn('[Auto Blacklist On Send Warn]:', err);
+          }
+
+          return { success: true, recipient: r };
+        } else {
+          r.status = sendRes.definitiveFailure ? 'failed' : 'unknown';
+          r.error = sendRes.error || 'Mailketing API Error';
+          return { success: false, recipient: r, error: r.error };
+        }
+      })
+    );
+
+    for (const res of results) {
+      if (res.status === 'fulfilled') {
+        const val = res.value;
+        if (val.success) {
+          successCount++;
+        } else {
+          failedCount++;
+        }
+        dispatchResults.push({
+          fullName: val.recipient.fullName,
+          email: val.recipient.email,
+          status: val.recipient.status,
+          error: val.recipient.error,
+        });
+      } else {
+        failedCount++;
+      }
+    }
+  }
+
+  // Update campaign stats
+  const totalSent = campaign.recipients.filter((r) => r.status === 'sent').length;
+  const totalFailed = campaign.recipients.filter((r) => r.status === 'failed').length;
+  const totalUnknown = campaign.recipients.filter((r) => r.status === 'unknown').length;
+  const totalBlacklisted = campaign.recipients.filter((r) => r.status === 'blacklisted').length;
+  const remaining = campaign.recipients.filter((r) => r.status === 'pending').length;
+
+  campaign.stats.totalSent = totalSent;
+  campaign.stats.totalFailed = totalFailed;
+  campaign.stats.totalUnknown = totalUnknown;
+  campaign.stats.totalBlacklisted = totalBlacklisted;
+  campaign.stats.remaining = remaining;
+  campaign.stats.dailySentToday = campaign.recipients.filter((r) => r.status === 'sent' && r.sentAt && getJakartaDateKey(new Date(r.sentAt)) === today).length;
+  campaign.stats.dailyAttemptedToday = attemptedToday + validAttemptCount;
+  campaign.lastDispatchedAt = new Date().toISOString();
+  campaign.lastRunError = null;
+  campaign.updatedAt = new Date().toISOString();
+
+  if (remaining === 0) {
+    campaign.status = 'completed';
+  } else if (!campaign.automaticEnabled && attemptedToday === 0 && campaign.currentDay < campaign.totalDays) {
+    campaign.currentDay += 1;
+  }
+
+  await saveCampaign(db, campaign);
+
+  await logAuditEvent({
+    actorUserId: user.id,
+    action: 'dispatch_drip_email_batch',
+    entityType: 'email_campaign',
+    entityId: campaign.id,
+    afterJson: {
+      dayNumber: campaign.currentDay - 1,
+      successCount,
+      failedCount,
+      totalBlacklisted,
+      newlyBlacklistedCount,
+      remaining,
+      dailyBroadcastQuota,
+    },
+    reason: `Pengiriman email harian kuota warm-up (${successCount} sukses, ${failedCount} gagal, ${totalBlacklisted} blacklist)`,
+    requestId: ctx.requestId,
+  });
+
+  return successResponse(
+    {
+      campaignId: campaign.id,
+      title: campaign.title,
+      dayDispatched: campaign.currentDay - 1,
+      successCount,
+      failedCount,
+      skippedBlacklisted: totalBlacklisted,
+      remaining,
+      dailyBroadcastQuota,
+      campaign,
+      results: dispatchResults,
+    },
+    { requestId: ctx.requestId }
+  );
+  } finally {
+    if (lockAcquired) await db.execute(sql`UPDATE email_campaigns SET dispatch_lock_until = NULL WHERE id = ${campaignId}::uuid`);
+  }
+}
+
+/** Scheduled invocations only continue campaigns explicitly enabled by an admin. */
+export async function processDueDripCampaigns(now = new Date()): Promise<{ checked: number; processed: number; errors: number }> {
+  const db = getDb();
+  await ensureEmailCampaignsTableAndSeed(db);
+  const candidates = await db.select({ id: emailCampaigns.id, createdBy: emailCampaigns.createdBy,
+    startDateWib: emailCampaigns.startDateWib, sendHourWib: emailCampaigns.sendHourWib })
+    .from(emailCampaigns)
+    .where(and(eq(emailCampaigns.automaticEnabled, true), eq(emailCampaigns.status, 'running')))
+    .orderBy(asc(emailCampaigns.lastDispatchedAt), asc(emailCampaigns.createdAt)).limit(20);
+  let processed = 0;
+  let errors = 0;
+  for (const candidate of candidates) {
+    if (processed >= 1) break;
+    if (!isDripCampaignDue({ ...candidate, automaticEnabled: true, status: 'running' }, now)) continue;
+    if (!candidate.createdBy) continue;
+    const ctx: RequestContext = {
+      requestId: `drip_scheduled_${crypto.randomUUID()}`,
+      method: 'POST', path: `/api/automation/email-campaigns/${candidate.id}/dispatch-today`,
+      params: { id: candidate.id }, query: {}, headers: {}, body: {},
+      user: { id: candidate.createdBy, authSubject: 'scheduled-drip', email: 'system@yts.web.id',
+        fullName: 'Pengiriman terjadwal YTS', roles: [ROLES.CRM_ADMIN], permissions: [], isActive: true },
+    };
+    try {
+      const result = await dispatchDripCampaign(ctx, true, now);
+      if (result.statusCode === 200) processed++;
+      else if (result.statusCode !== 409 && result.statusCode !== 429) {
+        errors++;
+        await db.update(emailCampaigns).set({ lastRunError: JSON.parse(result.body).error?.message || 'Pengiriman gagal.' })
+          .where(eq(emailCampaigns.id, candidate.id));
+      }
+    } catch (error) {
+      errors++;
+      console.error('[Scheduled Drip Campaign Error]', candidate.id, error);
+      await db.update(emailCampaigns).set({ lastRunError: error instanceof Error ? error.message.slice(0, 300) : 'Pengiriman gagal.' })
+        .where(eq(emailCampaigns.id, candidate.id));
+    }
+  }
+  return { checked: candidates.length, processed, errors };
+}
 
 export function registerAutomationRoutes(router: Router) {
   // 1. GET /api/automation/templates
@@ -1227,12 +1687,12 @@ export function registerAutomationRoutes(router: Router) {
           const dbCampaigns = await db.query.emailCampaigns.findMany({
             orderBy: [desc(emailCampaigns.createdAt)],
           });
-          list = dbCampaigns.map((c: any) => ({
+          list = dbCampaigns.map((c: any) => campaignMetrics({
             ...c,
             createdAt: c.createdAt instanceof Date ? c.createdAt.toISOString() : c.createdAt,
             updatedAt: c.updatedAt instanceof Date ? c.updatedAt.toISOString() : c.updatedAt,
             lastDispatchedAt: c.lastDispatchedAt instanceof Date ? c.lastDispatchedAt.toISOString() : c.lastDispatchedAt,
-            progressPercentage: c.stats?.totalRecipients > 0 ? Math.round((c.stats.totalSent / c.stats.totalRecipients) * 100) : 0,
+            startDateWib: c.startDateWib instanceof Date ? c.startDateWib.toISOString().slice(0, 10) : c.startDateWib,
           }));
         } catch {
           // Soft fail
@@ -1240,10 +1700,7 @@ export function registerAutomationRoutes(router: Router) {
       }
 
       if (list.length === 0 && memoryFallbackCampaigns.size > 0) {
-        list = Array.from(memoryFallbackCampaigns.values()).map((c) => ({
-          ...c,
-          progressPercentage: c.stats?.totalRecipients > 0 ? Math.round((c.stats.totalSent / c.stats.totalRecipients) * 100) : 0,
-        }));
+        list = Array.from(memoryFallbackCampaigns.values()).map(campaignMetrics);
       }
 
       return successResponse(list, { requestId: ctx.requestId, total: list.length });
@@ -1262,10 +1719,7 @@ export function registerAutomationRoutes(router: Router) {
         return errorResponse('NOT_FOUND', 'Program email campaign tidak ditemukan', 404, ctx.requestId);
       }
 
-      return successResponse({
-        ...campaign,
-        progressPercentage: campaign.stats?.totalRecipients > 0 ? Math.round((campaign.stats.totalSent / campaign.stats.totalRecipients) * 100) : 0,
-      }, { requestId: ctx.requestId });
+      return successResponse(campaignMetrics(campaign), { requestId: ctx.requestId });
     })
   );
 
@@ -1277,6 +1731,13 @@ export function registerAutomationRoutes(router: Router) {
         const db = getDb();
         const user = ctx.user;
         if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+        if (body.startDateWib && !isValidWibDate(body.startDateWib)) {
+          return errorResponse('VALIDATION_ERROR', 'Tanggal mulai WIB tidak valid.', 400, ctx.requestId);
+        }
+        if (body.automaticEnabled && body.startDateWib && body.startDateWib < getJakartaDateKey()) {
+          return errorResponse('VALIDATION_ERROR', 'Tanggal mulai otomatis tidak boleh berada di masa lalu.', 400, ctx.requestId);
+        }
+        await ensureEmailCampaignsTableAndSeed(db);
 
         const conditions = [
           isNotNull(persons.email),
@@ -1293,8 +1754,10 @@ export function registerAutomationRoutes(router: Router) {
         });
 
         const blacklistedSet = await getBlacklistedEmailsSet(db);
+        const recipientEmails = new Set<string>();
         const recipients: DripRecipient[] = eligiblePersons
           .filter((p) => Boolean(p.email && p.email.trim().includes('@')))
+          .filter((p) => { const email = p.email!.trim().toLowerCase(); if (recipientEmails.has(email)) return false; recipientEmails.add(email); return true; })
           .map((p) => {
             const cleanEmail = p.email!.trim().toLowerCase();
             const isBlacklisted = blacklistedSet.has(cleanEmail);
@@ -1331,6 +1794,10 @@ export function registerAutomationRoutes(router: Router) {
           totalDays: body.totalDays ?? 14,
           currentDay: 1,
           status: 'running',
+          automaticEnabled: body.automaticEnabled,
+          sendHourWib: body.sendHourWib,
+          startDateWib: body.automaticEnabled ? body.startDateWib || getJakartaDateKey() : body.startDateWib || null,
+          createdBy: user.id,
           filterGender: body.filterGender ?? 'all',
           createdAt: nowIso,
           updatedAt: nowIso,
@@ -1373,12 +1840,26 @@ export function registerAutomationRoutes(router: Router) {
 
         const campaign = await findCampaign(db, campaignId);
         if (!campaign) return errorResponse('NOT_FOUND', 'Campaign tidak ditemukan', 404, ctx.requestId);
+        const busy = campaignBusyResponse(campaign, ctx.requestId);
+        if (busy) return busy;
+        if (body.startDateWib && !isValidWibDate(body.startDateWib)) {
+          return errorResponse('VALIDATION_ERROR', 'Tanggal mulai WIB tidak valid.', 400, ctx.requestId);
+        }
+        if ((body.automaticEnabled ?? campaign.automaticEnabled) && body.startDateWib &&
+          body.startDateWib !== campaign.startDateWib && body.startDateWib < getJakartaDateKey()) {
+          return errorResponse('VALIDATION_ERROR', 'Tanggal mulai otomatis tidak boleh berada di masa lalu.', 400, ctx.requestId);
+        }
 
         if (body.title !== undefined) campaign.title = body.title;
         if (body.subject !== undefined) campaign.subject = body.subject;
         if (body.bodyHtml !== undefined) campaign.bodyHtml = body.bodyHtml;
         if (body.dailyQuota !== undefined) campaign.dailyQuota = body.dailyQuota;
         if (body.totalDays !== undefined) campaign.totalDays = body.totalDays;
+        if (body.automaticEnabled !== undefined) campaign.automaticEnabled = body.automaticEnabled;
+        if (body.sendHourWib !== undefined) campaign.sendHourWib = body.sendHourWib;
+        if (body.startDateWib !== undefined) campaign.startDateWib = body.startDateWib;
+        if (campaign.automaticEnabled && !campaign.startDateWib) campaign.startDateWib = getJakartaDateKey();
+        if (body.automaticEnabled && !campaign.createdBy) campaign.createdBy = ctx.user?.id || null;
         campaign.updatedAt = new Date().toISOString();
 
         await saveCampaign(db, campaign);
@@ -1388,231 +1869,8 @@ export function registerAutomationRoutes(router: Router) {
     )
   );
 
-  // 14. POST /api/automation/email-campaigns/:id/dispatch-today (Dispatch Today's Batch with Concurrency & Blacklist Skip)
-  router.post(
-    '/api/automation/email-campaigns/:id/dispatch-today',
-    requireAuth(async (ctx) => {
-      const campaignId = ctx.params?.id || '';
-      const db = getDb();
-      const campaign = await findCampaign(db, campaignId);
-      if (!campaign) return errorResponse('NOT_FOUND', 'Program email campaign tidak ditemukan', 404, ctx.requestId);
-
-      if (campaign.status === 'completed') {
-        return errorResponse('VALIDATION_ERROR', 'Campaign ini telah tuntas terkirim ke seluruh jamaah', 400, ctx.requestId);
-      }
-
-      const user = ctx.user;
-      if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
-
-      // Auto-skip any pending recipients that are already registered in global email blacklist
-      const blacklistedSet = await getBlacklistedEmailsSet(db);
-      let newlyBlacklistedCount = 0;
-      for (const r of campaign.recipients) {
-        if (r.status === 'pending' && blacklistedSet.has(r.email.toLowerCase().trim())) {
-          r.status = 'blacklisted';
-          r.error = 'Dilewati: Terdaftar di Blacklist / Sudah pernah terkirim';
-          newlyBlacklistedCount++;
-        }
-      }
-
-      let dailyBroadcastQuota = await getBroadcastDailyQuota(db);
-      if (dailyBroadcastQuota.remainingToday === 0) {
-        return errorResponse(
-          'RATE_LIMITED',
-          `Batas broadcast email hari ini (${dailyBroadcastQuota.dailyLimit} email, WIB) telah tercapai. Pengiriman dapat dilanjutkan besok.`,
-          429,
-          ctx.requestId,
-          dailyBroadcastQuota
-        );
-      }
-
-      const dispatchAllowance = Math.min(campaign.dailyQuota, dailyBroadcastQuota.remainingToday);
-      const pendingRecipients = campaign.recipients.filter((r) => r.status === 'pending').slice(0, dispatchAllowance);
-
-      if (pendingRecipients.length === 0) {
-        const hasAnyPending = campaign.recipients.some((r) => r.status === 'pending');
-        if (!hasAnyPending) {
-          campaign.status = 'completed';
-        }
-        campaign.stats.totalSent = campaign.recipients.filter((r) => r.status === 'sent').length;
-        campaign.stats.totalFailed = campaign.recipients.filter((r) => r.status === 'failed').length;
-        campaign.stats.totalBlacklisted = campaign.recipients.filter((r) => r.status === 'blacklisted').length;
-        campaign.stats.remaining = campaign.recipients.filter((r) => r.status === 'pending').length;
-        campaign.updatedAt = new Date().toISOString();
-        await saveCampaign(db, campaign);
-        return successResponse({
-          message: hasAnyPending ? 'Batas pengiriman hari ini telah tercapai' : 'Semua antrean email telah selesai diproses',
-          dispatchedCount: 0,
-          skippedBlacklisted: campaign.stats.totalBlacklisted,
-          campaign,
-        }, { requestId: ctx.requestId });
-      }
-
-      // Time budget (8.5s) to guarantee serverless response before Netlify 10s timeout
-      const startTime = Date.now();
-      const TIME_BUDGET_MS = 8500;
-      const CHUNK_SIZE = 5;
-
-      let successCount = 0;
-      let failedCount = 0;
-      const dispatchResults: any[] = [];
-
-      for (let i = 0; i < pendingRecipients.length; i += CHUNK_SIZE) {
-        if (Date.now() - startTime > TIME_BUDGET_MS) {
-          console.log(`[Drip Dispatch Budget]: Reached ${Date.now() - startTime}ms, yielding response gracefully.`);
-          break;
-        }
-
-        const chunk = pendingRecipients.slice(i, i + CHUNK_SIZE);
-        const validBatch: DripRecipient[] = [];
-
-        for (const r of chunk) {
-          const reservedQuota = await reserveBroadcastEmailSlot(db);
-          if (!reservedQuota) break;
-          dailyBroadcastQuota = reservedQuota;
-          validBatch.push(r);
-        }
-
-        if (validBatch.length === 0) break;
-
-        const results = await Promise.allSettled(
-          validBatch.map(async (r) => {
-            const genderTitle = r.gender === 'akhwat' ? 'Ukhti' : r.gender === 'ikhwan' ? 'Akhi' : 'Bapak/Ibu';
-            const renderedHtml = campaign.bodyHtml
-              .replace(/\{\{fullName\}\}/g, r.fullName)
-              .replace(/\{\{city\}\}/g, r.cityRegency || 'Kota Bandung')
-              .replace(/\{\{genderTitle\}\}/g, genderTitle)
-              .replace(/\{\{email\}\}/g, r.email);
-
-            const fullLayoutHtml = renderEmailLayout(campaign.subject, renderedHtml);
-
-            const sendRes = await sendEmail({
-              to: r.email,
-              subject: campaign.subject,
-              html: fullLayoutHtml,
-            });
-
-            if (sendRes.success) {
-              r.status = 'sent';
-              r.sentAt = new Date().toISOString();
-              r.dayNumber = campaign.currentDay;
-              r.error = null;
-
-              // Log CRM interaction
-              try {
-                await db.insert(interactions).values({
-                  personId: r.personId,
-                  channel: 'email',
-                  summary: `Drip Broadcast: ${campaign.title} (Hari ${campaign.currentDay})`,
-                  outcome: `Email sapaan terkirim ke ${r.email}`,
-                  sensitivityLevel: 'standard',
-                  ownerUserId: user.id,
-                  createdBy: user.id,
-                });
-              } catch (err) {
-                console.warn('[CRM Drip Interaction Log Warn]:', err);
-              }
-
-              // Auto-add to email blacklist so future sends skip this email
-              try {
-                await addEmailToBlacklist(db, {
-                  email: r.email,
-                  reason: 'already_sent',
-                  sourceCampaignId: campaign.id,
-                  personId: r.personId,
-                  userId: user.id,
-                  notes: `Terkirim via kampanye ${campaign.title} (Hari ${campaign.currentDay})`,
-                });
-              } catch (err) {
-                console.warn('[Auto Blacklist On Send Warn]:', err);
-              }
-
-              return { success: true, recipient: r };
-            } else {
-              r.status = 'failed';
-              r.error = sendRes.error || 'Mailketing API Error';
-              return { success: false, recipient: r, error: r.error };
-            }
-          })
-        );
-
-        for (const res of results) {
-          if (res.status === 'fulfilled') {
-            const val = res.value;
-            if (val.success) {
-              successCount++;
-            } else {
-              failedCount++;
-            }
-            dispatchResults.push({
-              fullName: val.recipient.fullName,
-              email: val.recipient.email,
-              status: val.recipient.status,
-              error: val.recipient.error,
-            });
-          } else {
-            failedCount++;
-          }
-        }
-      }
-
-      // Update campaign stats
-      const totalSent = campaign.recipients.filter((r) => r.status === 'sent').length;
-      const totalFailed = campaign.recipients.filter((r) => r.status === 'failed').length;
-      const totalBlacklisted = campaign.recipients.filter((r) => r.status === 'blacklisted').length;
-      const remaining = campaign.recipients.filter((r) => r.status === 'pending').length;
-
-      campaign.stats.totalSent = totalSent;
-      campaign.stats.totalFailed = totalFailed;
-      campaign.stats.totalBlacklisted = totalBlacklisted;
-      campaign.stats.remaining = remaining;
-      campaign.stats.dailySentToday = successCount;
-      campaign.lastDispatchedAt = new Date().toISOString();
-      campaign.updatedAt = new Date().toISOString();
-
-      if (remaining === 0) {
-        campaign.status = 'completed';
-      } else if (campaign.currentDay < campaign.totalDays) {
-        campaign.currentDay += 1;
-      }
-
-      await saveCampaign(db, campaign);
-
-      await logAuditEvent({
-        actorUserId: user.id,
-        action: 'dispatch_drip_email_batch',
-        entityType: 'email_campaign',
-        entityId: campaign.id,
-        afterJson: {
-          dayNumber: campaign.currentDay - 1,
-          successCount,
-          failedCount,
-          totalBlacklisted,
-          newlyBlacklistedCount,
-          remaining,
-          dailyBroadcastQuota,
-        },
-        reason: `Pengiriman email harian kuota warm-up (${successCount} sukses, ${failedCount} gagal, ${totalBlacklisted} blacklist)`,
-        requestId: ctx.requestId,
-      });
-
-      return successResponse(
-        {
-          campaignId: campaign.id,
-          title: campaign.title,
-          dayDispatched: campaign.currentDay - 1,
-          successCount,
-          failedCount,
-          skippedBlacklisted: totalBlacklisted,
-          remaining,
-          dailyBroadcastQuota,
-          campaign,
-          results: dispatchResults,
-        },
-        { requestId: ctx.requestId }
-      );
-    })
-  );
+  // 14. POST /api/automation/email-campaigns/:id/dispatch-today
+  router.post('/api/automation/email-campaigns/:id/dispatch-today', requireAuth((ctx) => dispatchDripCampaign(ctx)));
 
   // 15. POST /api/automation/email-campaigns/:id/test-email (Send Single Test Email)
   router.post(
@@ -1663,6 +1921,8 @@ export function registerAutomationRoutes(router: Router) {
       const db = getDb();
       const campaign = await findCampaign(db, campaignId);
       if (!campaign) return errorResponse('NOT_FOUND', 'Campaign tidak ditemukan', 404, ctx.requestId);
+      const busy = campaignBusyResponse(campaign, ctx.requestId);
+      if (busy) return busy;
 
       campaign.status = 'paused';
       campaign.updatedAt = new Date().toISOString();
@@ -1680,6 +1940,8 @@ export function registerAutomationRoutes(router: Router) {
       const db = getDb();
       const campaign = await findCampaign(db, campaignId);
       if (!campaign) return errorResponse('NOT_FOUND', 'Campaign tidak ditemukan', 404, ctx.requestId);
+      const busy = campaignBusyResponse(campaign, ctx.requestId);
+      if (busy) return busy;
 
       campaign.status = 'running';
       campaign.updatedAt = new Date().toISOString();
@@ -1697,6 +1959,8 @@ export function registerAutomationRoutes(router: Router) {
       const db = getDb();
       const campaign = await findCampaign(db, campaignId);
       if (!campaign) return errorResponse('NOT_FOUND', 'Campaign tidak ditemukan', 404, ctx.requestId);
+      const busy = campaignBusyResponse(campaign, ctx.requestId);
+      if (busy) return busy;
 
       await deleteCampaign(db, campaignId);
 
@@ -1722,20 +1986,26 @@ export function registerAutomationRoutes(router: Router) {
       const db = getDb();
       const campaign = await findCampaign(db, campaignId);
       if (!campaign) return errorResponse('NOT_FOUND', 'Campaign tidak ditemukan', 404, ctx.requestId);
+      const busy = campaignBusyResponse(campaign, ctx.requestId);
+      if (busy) return busy;
 
       const blacklistedSet = await getBlacklistedEmailsSet(db);
       campaign.currentDay = 1;
       campaign.status = 'running';
       campaign.stats.totalSent = 0;
       campaign.stats.totalFailed = 0;
+      campaign.stats.totalUnknown = 0;
       campaign.stats.dailySentToday = 0;
+      campaign.stats.dailyAttemptedToday = 0;
       campaign.lastDispatchedAt = null;
+      if (campaign.automaticEnabled) campaign.startDateWib = getJakartaDateKey();
       campaign.recipients = campaign.recipients.map((r) => {
         const isBlacklisted = blacklistedSet.has(r.email.toLowerCase().trim());
         return {
           ...r,
           status: isBlacklisted ? ('blacklisted' as const) : ('pending' as const),
           sentAt: null,
+          attemptedAt: null,
           dayNumber: null,
           error: isBlacklisted ? 'Dilewati: Terdaftar di Blacklist / Sudah pernah terkirim' : null,
         };
@@ -1939,6 +2209,8 @@ export function registerAutomationRoutes(router: Router) {
 
       const campaign = await findCampaign(db, campaignId);
       if (!campaign) return errorResponse('NOT_FOUND', 'Program email campaign tidak ditemukan', 404, ctx.requestId);
+      const busy = campaignBusyResponse(campaign, ctx.requestId);
+      if (busy) return busy;
 
       const target = campaign.recipients.find((r) => r.email.toLowerCase().trim() === recipientEmail);
       if (!target) return errorResponse('NOT_FOUND', 'Penerima tidak ditemukan pada kampanye ini', 404, ctx.requestId);
@@ -1976,6 +2248,8 @@ export function registerAutomationRoutes(router: Router) {
 
       const campaign = await findCampaign(db, campaignId);
       if (!campaign) return errorResponse('NOT_FOUND', 'Program email campaign tidak ditemukan', 404, ctx.requestId);
+      const busy = campaignBusyResponse(campaign, ctx.requestId);
+      if (busy) return busy;
 
       const target = campaign.recipients.find((r) => r.email.toLowerCase().trim() === recipientEmail);
       if (!target) return errorResponse('NOT_FOUND', 'Penerima tidak ditemukan pada kampanye ini', 404, ctx.requestId);
