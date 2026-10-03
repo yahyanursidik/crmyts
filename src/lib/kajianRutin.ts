@@ -93,6 +93,38 @@ export interface PortalSessionItem {
 
 export const WEEKDAY_NAMES = ['Ahad', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'] as const;
 
+/** Kajian daurah (event satu kali) di portal peserta. */
+export interface DaurahEventItem {
+  id: string;
+  title: string;
+  speaker: string | null;
+  startAt: string;
+  endAt: string | null;
+  locationName: string | null;
+  deliveryMode: string;
+  targetAudience: string;
+  isRegistrationOpen: boolean;
+  status: string;
+  myTicket: {
+    id: string;
+    ticketCode: string | null;
+    status: string;
+    checkInAt: string | null;
+  } | null;
+  canSelfCheckin: boolean;
+  windowOpenAt: string;
+  windowCloseAt: string;
+}
+
+export interface DaurahHistoryItem {
+  id: string;
+  eventId: string;
+  title: string;
+  eventStartAt: string;
+  ticketCode: string | null;
+  checkInAt: string | null;
+}
+
 export const RECURRENCE_LABELS: Record<KajianRutinSeries['recurrence'], string> = {
   weekly: 'Setiap pekan',
   biweekly: 'Setiap 2 pekan',

@@ -24,6 +24,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { Html5Qrcode, CameraDevice } from 'html5-qrcode';
+import { renderQrDataUrl } from '../../../lib/kajianRutin';
 import {
   categorizeCameras,
   resolveCameraStartCandidates,
@@ -96,6 +97,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [openingPublicGate, setOpeningPublicGate] = useState(false);
+  const [generatingJamaahQr, setGeneratingJamaahQr] = useState(false);
 
   // Camera State Management
   const [cameraState, setCameraState] = useState<'idle' | 'requesting' | 'active' | 'denied' | 'insecure' | 'not_found' | 'unsupported' | 'error'>('idle');
@@ -923,6 +925,53 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
     handleExecuteScan({ phoneQuery: phoneQuery.trim() });
   };
 
+  const handleOpenJamaahQr = async () => {
+    if (generatingJamaahQr) return;
+    setGeneratingJamaahQr(true);
+    try {
+      const url = `${window.location.origin}/peserta/kajian?daurah=${encodeURIComponent(eventId)}`;
+      const dataUrl = await renderQrDataUrl(url);
+      const title = eventData?.title || 'Kajian Daurah';
+      const when = eventData?.startAt ? new Date(eventData.startAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'long', timeStyle: 'short' }) : '';
+      const printWindow = window.open('', '_blank', 'width=520,height=700');
+      if (!printWindow) {
+        setScanStatus({
+          type: 'error',
+          title: 'Popup diblokir browser',
+          message: 'Izinkan popup untuk mencetak QR, atau bagikan tautan manual: ' + url,
+        });
+        return;
+      }
+      printWindow.document.write(`<!DOCTYPE html><html lang="id"><head><meta charset="utf-8"><title>QR Absensi Jamaah ${title}</title></head>
+        <body style="font-family:system-ui,sans-serif;text-align:center;padding:32px;color:#1c321d">
+          <p style="margin:0;font-size:12px;letter-spacing:3px;color:#b58b3c;font-weight:700">YAYASAN TARBIYAH SUNNAH</p>
+          <h1 style="margin:8px 0 2px;font-size:22px">${title}</h1>
+          <p style="margin:0 0 16px;color:#4b5a52;font-size:14px">Absensi Mandiri Jamaah${when ? ` — ${when}` : ''}</p>
+          <img src="${dataUrl}" width="360" height="360" alt="QR Absensi Jamaah" style="border:1px solid #e7e4d8;border-radius:16px;padding:12px" />
+          <p style="margin:16px 0 0;color:#6b7a72;font-size:13px;max-width:380px;margin-inline:auto">
+            Scan QR dengan kamera HP, login akun Google, lalu tekan <strong>Absen Sekarang</strong> pada kartu kajian ini.
+          </p>
+        </body></html>`);
+      printWindow.document.close();
+      setTimeout(() => {
+        try {
+          printWindow.focus();
+          printWindow.print();
+        } catch {
+          /* panitia masih bisa menyimpan QR lewat dialog cetak browser */
+        }
+      }, 350);
+    } catch (err: any) {
+      setScanStatus({
+        type: 'error',
+        title: 'QR Jamaah belum dapat dibuat',
+        message: err?.message || 'Silakan coba lagi atau periksa koneksi Anda.',
+      });
+    } finally {
+      setGeneratingJamaahQr(false);
+    }
+  };
+
   const handleOpenPublicGate = async () => {
     if (openingPublicGate) return;
     const popup = window.open('', '_blank');
@@ -1008,6 +1057,18 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
               }`}
             >
               {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+            </button>
+
+            {/* QR Portal Jamaah (absen mandiri via /peserta/kajian) */}
+            <button
+              type="button"
+              onClick={handleOpenJamaahQr}
+              disabled={generatingJamaahQr}
+              title="Cetak QR absensi mandiri jamaah (dibuka di /peserta/kajian dengan login Google)"
+              className="p-2 bg-amber-500/15 text-amber-300 border border-amber-500/40 hover:bg-amber-500/25 rounded-xl transition-all hidden sm:flex items-center gap-1.5 text-xs font-semibold disabled:cursor-wait disabled:opacity-60"
+            >
+              {generatingJamaahQr ? <RefreshCw className="w-4 h-4 animate-spin" /> : <QrCode className="w-4 h-4" />}
+              <span>{generatingJamaahQr ? 'Menyiapkan...' : 'QR Jamaah'}</span>
             </button>
 
             {/* Standalone Gate Link */}
