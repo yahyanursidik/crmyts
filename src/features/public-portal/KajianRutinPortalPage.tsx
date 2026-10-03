@@ -62,7 +62,7 @@ type PortalTab = 'rutin' | 'daurah' | 'riwayat';
 
 /** Salam pembuka + doa yang tampil di kartu sapaan dan kartu absen sukses. */
 const SALAM = 'Assalamu\u2019alaikum warahmatullahi wabarakatuh';
-const DOA_TEKS = 'Semoga Allah bermanfaatkan setiap ilmu, jaga istiqamah Anda, dan mudahkan langkah kemanfaatan. Aamiin yaa Rabbal \u2019aalamiin. \uD83E\uDD7A';
+const DOA_TEKS = 'Semoga Allah bermanfaatkan setiap ilmu, jaga istiqamah Anda, dan mudahkan langkah kemanfaatan. Aamiin yaa Rabbal \u2019aalamiin.';
 
 function buildSapaan(total: number, firstName: string): { title: string; body: string } {
   if (total <= 0) {
@@ -731,7 +731,7 @@ export function KajianRutinPortalPage() {
                   <p className="mt-2 inline-block rounded-xl bg-[#F2EEE4] px-4 py-2 font-mono text-[13px] font-bold text-[#1B4332]">
                     {formatWibDateTime(absenResult.checkInAt)}
                   </p>
-                  <p className="mt-3 text-[12px] italic leading-relaxed text-[#5A4A2A]">🤲 {DOA_TEKS}</p>
+                  <p className="mt-3 text-[12px] italic leading-relaxed text-[#5A4A2A]">{DOA_TEKS}</p>
                   <p className="mt-2 text-[11px] text-[#8A9690]">Tangkapan layar halaman ini dapat ditunjukkan kepada panitia bila diperlukan.</p>
                 </div>
               </section>
@@ -756,7 +756,7 @@ export function KajianRutinPortalPage() {
                   <p className="mt-2 inline-block rounded-xl bg-[#F2EEE4] px-4 py-2 font-mono text-[13px] font-bold text-[#1B4332]">
                     {formatWibDateTime(daurahResult.checkInAt)}
                   </p>
-                  <p className="mt-3 text-[12px] italic leading-relaxed text-[#5A4A2A]">🤲 {DOA_TEKS}</p>
+                  <p className="mt-3 text-[12px] italic leading-relaxed text-[#5A4A2A]">{DOA_TEKS}</p>
                 </div>
               </section>
             )}
@@ -818,7 +818,7 @@ export function KajianRutinPortalPage() {
                 <h2 className="mt-1.5 font-display text-lg font-bold text-[#14352A]">{sapaan.title}</h2>
                 <p className="mt-1 text-[12.5px] leading-relaxed text-[#4B5A52]">{sapaan.body}</p>
                 <p className="mt-2.5 rounded-xl bg-[#F2EEE4]/70 px-3.5 py-2.5 text-[12px] italic leading-relaxed text-[#5A4A2A]">
-                  🤲 {DOA_TEKS}
+                  {DOA_TEKS}
                 </p>
               </div>
             </section>
@@ -1113,7 +1113,6 @@ export function KajianRutinPortalPage() {
                 </section>
 
                 <p className="flex items-start gap-2 rounded-2xl border border-[#B58B3C]/35 bg-[#FBF6E9] px-4 py-3 text-[12px] italic leading-relaxed text-[#5A4A2A]">
-                  <span>🤲</span>
                   <span>
                     Jazaakumullahu khairan atas setiap kehadiran Anda. Semoga Allah menjadikan Anda termasuk keluarga
                     yang diberi keberkahan ilmu, lapang rezeki, dan hati yang terhubung dengan majelis-majelis Ilmu. Aamiin.
