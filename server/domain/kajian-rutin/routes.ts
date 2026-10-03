@@ -1,10 +1,18 @@
 import crypto from 'node:crypto';
 import { z } from 'zod';
-import { and, asc, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, or, sql } from 'drizzle-orm';
 import { logAuditEvent } from '../../audit/service';
 import { verifyGoogleIdToken, isGoogleAuthConfigured } from '../../auth/google';
 import { getDb } from '../../db/client';
-import { kajianRutinAttendance, kajianRutinSeries, kajianRutinSessions, kajianRutinAccounts } from '../../db/schema';
+import {
+  events,
+  eventAttendance,
+  persons,
+  kajianRutinAttendance,
+  kajianRutinSeries,
+  kajianRutinSessions,
+  kajianRutinAccounts,
+} from '../../db/schema';
 import { requirePermission, validateBody } from '../../http/middleware';
 import { errorResponse, successResponse, ErrorCode } from '../../http/response';
 import { Router } from '../../http/router';
@@ -69,6 +77,10 @@ const portalAbsenSchema = z.object({
   sessionId: z.string().uuid('Sesi kajian tidak valid'),
   token: z.string().trim().max(128).optional().nullable(),
   deviceInfo: z.string().trim().max(160).optional().nullable(),
+});
+
+const portalAbsenDaurahSchema = z.object({
+  eventId: z.string().uuid('Kajian daurah tidak valid'),
 });
 
 let setupPromise: Promise<void> | null = null;
@@ -287,6 +299,35 @@ async function findExistingAttendance(sessionId: string, googleSub: string) {
     .where(and(eq(kajianRutinAttendance.sessionId, sessionId), eq(kajianRutinAttendance.googleSub, googleSub)))
     .limit(1);
   return row ?? null;
+}
+
+// ===================== KAJIAN DAURAH (event satu kali) =====================
+
+/**
+ * Jendela absen mandiri daurah: mulai 12 jam sebelum mulai sampai 12 jam
+ * setelah perkiraan selesai (endAt, atau +3 jam bila tidak diisi).
+ */
+function computeDaurahCheckInWindow(startAt: Date, endAt: Date | null) {
+  const effectiveEnd = endAt ?? new Date(startAt.getTime() + 3 * 60 * 60 * 1000);
+  return {
+    openAt: new Date(startAt.getTime() - 12 * 60 * 60 * 1000),
+    closeAt: new Date(effectiveEnd.getTime() + 12 * 60 * 60 * 1000),
+  };
+}
+
+async function resolvePersonIdsByEmail(email: string): Promise<string[]> {
+  const rows = await getDb()
+    .select({ id: persons.id })
+    .from(persons)
+    .where(sql`lower(${persons.email}) = ${email}`)
+    .limit(10);
+  return rows.map((row) => row.id);
+}
+
+/** Cocokkan kehadiran daurah lewat person yang emailnya sama, atau email yang tersimpan di data registrasi. */
+function daurahMatchCondition(personIds: string[], email: string) {
+  const emailMatch = sql`${eventAttendance.registrationData}->>'email' = ${email}`;
+  return personIds.length ? or(inArray(eventAttendance.personId, personIds), emailMatch) : emailMatch;
 }
 
 const wibWindowFormatter = new Intl.DateTimeFormat('id-ID', {
@@ -1014,6 +1055,230 @@ export function registerKajianRutinRoutes(router: Router) {
           attendance: { id: created.id, checkInAt: created.checkInAt.toISOString(), source: created.source },
           session: { id: sesi.id, sessionDate: sesi.sessionDate, startAt: sesi.startAt.toISOString(), topic: sesi.topic },
           series: { id: series.id, title: series.title, speaker: series.speaker, locationName: series.locationName },
+        },
+        { requestId: ctx.requestId },
+        201,
+        { 'Cache-Control': 'no-store' }
+      );
+    }));
+
+  // ---- Portal daurah: daftar event + status tiket saya ----
+
+  router.get('/api/public/kajian-rutin/portal/daurah', async (ctx) => {
+    const session = resolveJamaahSession(ctx.headers);
+    if (!session) return errorResponse('UNAUTHENTICATED', 'Silakan login dengan Google terlebih dahulu.', 401, ctx.requestId);
+    const db = getDb();
+    const email = session.email.toLowerCase();
+
+    const upcoming = await db
+      .select({
+        id: events.id,
+        title: events.title,
+        speaker: events.speaker,
+        startAt: events.startAt,
+        endAt: events.endAt,
+        locationName: events.locationName,
+        deliveryMode: events.deliveryMode,
+        targetAudience: events.targetAudience,
+        isRegistrationOpen: events.isRegistrationOpen,
+        status: events.status,
+      })
+      .from(events)
+      .where(and(
+        inArray(events.status, ['scheduled', 'ongoing']),
+        gte(events.startAt, new Date(Date.now() - 24 * 60 * 60 * 1000))
+      ))
+      .orderBy(asc(events.startAt))
+      .limit(15);
+
+    const personIds = await resolvePersonIdsByEmail(email);
+    const eventIds = upcoming.map((event) => event.id);
+    const myRows = eventIds.length
+      ? await db
+          .select({
+            id: eventAttendance.id,
+            eventId: eventAttendance.eventId,
+            ticketCode: eventAttendance.ticketCode,
+            status: eventAttendance.status,
+            checkInAt: eventAttendance.checkInAt,
+          })
+          .from(eventAttendance)
+          .where(and(inArray(eventAttendance.eventId, eventIds), daurahMatchCondition(personIds, email)))
+      : [];
+    const ticketByEvent = new Map<string, (typeof myRows)[number]>();
+    for (const row of myRows) {
+      const existing = ticketByEvent.get(row.eventId);
+      if (!existing || row.checkInAt.getTime() > existing.checkInAt.getTime()) {
+        ticketByEvent.set(row.eventId, row);
+      }
+    }
+
+    const now = Date.now();
+    const items = upcoming.map((event) => {
+      const ticket = ticketByEvent.get(event.id) || null;
+      const window = computeDaurahCheckInWindow(event.startAt, event.endAt);
+      return {
+        id: event.id,
+        title: event.title,
+        speaker: event.speaker,
+        startAt: event.startAt.toISOString(),
+        endAt: event.endAt ? event.endAt.toISOString() : null,
+        locationName: event.locationName,
+        deliveryMode: event.deliveryMode,
+        targetAudience: event.targetAudience,
+        isRegistrationOpen: event.isRegistrationOpen,
+        status: event.status,
+        myTicket: ticket
+          ? {
+              id: ticket.id,
+              ticketCode: ticket.ticketCode,
+              status: ticket.status,
+              checkInAt: ticket.checkInAt ? ticket.checkInAt.toISOString() : null,
+            }
+          : null,
+        canSelfCheckin:
+          Boolean(ticket) && now >= window.openAt.getTime() && now <= window.closeAt.getTime(),
+        windowOpenAt: window.openAt.toISOString(),
+        windowCloseAt: window.closeAt.toISOString(),
+      };
+    });
+
+    const history = await db
+      .select({
+        id: eventAttendance.id,
+        eventId: events.id,
+        title: events.title,
+        eventStartAt: events.startAt,
+        ticketCode: eventAttendance.ticketCode,
+        checkInAt: eventAttendance.checkInAt,
+      })
+      .from(eventAttendance)
+      .innerJoin(events, eq(eventAttendance.eventId, events.id))
+      .where(and(daurahMatchCondition(personIds, email), eq(eventAttendance.status, 'attended'), sql`${events.startAt} < now()`))
+      .orderBy(desc(eventAttendance.checkInAt))
+      .limit(8);
+
+    return successResponse(
+      {
+        events: items,
+        history: history.map((row) => ({
+          id: row.id,
+          eventId: row.eventId,
+          title: row.title,
+          eventStartAt: row.eventStartAt.toISOString(),
+          ticketCode: row.ticketCode,
+          checkInAt: row.checkInAt ? row.checkInAt.toISOString() : null,
+        })),
+      },
+      { requestId: ctx.requestId, total: items.length },
+      200,
+      { 'Cache-Control': 'no-store' }
+    );
+  });
+
+  // ---- Portal daurah: absen mandiri (check-in) pada event terdaftar ----
+
+  router.post('/api/public/kajian-rutin/portal/absen-daurah',
+    validateBody(portalAbsenDaurahSchema, async (ctx, body) => {
+      const session = resolveJamaahSession(ctx.headers);
+      if (!session) return errorResponse('UNAUTHENTICATED', 'Sesi berakhir. Silakan login ulang dengan Google.', 401, ctx.requestId);
+      await ensureKajianRutinTables();
+      const ip = clientIp(ctx);
+      if (ip !== 'unknown') {
+        const hour = Math.floor(Date.now() / 3_600_000);
+        const allowed = await consumeRateLimit(`absen-daurah:${session.sub}:${hour}`, 30, 2);
+        if (!allowed) {
+          return errorResponse('RATE_LIMITED', 'Terlalu banyak permintaan absen. Tunggu beberapa saat.', 429, ctx.requestId);
+        }
+      }
+
+      const db = getDb();
+      const [event] = await db
+        .select({
+          id: events.id,
+          title: events.title,
+          speaker: events.speaker,
+          startAt: events.startAt,
+          endAt: events.endAt,
+          locationName: events.locationName,
+          status: events.status,
+        })
+        .from(events)
+        .where(eq(events.id, body.eventId))
+        .limit(1);
+      if (!event) return errorResponse('NOT_FOUND', 'Kajian daurah tidak ditemukan.', 404, ctx.requestId);
+      if (event.status === 'cancelled') {
+        return errorResponse('FORBIDDEN', 'Kajian ini telah dibatalkan panitia.', 403, ctx.requestId);
+      }
+
+      const window = computeDaurahCheckInWindow(event.startAt, event.endAt);
+      const now = new Date();
+      if (now < window.openAt || now > window.closeAt) {
+        return errorResponse(
+          'FORBIDDEN',
+          now < window.openAt
+            ? `Absensi kajian ini belum dibuka. Check-in bisa dilakukan mulai ${formatWibWindow(window.openAt)}.`
+            : `Absensi kajian ini sudah ditutup pada ${formatWibWindow(window.closeAt)}. Sampai jumpa di kajian berikutnya!`,
+          403,
+          ctx.requestId
+        );
+      }
+
+      const email = session.email.toLowerCase();
+      const personIds = await resolvePersonIdsByEmail(email);
+      const [mine] = await db
+        .select()
+        .from(eventAttendance)
+        .where(and(eq(eventAttendance.eventId, event.id), daurahMatchCondition(personIds, email)))
+        .orderBy(desc(eventAttendance.checkInAt))
+        .limit(1);
+      if (!mine) {
+        return errorResponse(
+          'NOT_FOUND',
+          `Anda belum terdaftar pada “${event.title}” dengan email ${email}. Silakan daftar terlebih dahulu lewat halaman kajian, atau gunakan email yang sama saat mendaftar.`,
+          404,
+          ctx.requestId
+        );
+      }
+      if (mine.status === 'attended') {
+        return successResponse(
+          {
+            alreadyAbsen: true,
+            attendance: { id: mine.id, ticketCode: mine.ticketCode, checkInAt: (mine.checkInAt ?? now).toISOString() },
+          },
+          { requestId: ctx.requestId },
+          200,
+          { 'Cache-Control': 'no-store' }
+        );
+      }
+
+      const existingRegData = (mine.registrationData as Record<string, unknown>) || {};
+      const [updated] = await db
+        .update(eventAttendance)
+        .set({
+          status: 'attended',
+          checkInAt: now,
+          registrationData: {
+            ...existingRegData,
+            selfCheckinAt: now.toISOString(),
+            selfCheckinPortal: 'kajian-rutin',
+          },
+        })
+        .where(eq(eventAttendance.id, mine.id))
+        .returning();
+      if (!updated) return errorResponse('INTERNAL_ERROR', 'Gagal menyimpan absensi. Coba lagi.', 500, ctx.requestId);
+
+      return successResponse(
+        {
+          alreadyAbsen: false,
+          attendance: { id: updated.id, ticketCode: updated.ticketCode, checkInAt: now.toISOString() },
+          event: {
+            id: event.id,
+            title: event.title,
+            speaker: event.speaker,
+            startAt: event.startAt.toISOString(),
+            locationName: event.locationName,
+          },
         },
         { requestId: ctx.requestId },
         201,

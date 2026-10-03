@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router';
 import {
   BadgeCheck,
   CalendarDays,
@@ -11,16 +11,19 @@ import {
   MapPin,
   QrCode,
   ShieldCheck,
+  Sparkles,
+  Ticket,
   UserRound,
   XCircle,
 } from 'lucide-react';
 import { apiClient, ApiClientError } from '../../lib/apiClient';
-import { env } from '../../lib/env';
 import {
   formatWibDate,
   formatWibTime,
   formatWibDateTime,
   KAJIAN_RUTIN_PORTAL_TOKEN_KEY,
+  type DaurahEventItem,
+  type DaurahHistoryItem,
   type KajianRutinScanContext,
   type PortalSessionItem,
 } from '../../lib/kajianRutin';
@@ -39,6 +42,15 @@ interface AbsenResult {
   seriesTitle?: string;
 }
 
+interface DaurahAbsenResult {
+  eventId: string;
+  alreadyAbsen: boolean;
+  checkInAt: string;
+  eventTitle?: string;
+}
+
+type PortalTab = 'rutin' | 'daurah';
+
 function readStoredToken(): string | null {
   try {
     return localStorage.getItem(KAJIAN_RUTIN_PORTAL_TOKEN_KEY);
@@ -47,8 +59,15 @@ function readStoredToken(): string | null {
   }
 }
 
+function authHeaders(): Record<string, string> {
+  return { Authorization: `Bearer ${readStoredToken() || ''}` };
+}
+
 export function KajianRutinPortalPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<PortalTab>('rutin');
+  const [highlightDaurahId, setHighlightDaurahId] = useState<string | null>(null);
+
   const [scanState, setScanState] = useState<'loading' | 'none' | 'valid' | 'invalid' | 'expired'>('loading');
   const [scan, setScan] = useState<KajianRutinScanContext | null>(null);
   const [scanToken, setScanToken] = useState<string | null>(null);
@@ -60,13 +79,18 @@ export function KajianRutinPortalPage() {
 
   const [sessions, setSessions] = useState<{ openNow: PortalSessionItem[]; upcoming: PortalSessionItem[] } | null>(null);
   const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [daurah, setDaurah] = useState<{ events: DaurahEventItem[]; history: DaurahHistoryItem[] } | null>(null);
+  const [daurahLoading, setDaurahLoading] = useState(false);
+  const [showDaurahHistory, setShowDaurahHistory] = useState(false);
 
   const [history, setHistory] = useState<Array<{ id: string; seriesTitle: string; sessionDate: string; checkInAt: string; source: string }>>([]);
   const [showHistory, setShowHistory] = useState(false);
 
   const [banner, setBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [absenResult, setAbsenResult] = useState<AbsenResult | null>(null);
+  const [daurahResult, setDaurahResult] = useState<DaurahAbsenResult | null>(null);
   const [submittingSession, setSubmittingSession] = useState<string | null>(null);
+  const [submittingDaurah, setSubmittingDaurah] = useState<string | null>(null);
 
   const googleButtonRef = useRef<HTMLDivElement | null>(null);
 
@@ -75,7 +99,7 @@ export function KajianRutinPortalPage() {
     try {
       const { data } = await apiClient<{ openNow: PortalSessionItem[]; upcoming: PortalSessionItem[] }>(
         '/public/kajian-rutin/portal/sessions',
-        { headers: { Authorization: `Bearer ${localStorage.getItem(KAJIAN_RUTIN_PORTAL_TOKEN_KEY) || ''}` } }
+        { headers: authHeaders() }
       );
       setSessions(data);
     } catch (error) {
@@ -84,10 +108,27 @@ export function KajianRutinPortalPage() {
         setAuthState('guest');
         setProfile(null);
       } else if (!silent) {
-        setBanner({ type: 'error', text: error instanceof Error ? error.message : 'Gagal memuat daftar kajian.' });
+        setBanner({ type: 'error', text: error instanceof Error ? error.message : 'Gagal memuat daftar kajian rutin.' });
       }
     } finally {
       if (!silent) setSessionsLoading(false);
+    }
+  }, []);
+
+  const fetchDaurah = useCallback(async (silent = false) => {
+    if (!silent) setDaurahLoading(true);
+    try {
+      const { data } = await apiClient<{ events: DaurahEventItem[]; history: DaurahHistoryItem[] }>(
+        '/public/kajian-rutin/portal/daurah',
+        { headers: authHeaders() }
+      );
+      setDaurah(data);
+    } catch (error) {
+      if (!(error instanceof ApiClientError && error.statusCode === 401) && !silent) {
+        setBanner({ type: 'error', text: error instanceof Error ? error.message : 'Gagal memuat daftar kajian daurah.' });
+      }
+    } finally {
+      if (!silent) setDaurahLoading(false);
     }
   }, []);
 
@@ -101,11 +142,18 @@ export function KajianRutinPortalPage() {
     setAuthState('authed');
   }, []);
 
-  // 1. Validasi konteks QR dari URL (?sesi=..&t=..)
+  // 1. Validasi konteks QR kajian rutin (?sesi=..&t=..) atau fokus ke daurah (?daurah=eventId)
   useEffect(() => {
     let active = true;
     const sesi = searchParams.get('sesi') || searchParams.get('sessionId');
     const t = searchParams.get('t') || searchParams.get('token');
+    const daurahId = searchParams.get('daurah') || searchParams.get('eventId');
+    if (daurahId) {
+      setActiveTab('daurah');
+      setHighlightDaurahId(daurahId);
+      setSearchParams({}, { replace: true });
+      return;
+    }
     if (!sesi || !t) {
       setScanState('none');
       return;
@@ -116,6 +164,7 @@ export function KajianRutinPortalPage() {
         if (!active) return;
         setScan(data);
         setScanState('valid');
+        setActiveTab('rutin');
         // Bersihkan URL agar token QR tidak tertinggal di address bar / riwayat.
         setSearchParams({}, { replace: true });
       })
@@ -154,10 +203,13 @@ export function KajianRutinPortalPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchMe]);
 
-  // 3. Muat daftar sesi setelah login.
+  // 3. Muat daftar sesi rutin + daurah setelah login.
   useEffect(() => {
-    if (authState === 'authed') void fetchSessions();
-  }, [authState, fetchSessions]);
+    if (authState === 'authed') {
+      void fetchSessions();
+      void fetchDaurah();
+    }
+  }, [authState, fetchSessions, fetchDaurah]);
 
   const handleCredential = useCallback(
     async (credential: string) => {
@@ -202,7 +254,7 @@ export function KajianRutinPortalPage() {
     if (authState === 'guest' && !loginBusy) renderInto(googleButtonRef.current);
   }, [authState, loginBusy, renderInto]);
 
-  const handleAbsen = useCallback(
+  const handleAbsenRutin = useCallback(
     async (target: PortalSessionItem) => {
       if (!profile) return;
       setSubmittingSession(target.sessionId);
@@ -215,7 +267,7 @@ export function KajianRutinPortalPage() {
           series?: { id: string; title: string };
         }>('/public/kajian-rutin/portal/absen', {
           method: 'POST',
-          headers: { Authorization: `Bearer ${localStorage.getItem(KAJIAN_RUTIN_PORTAL_TOKEN_KEY) || ''}` },
+          headers: authHeaders(),
           body: JSON.stringify({ sessionId: target.sessionId, token: tokenForQr }),
         });
         const checkInAt = data.attendance?.checkInAt || new Date().toISOString();
@@ -238,13 +290,50 @@ export function KajianRutinPortalPage() {
     [profile, scan, scanToken, fetchSessions]
   );
 
+  const handleAbsenDaurah = useCallback(
+    async (event: DaurahEventItem) => {
+      if (!profile) return;
+      setSubmittingDaurah(event.id);
+      setBanner(null);
+      try {
+        const { data } = await apiClient<{
+          alreadyAbsen: boolean;
+          attendance: { id: string; ticketCode: string | null; checkInAt: string } | null;
+          event?: { id: string; title: string };
+        }>('/public/kajian-rutin/portal/absen-daurah', {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify({ eventId: event.id }),
+        });
+        const checkInAt = data.attendance?.checkInAt || new Date().toISOString();
+        setDaurahResult({
+          eventId: event.id,
+          alreadyAbsen: data.alreadyAbsen,
+          checkInAt,
+          eventTitle: data.event?.title || event.title,
+        });
+        if (data.alreadyAbsen) {
+          setBanner({ type: 'success', text: 'Anda sudah tercatat hadir pada kajian ini.' });
+        }
+        void fetchDaurah(true);
+      } catch (error) {
+        setBanner({ type: 'error', text: error instanceof Error ? error.message : 'Absen gagal. Coba lagi.' });
+      } finally {
+        setSubmittingDaurah(null);
+      }
+    },
+    [profile, fetchDaurah]
+  );
+
   const handleLogout = () => {
     localStorage.removeItem(KAJIAN_RUTIN_PORTAL_TOKEN_KEY);
     setAuthState('guest');
     setProfile(null);
     setSessions(null);
+    setDaurah(null);
     setHistory([]);
     setAbsenResult(null);
+    setDaurahResult(null);
   };
 
   const dismissScan = () => {
@@ -253,7 +342,16 @@ export function KajianRutinPortalPage() {
     setScanState('none');
   };
 
-  const renderSessionCard = (item: PortalSessionItem, highlight: boolean) => {
+  const daurahNow = useMemo(
+    () => daurah?.events.filter((event) => event.canSelfCheckin || event.status === 'ongoing') ?? [],
+    [daurah]
+  );
+  const daurahUpcoming = useMemo(
+    () => daurah?.events.filter((event) => !event.canSelfCheckin && event.status !== 'ongoing') ?? [],
+    [daurah]
+  );
+
+  const renderRutinSessionCard = (item: PortalSessionItem, highlight: boolean) => {
     const isSubmitting = submittingSession === item.sessionId;
     const absenDone = item.alreadyAbsen || (absenResult?.sessionId === item.sessionId);
     const windowOpen = new Date(item.windowOpenAt);
@@ -307,7 +405,7 @@ export function KajianRutinPortalPage() {
             ) : (
               <button
                 type="button"
-                onClick={() => void handleAbsen(item)}
+                onClick={() => void handleAbsenRutin(item)}
                 disabled={isSubmitting}
                 className="inline-flex items-center gap-2 rounded-xl bg-[#1B4332] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition-all hover:bg-[#14352A] active:scale-98 disabled:opacity-60"
               >
@@ -326,6 +424,103 @@ export function KajianRutinPortalPage() {
     );
   };
 
+  const renderDaurahCard = (event: DaurahEventItem, highlight: boolean) => {
+    const isSubmitting = submittingDaurah === event.id;
+    const attended = event.myTicket?.status === 'attended' || (daurahResult?.eventId === event.id);
+    const registered = Boolean(event.myTicket);
+    return (
+      <div
+        key={event.id}
+        className={`rounded-2xl border p-4 sm:p-5 transition-shadow ${
+          highlight
+            ? 'border-[#B58B3C]/50 bg-[#FBF6E9] shadow-md ring-1 ring-[#B58B3C]/30'
+            : 'border-[#1B4332]/12 bg-white shadow-sm hover:shadow-md'
+        }`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-bold text-[#14352A] text-[15px] leading-snug">{event.title}</h3>
+              {event.status === 'ongoing' && (
+                <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">Sedang Berlangsung</span>
+              )}
+              {highlight && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#B58B3C] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+                  <QrCode className="h-3 w-3" /> Dari QR
+                </span>
+              )}
+            </div>
+            {event.speaker && <p className="mt-0.5 text-[12px] text-[#6B7A72]">Pemateri: {event.speaker}</p>}
+            <div className="mt-2 space-y-1 text-[12.5px] text-[#4B5A52]">
+              <p className="flex items-center gap-1.5">
+                <CalendarDays className="h-3.5 w-3.5 text-[#1B4332]/60" />
+                {formatWibDate(event.startAt)}
+                <span className="text-[#8A9690]">•</span>
+                <Clock className="h-3.5 w-3.5 text-[#1B4332]/60" />
+                {formatWibTime(event.startAt)}
+              </p>
+              {event.locationName && event.deliveryMode !== 'online' && (
+                <p className="flex items-center gap-1.5">
+                  <MapPin className="h-3.5 w-3.5 text-[#1B4332]/60" />
+                  {event.locationName}
+                </p>
+              )}
+              {event.deliveryMode === 'online' && (
+                <p className="flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-[#1B4332]/60" />
+                  Daring / Online
+                </p>
+              )}
+            </div>
+            {event.myTicket?.ticketCode && (
+              <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-[#F2EEE4] px-2.5 py-1 font-mono text-[11px] font-bold text-[#1B4332]">
+                <Ticket className="h-3.5 w-3.5" /> Tiket: {event.myTicket.ticketCode}
+              </p>
+            )}
+          </div>
+          {attended && <BadgeCheck className="h-6 w-6 shrink-0 text-emerald-600" aria-label="Sudah absen" />}
+        </div>
+
+        <div className="mt-3.5 flex flex-wrap items-center gap-2">
+          {attended ? (
+            <span className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 border border-emerald-200">
+              <CheckCircle2 className="h-4 w-4" />
+              Hadir tercatat
+              {(event.myTicket?.checkInAt || daurahResult?.checkInAt)
+                ? ` · ${formatWibTime(event.myTicket?.checkInAt || daurahResult!.checkInAt)}`
+                : ''}
+            </span>
+          ) : registered && event.canSelfCheckin ? (
+            <button
+              type="button"
+              onClick={() => void handleAbsenDaurah(event)}
+              disabled={isSubmitting}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#1B4332] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition-all hover:bg-[#14352A] active:scale-98 disabled:opacity-60"
+            >
+              {isSubmitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              Absen Sekarang
+            </button>
+          ) : registered ? (
+            <span className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 border border-emerald-200">
+              <Ticket className="h-4 w-4" /> Terdaftar — absen dibuka hari H
+            </span>
+          ) : event.isRegistrationOpen ? (
+            <Link
+              to={`/kajian/${event.id}`}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#B58B3C] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition-all hover:bg-[#A37B30] active:scale-98"
+            >
+              <Ticket className="h-4 w-4" /> Daftar Kajian Ini
+            </Link>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-xl bg-[#F2EEE4] px-3 py-2 text-xs font-semibold text-[#6B7A72] border border-[#1B4332]/10">
+              <Clock className="h-3.5 w-3.5" /> Pendaftaran ditutup
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-[#F6F5EF] font-sans text-[#1C2321] antialiased">
       {/* Header */}
@@ -337,12 +532,12 @@ export function KajianRutinPortalPage() {
             </div>
             <div>
               <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-[#E0B970]">Yayasan Tarbiyah Sunnah</p>
-              <h1 className="font-display text-xl sm:text-2xl font-bold leading-tight">Absensi Kajian Rutin</h1>
+              <h1 className="font-display text-xl sm:text-2xl font-bold leading-tight">Halaman Peserta Kajian</h1>
             </div>
           </div>
           <p className="mt-3 text-[13px] text-white/75 leading-relaxed max-w-md">
-            Scan QR dari panitia atau buka halaman ini, login dengan akun Google, pilih kajian rutin, lalu tekan
-            <span className="font-semibold text-[#E0B970]"> Absen Sekarang</span>. Tidak perlu install aplikasi.
+            Absen kajian rutin dan kelola kehadiran kajian daurah dalam satu halaman — login dengan akun Google,
+            pilih kajian, selesai. Tidak perlu install aplikasi.
           </p>
         </div>
       </header>
@@ -366,7 +561,7 @@ export function KajianRutinPortalPage() {
           </div>
         )}
 
-        {/* Status QR */}
+        {/* Status QR kajian rutin */}
         {scanState === 'loading' && (
           <div className="flex items-center gap-3 rounded-2xl border border-[#1B4332]/12 bg-white p-4 text-sm text-[#6B7A72] shadow-sm">
             <LoaderCircle className="h-4 w-4 animate-spin text-[#1B4332]" /> Memvalidasi QR absensi…
@@ -425,8 +620,8 @@ export function KajianRutinPortalPage() {
 
         {authState === 'authed' && profile && (
           <>
-            {/* Kartu hasil absen sukses */}
-            {absenResult && (
+            {/* Kartu hasil absen kajian rutin */}
+            {absenResult && activeTab === 'rutin' && (
               <section className="overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white shadow-md">
                 <div className="bg-emerald-600 px-5 py-2.5 text-center">
                   <p className="text-[11px] font-mono font-bold uppercase tracking-[0.18em] text-emerald-50">
@@ -446,6 +641,29 @@ export function KajianRutinPortalPage() {
                     {formatWibDateTime(absenResult.checkInAt)}
                   </p>
                   <p className="mt-3 text-[11.5px] text-[#8A9690]">Tangkapan layar halaman ini dapat ditunjukkan kepada panitia bila diperlukan.</p>
+                </div>
+              </section>
+            )}
+
+            {/* Kartu hasil absen daurah */}
+            {daurahResult && activeTab === 'daurah' && (
+              <section className="overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white shadow-md">
+                <div className="bg-emerald-600 px-5 py-2.5 text-center">
+                  <p className="text-[11px] font-mono font-bold uppercase tracking-[0.18em] text-emerald-50">
+                    {daurahResult.alreadyAbsen ? 'Sudah Tercatat' : 'Kehadiran Tercatat'}
+                  </p>
+                </div>
+                <div className="p-5 sm:p-6 text-center">
+                  <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-600" />
+                  <h2 className="mt-3 font-display text-lg font-bold text-[#14352A]">
+                    {daurahResult.eventTitle ? `Alhamdulillah, ${profile.name.split(' ')[0]}!` : 'Alhamdulillah!'}
+                  </h2>
+                  <p className="mt-1 text-[13px] text-[#4B5A52]">
+                    Kehadiran Anda pada <strong className="text-[#14352A]">{daurahResult.eventTitle || 'kajian daurah'}</strong> tercatat
+                  </p>
+                  <p className="mt-2 inline-block rounded-xl bg-[#F2EEE4] px-4 py-2 font-mono text-[13px] font-bold text-[#1B4332]">
+                    {formatWibDateTime(daurahResult.checkInAt)}
+                  </p>
                 </div>
               </section>
             )}
@@ -474,121 +692,231 @@ export function KajianRutinPortalPage() {
               </button>
             </section>
 
-            {/* Konteks QR valid */}
-            {scan && scanState === 'valid' && (
-              <section>
-                <h2 className="mb-2 px-1 text-[11px] font-mono font-bold uppercase tracking-[0.16em] text-[#8A9690]">
-                  Kajian dari QR yang Anda scan
-                </h2>
-                {renderSessionCard(
-                  {
-                    sessionId: scan.session.id,
-                    sessionDate: scan.session.sessionDate,
-                    startAt: scan.session.startAt,
-                    endAt: scan.session.endAt,
-                    topic: scan.session.topic,
-                    seriesId: scan.series.id,
-                    seriesTitle: scan.series.title,
-                    speaker: scan.series.speaker,
-                    locationName: scan.series.locationName,
-                    startTime: '',
-                    endTime: null,
-                    windowOpenAt: scan.checkInWindow.openAt,
-                    windowCloseAt: scan.checkInWindow.closeAt,
-                    isOpen: scan.checkInWindow.isOpen,
-                    alreadyAbsen: history.find((h) => h.sessionDate === scan.session.sessionDate)?.checkInAt || null,
-                  },
-                  true
-                )}
-                <button type="button" onClick={dismissScan} className="mx-1 mt-2 text-[11.5px] font-semibold text-[#6B7A72] underline hover:text-[#14352A]">
-                  Lihat semua kajian rutin lain
-                </button>
-              </section>
-            )}
-
-            {/* Sedang buka */}
-            <section>
-              <h2 className="mb-2 px-1 text-[11px] font-mono font-bold uppercase tracking-[0.16em] text-[#8A9690]">
-                Sedang Buka Absensi
-              </h2>
-              {sessionsLoading ? (
-                <div className="flex items-center justify-center gap-2.5 rounded-2xl border border-[#1B4332]/12 bg-white p-8 text-sm text-[#6B7A72] shadow-sm">
-                  <LoaderCircle className="h-4 w-4 animate-spin text-[#1B4332]" /> Memuat daftar kajian…
-                </div>
-              ) : sessions && sessions.openNow.length > 0 ? (
-                <div className="space-y-3">
-                  {sessions.openNow
-                    .filter((item) => !(scan && scanState === 'valid' && item.sessionId === scan.session.id))
-                    .map((item) => renderSessionCard(item, false))}
-                  {sessions.openNow.filter((item) => !(scan && scanState === 'valid' && item.sessionId === scan.session.id)).length === 0 && (
-                    <p className="rounded-2xl border border-[#1B4332]/12 bg-white p-5 text-center text-[13px] text-[#6B7A72] shadow-sm">
-                      Kajian dari QR di atas sedang buka absensi — cukup absen di kartu tersebut.
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-[#1B4332]/12 bg-white p-6 text-center shadow-sm">
-                  <Clock className="mx-auto h-8 w-8 text-[#8A9690]" />
-                  <p className="mt-2 text-[13.5px] font-semibold text-[#3D4A44]">Belum ada kajian yang buka absensi saat ini.</p>
-                  <p className="mt-1 text-[12px] text-[#8A9690]">
-                    Absensi biasanya terbuka beberapa jam sebelum kajian dimulai. Cek jadwal berikutnya di bawah.
-                  </p>
-                </div>
-              )}
-            </section>
-
-            {/* Jadwal berikutnya */}
-            {sessions && sessions.upcoming.length > 0 && (
-              <section>
-                <h2 className="mb-2 px-1 text-[11px] font-mono font-bold uppercase tracking-[0.16em] text-[#8A9690]">Jadwal Berikutnya</h2>
-                <div className="space-y-2.5">
-                  {sessions.upcoming.map((item) => (
-                    <div key={item.sessionId} className="flex items-center justify-between gap-3 rounded-2xl border border-[#1B4332]/10 bg-white/70 p-3.5">
-                      <div className="min-w-0">
-                        <p className="truncate text-[13px] font-bold text-[#14352A]">{item.seriesTitle}</p>
-                        <p className="text-[11.5px] text-[#6B7A72]">
-                          {formatWibDate(item.startAt)} • {item.startTime} WIB
-                          {item.locationName ? ` • ${item.locationName}` : ''}
-                        </p>
-                      </div>
-                      <span className="shrink-0 rounded-lg bg-[#F2EEE4] px-2.5 py-1 text-[10.5px] font-mono font-bold uppercase tracking-wider text-[#6B7A72]">
-                        Terjadwal
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {/* Riwayat */}
-            {history.length > 0 && (
-              <section>
+            {/* Tab: Kajian Rutin | Kajian Daurah */}
+            <div className="grid grid-cols-2 gap-1.5 rounded-2xl border border-[#1B4332]/12 bg-white p-1.5 shadow-sm" role="tablist">
+              {(
+                [
+                  ['rutin', 'Kajian Rutin'],
+                  ['daurah', 'Kajian Daurah'],
+                ] as Array<[PortalTab, string]>
+              ).map(([tab, label]) => (
                 <button
+                  key={tab}
                   type="button"
-                  onClick={() => setShowHistory((prev) => !prev)}
-                  className="flex w-full items-center justify-between rounded-2xl border border-[#1B4332]/12 bg-white px-4 py-3.5 text-left shadow-sm"
+                  role="tab"
+                  aria-selected={activeTab === tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`rounded-xl px-3 py-2.5 text-[12.5px] font-bold transition-all ${
+                    activeTab === tab
+                      ? 'bg-[#1B4332] text-white shadow-sm'
+                      : 'text-[#6B7A72] hover:bg-[#F2EEE4] hover:text-[#14352A]'
+                  }`}
                 >
-                  <span className="inline-flex items-center gap-2 text-[13px] font-bold text-[#14352A]">
-                    <History className="h-4 w-4 text-[#1B4332]" />
-                    Riwayat Absensi Saya
-                    <span className="rounded-full bg-[#F2EEE4] px-2 py-0.5 text-[10.5px] font-mono text-[#6B7A72]">{history.length}</span>
-                  </span>
-                  <span className="text-[11.5px] font-semibold text-[#6B7A72]">{showHistory ? 'Sembunyikan' : 'Lihat'}</span>
+                  {label}
                 </button>
-                {showHistory && (
-                  <ul className="mt-2 divide-y divide-[#1B4332]/8 overflow-hidden rounded-2xl border border-[#1B4332]/12 bg-white shadow-sm">
-                    {history.map((row) => (
-                      <li key={row.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-[12.5px] font-semibold text-[#1C2321]">{row.seriesTitle}</p>
-                          <p className="text-[11px] text-[#8A9690]">{formatWibDate(row.checkInAt)}</p>
-                        </div>
-                        <span className="shrink-0 font-mono text-[11px] font-bold text-emerald-700">{formatWibTime(row.checkInAt)}</span>
-                      </li>
-                    ))}
-                  </ul>
+              ))}
+            </div>
+
+            {/* ============ TAB KAJIAN RUTIN ============ */}
+            {activeTab === 'rutin' && (
+              <>
+                {/* Konteks QR valid */}
+                {scan && scanState === 'valid' && (
+                  <section>
+                    <h2 className="mb-2 px-1 text-[11px] font-mono font-bold uppercase tracking-[0.16em] text-[#8A9690]">
+                      Kajian dari QR yang Anda scan
+                    </h2>
+                    {renderRutinSessionCard(
+                      {
+                        sessionId: scan.session.id,
+                        sessionDate: scan.session.sessionDate,
+                        startAt: scan.session.startAt,
+                        endAt: scan.session.endAt,
+                        topic: scan.session.topic,
+                        seriesId: scan.series.id,
+                        seriesTitle: scan.series.title,
+                        speaker: scan.series.speaker,
+                        locationName: scan.series.locationName,
+                        startTime: '',
+                        endTime: null,
+                        windowOpenAt: scan.checkInWindow.openAt,
+                        windowCloseAt: scan.checkInWindow.closeAt,
+                        isOpen: scan.checkInWindow.isOpen,
+                        alreadyAbsen: history.find((h) => h.sessionDate === scan.session.sessionDate)?.checkInAt || null,
+                      },
+                      true
+                    )}
+                    <button type="button" onClick={dismissScan} className="mx-1 mt-2 text-[11.5px] font-semibold text-[#6B7A72] underline hover:text-[#14352A]">
+                      Lihat semua kajian rutin lain
+                    </button>
+                  </section>
                 )}
-              </section>
+
+                {/* Sedang buka */}
+                <section>
+                  <h2 className="mb-2 px-1 text-[11px] font-mono font-bold uppercase tracking-[0.16em] text-[#8A9690]">
+                    Sedang Buka Absensi
+                  </h2>
+                  {sessionsLoading ? (
+                    <div className="flex items-center justify-center gap-2.5 rounded-2xl border border-[#1B4332]/12 bg-white p-8 text-sm text-[#6B7A72] shadow-sm">
+                      <LoaderCircle className="h-4 w-4 animate-spin text-[#1B4332]" /> Memuat daftar kajian…
+                    </div>
+                  ) : sessions && sessions.openNow.length > 0 ? (
+                    <div className="space-y-3">
+                      {sessions.openNow
+                        .filter((item) => !(scan && scanState === 'valid' && item.sessionId === scan.session.id))
+                        .map((item) => renderRutinSessionCard(item, false))}
+                      {sessions.openNow.filter((item) => !(scan && scanState === 'valid' && item.sessionId === scan.session.id)).length === 0 && (
+                        <p className="rounded-2xl border border-[#1B4332]/12 bg-white p-5 text-center text-[13px] text-[#6B7A72] shadow-sm">
+                          Kajian dari QR di atas sedang buka absensi — cukup absen di kartu tersebut.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-[#1B4332]/12 bg-white p-6 text-center shadow-sm">
+                      <Clock className="mx-auto h-8 w-8 text-[#8A9690]" />
+                      <p className="mt-2 text-[13.5px] font-semibold text-[#3D4A44]">Belum ada kajian rutin yang buka absensi saat ini.</p>
+                      <p className="mt-1 text-[12px] text-[#8A9690]">
+                        Absensi biasanya terbuka beberapa jam sebelum kajian dimulai. Cek jadwal berikutnya di bawah.
+                      </p>
+                    </div>
+                  )}
+                </section>
+
+                {/* Jadwal berikutnya */}
+                {sessions && sessions.upcoming.length > 0 && (
+                  <section>
+                    <h2 className="mb-2 px-1 text-[11px] font-mono font-bold uppercase tracking-[0.16em] text-[#8A9690]">Jadwal Berikutnya</h2>
+                    <div className="space-y-2.5">
+                      {sessions.upcoming.map((item) => (
+                        <div key={item.sessionId} className="flex items-center justify-between gap-3 rounded-2xl border border-[#1B4332]/10 bg-white/70 p-3.5">
+                          <div className="min-w-0">
+                            <p className="truncate text-[13px] font-bold text-[#14352A]">{item.seriesTitle}</p>
+                            <p className="text-[11.5px] text-[#6B7A72]">
+                              {formatWibDate(item.startAt)} • {item.startTime} WIB
+                              {item.locationName ? ` • ${item.locationName}` : ''}
+                            </p>
+                          </div>
+                          <span className="shrink-0 rounded-lg bg-[#F2EEE4] px-2.5 py-1 text-[10.5px] font-mono font-bold uppercase tracking-wider text-[#6B7A72]">
+                            Terjadwal
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {/* Riwayat */}
+                {history.length > 0 && (
+                  <section>
+                    <button
+                      type="button"
+                      onClick={() => setShowHistory((prev) => !prev)}
+                      className="flex w-full items-center justify-between rounded-2xl border border-[#1B4332]/12 bg-white px-4 py-3.5 text-left shadow-sm"
+                    >
+                      <span className="inline-flex items-center gap-2 text-[13px] font-bold text-[#14352A]">
+                        <History className="h-4 w-4 text-[#1B4332]" />
+                        Riwayat Absensi Rutin Saya
+                        <span className="rounded-full bg-[#F2EEE4] px-2 py-0.5 text-[10.5px] font-mono text-[#6B7A72]">{history.length}</span>
+                      </span>
+                      <span className="text-[11.5px] font-semibold text-[#6B7A72]">{showHistory ? 'Sembunyikan' : 'Lihat'}</span>
+                    </button>
+                    {showHistory && (
+                      <ul className="mt-2 divide-y divide-[#1B4332]/8 overflow-hidden rounded-2xl border border-[#1B4332]/12 bg-white shadow-sm">
+                        {history.map((row) => (
+                          <li key={row.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-[12.5px] font-semibold text-[#1C2321]">{row.seriesTitle}</p>
+                              <p className="text-[11px] text-[#8A9690]">{formatWibDate(row.checkInAt)}</p>
+                            </div>
+                            <span className="shrink-0 font-mono text-[11px] font-bold text-emerald-700">{formatWibTime(row.checkInAt)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                )}
+              </>
+            )}
+
+            {/* ============ TAB KAJIAN DAURAH ============ */}
+            {activeTab === 'daurah' && (
+              <>
+                <p className="flex items-start gap-2 rounded-2xl border border-[#B58B3C]/35 bg-[#FBF6E9] px-4 py-3 text-[11.5px] leading-relaxed text-[#7A5D1E]">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    Tiket & absensi daurah terhubung otomatis bila Anda mendaftar memakai email yang sama dengan akun Google
+                    ini (<strong>{profile.email}</strong>).
+                  </span>
+                </p>
+
+                {/* Berlangsung / absensi terbuka */}
+                <section>
+                  <h2 className="mb-2 px-1 text-[11px] font-mono font-bold uppercase tracking-[0.16em] text-[#8A9690]">
+                    Buka untuk Absen / Sedang Berlangsung
+                  </h2>
+                  {daurahLoading ? (
+                    <div className="flex items-center justify-center gap-2.5 rounded-2xl border border-[#1B4332]/12 bg-white p-8 text-sm text-[#6B7A72] shadow-sm">
+                      <LoaderCircle className="h-4 w-4 animate-spin text-[#1B4332]" /> Memuat kajian daurah…
+                    </div>
+                  ) : daurahNow.length > 0 ? (
+                    <div className="space-y-3">
+                      {daurahNow.map((event) => renderDaurahCard(event, event.id === highlightDaurahId))}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-[#1B4332]/12 bg-white p-6 text-center shadow-sm">
+                      <Clock className="mx-auto h-8 w-8 text-[#8A9690]" />
+                      <p className="mt-2 text-[13.5px] font-semibold text-[#3D4A44]">Tidak ada kajian daurah yang berlangsung saat ini.</p>
+                      <p className="mt-1 text-[12px] text-[#8A9690]">Check-in mandiri terbuka mulai 12 jam sebelum kajian dimulai.</p>
+                    </div>
+                  )}
+                </section>
+
+                {/* Daurah berikutnya */}
+                {daurahUpcoming.length > 0 && (
+                  <section>
+                    <h2 className="mb-2 px-1 text-[11px] font-mono font-bold uppercase tracking-[0.16em] text-[#8A9690]">
+                      Kajian Daurah Berikutnya
+                    </h2>
+                    <div className="space-y-3">
+                      {daurahUpcoming.map((event) => renderDaurahCard(event, event.id === highlightDaurahId))}
+                    </div>
+                  </section>
+                )}
+
+                {/* Riwayat daurah */}
+                {daurah && daurah.history.length > 0 && (
+                  <section>
+                    <button
+                      type="button"
+                      onClick={() => setShowDaurahHistory((prev) => !prev)}
+                      className="flex w-full items-center justify-between rounded-2xl border border-[#1B4332]/12 bg-white px-4 py-3.5 text-left shadow-sm"
+                    >
+                      <span className="inline-flex items-center gap-2 text-[13px] font-bold text-[#14352A]">
+                        <History className="h-4 w-4 text-[#1B4332]" />
+                        Riwayat Kehadiran Daurah
+                        <span className="rounded-full bg-[#F2EEE4] px-2 py-0.5 text-[10.5px] font-mono text-[#6B7A72]">{daurah.history.length}</span>
+                      </span>
+                      <span className="text-[11.5px] font-semibold text-[#6B7A72]">{showDaurahHistory ? 'Sembunyikan' : 'Lihat'}</span>
+                    </button>
+                    {showDaurahHistory && (
+                      <ul className="mt-2 divide-y divide-[#1B4332]/8 overflow-hidden rounded-2xl border border-[#1B4332]/12 bg-white shadow-sm">
+                        {daurah.history.map((row) => (
+                          <li key={row.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-[12.5px] font-semibold text-[#1C2321]">{row.title}</p>
+                              <p className="text-[11px] text-[#8A9690]">{row.eventStartAt ? formatWibDate(row.eventStartAt) : ''}</p>
+                            </div>
+                            <span className="shrink-0 font-mono text-[11px] font-bold text-emerald-700">
+                              {row.checkInAt ? formatWibTime(row.checkInAt) : 'Hadir'}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                )}
+              </>
             )}
           </>
         )}
@@ -604,7 +932,6 @@ export function KajianRutinPortalPage() {
               ahlan@yahyanursidik.my.id
             </a>
           </p>
-          <p className="mt-2 opacity-70">Dilayani otomatis oleh Sistem CRM YTS{env.VITE_APP_NAME !== 'CRM YTS' ? '' : ''}</p>
         </footer>
       </main>
     </div>
