@@ -66,6 +66,28 @@ export interface KajianRutinAttendanceRow {
   status: string;
   note: string | null;
   checkInAt: string;
+  /** Peringkat kecepatan absen pada sesi (null = di luar 10 tercepat). */
+  earlyRank: number | null;
+}
+
+/** Jamaah yang rutin masuk 10 besar absensi tercepat dalam periode tertentu. */
+export interface KajianRutinEarlyBird {
+  fullName: string;
+  email: string | null;
+  attended: number;
+  early: number;
+  lastEarlyAt: string | null;
+}
+
+/** Entri gabungan riwayat kajian (rutin & daurah) di portal peserta. */
+export interface PortalHistoryEntry {
+  id: string;
+  kind: 'rutin' | 'daurah';
+  title: string;
+  speaker?: string | null;
+  date: string;
+  checkInAt: string | null;
+  source?: string | null;
 }
 
 export interface KajianRutinScanContext {

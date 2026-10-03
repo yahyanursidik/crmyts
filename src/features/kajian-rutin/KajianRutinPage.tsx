@@ -26,6 +26,7 @@ import {
   type KajianRutinSeries,
   type KajianRutinSession,
   type KajianRutinSpeaker,
+  type KajianRutinEarlyBird,
 } from '../../lib/kajianRutin';
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { KajianRutinSeriesModal } from './KajianRutinSeriesModal';
@@ -71,6 +72,9 @@ export function KajianRutinPage() {
   const [editingSession, setEditingSession] = useState<KajianRutinSession | null>(null);
   const [sessionSaving, setSessionSaving] = useState(false);
   const [sessionError, setSessionError] = useState('');
+
+  const [earlyBirds, setEarlyBirds] = useState<{ seriesId: string; items: KajianRutinEarlyBird[]; sessionsCount: number; days: number } | null>(null);
+  const [earlyBirdsLoading, setEarlyBirdsLoading] = useState(false);
 
   const [qrSession, setQrSession] = useState<KajianRutinSession | null>(null);
   const [attendanceSessionId, setAttendanceSessionId] = useState<string | null>(null);
@@ -157,6 +161,20 @@ export function KajianRutinPage() {
     }
   }, []);
 
+  const loadEarlyBirds = useCallback(async (seriesId: string) => {
+    setEarlyBirdsLoading(true);
+    try {
+      const { data } = await apiClient<{ items: KajianRutinEarlyBird[]; sessionsCount: number; days: number }>(
+        `/kajian-rutin/series/${seriesId}/early-birds?days=30`
+      );
+      setEarlyBirds({ seriesId, ...data });
+    } catch {
+      setEarlyBirds(null);
+    } finally {
+      setEarlyBirdsLoading(false);
+    }
+  }, []);
+
   const toggleExpand = (seriesId: string) => {
     if (expandedId === seriesId) {
       setExpandedId(null);
@@ -168,6 +186,7 @@ export function KajianRutinPage() {
     setSessionsData(null);
     setShowAddSession(false);
     void loadSessions(seriesId);
+    void loadEarlyBirds(seriesId);
   };
 
   const saveSeries = async (payload: Record<string, unknown>) => {
@@ -510,6 +529,45 @@ export function KajianRutinPage() {
                         Kosongkan tanggal untuk memakai sesi berikutnya yang belum ada (mengikuti hari & pola ulang di atas).
                       </p>
                     </div>
+                  )}
+
+                  {/* Jamaah paling tepat waktu (30 hari) */}
+                  {earlyBirdsLoading && (
+                    <div className="mb-4 flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[11.5px] font-semibold text-[#92610c]">
+                      <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Menghitung jamaah paling tepat waktu…
+                    </div>
+                  )}
+                  {!earlyBirdsLoading && earlyBirds && earlyBirds.seriesId === series.id && (
+                    earlyBirds.items.length > 0 ? (
+                      <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                        <p className="text-[11.5px] font-black uppercase tracking-wider text-[#92610c]">
+                          🏅 Jamaah Paling Tepat Waktu — {earlyBirds.days} hari terakhir ({earlyBirds.sessionsCount} sesi)
+                        </p>
+                        <div className="mt-2.5 flex flex-wrap gap-2">
+                          {earlyBirds.items.map((bird, idx) => (
+                            <span
+                              key={`${bird.email || bird.fullName}-${idx}`}
+                              title={`Masuk 10 besar tercepat ${bird.early}× dari ${bird.attended} kehadiran`}
+                              className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-bold ${
+                                idx === 0
+                                  ? 'border-amber-400 bg-amber-100 text-amber-900'
+                                  : 'border-amber-200 bg-white text-[#7a5d1e]'
+                              }`}
+                            >
+                              {idx === 0 ? '🥇' : `🏅${idx + 1}`} {bird.fullName}
+                              <span className="font-mono text-[10px] opacity-75">{bird.early}× tercepat / {bird.attended}× hadir</span>
+                            </span>
+                          ))}
+                        </div>
+                        <p className="mt-2 text-[10.5px] leading-relaxed text-[#a07a2c]">
+                          Diurutkan dari yang paling sering masuk 10 besar absensi tercepat pada tiap sesi. Cocok untuk apresiasi/doa panitia.
+                        </p>
+                      </div>
+                    ) : earlyBirds.sessionsCount === 0 ? (
+                      <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[11.5px] font-semibold text-[#92610c]">
+                        Belum ada sesi dalam 30 hari terakhir — belum bisa dihitung jamaah paling tepat waktu.
+                      </div>
+                    ) : null
                   )}
 
                   {sessionsLoading && (
