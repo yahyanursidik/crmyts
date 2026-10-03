@@ -9,6 +9,7 @@ import {
   LoaderCircle,
   LogOut,
   MapPin,
+  MessageCircle,
   QrCode,
   ShieldCheck,
   Sparkles,
@@ -27,6 +28,7 @@ import {
   type DaurahEventItem,
   type DaurahHistoryItem,
   type KajianRutinScanContext,
+  type PortalHistoryEntry,
   type PortalSessionItem,
 } from '../../lib/kajianRutin';
 import { CitySuggestInput } from '../../components/common/CitySuggestInput';
@@ -56,7 +58,36 @@ interface DaurahAbsenResult {
   eventTitle?: string;
 }
 
-type PortalTab = 'rutin' | 'daurah';
+type PortalTab = 'rutin' | 'daurah' | 'riwayat';
+
+/** Salam pembuka + doa yang tampil di kartu sapaan dan kartu absen sukses. */
+const SALAM = 'Assalamu\u2019alaikum warahmatullahi wabarakatuh';
+const DOA_TEKS = 'Semoga Allah bermanfaatkan setiap ilmu, jaga istiqamah Anda, dan mudahkan langkah kemanfaatan. Aamiin yaa Rabbal \u2019aalamiin. \uD83E\uDD7A';
+
+function buildSapaan(total: number, firstName: string): { title: string; body: string } {
+  if (total <= 0) {
+    return {
+      title: `Selamat datang, ${firstName}!`,
+      body: 'Mari mulai perjalanan menuntut ilmu bersama majelis-majelis YTS. Absensi kajian pertama Anda akan tercatat di sini.',
+    };
+  }
+  if (total <= 4) {
+    return {
+      title: `Semangat menuntut ilmu, ${firstName}!`,
+      body: `Alhamdulillah, Anda telah hadir di ${total} kajian YTS. Setiap langkah ke menuju majelis ilmu adalah investasi pahala.`,
+    };
+  }
+  if (total <= 11) {
+    return {
+      title: `Istiqaamah yang indah, ${firstName}!`,
+      body: `Alhamdulillah, ${total} kajian telah Anda ikuti. Konsistensi kecil yang terus mengalir — terus jaga semangatnya.`,
+    };
+  }
+  return {
+    title: `MasyaAllah, ${firstName}!`,
+    body: `${total} kajian telah Anda ikuti — luar biasa istiqamahnya. Barakallahu fiik.`,
+  };
+}
 
 function readStoredToken(): string | null {
   try {
@@ -90,7 +121,7 @@ export function KajianRutinPortalPage() {
   const [daurahLoading, setDaurahLoading] = useState(false);
   const [showDaurahHistory, setShowDaurahHistory] = useState(false);
 
-  const [history, setHistory] = useState<Array<{ id: string; seriesTitle: string; sessionDate: string; checkInAt: string; source: string }>>([]);
+  const [history, setHistory] = useState<Array<{ id: string; seriesTitle: string; sessionDate: string; startAt: string; checkInAt: string; source: string }>>([]);
   const [showHistory, setShowHistory] = useState(false);
 
   const [banner, setBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -143,7 +174,7 @@ export function KajianRutinPortalPage() {
   }, []);
 
   const fetchMe = useCallback(async (token: string) => {
-    const { data } = await apiClient<{ profile: PortalProfile; history: Array<{ id: string; seriesTitle: string; sessionDate: string; checkInAt: string; source: string }> }>(
+    const { data } = await apiClient<{ profile: PortalProfile; history: Array<{ id: string; seriesTitle: string; sessionDate: string; startAt: string; checkInAt: string; source: string }> }>(
       '/public/kajian-rutin/portal/me',
       { headers: { Authorization: `Bearer ${token}` } }
     );
@@ -378,6 +409,34 @@ export function KajianRutinPortalPage() {
   const daurahUpcoming = useMemo(
     () => daurah?.events.filter((event) => !event.canSelfCheckin && event.status !== 'ongoing') ?? [],
     [daurah]
+  );
+
+  // Riwayat gabungan kajian rutin + daurah untuk tab Riwayat.
+  const mergedHistory = useMemo<PortalHistoryEntry[]>(() => {
+    const rutinEntries: PortalHistoryEntry[] = history.map((row) => ({
+      id: `rutin-${row.id}`,
+      kind: 'rutin',
+      title: row.seriesTitle,
+      date: row.startAt || row.checkInAt,
+      checkInAt: row.checkInAt,
+      source: row.source,
+    }));
+    const daurahEntries: PortalHistoryEntry[] = (daurah?.history || []).map((row) => ({
+      id: `daurah-${row.id}`,
+      kind: 'daurah',
+      title: row.title,
+      date: row.eventStartAt,
+      checkInAt: row.checkInAt,
+    }));
+    return [...rutinEntries, ...daurahEntries].sort(
+      (a, b) => new Date(b.checkInAt || b.date).getTime() - new Date(a.checkInAt || a.date).getTime()
+    );
+  }, [history, daurah]);
+
+  const totalKajian = mergedHistory.length;
+  const sapaan = useMemo(
+    () => buildSapaan(totalKajian, profile?.name.split(' ')[0] || 'Jamaah'),
+    [totalKajian, profile]
   );
 
   const renderRutinSessionCard = (item: PortalSessionItem, highlight: boolean) => {
@@ -672,7 +731,8 @@ export function KajianRutinPortalPage() {
                   <p className="mt-2 inline-block rounded-xl bg-[#F2EEE4] px-4 py-2 font-mono text-[13px] font-bold text-[#1B4332]">
                     {formatWibDateTime(absenResult.checkInAt)}
                   </p>
-                  <p className="mt-3 text-[11.5px] text-[#8A9690]">Tangkapan layar halaman ini dapat ditunjukkan kepada panitia bila diperlukan.</p>
+                  <p className="mt-3 text-[12px] italic leading-relaxed text-[#5A4A2A]">🤲 {DOA_TEKS}</p>
+                  <p className="mt-2 text-[11px] text-[#8A9690]">Tangkapan layar halaman ini dapat ditunjukkan kepada panitia bila diperlukan.</p>
                 </div>
               </section>
             )}
@@ -696,6 +756,7 @@ export function KajianRutinPortalPage() {
                   <p className="mt-2 inline-block rounded-xl bg-[#F2EEE4] px-4 py-2 font-mono text-[13px] font-bold text-[#1B4332]">
                     {formatWibDateTime(daurahResult.checkInAt)}
                   </p>
+                  <p className="mt-3 text-[12px] italic leading-relaxed text-[#5A4A2A]">🤲 {DOA_TEKS}</p>
                 </div>
               </section>
             )}
@@ -750,12 +811,25 @@ export function KajianRutinPortalPage() {
               )}
             </section>
 
-            {/* Tab: Kajian Rutin | Kajian Daurah */}
-            <div className="grid grid-cols-2 gap-1.5 rounded-2xl border border-[#1B4332]/12 bg-white p-1.5 shadow-sm" role="tablist">
+            {/* Sapaan hangat + doa */}
+            <section className="overflow-hidden rounded-2xl border border-[#B58B3C]/35 bg-gradient-to-br from-[#FBF6E9] via-white to-[#FBF6E9] shadow-sm">
+              <div className="p-5">
+                <p className="text-[10.5px] font-mono font-bold uppercase tracking-[0.16em] text-[#B58B3C]">{SALAM}</p>
+                <h2 className="mt-1.5 font-display text-lg font-bold text-[#14352A]">{sapaan.title}</h2>
+                <p className="mt-1 text-[12.5px] leading-relaxed text-[#4B5A52]">{sapaan.body}</p>
+                <p className="mt-2.5 rounded-xl bg-[#F2EEE4]/70 px-3.5 py-2.5 text-[12px] italic leading-relaxed text-[#5A4A2A]">
+                  🤲 {DOA_TEKS}
+                </p>
+              </div>
+            </section>
+
+            {/* Tab: Kajian Rutin | Kajian Daurah | Riwayat */}
+            <div className="grid grid-cols-3 gap-1.5 rounded-2xl border border-[#1B4332]/12 bg-white p-1.5 shadow-sm" role="tablist">
               {(
                 [
                   ['rutin', 'Kajian Rutin'],
                   ['daurah', 'Kajian Daurah'],
+                  ['riwayat', 'Riwayat'],
                 ] as Array<[PortalTab, string]>
               ).map(([tab, label]) => (
                 <button
@@ -977,8 +1051,95 @@ export function KajianRutinPortalPage() {
                 )}
               </>
             )}
+
+            {/* ============ TAB RIWAYAT (GABUNGAN RUTIN + DAURAH) ============ */}
+            {activeTab === 'riwayat' && (
+              <>
+                <section>
+                  <h2 className="mb-2 px-1 text-[11px] font-mono font-bold uppercase tracking-[0.16em] text-[#8A9690]">
+                    Riwayat Kajian Saya
+                  </h2>
+
+                  <div className="mb-3 grid grid-cols-3 gap-2">
+                    {[
+                      ['Total', mergedHistory.length, 'bg-[#1B4332] text-white'],
+                      ['Rutin', mergedHistory.filter((h) => h.kind === 'rutin').length, 'bg-[#F2EEE4] text-[#1B4332]'],
+                      ['Daurah', mergedHistory.filter((h) => h.kind === 'daurah').length, 'bg-[#F2EEE4] text-[#1B4332]'],
+                    ].map(([label, value, cls]) => (
+                      <div key={String(label)} className={`rounded-2xl px-3 py-3 text-center ${cls}`}>
+                        <p className="font-display text-lg font-black leading-none">{value}</p>
+                        <p className="mt-1 text-[10px] font-bold uppercase tracking-wider opacity-80">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {mergedHistory.length === 0 ? (
+                    <div className="rounded-2xl border border-[#1B4332]/12 bg-white p-6 text-center shadow-sm">
+                      <History className="mx-auto h-8 w-8 text-[#8A9690]" />
+                      <p className="mt-2 text-[13.5px] font-semibold text-[#3D4A44]">Belum ada riwayat kehadiran.</p>
+                      <p className="mt-1 text-[12px] leading-relaxed text-[#8A9690]">
+                        Riwayat kajian rutin dan kajian daurah Anda akan terkumpul di sini setiap kali absen.
+                      </p>
+                    </div>
+                  ) : (
+                    <ul className="divide-y divide-[#1B4332]/8 overflow-hidden rounded-2xl border border-[#1B4332]/12 bg-white shadow-sm">
+                      {mergedHistory.map((row) => (
+                        <li key={row.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="truncate text-[12.5px] font-semibold text-[#1C2321]">{row.title}</p>
+                              <span
+                                className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider ${
+                                  row.kind === 'rutin'
+                                    ? 'bg-[#1B4332]/10 text-[#1B4332]'
+                                    : 'bg-[#B58B3C]/15 text-[#8A6420]'
+                                }`}
+                              >
+                                {row.kind === 'rutin' ? 'Rutin' : 'Daurah'}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-[#8A9690]">
+                              {formatWibDate(row.date)}
+                              {row.source === 'manual_input' ? ' • tercatat panitia' : ''}
+                            </p>
+                          </div>
+                          <span className="shrink-0 font-mono text-[11px] font-bold text-emerald-700">
+                            {row.checkInAt ? formatWibTime(row.checkInAt) : 'Hadir'}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+
+                <p className="flex items-start gap-2 rounded-2xl border border-[#B58B3C]/35 bg-[#FBF6E9] px-4 py-3 text-[12px] italic leading-relaxed text-[#5A4A2A]">
+                  <span>🤲</span>
+                  <span>
+                    Jazaakumullahu khairan atas setiap kehadiran Anda. Semoga Allah menjadikan Anda termasuk keluarga
+                    yang diberi keberkahan ilmu, lapang rezeki, dan hati yang terhubung dengan majelis-majelis Ilmu. Aamiin.
+                  </span>
+                </p>
+              </>
+            )}
           </>
         )}
+
+        {/* Menu Ruang Jamaah */}
+        <Link
+          to="/ruang-jamaah"
+          className="flex items-center justify-between gap-3 rounded-2xl border border-[#1B4332]/12 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#F2EEE4]">
+              <MessageCircle className="h-5 w-5 text-[#1B4332]" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[13px] font-bold text-[#14352A]">Ruang Jamaah</p>
+              <p className="text-[11.5px] text-[#6B7A72]">Sampaikan saran, kebutuhan, dan cerita Anda untuk YTS</p>
+            </div>
+          </div>
+          <span className="shrink-0 text-[11px] font-bold text-[#1B4332]">Buka →</span>
+        </Link>
 
         {/* Footer */}
         <footer className="pt-4 text-center text-[10.5px] leading-relaxed text-[#A8B2AC]">

@@ -835,7 +835,12 @@ export function registerKajianRutinRoutes(router: Router) {
       {
         session: serializeSession(row.session),
         series: serializeSeries(row.series),
-        items: items.map((item) => ({ ...item, checkInAt: item.checkInAt.toISOString() })),
+        items: items.map((item, idx) => ({
+          ...item,
+          checkInAt: item.checkInAt.toISOString(),
+          // 10 jamaah yang paling cepat mengisi absensi pada sesi ini.
+          earlyRank: idx < 10 ? idx + 1 : null,
+        })),
         checkInWindow: { openAt: window.openAt.toISOString(), closeAt: window.closeAt.toISOString() },
       },
       { requestId: ctx.requestId, total: items.length },
@@ -877,8 +882,89 @@ export function registerKajianRutinRoutes(router: Router) {
       );
     })));
 
-  router.delete('/api/kajian-rutin/attendance/:id', requirePermission(PERMISSIONS.ATTENDANCE_MANAGE, async (ctx) => {
+  /**
+   * Jamaah paling tepat waktu: siapa yang paling sering masuk 10 besar
+   * absensi tercepat pada sesi-sesi seri ini dalam N hari terakhir (default 30).
+   */
+  router.get('/api/kajian-rutin/series/:id/early-birds', requirePermission(PERMISSIONS.EVENTS_VIEW, async (ctx) => {
     if (!z.string().uuid().safeParse(ctx.params.id).success) {
+      return errorResponse('VALIDATION_ERROR', 'ID kajian rutin tidak valid.', 400, ctx.requestId);
+    }
+    await ensureKajianRutinTables();
+    const db = getDb();
+    const parsedDays = Number.parseInt(ctx.query.days || '30', 10);
+    const days = Number.isNaN(parsedDays) ? 30 : Math.min(90, Math.max(7, parsedDays));
+    const windowStart = new Date(Date.now() - days * 86_400_000);
+
+    const [series] = await db.select({ id: kajianRutinSeries.id, title: kajianRutinSeries.title })
+      .from(kajianRutinSeries)
+      .where(eq(kajianRutinSeries.id, ctx.params.id!))
+      .limit(1);
+    if (!series) return errorResponse('NOT_FOUND', 'Kajian rutin tidak ditemukan.', 404, ctx.requestId);
+
+    const sessions = await db.select({ id: kajianRutinSessions.id })
+      .from(kajianRutinSessions)
+      .where(and(eq(kajianRutinSessions.seriesId, series.id), gte(kajianRutinSessions.startAt, windowStart)));
+    if (!sessions.length) {
+      return successResponse({ items: [], sessionsCount: 0, days }, { requestId: ctx.requestId }, 200, { 'Cache-Control': 'no-store' });
+    }
+
+    const rows = await db
+      .select({
+        sessionId: kajianRutinAttendance.sessionId,
+        googleSub: kajianRutinAttendance.googleSub,
+        fullName: kajianRutinAttendance.fullName,
+        email: kajianRutinAttendance.email,
+        checkInAt: kajianRutinAttendance.checkInAt,
+      })
+      .from(kajianRutinAttendance)
+      .where(inArray(kajianRutinAttendance.sessionId, sessions.map((s) => s.id)))
+      .orderBy(asc(kajianRutinAttendance.checkInAt));
+
+    // Peringkat kecepatan absen per sesi: 10 pertama dihitung "hadir lebih awal".
+    const sessionCounter = new Map<string, number>();
+    const aggregated = new Map<string, { fullName: string; email: string | null; attended: number; early: number; lastEarlyAt: Date | null }>();
+    for (const row of rows) {
+      const rank = (sessionCounter.get(row.sessionId) || 0) + 1;
+      sessionCounter.set(row.sessionId, rank);
+      const current = aggregated.get(row.googleSub) || {
+        fullName: row.fullName,
+        email: row.email,
+        attended: 0,
+        early: 0,
+        lastEarlyAt: null as Date | null,
+      };
+      current.attended += 1;
+      if (row.fullName) current.fullName = row.fullName;
+      if (rank <= 10) {
+        current.early += 1;
+        if (!current.lastEarlyAt || row.checkInAt.getTime() > current.lastEarlyAt.getTime()) {
+          current.lastEarlyAt = row.checkInAt;
+        }
+      }
+      aggregated.set(row.googleSub, current);
+    }
+
+    const items = Array.from(aggregated.values())
+      .sort((a, b) => b.early - a.early || b.attended - a.attended || a.fullName.localeCompare(b.fullName))
+      .slice(0, 50)
+      .map((entry) => ({
+        fullName: entry.fullName,
+        email: entry.email,
+        attended: entry.attended,
+        early: entry.early,
+        lastEarlyAt: entry.lastEarlyAt ? entry.lastEarlyAt.toISOString() : null,
+      }));
+
+    return successResponse(
+      { items, sessionsCount: sessions.length, days },
+      { requestId: ctx.requestId, total: items.length },
+      200,
+      { 'Cache-Control': 'no-store' }
+    );
+  }));
+
+  router.delete('/api/kajian-rutin/attendance/:id', requirePermission(PERMISSIONS.ATTENDANCE_MANAGE, async (ctx) => {    if (!z.string().uuid().safeParse(ctx.params.id).success) {
       return errorResponse('VALIDATION_ERROR', 'ID absensi tidak valid.', 400, ctx.requestId);
     }
     await ensureKajianRutinTables();
@@ -1158,7 +1244,7 @@ export function registerKajianRutinRoutes(router: Router) {
       .innerJoin(kajianRutinSeries, eq(kajianRutinAttendance.seriesId, kajianRutinSeries.id))
       .where(eq(kajianRutinAttendance.googleSub, session.sub))
       .orderBy(desc(kajianRutinAttendance.checkInAt))
-      .limit(20);
+      .limit(30);
     return successResponse(
       {
         profile: {
@@ -1405,7 +1491,7 @@ export function registerKajianRutinRoutes(router: Router) {
       .innerJoin(events, eq(eventAttendance.eventId, events.id))
       .where(and(daurahMatchCondition(personIds, email), eq(eventAttendance.status, 'attended'), sql`${events.startAt} < now()`))
       .orderBy(desc(eventAttendance.checkInAt))
-      .limit(8);
+      .limit(20);
 
     return successResponse(
       {

@@ -193,6 +193,9 @@ export function KajianRutinAttendanceModal({
                   <span className="rounded-lg bg-[#f2eee4] px-2.5 py-1 text-[#3d4a44]">
                     Manual: {payload.items.filter((r) => r.source === 'manual_input').length}
                   </span>
+                  <span className="inline-flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-[#92610c]">
+                    🏅 = 10 absensi tercepat
+                  </span>
                   <span className="text-[10.5px] font-normal text-[#8a9690]">{windowInfo}</span>
                 </div>
                 <div className="relative w-full sm:w-64">
@@ -251,7 +254,17 @@ export function KajianRutinAttendanceModal({
                             <td className="px-3 py-2.5 font-mono text-[11px] text-[#8a9690]">{idx + 1}</td>
                             <td className="px-3 py-2.5 font-bold text-[#1c321d]">{row.fullName}</td>
                             <td className="px-3 py-2.5 text-[#4b5a52]">{row.email || '—'}</td>
-                            <td className="px-3 py-2.5 font-mono text-[11.5px] font-bold text-[#1b4332]">{formatWibTime(row.checkInAt)}</td>
+                            <td className="px-3 py-2.5 font-mono text-[11.5px] font-bold text-[#1b4332]">
+                              {formatWibTime(row.checkInAt)}
+                              {row.earlyRank !== null && row.earlyRank !== undefined && row.earlyRank <= 10 && (
+                                <span
+                                  title={`Absensi tercepat ke-${row.earlyRank} pada sesi ini`}
+                                  className="ml-1.5 inline-flex items-center rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[9.5px] font-black text-amber-800"
+                                >
+                                  🏅#{row.earlyRank}
+                                </span>
+                              )}
+                            </td>
                             <td className="px-3 py-2.5">
                               <span className="rounded-md bg-[#f2eee4] px-2 py-0.5 text-[10.5px] font-bold text-[#3d4a44]">
                                 {SOURCE_LABELS[row.source] || row.source}
