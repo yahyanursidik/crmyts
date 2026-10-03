@@ -25,9 +25,11 @@ import {
   WEEKDAY_NAMES,
   type KajianRutinSeries,
   type KajianRutinSession,
+  type KajianRutinSpeaker,
 } from '../../lib/kajianRutin';
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { KajianRutinSeriesModal } from './KajianRutinSeriesModal';
+import { KajianRutinSessionEditModal } from './KajianRutinSessionEditModal';
 import { KajianRutinQrModal } from './KajianRutinQrModal';
 import { KajianRutinAttendanceModal } from './KajianRutinAttendanceModal';
 
@@ -64,6 +66,11 @@ export function KajianRutinPage() {
   const [editingSeries, setEditingSeries] = useState<KajianRutinSeries | null>(null);
   const [seriesSaving, setSeriesSaving] = useState(false);
   const [seriesError, setSeriesError] = useState('');
+  const [speakers, setSpeakers] = useState<KajianRutinSpeaker[]>([]);
+
+  const [editingSession, setEditingSession] = useState<KajianRutinSession | null>(null);
+  const [sessionSaving, setSessionSaving] = useState(false);
+  const [sessionError, setSessionError] = useState('');
 
   const [qrSession, setQrSession] = useState<KajianRutinSession | null>(null);
   const [attendanceSessionId, setAttendanceSessionId] = useState<string | null>(null);
@@ -94,6 +101,49 @@ export function KajianRutinPage() {
   useEffect(() => {
     void loadSeries();
   }, [loadSeries]);
+
+  const loadSpeakers = useCallback(async () => {
+    try {
+      const { data } = await apiClient<KajianRutinSpeaker[]>('/kajian-rutin/speakers');
+      setSpeakers(data);
+    } catch {
+      // daftar pemateri kosong boleh dibiarkan — admin bisa menambah dari form
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadSpeakers();
+  }, [loadSpeakers]);
+
+  const addSpeaker = useCallback(async (name: string): Promise<KajianRutinSpeaker | null> => {
+    try {
+      const { data } = await apiClient<KajianRutinSpeaker>('/kajian-rutin/speakers', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+      await loadSpeakers();
+      return data;
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Gagal menambah pemateri.');
+      return null;
+    }
+  }, [loadSpeakers]);
+
+  const saveSessionEdit = async (payload: Record<string, unknown>) => {
+    if (!editingSession) return;
+    setSessionSaving(true);
+    setSessionError('');
+    try {
+      await apiClient(`/kajian-rutin/sessions/${editingSession.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+      setEditingSession(null);
+      setNotice('Pertemuan berhasil diperbarui.');
+      if (expandedId) await loadSessions(expandedId, true);
+    } catch (err) {
+      setSessionError(err instanceof Error ? err.message : 'Gagal memperbarui pertemuan.');
+    } finally {
+      setSessionSaving(false);
+    }
+  };
 
   const loadSessions = useCallback(async (seriesId: string, silent = false) => {
     if (!silent) setSessionsLoading(true);
@@ -339,6 +389,9 @@ export function KajianRutinPage() {
                   className="flex min-w-0 flex-1 items-center gap-3 text-left"
                   aria-expanded={isExpanded}
                 >
+                  {series.posterUrl ? (
+                    <img src={series.posterUrl} alt={`Poster ${series.title}`} className="h-10 w-10 shrink-0 rounded-xl border border-[#e7e4d8] object-cover" />
+                  ) : null}
                   <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${series.isActive ? 'bg-[#1b4332]' : 'bg-[#d5d1c1]'}`}>
                     {isExpanded ? <ChevronDown className="h-4 w-4 text-white" /> : <ChevronRight className="h-4 w-4 text-white" />}
                   </span>
@@ -515,6 +568,15 @@ export function KajianRutinPage() {
                                     </button>
                                     <button
                                       type="button"
+                                      onClick={() => setEditingSession(session)}
+                                      disabled={session.status === 'cancelled'}
+                                      title="Ubah tanggal/jam/lokasi/pemateri pertemuan"
+                                      className="flex items-center gap-1.5 rounded-lg border border-[#1b4332]/15 bg-white px-2.5 py-1.5 text-[11px] font-bold text-[#1b4332] hover:bg-[#f2eee4] disabled:opacity-40"
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" /> Ubah
+                                    </button>
+                                    <button
+                                      type="button"
                                       onClick={() => setAttendanceSessionId(session.id)}
                                       title="Daftar hadir sesi ini"
                                       className="flex items-center gap-1.5 rounded-lg border border-[#1b4332]/15 bg-white px-2.5 py-1.5 text-[11px] font-bold text-[#1b4332] hover:bg-[#f2eee4]"
@@ -558,13 +620,26 @@ export function KajianRutinPage() {
       <KajianRutinSeriesModal
         isOpen={seriesModalOpen}
         series={editingSeries}
+        speakers={speakers}
         saving={seriesSaving}
         error={seriesError}
+        onAddSpeaker={addSpeaker}
         onSave={saveSeries}
         onClose={() => {
           setSeriesModalOpen(false);
           setEditingSeries(null);
         }}
+      />
+
+      <KajianRutinSessionEditModal
+        isOpen={Boolean(editingSession) && Boolean(sessionsData)}
+        session={editingSession}
+        series={sessionsData?.series || null}
+        speakers={speakers}
+        saving={sessionSaving}
+        error={sessionError}
+        onSave={saveSessionEdit}
+        onClose={() => setEditingSession(null)}
       />
 
       <KajianRutinQrModal

@@ -14,12 +14,14 @@ export const kajianRutinSeries = pgTable(
     speaker: text('speaker'),
     recurrence: text('recurrence').default('weekly').notNull(), // 'weekly' | 'biweekly' | 'monthly'
     dayOfWeek: integer('day_of_week'), // 0=Ahad .. 6=Sabtu
+    startDate: date('start_date'), // tanggal kajian pertama (kalender WIB)
     startTime: text('start_time').default('07:00').notNull(), // WIB, 'HH:mm'
     endTime: text('end_time'), // WIB, 'HH:mm'
     locationName: text('location_name'),
     locationAddress: text('location_address'),
     targetAudience: text('target_audience').default('umum').notNull(),
     quota: integer('quota'),
+    posterUrl: text('poster_url'), // thumbnail/poster kajian (admin & portal peserta)
     checkInOpenMinutes: integer('check_in_open_minutes').default(240).notNull(),
     checkInCloseMinutes: integer('check_in_close_minutes').default(300).notNull(),
     isActive: boolean('is_active').default(true).notNull(),
@@ -33,8 +35,27 @@ export const kajianRutinSeries = pgTable(
 );
 
 /**
+ * Master pemateri/ustadz agar tidak mengetik ulang di setiap kajian.
+ */
+export const kajianRutinSpeakers = pgTable(
+  'kajian_rutin_speakers',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    name: text('name').notNull(),
+    notes: text('notes'),
+    createdBy: uuid('created_by').references(() => appUsers.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    nameUnique: uniqueIndex('idx_kajian_rutin_speakers_name').on(t.name),
+  })
+);
+
+/**
  * Sesi pertemuan tunggal dari sebuah seri. QR absensi memuat qrToken yang
  * hanya diterbitkan lewat halaman admin dan dapat dirotasi bila bocor.
+ * startTime/endTime/locationName/speaker bersifat override per sesi
+ * (null = ikut nilai seri) agar jadwal tiap pertemuan tetap fleksibel.
  */
 export const kajianRutinSessions = pgTable(
   'kajian_rutin_sessions',
@@ -46,6 +67,10 @@ export const kajianRutinSessions = pgTable(
     sessionDate: date('session_date').notNull(), // 'YYYY-MM-DD' kalender WIB
     startAt: timestamp('start_at', { withTimezone: true }).notNull(),
     endAt: timestamp('end_at', { withTimezone: true }),
+    startTime: text('start_time'), // override jam mulai WIB
+    endTime: text('end_time'), // override jam selesai WIB
+    locationName: text('location_name'), // override lokasi
+    speaker: text('speaker'), // override pemateri
     topic: text('topic'),
     notes: text('notes'),
     status: text('status').default('scheduled').notNull(), // 'scheduled' | 'cancelled'
@@ -75,7 +100,10 @@ export const kajianRutinAccounts = pgTable(
     fullName: text('full_name').notNull(),
     pictureUrl: text('picture_url'),
     phone: text('phone'),
+    gender: text('gender'), // 'ikhwan' | 'akhwat'
     cityRegency: text('city_regency'),
+    province: text('province'),
+    educationLevel: text('education_level'),
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }).defaultNow().notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

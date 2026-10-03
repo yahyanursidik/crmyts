@@ -63,6 +63,16 @@ interface PersonDetailData {
       locationName?: string;
     };
   }>;
+  routineAttendance?: Array<{
+    id: string;
+    seriesTitle: string;
+    speaker: string | null;
+    sessionDate: string;
+    startAt: string;
+    checkInAt: string;
+    source: string;
+    status: string;
+  }>;
   interactions: Array<{
     id: string;
     channel: string;
@@ -715,14 +725,15 @@ export const PersonDetailPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1B4332]/8 font-medium text-[#1C2321]">
-                {data.attendances.length === 0 ? (
+                {data.attendances.length === 0 && !(data.routineAttendance && data.routineAttendance.length > 0) ? (
                   <tr>
                     <td colSpan={5} className="py-8 text-center text-[#6B7A72]">
                       Belum ada riwayat kehadiran kajian tercatat.
                     </td>
                   </tr>
                 ) : (
-                  data.attendances.map((att) => (
+                  <>
+                    {data.attendances.map((att) => (
                     <tr key={att.id} className="hover:bg-[#F2EEE4]/50 transition-colors">
                       <td className="py-3 px-4 font-bold text-[#1C2321]">
                         <Link to="/events" className="hover:text-[#1B4332] hover:underline">
@@ -763,7 +774,38 @@ export const PersonDetailPage: React.FC = () => {
                         </button>
                       </td>
                     </tr>
-                  ))
+                    ))}
+
+                    {/* Kehadiran Kajian Rutin (absensi mandiri portal jamaah) */}
+                    {(data.routineAttendance || []).map((routine) => (
+                      <tr key={routine.id} className="hover:bg-[#F2EEE4]/50 transition-colors">
+                        <td className="py-3 px-4 font-bold text-[#1C2321]">
+                          {routine.seriesTitle}
+                          <span className="ml-2 rounded bg-[#1B4332]/10 px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider text-[#1B4332]">
+                            Kajian Rutin
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="font-semibold text-[#14352A]">{routine.speaker || '—'}</span>
+                          <span className="text-[11px] text-[#6B7A72] block">(kajian rutin)</span>
+                        </td>
+                        <td className="py-3 px-4 font-mono text-[11px] text-[#6B7A72]">
+                          {new Date(routine.startAt).toLocaleDateString('id-ID', {
+                            weekday: 'short',
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                          })}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="inline-flex px-2 py-0.5 rounded text-[9.5px] font-mono font-bold bg-[#2F7D4F]/10 text-[#2F7D4F] border border-[#2F7D4F]/25 capitalize">
+                            Hadir (absensi mandiri)
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right text-[#8A9690]">—</td>
+                      </tr>
+                    ))}
+                  </>
                 )}
               </tbody>
             </table>
