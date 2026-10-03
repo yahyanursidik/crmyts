@@ -62,7 +62,7 @@ export function KajianRutinAttendanceModal({
   const load = useCallback(async (id: string, silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const { data } = await apiClient<AttendancePayload>(`/api/kajian-rutin/sessions/${id}/attendance`);
+      const { data } = await apiClient<AttendancePayload>(`/kajian-rutin/sessions/${id}/attendance`);
       setPayload(data);
       setError('');
     } catch (err) {
@@ -100,7 +100,7 @@ export function KajianRutinAttendanceModal({
     setManualSaving(true);
     setManualError('');
     try {
-      await apiClient(`/api/kajian-rutin/sessions/${sessionId}/attendance`, {
+      await apiClient(`/kajian-rutin/sessions/${sessionId}/attendance`, {
         method: 'POST',
         body: JSON.stringify({ fullName: manualName.trim(), email: manualEmail.trim() || null }),
       });
@@ -118,7 +118,7 @@ export function KajianRutinAttendanceModal({
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await apiClient(`/api/kajian-rutin/attendance/${deleteTarget.id}`, { method: 'DELETE' });
+      await apiClient(`/kajian-rutin/attendance/${deleteTarget.id}`, { method: 'DELETE' });
       setDeleteTarget(null);
       await load(sessionId, true);
     } catch (err) {

@@ -74,7 +74,7 @@ export function KajianRutinPortalPage() {
     if (!silent) setSessionsLoading(true);
     try {
       const { data } = await apiClient<{ openNow: PortalSessionItem[]; upcoming: PortalSessionItem[] }>(
-        '/api/public/kajian-rutin/portal/sessions',
+        '/public/kajian-rutin/portal/sessions',
         { headers: { Authorization: `Bearer ${localStorage.getItem(KAJIAN_RUTIN_PORTAL_TOKEN_KEY) || ''}` } }
       );
       setSessions(data);
@@ -93,7 +93,7 @@ export function KajianRutinPortalPage() {
 
   const fetchMe = useCallback(async (token: string) => {
     const { data } = await apiClient<{ profile: PortalProfile; history: Array<{ id: string; seriesTitle: string; sessionDate: string; checkInAt: string; source: string }> }>(
-      '/api/public/kajian-rutin/portal/me',
+      '/public/kajian-rutin/portal/me',
       { headers: { Authorization: `Bearer ${token}` } }
     );
     setProfile(data.profile);
@@ -111,7 +111,7 @@ export function KajianRutinPortalPage() {
       return;
     }
     setScanToken(t);
-    apiClient<KajianRutinScanContext>(`/api/public/kajian-rutin/scan?sesi=${encodeURIComponent(sesi)}&t=${encodeURIComponent(t)}`)
+    apiClient<KajianRutinScanContext>(`/public/kajian-rutin/scan?sesi=${encodeURIComponent(sesi)}&t=${encodeURIComponent(t)}`)
       .then(({ data }) => {
         if (!active) return;
         setScan(data);
@@ -170,7 +170,7 @@ export function KajianRutinPortalPage() {
           scan: KajianRutinScanContext | null;
           scanError: string | null;
           alreadyAbsen: { sessionId: string; checkInAt: string } | null;
-        }>('/api/public/kajian-rutin/auth/google', {
+        }>('/public/kajian-rutin/auth/google', {
           method: 'POST',
           body: JSON.stringify({
             credential,
@@ -213,7 +213,7 @@ export function KajianRutinPortalPage() {
           alreadyAbsen: boolean;
           attendance: { id: string; checkInAt: string; source: string } | null;
           series?: { id: string; title: string };
-        }>('/api/public/kajian-rutin/portal/absen', {
+        }>('/public/kajian-rutin/portal/absen', {
           method: 'POST',
           headers: { Authorization: `Bearer ${localStorage.getItem(KAJIAN_RUTIN_PORTAL_TOKEN_KEY) || ''}` },
           body: JSON.stringify({ sessionId: target.sessionId, token: tokenForQr }),
