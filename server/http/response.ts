@@ -7,6 +7,7 @@ export type ErrorCode =
   | 'INVALID_STATE_TRANSITION'
   | 'DUPLICATE_CANDIDATE'
   | 'RATE_LIMITED'
+  | 'CONFIG_MISSING'
   | 'INTERNAL_ERROR';
 
 export interface ApiResponse<T = unknown> {

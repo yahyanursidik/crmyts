@@ -14,6 +14,9 @@ export * from './events';
 export * from './interactions';
 export * from './jamaahRoom';
 
+// Kajian Rutin (recurring study attendance)
+export * from './kajianRutin';
+
 // Donations & Programs
 export * from './donations';
 

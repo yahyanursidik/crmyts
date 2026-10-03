@@ -20,6 +20,7 @@ import { registerPublicPortalRoutes } from '../../server/domain/public/routes';
 import { registerBazaarRoutes } from '../../server/domain/bazaar/routes';
 import { registerWebhookRoutes } from '../../server/domain/webhooks/routes';
 import { registerJamaahRoomRoutes } from '../../server/domain/jamaah-room/routes';
+import { registerKajianRutinRoutes } from '../../server/domain/kajian-rutin/routes';
 import { resolveUserBySubject } from '../../server/auth/service';
 
 interface NetlifyEvent {
@@ -63,6 +64,7 @@ registerAutomationRoutes(router);
 registerDonorsPipelineRoutes(router);
 registerPublicPortalRoutes(router);
 registerJamaahRoomRoutes(router);
+registerKajianRutinRoutes(router);
 registerWebhookRoutes(router);
 
 export const handler = async (event: NetlifyEvent) => {
