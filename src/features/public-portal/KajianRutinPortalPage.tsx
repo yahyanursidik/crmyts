@@ -1,0 +1,614 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router';
+import {
+  BadgeCheck,
+  CalendarDays,
+  CheckCircle2,
+  Clock,
+  History,
+  LoaderCircle,
+  LogOut,
+  MapPin,
+  QrCode,
+  ShieldCheck,
+  UserRound,
+  XCircle,
+} from 'lucide-react';
+import { apiClient, ApiClientError } from '../../lib/apiClient';
+import { env } from '../../lib/env';
+import {
+  formatWibDate,
+  formatWibTime,
+  formatWibDateTime,
+  KAJIAN_RUTIN_PORTAL_TOKEN_KEY,
+  type KajianRutinScanContext,
+  type PortalSessionItem,
+} from '../../lib/kajianRutin';
+import { useGoogleIdentity } from './useGoogleIdentity';
+
+interface PortalProfile {
+  name: string;
+  email: string;
+  pictureUrl: string | null;
+}
+
+interface AbsenResult {
+  sessionId: string;
+  alreadyAbsen: boolean;
+  checkInAt: string;
+  seriesTitle?: string;
+}
+
+function readStoredToken(): string | null {
+  try {
+    return localStorage.getItem(KAJIAN_RUTIN_PORTAL_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function KajianRutinPortalPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [scanState, setScanState] = useState<'loading' | 'none' | 'valid' | 'invalid' | 'expired'>('loading');
+  const [scan, setScan] = useState<KajianRutinScanContext | null>(null);
+  const [scanToken, setScanToken] = useState<string | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+
+  const [authState, setAuthState] = useState<'checking' | 'guest' | 'authed'>('checking');
+  const [profile, setProfile] = useState<PortalProfile | null>(null);
+  const [loginBusy, setLoginBusy] = useState(false);
+
+  const [sessions, setSessions] = useState<{ openNow: PortalSessionItem[]; upcoming: PortalSessionItem[] } | null>(null);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+
+  const [history, setHistory] = useState<Array<{ id: string; seriesTitle: string; sessionDate: string; checkInAt: string; source: string }>>([]);
+  const [showHistory, setShowHistory] = useState(false);
+
+  const [banner, setBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [absenResult, setAbsenResult] = useState<AbsenResult | null>(null);
+  const [submittingSession, setSubmittingSession] = useState<string | null>(null);
+
+  const googleButtonRef = useRef<HTMLDivElement | null>(null);
+
+  const fetchSessions = useCallback(async (silent = false) => {
+    if (!silent) setSessionsLoading(true);
+    try {
+      const { data } = await apiClient<{ openNow: PortalSessionItem[]; upcoming: PortalSessionItem[] }>(
+        '/api/public/kajian-rutin/portal/sessions',
+        { headers: { Authorization: `Bearer ${localStorage.getItem(KAJIAN_RUTIN_PORTAL_TOKEN_KEY) || ''}` } }
+      );
+      setSessions(data);
+    } catch (error) {
+      if (error instanceof ApiClientError && error.statusCode === 401) {
+        localStorage.removeItem(KAJIAN_RUTIN_PORTAL_TOKEN_KEY);
+        setAuthState('guest');
+        setProfile(null);
+      } else if (!silent) {
+        setBanner({ type: 'error', text: error instanceof Error ? error.message : 'Gagal memuat daftar kajian.' });
+      }
+    } finally {
+      if (!silent) setSessionsLoading(false);
+    }
+  }, []);
+
+  const fetchMe = useCallback(async (token: string) => {
+    const { data } = await apiClient<{ profile: PortalProfile; history: Array<{ id: string; seriesTitle: string; sessionDate: string; checkInAt: string; source: string }> }>(
+      '/api/public/kajian-rutin/portal/me',
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    setProfile(data.profile);
+    setHistory(data.history);
+    setAuthState('authed');
+  }, []);
+
+  // 1. Validasi konteks QR dari URL (?sesi=..&t=..)
+  useEffect(() => {
+    let active = true;
+    const sesi = searchParams.get('sesi') || searchParams.get('sessionId');
+    const t = searchParams.get('t') || searchParams.get('token');
+    if (!sesi || !t) {
+      setScanState('none');
+      return;
+    }
+    setScanToken(t);
+    apiClient<KajianRutinScanContext>(`/api/public/kajian-rutin/scan?sesi=${encodeURIComponent(sesi)}&t=${encodeURIComponent(t)}`)
+      .then(({ data }) => {
+        if (!active) return;
+        setScan(data);
+        setScanState('valid');
+        // Bersihkan URL agar token QR tidak tertinggal di address bar / riwayat.
+        setSearchParams({}, { replace: true });
+      })
+      .catch((error) => {
+        if (!active) return;
+        setScanError(error instanceof ApiClientError ? error.message : 'QR tidak dapat divalidasi.');
+        setScanState(error instanceof ApiClientError && (error.statusCode === 403 || error.statusCode === 409) ? 'expired' : 'invalid');
+        setSearchParams({}, { replace: true });
+      });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 2. Pulihkan sesi login portal bila ada.
+  useEffect(() => {
+    let active = true;
+    const token = readStoredToken();
+    if (!token) {
+      setAuthState('guest');
+      return;
+    }
+    fetchMe(token)
+      .catch(() => {
+        if (!active) return;
+        localStorage.removeItem(KAJIAN_RUTIN_PORTAL_TOKEN_KEY);
+        setAuthState('guest');
+      })
+      .finally(() => {
+        if (active && authState === 'checking') setAuthState((prev) => (prev === 'checking' ? 'guest' : prev));
+      });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchMe]);
+
+  // 3. Muat daftar sesi setelah login.
+  useEffect(() => {
+    if (authState === 'authed') void fetchSessions();
+  }, [authState, fetchSessions]);
+
+  const handleCredential = useCallback(
+    async (credential: string) => {
+      setLoginBusy(true);
+      setBanner(null);
+      try {
+        const { data } = await apiClient<{
+          token: string;
+          profile: PortalProfile;
+          scan: KajianRutinScanContext | null;
+          scanError: string | null;
+          alreadyAbsen: { sessionId: string; checkInAt: string } | null;
+        }>('/api/public/kajian-rutin/auth/google', {
+          method: 'POST',
+          body: JSON.stringify({
+            credential,
+            sessionId: scan?.session.id || null,
+            token: scan?.session.id ? scanToken : null,
+          }),
+        });
+        localStorage.setItem(KAJIAN_RUTIN_PORTAL_TOKEN_KEY, data.token);
+        setProfile(data.profile);
+        setAuthState('authed');
+        if (data.scan) setScan(data.scan);
+        if (data.scanError) setBanner({ type: 'error', text: data.scanError });
+        if (data.alreadyAbsen && scan && data.alreadyAbsen.sessionId === scan.session.id) {
+          setAbsenResult({ sessionId: scan.session.id, alreadyAbsen: true, checkInAt: data.alreadyAbsen.checkInAt });
+        }
+        void fetchMe(data.token).catch(() => undefined);
+      } catch (error) {
+        setBanner({ type: 'error', text: error instanceof Error ? error.message : 'Login Google gagal. Coba lagi.' });
+      } finally {
+        setLoginBusy(false);
+      }
+    },
+    [scan, scanToken, fetchMe]
+  );
+
+  const { renderInto, clientIdMissing, failed: gsiFailed } = useGoogleIdentity((credential) => void handleCredential(credential));
+
+  useEffect(() => {
+    if (authState === 'guest' && !loginBusy) renderInto(googleButtonRef.current);
+  }, [authState, loginBusy, renderInto]);
+
+  const handleAbsen = useCallback(
+    async (target: PortalSessionItem) => {
+      if (!profile) return;
+      setSubmittingSession(target.sessionId);
+      setBanner(null);
+      try {
+        const tokenForQr = scan && scan.session.id === target.sessionId ? scanToken : null;
+        const { data } = await apiClient<{
+          alreadyAbsen: boolean;
+          attendance: { id: string; checkInAt: string; source: string } | null;
+          series?: { id: string; title: string };
+        }>('/api/public/kajian-rutin/portal/absen', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${localStorage.getItem(KAJIAN_RUTIN_PORTAL_TOKEN_KEY) || ''}` },
+          body: JSON.stringify({ sessionId: target.sessionId, token: tokenForQr }),
+        });
+        const checkInAt = data.attendance?.checkInAt || new Date().toISOString();
+        setAbsenResult({
+          sessionId: target.sessionId,
+          alreadyAbsen: data.alreadyAbsen,
+          checkInAt,
+          seriesTitle: data.series?.title || target.seriesTitle,
+        });
+        if (data.alreadyAbsen) {
+          setBanner({ type: 'success', text: 'Anda sudah tercatat absen untuk kajian ini.' });
+        }
+        void fetchSessions(true);
+      } catch (error) {
+        setBanner({ type: 'error', text: error instanceof Error ? error.message : 'Absen gagal. Coba lagi.' });
+      } finally {
+        setSubmittingSession(null);
+      }
+    },
+    [profile, scan, scanToken, fetchSessions]
+  );
+
+  const handleLogout = () => {
+    localStorage.removeItem(KAJIAN_RUTIN_PORTAL_TOKEN_KEY);
+    setAuthState('guest');
+    setProfile(null);
+    setSessions(null);
+    setHistory([]);
+    setAbsenResult(null);
+  };
+
+  const dismissScan = () => {
+    setScan(null);
+    setScanToken(null);
+    setScanState('none');
+  };
+
+  const renderSessionCard = (item: PortalSessionItem, highlight: boolean) => {
+    const isSubmitting = submittingSession === item.sessionId;
+    const absenDone = item.alreadyAbsen || (absenResult?.sessionId === item.sessionId);
+    const windowOpen = new Date(item.windowOpenAt);
+    return (
+      <div
+        key={item.sessionId}
+        className={`rounded-2xl border p-4 sm:p-5 transition-shadow ${
+          highlight
+            ? 'border-[#B58B3C]/50 bg-[#FBF6E9] shadow-md ring-1 ring-[#B58B3C]/30'
+            : 'border-[#1B4332]/12 bg-white shadow-sm hover:shadow-md'
+        }`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-bold text-[#14352A] text-[15px] leading-snug">{item.seriesTitle}</h3>
+              {highlight && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#B58B3C] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+                  <QrCode className="h-3 w-3" /> Dari QR
+                </span>
+              )}
+            </div>
+            {item.topic && <p className="mt-0.5 text-[12.5px] font-medium text-[#3D4A44]">{item.topic}</p>}
+            {item.speaker && <p className="text-[12px] text-[#6B7A72]">Pemateri: {item.speaker}</p>}
+            <div className="mt-2 space-y-1 text-[12.5px] text-[#4B5A52]">
+              <p className="flex items-center gap-1.5">
+                <CalendarDays className="h-3.5 w-3.5 text-[#1B4332]/60" />
+                {formatWibDate(item.startAt)}
+                <span className="text-[#8A9690]">•</span>
+                <Clock className="h-3.5 w-3.5 text-[#1B4332]/60" />
+                {item.startTime} WIB{item.endTime ? ` – ${item.endTime} WIB` : ''}
+              </p>
+              {item.locationName && (
+                <p className="flex items-center gap-1.5">
+                  <MapPin className="h-3.5 w-3.5 text-[#1B4332]/60" />
+                  {item.locationName}
+                </p>
+              )}
+            </div>
+          </div>
+          {absenDone && <BadgeCheck className="h-6 w-6 shrink-0 text-emerald-600" aria-label="Sudah absen" />}
+        </div>
+
+        <div className="mt-3.5 flex flex-wrap items-center gap-2">
+          {item.isOpen ? (
+            absenDone ? (
+              <span className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 border border-emerald-200">
+                <CheckCircle2 className="h-4 w-4" />
+                Sudah absen{item.alreadyAbsen ? ` · ${formatWibTime(item.alreadyAbsen)}` : ''}
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void handleAbsen(item)}
+                disabled={isSubmitting}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#1B4332] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition-all hover:bg-[#14352A] active:scale-98 disabled:opacity-60"
+              >
+                {isSubmitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                Absen Sekarang
+              </button>
+            )
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-xl bg-[#F2EEE4] px-3 py-2 text-xs font-semibold text-[#6B7A72] border border-[#1B4332]/10">
+              <Clock className="h-3.5 w-3.5" />
+              Absensi buka {formatWibDate(windowOpen.toISOString())}, {formatWibTime(item.windowOpenAt)}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-[#F6F5EF] font-sans text-[#1C2321] antialiased">
+      {/* Header */}
+      <header className="bg-gradient-to-br from-[#14352A] via-[#1B4332] to-[#0F3A2E] text-white">
+        <div className="mx-auto max-w-2xl px-4 pt-8 pb-10 sm:px-6">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-white p-1.5 shadow-lg flex items-center justify-center shrink-0">
+              <img src="/logo.png" alt="Logo YTS" className="w-full h-full object-contain" />
+            </div>
+            <div>
+              <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-[#E0B970]">Yayasan Tarbiyah Sunnah</p>
+              <h1 className="font-display text-xl sm:text-2xl font-bold leading-tight">Absensi Kajian Rutin</h1>
+            </div>
+          </div>
+          <p className="mt-3 text-[13px] text-white/75 leading-relaxed max-w-md">
+            Scan QR dari panitia atau buka halaman ini, login dengan akun Google, pilih kajian rutin, lalu tekan
+            <span className="font-semibold text-[#E0B970]"> Absen Sekarang</span>. Tidak perlu install aplikasi.
+          </p>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-2xl px-4 sm:px-6 -mt-5 pb-16 space-y-4">
+        {/* Banner hasil */}
+        {banner && (
+          <div
+            className={`flex items-start gap-2.5 rounded-2xl border p-4 text-[13px] font-medium shadow-sm ${
+              banner.type === 'success'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                : 'border-rose-200 bg-rose-50 text-rose-800'
+            }`}
+            role="status"
+          >
+            {banner.type === 'success' ? <CheckCircle2 className="h-4.5 w-4.5 shrink-0 mt-0.5" /> : <XCircle className="h-4.5 w-4.5 shrink-0 mt-0.5" />}
+            <span className="flex-1">{banner.text}</span>
+            <button type="button" onClick={() => setBanner(null)} className="text-current/60 hover:text-current font-bold px-1" aria-label="Tutup">
+              ×
+            </button>
+          </div>
+        )}
+
+        {/* Status QR */}
+        {scanState === 'loading' && (
+          <div className="flex items-center gap-3 rounded-2xl border border-[#1B4332]/12 bg-white p-4 text-sm text-[#6B7A72] shadow-sm">
+            <LoaderCircle className="h-4 w-4 animate-spin text-[#1B4332]" /> Memvalidasi QR absensi…
+          </div>
+        )}
+        {(scanState === 'invalid' || scanState === 'expired') && (
+          <div className="flex items-start gap-2.5 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-[13px] text-amber-900 shadow-sm">
+            <QrCode className="h-4.5 w-4.5 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-bold">{scanError || 'QR tidak valid.'}</p>
+              <p className="mt-0.5 text-amber-800">Anda tetap bisa absen dengan memilih kajian rutin yang buka di bawah.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Login */}
+        {authState === 'checking' && (
+          <div className="flex items-center justify-center gap-3 rounded-2xl border border-[#1B4332]/12 bg-white p-8 text-sm text-[#6B7A72] shadow-sm">
+            <LoaderCircle className="h-4 w-4 animate-spin text-[#1B4332]" /> Menyiapkan halaman absensi…
+          </div>
+        )}
+
+        {authState === 'guest' && (
+          <section className="rounded-2xl border border-[#1B4332]/12 bg-white p-6 sm:p-8 text-center shadow-md">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F2EEE4]">
+              <UserRound className="h-7 w-7 text-[#1B4332]" />
+            </div>
+            <h2 className="mt-4 font-display text-lg font-bold text-[#14352A]">Login untuk Absen</h2>
+            <p className="mt-1.5 text-[13px] text-[#6B7A72] leading-relaxed max-w-sm mx-auto">
+              Masuk menggunakan akun Google (Gmail) Anda. Data yang kami simpan hanya nama, email, dan jam absensi.
+            </p>
+
+            {clientIdMissing ? (
+              <div className="mx-auto mt-5 max-w-sm rounded-xl border border-amber-300 bg-amber-50 p-4 text-left text-[12.5px] text-amber-900">
+                <p className="font-bold">Login Google belum dikonfigurasi.</p>
+                <p className="mt-1 leading-relaxed">
+                  Admin perlu mengisi <code className="rounded bg-amber-100 px-1 py-0.5 font-mono text-[11px]">GOOGLE_CLIENT_ID</code> dan{' '}
+                  <code className="rounded bg-amber-100 px-1 py-0.5 font-mono text-[11px]">VITE_GOOGLE_CLIENT_ID</code> pada pengaturan environment.
+                </p>
+              </div>
+            ) : gsiFailed ? (
+              <div className="mx-auto mt-5 max-w-sm rounded-xl border border-rose-200 bg-rose-50 p-4 text-left text-[12.5px] text-rose-800">
+                <p className="font-bold">Tombol Google gagal dimuat.</p>
+                <p className="mt-1">Periksa koneksi internet lalu muat ulang halaman.</p>
+              </div>
+            ) : (
+              <div className="mt-5 flex justify-center" ref={googleButtonRef} />
+            )}
+
+            <div className="mt-6 flex items-center justify-center gap-1.5 text-[11px] text-[#8A9690]">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Identitas diverifikasi langsung oleh Google
+            </div>
+          </section>
+        )}
+
+        {authState === 'authed' && profile && (
+          <>
+            {/* Kartu hasil absen sukses */}
+            {absenResult && (
+              <section className="overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white shadow-md">
+                <div className="bg-emerald-600 px-5 py-2.5 text-center">
+                  <p className="text-[11px] font-mono font-bold uppercase tracking-[0.18em] text-emerald-50">
+                    {absenResult.alreadyAbsen ? 'Sudah Tercatat' : 'Absensi Berhasil'}
+                  </p>
+                </div>
+                <div className="p-5 sm:p-6 text-center">
+                  <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-600" />
+                  <h2 className="mt-3 font-display text-lg font-bold text-[#14352A]">
+                    {absenResult.seriesTitle ? `Alhamdulillah, ${profile.name.split(' ')[0]}!` : 'Alhamdulillah!'}
+                  </h2>
+                  <p className="mt-1 text-[13px] text-[#4B5A52]">
+                    {absenResult.alreadyAbsen ? 'Anda sudah tercatat hadir pada' : 'Kehadiran Anda tercatat pada'}{' '}
+                    <strong className="text-[#14352A]">{absenResult.seriesTitle || 'kajian rutin'}</strong>
+                  </p>
+                  <p className="mt-2 inline-block rounded-xl bg-[#F2EEE4] px-4 py-2 font-mono text-[13px] font-bold text-[#1B4332]">
+                    {formatWibDateTime(absenResult.checkInAt)}
+                  </p>
+                  <p className="mt-3 text-[11.5px] text-[#8A9690]">Tangkapan layar halaman ini dapat ditunjukkan kepada panitia bila diperlukan.</p>
+                </div>
+              </section>
+            )}
+
+            {/* Profil */}
+            <section className="flex items-center justify-between gap-3 rounded-2xl border border-[#1B4332]/12 bg-white p-3.5 shadow-sm">
+              <div className="flex items-center gap-3 min-w-0">
+                {profile.pictureUrl ? (
+                  <img src={profile.pictureUrl} alt={profile.name} className="h-10 w-10 rounded-full border border-[#1B4332]/15 object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#F2EEE4] text-[#1B4332]">
+                    <UserRound className="h-5 w-5" />
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="truncate text-[13.5px] font-bold text-[#14352A]">{profile.name}</p>
+                  <p className="truncate text-[11.5px] text-[#6B7A72]">{profile.email}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#1B4332]/15 px-3 py-2 text-[11.5px] font-semibold text-[#3D4A44] transition-colors hover:bg-[#F2EEE4]"
+              >
+                <LogOut className="h-3.5 w-3.5" /> Keluar
+              </button>
+            </section>
+
+            {/* Konteks QR valid */}
+            {scan && scanState === 'valid' && (
+              <section>
+                <h2 className="mb-2 px-1 text-[11px] font-mono font-bold uppercase tracking-[0.16em] text-[#8A9690]">
+                  Kajian dari QR yang Anda scan
+                </h2>
+                {renderSessionCard(
+                  {
+                    sessionId: scan.session.id,
+                    sessionDate: scan.session.sessionDate,
+                    startAt: scan.session.startAt,
+                    endAt: scan.session.endAt,
+                    topic: scan.session.topic,
+                    seriesId: scan.series.id,
+                    seriesTitle: scan.series.title,
+                    speaker: scan.series.speaker,
+                    locationName: scan.series.locationName,
+                    startTime: '',
+                    endTime: null,
+                    windowOpenAt: scan.checkInWindow.openAt,
+                    windowCloseAt: scan.checkInWindow.closeAt,
+                    isOpen: scan.checkInWindow.isOpen,
+                    alreadyAbsen: history.find((h) => h.sessionDate === scan.session.sessionDate)?.checkInAt || null,
+                  },
+                  true
+                )}
+                <button type="button" onClick={dismissScan} className="mx-1 mt-2 text-[11.5px] font-semibold text-[#6B7A72] underline hover:text-[#14352A]">
+                  Lihat semua kajian rutin lain
+                </button>
+              </section>
+            )}
+
+            {/* Sedang buka */}
+            <section>
+              <h2 className="mb-2 px-1 text-[11px] font-mono font-bold uppercase tracking-[0.16em] text-[#8A9690]">
+                Sedang Buka Absensi
+              </h2>
+              {sessionsLoading ? (
+                <div className="flex items-center justify-center gap-2.5 rounded-2xl border border-[#1B4332]/12 bg-white p-8 text-sm text-[#6B7A72] shadow-sm">
+                  <LoaderCircle className="h-4 w-4 animate-spin text-[#1B4332]" /> Memuat daftar kajian…
+                </div>
+              ) : sessions && sessions.openNow.length > 0 ? (
+                <div className="space-y-3">
+                  {sessions.openNow
+                    .filter((item) => !(scan && scanState === 'valid' && item.sessionId === scan.session.id))
+                    .map((item) => renderSessionCard(item, false))}
+                  {sessions.openNow.filter((item) => !(scan && scanState === 'valid' && item.sessionId === scan.session.id)).length === 0 && (
+                    <p className="rounded-2xl border border-[#1B4332]/12 bg-white p-5 text-center text-[13px] text-[#6B7A72] shadow-sm">
+                      Kajian dari QR di atas sedang buka absensi — cukup absen di kartu tersebut.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-[#1B4332]/12 bg-white p-6 text-center shadow-sm">
+                  <Clock className="mx-auto h-8 w-8 text-[#8A9690]" />
+                  <p className="mt-2 text-[13.5px] font-semibold text-[#3D4A44]">Belum ada kajian yang buka absensi saat ini.</p>
+                  <p className="mt-1 text-[12px] text-[#8A9690]">
+                    Absensi biasanya terbuka beberapa jam sebelum kajian dimulai. Cek jadwal berikutnya di bawah.
+                  </p>
+                </div>
+              )}
+            </section>
+
+            {/* Jadwal berikutnya */}
+            {sessions && sessions.upcoming.length > 0 && (
+              <section>
+                <h2 className="mb-2 px-1 text-[11px] font-mono font-bold uppercase tracking-[0.16em] text-[#8A9690]">Jadwal Berikutnya</h2>
+                <div className="space-y-2.5">
+                  {sessions.upcoming.map((item) => (
+                    <div key={item.sessionId} className="flex items-center justify-between gap-3 rounded-2xl border border-[#1B4332]/10 bg-white/70 p-3.5">
+                      <div className="min-w-0">
+                        <p className="truncate text-[13px] font-bold text-[#14352A]">{item.seriesTitle}</p>
+                        <p className="text-[11.5px] text-[#6B7A72]">
+                          {formatWibDate(item.startAt)} • {item.startTime} WIB
+                          {item.locationName ? ` • ${item.locationName}` : ''}
+                        </p>
+                      </div>
+                      <span className="shrink-0 rounded-lg bg-[#F2EEE4] px-2.5 py-1 text-[10.5px] font-mono font-bold uppercase tracking-wider text-[#6B7A72]">
+                        Terjadwal
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Riwayat */}
+            {history.length > 0 && (
+              <section>
+                <button
+                  type="button"
+                  onClick={() => setShowHistory((prev) => !prev)}
+                  className="flex w-full items-center justify-between rounded-2xl border border-[#1B4332]/12 bg-white px-4 py-3.5 text-left shadow-sm"
+                >
+                  <span className="inline-flex items-center gap-2 text-[13px] font-bold text-[#14352A]">
+                    <History className="h-4 w-4 text-[#1B4332]" />
+                    Riwayat Absensi Saya
+                    <span className="rounded-full bg-[#F2EEE4] px-2 py-0.5 text-[10.5px] font-mono text-[#6B7A72]">{history.length}</span>
+                  </span>
+                  <span className="text-[11.5px] font-semibold text-[#6B7A72]">{showHistory ? 'Sembunyikan' : 'Lihat'}</span>
+                </button>
+                {showHistory && (
+                  <ul className="mt-2 divide-y divide-[#1B4332]/8 overflow-hidden rounded-2xl border border-[#1B4332]/12 bg-white shadow-sm">
+                    {history.map((row) => (
+                      <li key={row.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-[12.5px] font-semibold text-[#1C2321]">{row.seriesTitle}</p>
+                          <p className="text-[11px] text-[#8A9690]">{formatWibDate(row.checkInAt)}</p>
+                        </div>
+                        <span className="shrink-0 font-mono text-[11px] font-bold text-emerald-700">{formatWibTime(row.checkInAt)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )}
+          </>
+        )}
+
+        {/* Footer */}
+        <footer className="pt-4 text-center text-[10.5px] leading-relaxed text-[#A8B2AC]">
+          <p>
+            <strong className="text-[#6B7A72]">Yayasan Tarbiyah Sunnah (YTS)</strong> • Bersama Sunnah, Menebar Manfaat
+          </p>
+          <p className="mt-0.5">
+            Kendala absensi? Hubungi panitia atau email{' '}
+            <a href="mailto:ahlan@yahyanursidik.my.id" className="underline hover:text-[#1B4332]">
+              ahlan@yahyanursidik.my.id
+            </a>
+          </p>
+          <p className="mt-2 opacity-70">Dilayani otomatis oleh Sistem CRM YTS{env.VITE_APP_NAME !== 'CRM YTS' ? '' : ''}</p>
+        </footer>
+      </main>
+    </div>
+  );
+}
+
+export default KajianRutinPortalPage;

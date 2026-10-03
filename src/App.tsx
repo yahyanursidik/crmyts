@@ -32,6 +32,8 @@ import { GateScannerPage } from './features/gate/GateScannerPage';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { JamaahRoomPage } from './features/jamaah-room/JamaahRoomPage';
 import { JamaahRoomInboxPage } from './features/jamaah-room/JamaahRoomInboxPage';
+import { KajianRutinPage } from './features/kajian-rutin/KajianRutinPage';
+import { KajianRutinPortalPage } from './features/public-portal/KajianRutinPortalPage';
 
 export function App() {
   return (
@@ -62,6 +64,10 @@ export function App() {
             {
               name: 'jamaah-room',
               list: '/ruang-jamaah/kelola',
+            },
+            {
+              name: 'kajian-rutin',
+              list: '/kajian-rutin',
             },
             {
               name: 'tasks',
@@ -123,6 +129,7 @@ export function App() {
                 <Route path="bazaar" element={<BazaarHubPage />} />
                 <Route path="interactions" element={<InteractionsListPage />} />
                 <Route path="ruang-jamaah/kelola" element={<JamaahRoomInboxPage />} />
+                <Route path="kajian-rutin" element={<KajianRutinPage />} />
                 <Route path="tasks" element={<TasksListPage />} />
                 <Route path="donations" element={<DonationsListPage />} />
                 <Route path="donors-pipeline" element={<DonorPipelinePage />} />
@@ -170,6 +177,8 @@ export function App() {
               <Route path="/daurah/:id/bazar/survey" element={<BazaarSurveyPortalPage />} />
               <Route path="/public/events/:id" element={<EventsPortalPage />} />
               <Route path="/peserta" element={<ParticipantPortalPage />} />
+              <Route path="/peserta/kajian" element={<KajianRutinPortalPage />} />
+              <Route path="/peserta/kajian/absen" element={<KajianRutinPortalPage />} />
               <Route path="/peserta/:eventId" element={<ParticipantPortalPage />} />
               <Route path="/tiket" element={<ParticipantPortalPage />} />
               <Route path="/cek-tiket" element={<ParticipantPortalPage />} />

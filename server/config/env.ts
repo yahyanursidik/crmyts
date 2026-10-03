@@ -25,6 +25,10 @@ const serverEnvSchema = z.object({
     message: 'MAILKETING_WEBHOOK_SECRET minimal 16 karakter.',
   }).default(''),
 
+  // Google OAuth Client ID for the kajian rutin self check-in portal. The ID token
+  // issued by Google Identity Services is verified against this audience server-side.
+  GOOGLE_CLIENT_ID: z.string().default(''),
+
   // Contabo S3 Cloud Storage Vault & Public CDN URL
   S3_ENDPOINT: z.string().default(''),
   S3_REGION: z.string().default('SIN'),

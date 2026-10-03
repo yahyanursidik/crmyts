@@ -3,6 +3,9 @@ import { z } from 'zod';
 const clientEnvSchema = z.object({
   VITE_APP_NAME: z.string().default('CRM YTS'),
   VITE_API_BASE_URL: z.string().default('/api'),
+  // Google OAuth Client ID untuk halaman absensi mandiri kajian rutin.
+  // Ini client ID publik, bukan secret — aman untuk dibundel ke browser.
+  VITE_GOOGLE_CLIENT_ID: z.string().default(''),
 });
 
 export type ClientEnv = z.infer<typeof clientEnvSchema>;
