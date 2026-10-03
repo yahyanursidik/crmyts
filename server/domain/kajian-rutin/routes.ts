@@ -7,11 +7,13 @@ import { getDb } from '../../db/client';
 import {
   events,
   eventAttendance,
+  personRoles,
   persons,
   kajianRutinAttendance,
   kajianRutinSeries,
   kajianRutinSessions,
   kajianRutinAccounts,
+  kajianRutinSpeakers,
 } from '../../db/schema';
 import { requirePermission, validateBody } from '../../http/middleware';
 import { errorResponse, successResponse, ErrorCode } from '../../http/response';
@@ -31,12 +33,14 @@ const seriesCreateSchema = z.object({
   speaker: z.string().trim().max(160).nullable().optional(),
   recurrence: z.enum(RECURRENCES).default('weekly'),
   dayOfWeek: z.number().int().min(0, 'Hari tidak valid').max(6, 'Hari tidak valid').nullable().optional(),
+  startDate: z.string().regex(DATE_PATTERN, 'Tanggal mulai harus format YYYY-MM-DD').nullable().optional(),
   startTime: z.string().regex(TIME_PATTERN, 'Jam mulai harus format HH:mm').default('07:00'),
   endTime: z.string().regex(TIME_PATTERN, 'Jam selesai harus format HH:mm').nullable().optional(),
   locationName: z.string().trim().max(160).nullable().optional(),
   locationAddress: z.string().trim().max(400).nullable().optional(),
   targetAudience: targetAudienceSchema.default('umum'),
   quota: z.number().int().min(0, 'Kuota tidak valid').max(100000).nullable().optional(),
+  posterUrl: z.string().url('Tautan poster tidak valid').max(600).nullable().optional().or(z.literal('')),
   checkInOpenMinutes: z.number().int().min(15, 'Minimal 15 menit sebelum mulai').max(1440).default(240),
   checkInCloseMinutes: z.number().int().min(15, 'Minimal 15 menit setelah selesai').max(1440).default(300),
   isActive: z.boolean().default(true),
@@ -55,9 +59,27 @@ const sessionGenerateSchema = z.object({
 });
 
 const sessionUpdateSchema = z.object({
+  sessionDate: z.string().regex(DATE_PATTERN, 'Tanggal sesi harus format YYYY-MM-DD').optional(),
+  startTime: z.string().regex(TIME_PATTERN, 'Jam mulai harus format HH:mm').nullable().optional(),
+  endTime: z.string().regex(TIME_PATTERN, 'Jam selesai harus format HH:mm').nullable().optional(),
+  locationName: z.string().trim().max(160).nullable().optional(),
+  speaker: z.string().trim().max(160).nullable().optional(),
   topic: z.string().trim().max(200).nullable().optional(),
   notes: z.string().trim().max(2000).nullable().optional(),
   status: z.enum(['scheduled', 'cancelled']).optional(),
+}).refine((v) => Object.keys(v).length > 0, 'Tidak ada perubahan.');
+
+const speakerCreateSchema = z.object({
+  name: z.string().trim().min(2, 'Nama pemateri minimal 2 karakter').max(160),
+  notes: z.string().trim().max(500).optional().nullable().or(z.literal('')),
+});
+
+const portalProfileSchema = z.object({
+  fullName: z.string().trim().min(2, 'Nama lengkap minimal 2 karakter').max(160).optional(),
+  cityRegency: z.string().trim().max(160).optional().nullable(),
+  province: z.string().trim().max(160).optional().nullable(),
+  gender: z.enum(['ikhwan', 'akhwat']).optional().nullable(),
+  educationLevel: z.string().trim().max(80).optional().nullable(),
 }).refine((v) => Object.keys(v).length > 0, 'Tidak ada perubahan.');
 
 const manualAttendanceSchema = z.object({
@@ -95,24 +117,37 @@ async function ensureKajianRutinTables() {
         speaker text,
         recurrence text NOT NULL DEFAULT 'weekly',
         day_of_week integer,
+        start_date date,
         start_time text NOT NULL DEFAULT '07:00',
         end_time text,
         location_name text,
         location_address text,
         target_audience text NOT NULL DEFAULT 'umum',
         quota integer,
+        poster_url text,
         check_in_open_minutes integer NOT NULL DEFAULT 240,
         check_in_close_minutes integer NOT NULL DEFAULT 300,
         is_active boolean NOT NULL DEFAULT true,
         created_by uuid REFERENCES app_users(id) ON DELETE SET NULL,
         created_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now())`));
+      await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS kajian_rutin_speakers (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        name text NOT NULL,
+        notes text,
+        created_by uuid REFERENCES app_users(id) ON DELETE SET NULL,
+        created_at timestamptz NOT NULL DEFAULT now())`));
+      await db.execute(sql.raw('CREATE UNIQUE INDEX IF NOT EXISTS idx_kajian_rutin_speakers_name ON kajian_rutin_speakers (name)'));
       await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS kajian_rutin_sessions (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         series_id uuid NOT NULL REFERENCES kajian_rutin_series(id) ON DELETE CASCADE,
         session_date date NOT NULL,
         start_at timestamptz NOT NULL,
         end_at timestamptz,
+        start_time text,
+        end_time text,
+        location_name text,
+        speaker text,
         topic text,
         notes text,
         status text NOT NULL DEFAULT 'scheduled',
@@ -128,7 +163,10 @@ async function ensureKajianRutinTables() {
         full_name text NOT NULL,
         picture_url text,
         phone text,
+        gender text,
         city_regency text,
+        province text,
+        education_level text,
         last_login_at timestamptz NOT NULL DEFAULT now(),
         created_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now())`));
@@ -160,6 +198,16 @@ async function ensureKajianRutinTables() {
       await db.execute(sql.raw('CREATE INDEX IF NOT EXISTS idx_kajian_rutin_attendance_check_in ON kajian_rutin_attendance (check_in_at)'));
       await db.execute(sql.raw('CREATE INDEX IF NOT EXISTS idx_kajian_rutin_accounts_email ON kajian_rutin_accounts (email)'));
       await db.execute(sql.raw('CREATE INDEX IF NOT EXISTS idx_kajian_rutin_series_active ON kajian_rutin_series (is_active)'));
+      // Kolom tambahan untuk deployment yang sudah berjalan.
+      await db.execute(sql.raw('ALTER TABLE kajian_rutin_series ADD COLUMN IF NOT EXISTS start_date date'));
+      await db.execute(sql.raw('ALTER TABLE kajian_rutin_series ADD COLUMN IF NOT EXISTS poster_url text'));
+      await db.execute(sql.raw('ALTER TABLE kajian_rutin_sessions ADD COLUMN IF NOT EXISTS start_time text'));
+      await db.execute(sql.raw('ALTER TABLE kajian_rutin_sessions ADD COLUMN IF NOT EXISTS end_time text'));
+      await db.execute(sql.raw('ALTER TABLE kajian_rutin_sessions ADD COLUMN IF NOT EXISTS location_name text'));
+      await db.execute(sql.raw('ALTER TABLE kajian_rutin_sessions ADD COLUMN IF NOT EXISTS speaker text'));
+      await db.execute(sql.raw('ALTER TABLE kajian_rutin_accounts ADD COLUMN IF NOT EXISTS gender text'));
+      await db.execute(sql.raw('ALTER TABLE kajian_rutin_accounts ADD COLUMN IF NOT EXISTS province text'));
+      await db.execute(sql.raw('ALTER TABLE kajian_rutin_accounts ADD COLUMN IF NOT EXISTS education_level text'));
     })().catch((error) => {
       setupPromise = null;
       throw error;
@@ -238,12 +286,14 @@ function serializeSeries(row: typeof kajianRutinSeries.$inferSelect) {
     speaker: row.speaker,
     recurrence: row.recurrence,
     dayOfWeek: row.dayOfWeek,
+    startDate: row.startDate ?? null,
     startTime: row.startTime,
     endTime: row.endTime,
     locationName: row.locationName,
     locationAddress: row.locationAddress,
     targetAudience: row.targetAudience,
     quota: row.quota,
+    posterUrl: row.posterUrl ?? null,
     checkInOpenMinutes: row.checkInOpenMinutes,
     checkInCloseMinutes: row.checkInCloseMinutes,
     isActive: row.isActive,
@@ -258,6 +308,10 @@ function serializeSession(row: typeof kajianRutinSessions.$inferSelect) {
     sessionDate: row.sessionDate,
     startAt: row.startAt.toISOString(),
     endAt: row.endAt ? row.endAt.toISOString() : null,
+    startTime: row.startTime ?? null,
+    endTime: row.endTime ?? null,
+    locationName: row.locationName ?? null,
+    speaker: row.speaker ?? null,
     topic: row.topic,
     notes: row.notes,
     status: row.status,
@@ -330,6 +384,67 @@ function daurahMatchCondition(personIds: string[], email: string) {
   return personIds.length ? or(inArray(eventAttendance.personId, personIds), emailMatch) : emailMatch;
 }
 
+/**
+ * Sinkronkan peserta kajian rutin ke Direktori Jamaah: cocokkan lewat email;
+ * bila belum ada, buat person baru minimal dengan profil portal jamaah.
+ * Data jamaah yang sudah ada tidak pernah ditimpa — hanya kolom kosong yang diisi.
+ */
+async function syncPersonFromJamaah(input: {
+  fullName: string;
+  email: string;
+  gender?: string | null;
+  cityRegency?: string | null;
+  province?: string | null;
+  educationLevel?: string | null;
+}): Promise<void> {
+  try {
+    const db = getDb();
+    const [existing] = await db
+      .select({ id: persons.id, cityRegency: persons.cityRegency, province: persons.province, gender: persons.gender, educationLevel: persons.educationLevel })
+      .from(persons)
+      .where(sql`lower(${persons.email}) = ${input.email}`)
+      .limit(1);
+    if (existing) {
+      const patch: Record<string, unknown> = {};
+      if (!existing.cityRegency && input.cityRegency) patch.cityRegency = input.cityRegency;
+      if (!existing.province && input.province) patch.province = input.province;
+      if (!existing.gender && (input.gender === 'ikhwan' || input.gender === 'akhwat')) patch.gender = input.gender;
+      if (!existing.educationLevel && input.educationLevel) patch.educationLevel = input.educationLevel;
+      if (Object.keys(patch).length > 0) {
+        await db.update(persons).set({ ...patch, updatedAt: new Date() }).where(eq(persons.id, existing.id));
+      }
+      return;
+    }
+    const [created] = await db
+      .insert(persons)
+      .values({
+        fullName: input.fullName,
+        email: input.email,
+        gender: input.gender === 'ikhwan' || input.gender === 'akhwat' ? input.gender : null,
+        cityRegency: input.cityRegency || null,
+        province: input.province || null,
+        educationLevel: input.educationLevel || null,
+        sourceCode: 'kajian_rutin_portal',
+      })
+      .onConflictDoNothing()
+      .returning({ id: persons.id });
+    if (created) {
+      await db.insert(personRoles).values({ personId: created.id, roleCode: 'jamaah' }).onConflictDoNothing();
+    }
+  } catch (error) {
+    console.error('[Kajian Rutin Person Sync Error]:', error);
+  }
+}
+
+async function getAccountById(accountId: string) {
+  const [account] = await getDb()
+    .select()
+    .from(kajianRutinAccounts)
+    .where(eq(kajianRutinAccounts.id, accountId))
+    .limit(1);
+  return account ?? null;
+}
+
 const wibWindowFormatter = new Intl.DateTimeFormat('id-ID', {
   timeZone: 'Asia/Jakarta',
   weekday: 'long',
@@ -395,18 +510,36 @@ export function registerKajianRutinRoutes(router: Router) {
         speaker: body.speaker || null,
         recurrence: body.recurrence,
         dayOfWeek: body.dayOfWeek ?? null,
+        startDate: body.startDate || null,
         startTime: body.startTime,
         endTime: body.endTime || null,
         locationName: body.locationName || null,
         locationAddress: body.locationAddress || null,
         targetAudience: body.targetAudience,
         quota: body.quota ?? null,
+        posterUrl: body.posterUrl || null,
         checkInOpenMinutes: body.checkInOpenMinutes,
         checkInCloseMinutes: body.checkInCloseMinutes,
         isActive: body.isActive,
         createdBy: ctx.user!.id,
       }).returning();
       if (!created) return errorResponse('INTERNAL_ERROR', 'Kajian rutin belum dapat disimpan.', 500, ctx.requestId);
+
+      // Bila tanggal mulai diisi, langsung terbitkan sesi pertama + QR.
+      if (created.startDate) {
+        const startAt = computeWibDateTime(created.startDate, created.startTime);
+        if (startAt) {
+          const endAt = created.endTime ? computeWibDateTime(created.startDate, created.endTime) : null;
+          await db.insert(kajianRutinSessions).values({
+            seriesId: created.id,
+            sessionDate: created.startDate,
+            startAt,
+            endAt: endAt ?? null,
+            qrToken: generateQrToken(),
+            createdBy: ctx.user!.id,
+          }).onConflictDoNothing();
+        }
+      }
       try {
         await logAuditEvent({ actorUserId: ctx.user!.id, action: 'kajian_rutin_series_create', entityType: 'kajian_rutin_series',
           entityId: created.id, afterJson: { title: created.title, recurrence: created.recurrence }, requestId: ctx.requestId });
@@ -429,12 +562,14 @@ export function registerKajianRutinRoutes(router: Router) {
         ...(body.speaker !== undefined ? { speaker: body.speaker || null } : {}),
         ...(body.recurrence !== undefined ? { recurrence: body.recurrence } : {}),
         ...(body.dayOfWeek !== undefined ? { dayOfWeek: body.dayOfWeek ?? null } : {}),
+        ...(body.startDate !== undefined ? { startDate: body.startDate || null } : {}),
         ...(body.startTime !== undefined ? { startTime: body.startTime } : {}),
         ...(body.endTime !== undefined ? { endTime: body.endTime || null } : {}),
         ...(body.locationName !== undefined ? { locationName: body.locationName || null } : {}),
         ...(body.locationAddress !== undefined ? { locationAddress: body.locationAddress || null } : {}),
         ...(body.targetAudience !== undefined ? { targetAudience: body.targetAudience } : {}),
         ...(body.quota !== undefined ? { quota: body.quota ?? null } : {}),
+        ...(body.posterUrl !== undefined ? { posterUrl: body.posterUrl || null } : {}),
         ...(body.checkInOpenMinutes !== undefined ? { checkInOpenMinutes: body.checkInOpenMinutes } : {}),
         ...(body.checkInCloseMinutes !== undefined ? { checkInCloseMinutes: body.checkInCloseMinutes } : {}),
         ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
@@ -567,14 +702,16 @@ export function registerKajianRutinRoutes(router: Router) {
       const existingSet = new Set(existing.map((row) => row.sessionDate));
       const requestedCount = body.count ?? 4;
 
-      const anchor = existing[0]?.sessionDate ?? null;
+      const anchor = existing[0]?.sessionDate ?? series.startDate ?? null;
       const dayOfWeek = series.dayOfWeek ?? (existing.length ? weekdayOfIso(existing[existing.length - 1]!.sessionDate) : null);
       if (dayOfWeek === null) {
         return errorResponse('VALIDATION_ERROR', 'Atur hari kajian terlebih dahulu sebelum generate sesi otomatis.', 400, ctx.requestId);
       }
       const intervalWeeks = series.recurrence === 'weekly' ? 1 : series.recurrence === 'biweekly' ? 2 : 4;
 
-      let cursor = addDaysIso(wibToday(), 1);
+      const todayWib = wibToday();
+      // Mulai mencari dari tanggal mulai seri bila masih di masa depan.
+      let cursor = series.startDate && series.startDate > todayWib ? series.startDate : addDaysIso(todayWib, 1);
       const planned: string[] = [];
       for (let i = 0; i < 400 && planned.length < requestedCount; i += 1) {
         if (weekdayOfIso(cursor) === dayOfWeek) {
@@ -616,9 +753,28 @@ export function registerKajianRutinRoutes(router: Router) {
       }
       await ensureKajianRutinTables();
       const db = getDb();
-      const [before] = await db.select().from(kajianRutinSessions).where(eq(kajianRutinSessions.id, ctx.params.id!)).limit(1);
-      if (!before) return errorResponse('NOT_FOUND', 'Sesi tidak ditemukan.', 404, ctx.requestId);
+      const row = await loadSessionWithSeries(ctx.params.id!);
+      if (!row) return errorResponse('NOT_FOUND', 'Sesi tidak ditemukan.', 404, ctx.requestId);
+      const before = row.session;
+      const series = row.series;
+
+      // Jadwal fleksibel: tanggal/jam/lokasi/pemateri boleh berbeda dari seri.
+      const effectiveDate = body.sessionDate ?? before.sessionDate;
+      const effectiveStartTime = body.startTime !== undefined ? body.startTime : before.startTime;
+      const seriesStartTime = effectiveStartTime || series.startTime;
+      const startAt = computeWibDateTime(effectiveDate, seriesStartTime);
+      if (!startAt) return errorResponse('VALIDATION_ERROR', 'Tanggal atau jam kajian tidak valid.', 400, ctx.requestId);
+      const effectiveEndTime = body.endTime !== undefined ? body.endTime : before.endTime;
+      const endAt = effectiveEndTime ? computeWibDateTime(effectiveDate, effectiveEndTime) : null;
+
       const [updated] = await db.update(kajianRutinSessions).set({
+        sessionDate: effectiveDate,
+        startAt,
+        endAt: endAt ?? null,
+        startTime: effectiveStartTime ?? null,
+        endTime: effectiveEndTime ?? null,
+        ...(body.locationName !== undefined ? { locationName: body.locationName || null } : {}),
+        ...(body.speaker !== undefined ? { speaker: body.speaker || null } : {}),
         ...(body.topic !== undefined ? { topic: body.topic || null } : {}),
         ...(body.notes !== undefined ? { notes: body.notes || null } : {}),
         ...(body.status !== undefined ? { status: body.status } : {}),
@@ -627,7 +783,8 @@ export function registerKajianRutinRoutes(router: Router) {
       if (!updated) return errorResponse('NOT_FOUND', 'Sesi tidak ditemukan.', 404, ctx.requestId);
       try {
         await logAuditEvent({ actorUserId: ctx.user!.id, action: 'kajian_rutin_session_update', entityType: 'kajian_rutin_session',
-          entityId: before.id, beforeJson: { status: before.status }, afterJson: { status: updated.status }, requestId: ctx.requestId });
+          entityId: before.id, beforeJson: { status: before.status, sessionDate: before.sessionDate },
+          afterJson: { status: updated.status, sessionDate: updated.sessionDate }, requestId: ctx.requestId });
       } catch (error) { console.error('[Kajian Rutin Audit Error]', error); }
       return successResponse(serializeSession(updated), { requestId: ctx.requestId }, 200, { 'Cache-Control': 'no-store' });
     })));
@@ -736,6 +893,45 @@ export function registerKajianRutinRoutes(router: Router) {
     return successResponse({ deleted: true }, { requestId: ctx.requestId }, 200, { 'Cache-Control': 'no-store' });
   }));
 
+  // ===================== ADMIN: MASTER PEMATERI / USTADZ =====================
+
+  router.get('/api/kajian-rutin/speakers', requirePermission(PERMISSIONS.EVENTS_VIEW, async (ctx) => {
+    await ensureKajianRutinTables();
+    const rows = await getDb()
+      .select({ id: kajianRutinSpeakers.id, name: kajianRutinSpeakers.name, notes: kajianRutinSpeakers.notes })
+      .from(kajianRutinSpeakers)
+      .orderBy(asc(kajianRutinSpeakers.name))
+      .limit(500);
+    return successResponse(rows, { requestId: ctx.requestId, total: rows.length }, 200, { 'Cache-Control': 'no-store' });
+  }));
+
+  router.post('/api/kajian-rutin/speakers', requirePermission(PERMISSIONS.EVENTS_MANAGE,
+    validateBody(speakerCreateSchema, async (ctx, body) => {
+      await ensureKajianRutinTables();
+      const db = getDb();
+      const [existing] = await db
+        .select({ id: kajianRutinSpeakers.id, name: kajianRutinSpeakers.name, notes: kajianRutinSpeakers.notes })
+        .from(kajianRutinSpeakers)
+        .where(sql`lower(${kajianRutinSpeakers.name}) = ${body.name.toLowerCase()}`)
+        .limit(1);
+      if (existing) {
+        return successResponse(existing, { requestId: ctx.requestId }, 200, { 'Cache-Control': 'no-store' });
+      }
+      const [created] = await db.insert(kajianRutinSpeakers).values({
+        name: body.name,
+        notes: body.notes || null,
+        createdBy: ctx.user!.id,
+      }).onConflictDoNothing().returning({ id: kajianRutinSpeakers.id, name: kajianRutinSpeakers.name, notes: kajianRutinSpeakers.notes });
+      const result = created ?? { id: '', name: body.name, notes: body.notes || null };
+      try {
+        if (created) {
+          await logAuditEvent({ actorUserId: ctx.user!.id, action: 'kajian_rutin_speaker_create', entityType: 'kajian_rutin_speaker',
+            entityId: created.id, afterJson: { name: created.name }, requestId: ctx.requestId });
+        }
+      } catch (error) { console.error('[Kajian Rutin Audit Error]', error); }
+      return successResponse(result, { requestId: ctx.requestId }, created ? 201 : 200, { 'Cache-Control': 'no-store' });
+    })));
+
   // ===================== PUBLIK: QR SCAN + LOGIN GOOGLE + ABSEN =====================
 
   router.get('/api/public/kajian-rutin/scan', async (ctx) => {
@@ -771,6 +967,7 @@ export function registerKajianRutinRoutes(router: Router) {
           locationName: series.locationName,
           startTime: series.startTime,
           endTime: series.endTime,
+          posterUrl: series.posterUrl ?? null,
         },
         checkInWindow: {
           openAt: window.openAt.toISOString(),
@@ -924,10 +1121,11 @@ export function registerKajianRutinRoutes(router: Router) {
         topic: sesi.topic,
         seriesId: series.id,
         seriesTitle: series.title,
-        speaker: series.speaker,
-        locationName: series.locationName,
-        startTime: series.startTime,
-        endTime: series.endTime,
+        speaker: sesi.speaker || series.speaker,
+        locationName: sesi.locationName || series.locationName,
+        startTime: sesi.startTime || series.startTime,
+        endTime: sesi.endTime || series.endTime,
+        posterUrl: series.posterUrl ?? null,
         windowOpenAt: window.openAt.toISOString(),
         windowCloseAt: window.closeAt.toISOString(),
         isOpen: now >= window.openAt.getTime() && now <= window.closeAt.getTime(),
@@ -967,6 +1165,10 @@ export function registerKajianRutinRoutes(router: Router) {
           name: account?.fullName || session.name,
           email: account?.email || session.email,
           pictureUrl: account?.pictureUrl || null,
+          gender: account?.gender ?? null,
+          cityRegency: account?.cityRegency ?? null,
+          province: account?.province ?? null,
+          educationLevel: account?.educationLevel ?? null,
         },
         totalAbsen: history.length,
         history: history.map((row) => ({
@@ -980,6 +1182,41 @@ export function registerKajianRutinRoutes(router: Router) {
       { 'Cache-Control': 'no-store' }
     );
   });
+
+  // ---- Perbarui profil jamaah (nama, domisili, gender, pendidikan terakhir) ----
+
+  router.patch('/api/public/kajian-rutin/portal/profile',
+    validateBody(portalProfileSchema, async (ctx, body) => {
+      const session = resolveJamaahSession(ctx.headers);
+      if (!session) return errorResponse('UNAUTHENTICATED', 'Silakan login dengan Google terlebih dahulu.', 401, ctx.requestId);
+      await ensureKajianRutinTables();
+      const db = getDb();
+      const [updated] = await db.update(kajianRutinAccounts).set({
+        ...(body.fullName !== undefined && body.fullName ? { fullName: body.fullName } : {}),
+        ...(body.cityRegency !== undefined ? { cityRegency: body.cityRegency || null } : {}),
+        ...(body.province !== undefined ? { province: body.province || null } : {}),
+        ...(body.gender !== undefined ? { gender: body.gender || null } : {}),
+        ...(body.educationLevel !== undefined ? { educationLevel: body.educationLevel || null } : {}),
+        updatedAt: new Date(),
+      }).where(eq(kajianRutinAccounts.id, session.accountId)).returning();
+      if (!updated) return errorResponse('NOT_FOUND', 'Akun tidak ditemukan.', 404, ctx.requestId);
+      return successResponse(
+        {
+          profile: {
+            name: updated.fullName,
+            email: updated.email,
+            pictureUrl: updated.pictureUrl,
+            gender: updated.gender,
+            cityRegency: updated.cityRegency,
+            province: updated.province,
+            educationLevel: updated.educationLevel,
+          },
+        },
+        { requestId: ctx.requestId },
+        200,
+        { 'Cache-Control': 'no-store' }
+      );
+    }));
 
   router.post('/api/public/kajian-rutin/portal/absen',
     validateBody(portalAbsenSchema, async (ctx, body) => {
@@ -1029,13 +1266,16 @@ export function registerKajianRutinRoutes(router: Router) {
       }
 
       const db = getDb();
+      // Ambil profil terbaru dari database agar perubahan profil langsung terpakai.
+      const account = await getAccountById(session.accountId);
+      const attendeeName = account?.fullName || session.name;
       const [created] = await db.insert(kajianRutinAttendance).values({
         sessionId: sesi.id,
         seriesId: series.id,
         accountId: session.accountId,
         googleSub: session.sub,
         email: session.email.toLowerCase(),
-        fullName: session.name,
+        fullName: attendeeName,
         source: body.token ? 'qr_self_scan' : 'portal_self_scan',
         status: 'present',
         note: body.deviceInfo || null,
@@ -1049,6 +1289,15 @@ export function registerKajianRutinRoutes(router: Router) {
           { 'Cache-Control': 'no-store' }
         );
       }
+      // Catat peserta ke Direktori Jamaah (cocok lewat email, buat baru bila belum ada).
+      await syncPersonFromJamaah({
+        fullName: attendeeName,
+        email: session.email.toLowerCase(),
+        gender: account?.gender ?? null,
+        cityRegency: account?.cityRegency ?? null,
+        province: account?.province ?? null,
+        educationLevel: account?.educationLevel ?? null,
+      });
       return successResponse(
         {
           alreadyAbsen: false,

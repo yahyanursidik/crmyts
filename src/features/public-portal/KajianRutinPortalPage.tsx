@@ -14,10 +14,12 @@ import {
   Sparkles,
   Ticket,
   UserRound,
+  X,
   XCircle,
 } from 'lucide-react';
 import { apiClient, ApiClientError } from '../../lib/apiClient';
 import {
+  EDUCATION_LEVELS,
   formatWibDate,
   formatWibTime,
   formatWibDateTime,
@@ -27,12 +29,17 @@ import {
   type KajianRutinScanContext,
   type PortalSessionItem,
 } from '../../lib/kajianRutin';
+import { CitySuggestInput } from '../../components/common/CitySuggestInput';
 import { useGoogleIdentity } from './useGoogleIdentity';
 
 interface PortalProfile {
   name: string;
   email: string;
   pictureUrl: string | null;
+  gender?: string | null;
+  cityRegency?: string | null;
+  province?: string | null;
+  educationLevel?: string | null;
 }
 
 interface AbsenResult {
@@ -91,6 +98,9 @@ export function KajianRutinPortalPage() {
   const [daurahResult, setDaurahResult] = useState<DaurahAbsenResult | null>(null);
   const [submittingSession, setSubmittingSession] = useState<string | null>(null);
   const [submittingDaurah, setSubmittingDaurah] = useState<string | null>(null);
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState('');
 
   const googleButtonRef = useRef<HTMLDivElement | null>(null);
 
@@ -336,6 +346,25 @@ export function KajianRutinPortalPage() {
     setDaurahResult(null);
   };
 
+  const saveProfile = useCallback(async (payload: Record<string, unknown>) => {
+    setProfileSaving(true);
+    setProfileError('');
+    try {
+      const { data } = await apiClient<{ profile: PortalProfile }>('/public/kajian-rutin/portal/profile', {
+        method: 'PATCH',
+        headers: authHeaders(),
+        body: JSON.stringify(payload),
+      });
+      setProfile(data.profile);
+      setProfileModalOpen(false);
+      setBanner({ type: 'success', text: 'Profil berhasil diperbarui. Data ini juga melengkapi profil Anda di direktori jamaah YTS.' });
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : 'Gagal menyimpan profil.');
+    } finally {
+      setProfileSaving(false);
+    }
+  }, []);
+
   const dismissScan = () => {
     setScan(null);
     setScanToken(null);
@@ -365,7 +394,10 @@ export function KajianRutinPortalPage() {
         }`}
       >
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
+          {item.posterUrl && (
+            <img src={item.posterUrl} alt={`Poster ${item.seriesTitle}`} className="h-14 w-14 shrink-0 rounded-xl border border-[#1B4332]/10 object-cover" />
+          )}
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-bold text-[#14352A] text-[15px] leading-snug">{item.seriesTitle}</h3>
               {highlight && (
@@ -669,27 +701,53 @@ export function KajianRutinPortalPage() {
             )}
 
             {/* Profil */}
-            <section className="flex items-center justify-between gap-3 rounded-2xl border border-[#1B4332]/12 bg-white p-3.5 shadow-sm">
-              <div className="flex items-center gap-3 min-w-0">
-                {profile.pictureUrl ? (
-                  <img src={profile.pictureUrl} alt={profile.name} className="h-10 w-10 rounded-full border border-[#1B4332]/15 object-cover" referrerPolicy="no-referrer" />
-                ) : (
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#F2EEE4] text-[#1B4332]">
-                    <UserRound className="h-5 w-5" />
+            <section className="rounded-2xl border border-[#1B4332]/12 bg-white p-3.5 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  {profile.pictureUrl ? (
+                    <img src={profile.pictureUrl} alt={profile.name} className="h-10 w-10 rounded-full border border-[#1B4332]/15 object-cover" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#F2EEE4] text-[#1B4332]">
+                      <UserRound className="h-5 w-5" />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="truncate text-[13.5px] font-bold text-[#14352A]">{profile.name}</p>
+                    <p className="truncate text-[11.5px] text-[#6B7A72]">{profile.email}</p>
                   </div>
-                )}
-                <div className="min-w-0">
-                  <p className="truncate text-[13.5px] font-bold text-[#14352A]">{profile.name}</p>
-                  <p className="truncate text-[11.5px] text-[#6B7A72]">{profile.email}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setProfileModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-[#1B4332] px-3 py-2 text-[11.5px] font-bold text-white transition-colors hover:bg-[#14352A]"
+                  >
+                    <UserRound className="h-3.5 w-3.5" /> Edit Profil
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#1B4332]/15 px-3 py-2 text-[11.5px] font-semibold text-[#3D4A44] transition-colors hover:bg-[#F2EEE4]"
+                  >
+                    <LogOut className="h-3.5 w-3.5" /> Keluar
+                  </button>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-[#1B4332]/15 px-3 py-2 text-[11.5px] font-semibold text-[#3D4A44] transition-colors hover:bg-[#F2EEE4]"
-              >
-                <LogOut className="h-3.5 w-3.5" /> Keluar
-              </button>
+              {(profile.cityRegency || profile.gender || profile.educationLevel) && (
+                <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t border-[#1B4332]/8 pt-2.5 text-[11px] font-semibold text-[#3D4A44]">
+                  {profile.cityRegency && (
+                    <span className="inline-flex items-center gap-1 rounded-lg bg-[#F2EEE4] px-2 py-1">
+                      <MapPin className="h-3 w-3 text-[#1B4332]/60" /> {profile.cityRegency}{profile.province ? `, ${profile.province}` : ''}
+                    </span>
+                  )}
+                  {profile.gender && (
+                    <span className="rounded-lg bg-[#F2EEE4] px-2 py-1">{profile.gender === 'ikhwan' ? 'Ikhwan' : 'Akhwat'}</span>
+                  )}
+                  {profile.educationLevel && (
+                    <span className="rounded-lg bg-[#F2EEE4] px-2 py-1">{profile.educationLevel}</span>
+                  )}
+                </div>
+              )}
             </section>
 
             {/* Tab: Kajian Rutin | Kajian Daurah */}
@@ -739,6 +797,7 @@ export function KajianRutinPortalPage() {
                         locationName: scan.series.locationName,
                         startTime: '',
                         endTime: null,
+                        posterUrl: scan.series.posterUrl || null,
                         windowOpenAt: scan.checkInWindow.openAt,
                         windowCloseAt: scan.checkInWindow.closeAt,
                         isOpen: scan.checkInWindow.isOpen,
@@ -934,6 +993,154 @@ export function KajianRutinPortalPage() {
           </p>
         </footer>
       </main>
+
+      {/* Modal Edit Profil */}
+      <ProfileEditModal
+        isOpen={profileModalOpen}
+        profile={profile}
+        saving={profileSaving}
+        error={profileError}
+        onSave={(payload) => void saveProfile(payload)}
+        onClose={() => setProfileModalOpen(false)}
+      />
+    </div>
+  );
+}
+
+/**
+ * Form profil jamaah: nama lengkap, domisili (suggest kota/kab + provinsi
+ * otomatis mengikuti), gender, dan pendidikan terakhir. Tersimpan pada akun
+ * portal dan ikut tersinkron ke Direktori Jamaah saat absen.
+ */
+function ProfileEditModal({
+  isOpen,
+  profile,
+  saving,
+  error,
+  onSave,
+  onClose,
+}: {
+  isOpen: boolean;
+  profile: PortalProfile | null;
+  saving: boolean;
+  error: string;
+  onSave: (payload: Record<string, unknown>) => void;
+  onClose: () => void;
+}) {
+  const [fullName, setFullName] = useState('');
+  const [cityValue, setCityValue] = useState('');
+  const [gender, setGender] = useState<'' | 'ikhwan' | 'akhwat'>('');
+  const [educationLevel, setEducationLevel] = useState('');
+
+  useEffect(() => {
+    if (isOpen && profile) {
+      setFullName(profile.name || '');
+      setCityValue([profile.cityRegency, profile.province].filter(Boolean).join(', '));
+      setGender((profile.gender as '' | 'ikhwan' | 'akhwat') || '');
+      setEducationLevel(profile.educationLevel || '');
+    }
+  }, [isOpen, profile]);
+
+  if (!isOpen || !profile) return null;
+
+  const handleSubmit = () => {
+    const trimmedCity = cityValue.trim();
+    const commaIdx = trimmedCity.lastIndexOf(',');
+    const cityRegency = commaIdx > 0 ? trimmedCity.slice(0, commaIdx).trim() : trimmedCity;
+    const province = commaIdx > 0 ? trimmedCity.slice(commaIdx + 1).trim() : '';
+    onSave({
+      fullName: fullName.trim(),
+      cityRegency: cityRegency || null,
+      province: province || null,
+      gender: gender || null,
+      educationLevel: educationLevel || null,
+    });
+  };
+
+  const inputClass =
+    'min-h-10 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-[13px] text-[#1C2321] focus:ring-2 focus:ring-teal-500 focus:border-teal-500 focus:outline-none';
+  const labelClass = 'mb-1 block text-[11px] font-bold uppercase tracking-wider text-[#6B7A72]';
+
+  return (
+    <div
+      className="fixed inset-0 z-80 flex items-start justify-center overflow-y-auto bg-[#0F3A2E]/60 p-4 backdrop-blur-xs sm:p-8"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !saving) onClose();
+      }}
+    >
+      <div className="w-full max-w-md rounded-3xl border border-[#E7E4D8] bg-[#FBFAF6] shadow-2xl" role="dialog" aria-modal="true">
+        <div className="flex items-center justify-between border-b border-[#E7E4D8] px-6 py-4">
+          <div>
+            <h3 className="font-display text-base font-black text-[#1C321D]">Edit Profil</h3>
+            <p className="text-[11px] text-[#8A9690]">Melengkapi data diri Anda di catatan jamaah YTS.</p>
+          </div>
+          <button onClick={onClose} disabled={saving} className="rounded-xl p-2 text-[#8A9690] hover:bg-[#F2EEE4] hover:text-[#1C321D]">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-4 px-6 py-5">
+          {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[12.5px] font-medium text-rose-800">{error}</div>}
+
+          <div>
+            <label className={labelClass} htmlFor="pf-name">Nama Lengkap *</label>
+            <input id="pf-name" className={inputClass} value={fullName} onChange={(e) => setFullName(e.target.value)} maxLength={160} />
+          </div>
+
+          <div>
+            <label className={labelClass} htmlFor="pf-city">Domisili (Kota/Kabupaten)</label>
+            <CitySuggestInput value={cityValue} onChange={setCityValue} id="pf-city" showPopularChips />
+            <p className="mt-1 text-[10.5px] text-[#8A9690]">Provinsi mengikuti kota yang dipilih.</p>
+          </div>
+
+          <div>
+            <label className={labelClass}>Gender</label>
+            <div className="grid grid-cols-2 gap-2">
+              {(
+                [
+                  ['ikhwan', 'Ikhwan'],
+                  ['akhwat', 'Akhwat'],
+                ] as Array<['ikhwan' | 'akhwat', string]>
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setGender(gender === value ? '' : value)}
+                  className={`rounded-xl border px-3 py-2.5 text-[12.5px] font-bold transition-all ${
+                    gender === value
+                      ? 'border-[#1B4332] bg-[#1B4332] text-white'
+                      : 'border-slate-300 bg-white text-[#3D4A44] hover:bg-[#F2EEE4]'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className={labelClass} htmlFor="pf-edu">Pendidikan Terakhir</label>
+            <select id="pf-edu" className={inputClass} value={educationLevel} onChange={(e) => setEducationLevel(e.target.value)}>
+              <option value="">— Pilih —</option>
+              {EDUCATION_LEVELS.map((level) => (
+                <option key={level} value={level}>{level}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2.5 border-t border-[#E7E4D8] px-6 py-4">
+          <button type="button" onClick={onClose} disabled={saving}
+            className="rounded-xl border border-[#E7E4D8] bg-white px-4 py-2.5 text-xs font-bold text-[#3D4A44] shadow-2xs hover:bg-[#F2EEE4]">
+            Batal
+          </button>
+          <button type="button" onClick={handleSubmit} disabled={saving || fullName.trim().length < 2}
+            className="flex items-center gap-2 rounded-xl bg-[#1B4332] px-5 py-2.5 text-xs font-extrabold text-white shadow-sm transition-all hover:bg-[#14352A] active:scale-95 disabled:opacity-50">
+            {saving && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
+            Simpan Profil
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

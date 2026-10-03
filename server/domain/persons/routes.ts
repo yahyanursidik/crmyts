@@ -15,6 +15,9 @@ import {
   donations,
   waqfCases,
   auditLogs,
+  kajianRutinAttendance,
+  kajianRutinSessions,
+  kajianRutinSeries,
 } from '../../db/schema';
 import { eq, desc, asc, ilike, or, and, sql, inArray } from 'drizzle-orm';
 import { normalizePhoneE164 } from '../../lib/phone';
@@ -567,6 +570,27 @@ export function registerPersonsRoutes(router: Router) {
         .filter((d) => d.verificationStatus === 'verified')
         .reduce((sum, d) => sum + Number(d.amountRupiah), 0);
 
+      // Kehadiran Kajian Rutin (absensi mandiri) — dicocokkan lewat email jamaah.
+      const routineAttendance = person.email
+        ? await db
+            .select({
+              id: kajianRutinAttendance.id,
+              seriesTitle: kajianRutinSeries.title,
+              speaker: kajianRutinSessions.speaker,
+              sessionDate: kajianRutinSessions.sessionDate,
+              startAt: kajianRutinSessions.startAt,
+              checkInAt: kajianRutinAttendance.checkInAt,
+              source: kajianRutinAttendance.source,
+              status: kajianRutinAttendance.status,
+            })
+            .from(kajianRutinAttendance)
+            .innerJoin(kajianRutinSessions, eq(kajianRutinAttendance.sessionId, kajianRutinSessions.id))
+            .innerJoin(kajianRutinSeries, eq(kajianRutinAttendance.seriesId, kajianRutinSeries.id))
+            .where(sql`lower(${kajianRutinAttendance.email}) = ${person.email.toLowerCase()}`)
+            .orderBy(desc(kajianRutinAttendance.checkInAt))
+            .limit(20)
+        : [];
+
       // Build unified 360 chronological timeline
       const timelineItems: Array<{
         id: string;
@@ -587,6 +611,18 @@ export function registerPersonsRoutes(router: Router) {
           description: `Pemateri: ${att.event.speaker} (${att.event.category})`,
           status: att.status,
           extra: { eventId: att.event.id },
+        });
+      }
+
+      for (const routine of routineAttendance) {
+        timelineItems.push({
+          id: `rutin_${routine.id}`,
+          type: 'attendance',
+          date: routine.checkInAt.toISOString(),
+          title: `Hadir Kajian Rutin: ${routine.seriesTitle}`,
+          description: `Absensi mandiri (${routine.source === 'manual_input' ? 'input panitia' : 'portal jamaah'})${routine.speaker ? ` • Pemateri: ${routine.speaker}` : ''}`,
+          status: routine.status,
+          extra: { sessionId: routine.id },
         });
       }
 
@@ -646,6 +682,7 @@ export function registerPersonsRoutes(router: Router) {
           roles: person.roles.map((r) => r.roleCode),
           tags: person.tags.map((t) => ({ id: t.tag.id, name: t.tag.name, category: t.tag.category })),
           attendances,
+          routineAttendance,
           interactions: personInteractions,
           tasks: personTasks,
           donations: personDonations.map((d) => ({
@@ -658,7 +695,7 @@ export function registerPersonsRoutes(router: Router) {
           })),
           sensitiveNotes: person.sensitiveNotes || [],
           metrics: {
-            totalAttendances: attendances.length,
+            totalAttendances: attendances.length + routineAttendance.length,
             totalInteractions: personInteractions.length,
             totalTasks: personTasks.length,
             pendingTasksCount: personTasks.filter((t) => t.status === 'pending').length,

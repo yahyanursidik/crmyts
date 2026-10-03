@@ -1,4 +1,5 @@
 import { toDataURL } from 'qrcode';
+import { apiClient } from './apiClient';
 
 /**
  * Tipe & helper bersama untuk fitur Kajian Rutin
@@ -14,12 +15,14 @@ export interface KajianRutinSeries {
   speaker: string | null;
   recurrence: 'weekly' | 'biweekly' | 'monthly';
   dayOfWeek: number | null;
+  startDate: string | null;
   startTime: string;
   endTime: string | null;
   locationName: string | null;
   locationAddress: string | null;
   targetAudience: 'umum' | 'ikhwan_only' | 'akhwat_only' | 'anak';
   quota: number | null;
+  posterUrl: string | null;
   checkInOpenMinutes: number;
   checkInCloseMinutes: number;
   isActive: boolean;
@@ -30,12 +33,22 @@ export interface KajianRutinSeries {
   lastAttendanceAt?: string | null;
 }
 
+export interface KajianRutinSpeaker {
+  id: string;
+  name: string;
+  notes: string | null;
+}
+
 export interface KajianRutinSession {
   id: string;
   seriesId: string;
   sessionDate: string;
   startAt: string;
   endAt: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  locationName: string | null;
+  speaker: string | null;
   topic: string | null;
   notes: string | null;
   status: 'scheduled' | 'cancelled';
@@ -69,6 +82,7 @@ export interface KajianRutinScanContext {
     title: string;
     speaker: string | null;
     locationName: string | null;
+    posterUrl?: string | null;
   };
   checkInWindow: { openAt: string; closeAt: string; isOpen: boolean };
 }
@@ -85,6 +99,7 @@ export interface PortalSessionItem {
   locationName: string | null;
   startTime: string;
   endTime: string | null;
+  posterUrl?: string | null;
   windowOpenAt: string;
   windowCloseAt: string;
   isOpen: boolean;
@@ -144,6 +159,19 @@ export const SOURCE_LABELS: Record<string, string> = {
   manual_input: 'Input Panitia',
 };
 
+/** Pilihan pendidikan terakhir pada profil portal jamaah. */
+export const EDUCATION_LEVELS = [
+  'Tidak Sekolah',
+  'SD/MI',
+  'SMP/MTs',
+  'SMA/SMK/MA',
+  'Diploma (D1-D3)',
+  'Sarjana (S1)',
+  'Magister (S2)',
+  'Doktor (S3)',
+  'Pesantren/Lainnya',
+] as const;
+
 const dateFmt = new Intl.DateTimeFormat('id-ID', {
   timeZone: 'Asia/Jakarta',
   weekday: 'long',
@@ -200,6 +228,33 @@ export async function renderQrDataUrl(payload: string): Promise<string> {
     width: 512,
     color: { dark: '#1c321d', light: '#ffffff' },
   });
+}
+
+/** Unggah poster kajian (maks 5 MB) ke storage publik, kembalikan URL-nya. */
+export async function uploadKajianRutinPoster(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) {
+    throw new Error('Berkas harus berupa gambar (JPG/PNG/WebP).');
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    throw new Error('Ukuran poster maksimal 5 MB.');
+  }
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Gagal membaca berkas poster.'));
+    reader.readAsDataURL(file);
+  });
+  const { data } = await apiClient<{ url: string }>('/public/upload', {
+    method: 'POST',
+    body: JSON.stringify({
+      base64Data: dataUrl,
+      filename: file.name,
+      mimeType: file.type,
+      folder: 'public-proofs',
+    }),
+  });
+  if (!data?.url) throw new Error('Unggah poster belum berhasil. Coba lagi.');
+  return data.url;
 }
 
 export function describeJadwal(series: Pick<KajianRutinSeries, 'recurrence' | 'dayOfWeek' | 'startTime' | 'endTime'>): string {
