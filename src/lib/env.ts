@@ -21,4 +21,5 @@ if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
 export const env: ClientEnv = clientEnvSchema.parse({
   VITE_APP_NAME: (import.meta as any).env?.VITE_APP_NAME,
   VITE_API_BASE_URL: (import.meta as any).env?.VITE_API_BASE_URL,
+  VITE_GOOGLE_CLIENT_ID: (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID,
 });
