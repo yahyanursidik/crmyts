@@ -103,7 +103,7 @@ export function KajianRutinQrModal({
     setRotating(true);
     setError('');
     try {
-      const { data } = await apiClient<KajianRutinSession>(`/api/kajian-rutin/sessions/${session.id}/rotate-qr`, { method: 'POST' });
+      const { data } = await apiClient<KajianRutinSession>(`/kajian-rutin/sessions/${session.id}/rotate-qr`, { method: 'POST' });
       onRotated(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal merotasi QR.');

@@ -83,7 +83,7 @@ export function KajianRutinPage() {
   const loadSeries = useCallback(async (silent = false) => {
     if (!silent) setSeriesList(null);
     try {
-      const { data } = await apiClient<KajianRutinSeries[]>('/api/kajian-rutin/series');
+      const { data } = await apiClient<KajianRutinSeries[]>('/kajian-rutin/series');
       setSeriesList(data);
       setListError('');
     } catch (err) {
@@ -98,7 +98,7 @@ export function KajianRutinPage() {
   const loadSessions = useCallback(async (seriesId: string, silent = false) => {
     if (!silent) setSessionsLoading(true);
     try {
-      const { data } = await apiClient<SessionsPayload>(`/api/kajian-rutin/series/${seriesId}/sessions`);
+      const { data } = await apiClient<SessionsPayload>(`/kajian-rutin/series/${seriesId}/sessions`);
       setSessionsData(data);
     } catch (err) {
       setNotice(err instanceof Error ? err.message : 'Gagal memuat sesi kajian.');
@@ -125,10 +125,10 @@ export function KajianRutinPage() {
     setSeriesError('');
     try {
       if (editingSeries) {
-        await apiClient(`/api/kajian-rutin/series/${editingSeries.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+        await apiClient(`/kajian-rutin/series/${editingSeries.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
         setNotice('Kajian rutin berhasil diperbarui.');
       } else {
-        await apiClient('/api/kajian-rutin/series', { method: 'POST', body: JSON.stringify(payload) });
+        await apiClient('/kajian-rutin/series', { method: 'POST', body: JSON.stringify(payload) });
         setNotice('Kajian rutin baru berhasil dibuat. Buka panelnya untuk membuat sesi & QR absensi.');
       }
       setSeriesModalOpen(false);
@@ -144,7 +144,7 @@ export function KajianRutinPage() {
 
   const toggleSeriesActive = async (series: KajianRutinSeries) => {
     try {
-      await apiClient(`/api/kajian-rutin/series/${series.id}`, {
+      await apiClient(`/kajian-rutin/series/${series.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ isActive: !series.isActive }),
       });
@@ -159,7 +159,7 @@ export function KajianRutinPage() {
     if (!confirmDeleteSeries) return;
     setDeletingSeries(true);
     try {
-      await apiClient(`/api/kajian-rutin/series/${confirmDeleteSeries.id}`, { method: 'DELETE' });
+      await apiClient(`/kajian-rutin/series/${confirmDeleteSeries.id}`, { method: 'DELETE' });
       if (expandedId === confirmDeleteSeries.id) {
         setExpandedId(null);
         setSessionsData(null);
@@ -180,7 +180,7 @@ export function KajianRutinPage() {
     setAddingSession(true);
     setNotice('');
     try {
-      await apiClient(`/api/kajian-rutin/series/${sessionsData.series.id}/sessions`, {
+      await apiClient(`/kajian-rutin/series/${sessionsData.series.id}/sessions`, {
         method: 'POST',
         body: JSON.stringify({
           ...(newSessionDate ? { sessionDate: newSessionDate } : {}),
@@ -206,7 +206,7 @@ export function KajianRutinPage() {
     setNotice('');
     try {
       const { data } = await apiClient<{ generated: KajianRutinSession[]; plannedDates: string[] }>(
-        `/api/kajian-rutin/series/${sessionsData.series.id}/sessions/generate`,
+        `/kajian-rutin/series/${sessionsData.series.id}/sessions/generate`,
         { method: 'POST', body: JSON.stringify({ count: Number(genCount) || 4 }) }
       );
       setNotice(`${data.generated.length} sesi berikutnya berhasil dibuat (QR otomatis tersedia per sesi).`);
@@ -224,7 +224,7 @@ export function KajianRutinPage() {
     setTogglingSession(true);
     try {
       const next = confirmToggleSession.status === 'cancelled' ? 'scheduled' : 'cancelled';
-      await apiClient(`/api/kajian-rutin/sessions/${confirmToggleSession.id}`, {
+      await apiClient(`/kajian-rutin/sessions/${confirmToggleSession.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ status: next }),
       });
