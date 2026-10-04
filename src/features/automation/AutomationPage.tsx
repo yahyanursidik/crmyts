@@ -18,6 +18,7 @@ import {
 import { apiClient } from '@/lib/apiClient';
 import { InactiveAttendeesTab } from './InactiveAttendeesTab';
 import { DripEmailCampaignTab } from './DripEmailCampaignTab';
+import { KajianBroadcastTab } from './KajianBroadcastTab';
 
 export function AutomationPage() {
   const [activeTab, setActiveTab] = useState<'inactive' | 'drip_email' | 'reminder' | 'donation' | 'waqf' | 'impact'>('inactive');
@@ -389,6 +390,17 @@ export function AutomationPage() {
       {/* TAB 2: PENGINGAT & PASCA-KAJIAN */}
       {activeTab === 'reminder' && (
         <div className="space-y-6">
+          {/* Broadcast email komprehensif: kedua sumber kajian, bertahap, template & batch */}
+          <KajianBroadcastTab />
+
+          {/* Mode WhatsApp — draf personal 1-per-1 (generator lama) */}
+          <div className="flex items-center gap-3">
+            <span className="h-px flex-1 bg-[#1B4332]/10" />
+            <span className="text-[10.5px] font-mono font-bold uppercase tracking-wider text-[#8A9690]">
+              Mode WhatsApp — Draf Personal per Jamaah
+            </span>
+            <span className="h-px flex-1 bg-[#1B4332]/10" />
+          </div>
           <div className="bg-[#FBF9F4] p-5 rounded-2xl border border-[#1B4332]/12 shadow-2xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#1B4332]/10 pb-3">
               <div>
