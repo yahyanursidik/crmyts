@@ -21,6 +21,7 @@ import { registerBazaarRoutes } from '../../server/domain/bazaar/routes';
 import { registerWebhookRoutes } from '../../server/domain/webhooks/routes';
 import { registerJamaahRoomRoutes } from '../../server/domain/jamaah-room/routes';
 import { registerKajianRutinRoutes } from '../../server/domain/kajian-rutin/routes';
+import { registerKajianBroadcastRoutes } from '../../server/domain/automation/kajianBroadcast';
 import { resolveUserBySubject } from '../../server/auth/service';
 
 interface NetlifyEvent {
@@ -65,6 +66,7 @@ registerDonorsPipelineRoutes(router);
 registerPublicPortalRoutes(router);
 registerJamaahRoomRoutes(router);
 registerKajianRutinRoutes(router);
+registerKajianBroadcastRoutes(router);
 registerWebhookRoutes(router);
 
 export const handler = async (event: NetlifyEvent) => {
