@@ -153,3 +153,23 @@ export const kajianRutinRateLimits = pgTable('kajian_rutin_rate_limits', {
   hits: integer('hits').default(1).notNull(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
 });
+
+/**
+ * Pengumuman YTS yang tampil di kolom pengumuman halaman peserta kajian.
+ */
+export const kajianRutinAnnouncements = pgTable(
+  'kajian_rutin_announcements',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    title: text('title').notNull(),
+    body: text('body').notNull(),
+    isPinned: boolean('is_pinned').default(false).notNull(), // selalu tampil paling atas
+    isActive: boolean('is_active').default(true).notNull(), // sembunyikan tanpa menghapus
+    createdBy: uuid('created_by').references(() => appUsers.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    activeIdx: index('idx_kajian_rutin_announcements_active').on(t.isActive),
+  })
+);

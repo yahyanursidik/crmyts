@@ -9,7 +9,9 @@ import {
   LoaderCircle,
   LogOut,
   MapPin,
+  Megaphone,
   MessageCircle,
+  Pin,
   QrCode,
   ShieldCheck,
   Sparkles,
@@ -22,6 +24,7 @@ import { apiClient, ApiClientError } from '../../lib/apiClient';
 import {
   EDUCATION_LEVELS,
   formatWibDate,
+  formatWibShortDate,
   formatWibTime,
   formatWibDateTime,
   KAJIAN_RUTIN_PORTAL_TOKEN_KEY,
@@ -30,6 +33,7 @@ import {
   type KajianRutinScanContext,
   type PortalHistoryEntry,
   type PortalSessionItem,
+  type PublicAnnouncement,
 } from '../../lib/kajianRutin';
 import { CitySuggestInput } from '../../components/common/CitySuggestInput';
 import { useGoogleIdentity } from './useGoogleIdentity';
@@ -132,6 +136,7 @@ export function KajianRutinPortalPage() {
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState('');
+  const [announcements, setAnnouncements] = useState<PublicAnnouncement[]>([]);
 
   const googleButtonRef = useRef<HTMLDivElement | null>(null);
 
@@ -181,6 +186,21 @@ export function KajianRutinPortalPage() {
     setProfile(data.profile);
     setHistory(data.history);
     setAuthState('authed');
+  }, []);
+
+  // 0. Muat pengumuman publik YTS (terlihat juga tanpa login).
+  useEffect(() => {
+    let active = true;
+    apiClient<PublicAnnouncement[]>('/public/kajian-rutin/announcements')
+      .then(({ data }) => {
+        if (active) setAnnouncements(data || []);
+      })
+      .catch(() => {
+        if (active) setAnnouncements([]);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   // 1. Validasi konteks QR kajian rutin (?sesi=..&t=..) atau fokus ke daurah (?daurah=eventId)
@@ -666,6 +686,32 @@ export function KajianRutinPortalPage() {
               <p className="mt-0.5 text-amber-800">Anda tetap bisa absen dengan memilih kajian rutin yang buka di bawah.</p>
             </div>
           </div>
+        )}
+
+        {/* Kolom pengumuman YTS (publik — terlihat sebelum & sesudah login) */}
+        {announcements.length > 0 && (
+          <section className="rounded-2xl border border-[#B58B3C]/35 bg-gradient-to-br from-[#FBF6E9] to-white p-4 shadow-sm sm:p-5">
+            <h2 className="flex items-center gap-2 text-[11px] font-mono font-bold uppercase tracking-[0.16em] text-[#92610C]">
+              <Megaphone className="h-4 w-4" />
+              Pengumuman YTS
+            </h2>
+            <div className="mt-3 space-y-2.5">
+              {announcements.map((item) => (
+                <article key={item.id} className="rounded-xl border border-[#B58B3C]/25 bg-white p-3.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {item.isPinned && (
+                      <span className="inline-flex items-center gap-1 rounded bg-[#B58B3C] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+                        <Pin className="h-2.5 w-2.5" /> Disematkan
+                      </span>
+                    )}
+                    <h3 className="text-[13.5px] font-bold text-[#14352A]">{item.title}</h3>
+                  </div>
+                  <p className="mt-1.5 whitespace-pre-line text-[12.5px] leading-relaxed text-[#4B5A52]">{item.body}</p>
+                  <p className="mt-1.5 text-[10.5px] text-[#8A9690]">Diterbitkan {formatWibShortDate(item.createdAt)}</p>
+                </article>
+              ))}
+            </div>
+          </section>
         )}
 
         {/* Login */}
