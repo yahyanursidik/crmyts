@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { LoaderCircle, Megaphone, Pencil, Pin, Plus, Trash2, X } from 'lucide-react';
+import { Eye, EyeOff, LoaderCircle, Megaphone, Pencil, Pin, Plus, Trash2, X } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
 import { formatWibShortDate, type KajianRutinAnnouncement } from '../../lib/kajianRutin';
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
@@ -201,6 +201,10 @@ export function KajianRutinAnnouncementsModal({
           </div>
 
           {/* Daftar pengumuman */}
+          <p className="rounded-xl border border-[#B58B3C]/30 bg-[#FBF6E9] px-3.5 py-2.5 text-[11.5px] leading-relaxed text-[#7A5D1E]">
+            Hanya pengumuman berstatus <strong>AKTIF</strong> yang tampil di halaman jamaah. Gunakan tombol mata untuk
+            menampilkan/menyembunyikan tanpa menghapus.
+          </p>
           {listError && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[12.5px] text-rose-800">{listError}</div>}
           {!items && !listError && (
             <div className="flex items-center justify-center gap-2 py-6 text-sm text-[#6b7a72]">
@@ -237,9 +241,9 @@ export function KajianRutinAnnouncementsModal({
                         className={`rounded-lg p-1.5 ${item.isPinned ? 'bg-amber-100 text-amber-800' : 'text-[#8a9690] hover:bg-amber-50 hover:text-amber-700'}`}>
                         <Pin className="h-3.5 w-3.5" />
                       </button>
-                      <button type="button" onClick={() => toggleActive(item)} title={item.isActive ? 'Sembunyikan dari jamaah' : 'Tampilkan ke jamaah'}
-                        className="rounded-lg p-1.5 text-[#8a9690] hover:bg-emerald-50 hover:text-emerald-700">
-                        <span className="block h-3.5 w-3.5 rounded-full border-2 border-current" aria-hidden="true" />
+                      <button type="button" onClick={() => toggleActive(item)} title={item.isActive ? 'Sedang tampil ke jamaah — klik untuk sembunyikan' : 'Sedang disembunyikan — klik untuk tampilkan ke jamaah'}
+                        className={`rounded-lg p-1.5 ${item.isActive ? 'text-emerald-600 hover:bg-emerald-50' : 'text-[#c0b9a5] hover:bg-[#f2eee4] hover:text-[#6b7a72]'}`}>
+                        {item.isActive ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
                       </button>
                       <button type="button" onClick={() => startEdit(item)} title="Ubah pengumuman"
                         className="rounded-lg p-1.5 text-[#8a9690] hover:bg-[#f2eee4] hover:text-[#1b4332]">
