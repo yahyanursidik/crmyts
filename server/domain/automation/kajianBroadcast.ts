@@ -79,31 +79,45 @@ const SAMPLE_VARIABLES = {
 const STAGE_OFFSETS: Record<string, number> = { h8: 8 * 60, h1: 1 * 60 };
 const SAFE_BATCH_CEILING = 100;
 
+const BROADCAST_DDL = [
+  `CREATE TABLE IF NOT EXISTS kajian_email_broadcast_log (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    source text NOT NULL,
+    target_id uuid NOT NULL,
+    target_type text NOT NULL,
+    stage text NOT NULL,
+    batch_id text NOT NULL,
+    recipient_email text NOT NULL,
+    recipient_name text,
+    status text NOT NULL,
+    error text,
+    sent_at timestamptz NOT NULL DEFAULT now())`,
+  'CREATE INDEX IF NOT EXISTS idx_kajian_email_log_target ON kajian_email_broadcast_log (source, target_id, target_type, stage)',
+  'CREATE INDEX IF NOT EXISTS idx_kajian_email_log_sent_at ON kajian_email_broadcast_log (sent_at)',
+  `CREATE TABLE IF NOT EXISTS kajian_email_templates (
+    key text PRIMARY KEY,
+    subject text NOT NULL,
+    body text NOT NULL,
+    updated_by uuid,
+    updated_at timestamptz NOT NULL DEFAULT now())`,
+];
+
 let setupPromise: Promise<void> | null = null;
 async function ensureBroadcastTables() {
   if (!setupPromise) {
     setupPromise = (async () => {
       const db = getDb();
-      await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS kajian_email_broadcast_log (
-        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-        source text NOT NULL,
-        target_id uuid NOT NULL,
-        target_type text NOT NULL,
-        stage text NOT NULL,
-        batch_id text NOT NULL,
-        recipient_email text NOT NULL,
-        recipient_name text,
-        status text NOT NULL,
-        error text,
-        sent_at timestamptz NOT NULL DEFAULT now())`));
-      await db.execute(sql.raw('CREATE INDEX IF NOT EXISTS idx_kajian_email_log_target ON kajian_email_broadcast_log (source, target_id, target_type, stage)'));
-      await db.execute(sql.raw('CREATE INDEX IF NOT EXISTS idx_kajian_email_log_sent_at ON kajian_email_broadcast_log (sent_at)'));
-      await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS kajian_email_templates (
-        key text PRIMARY KEY,
-        subject text NOT NULL,
-        body text NOT NULL,
-        updated_by uuid,
-        updated_at timestamptz NOT NULL DEFAULT now())`));
+      // Dijalankan satu per satu dan tahan race antar instance function dingin:
+      // konflik "already exists" dari permintaan paralel diabaikan.
+      for (const statement of BROADCAST_DDL) {
+        try {
+          await db.execute(sql.raw(statement));
+        } catch (error) {
+          const message = String((error as Error)?.message || '');
+          if (/already exists|duplicate/i.test(message)) continue;
+          throw error;
+        }
+      }
     })().catch((error) => {
       setupPromise = null;
       throw error;
@@ -137,14 +151,20 @@ function rowsFrom(result: unknown): Array<Record<string, unknown>> {
 }
 
 async function loadTemplates(): Promise<Record<TemplateKey, KajianTemplate>> {
-  await ensureBroadcastTables();
   const result = { ...DEFAULT_TEMPLATES } as Record<TemplateKey, KajianTemplate>;
-  const rows = rowsFrom(await getDb().execute(sql`SELECT key, subject, body FROM kajian_email_templates`));
-  for (const row of rows) {
-    const key = String(row.key);
-    if ((TEMPLATE_KEYS as readonly string[]).includes(key)) {
-      result[key as TemplateKey] = { key: key as TemplateKey, subject: String(row.subject), body: String(row.body) };
+  try {
+    await ensureBroadcastTables();
+    const rows = rowsFrom(await getDb().execute(sql`SELECT key, subject, body FROM kajian_email_templates`));
+    for (const row of rows) {
+      const key = String(row.key);
+      if ((TEMPLATE_KEYS as readonly string[]).includes(key)) {
+        result[key as TemplateKey] = { key: key as TemplateKey, subject: String(row.subject), body: String(row.body) };
+      }
     }
+  } catch (error) {
+    // Template tersimpan belum bisa dibaca — lanjutkan dengan default agar
+    // endpoint tidak pernah gagal keras hanya karena penyimpanan template.
+    console.error('[Kajian Broadcast Templates Load Error]:', error);
   }
   return result;
 }
