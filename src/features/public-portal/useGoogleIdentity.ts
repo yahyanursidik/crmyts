@@ -65,7 +65,7 @@ function loadGoogleIdentity(): Promise<GoogleIdApi> {
   return gsiLoadPromise;
 }
 
-export function useGoogleIdentity(onCredential: (credential: string) => void) {
+export function useGoogleIdentity(onCredential: (credential: string) => void, enabled = true) {
   const clientId = env.VITE_GOOGLE_CLIENT_ID;
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(!clientId);
@@ -73,6 +73,9 @@ export function useGoogleIdentity(onCredential: (credential: string) => void) {
   credentialRef.current = onCredential;
 
   useEffect(() => {
+    // Skrip Google (± ratusan KB) hanya dimuat saat benar-benar dibutuhkan
+    // agar tidak bersaing dengan panggilan data di awal.
+    if (!enabled) return;
     if (!clientId) {
       setFailed(true);
       return;
@@ -96,7 +99,7 @@ export function useGoogleIdentity(onCredential: (credential: string) => void) {
     return () => {
       active = false;
     };
-  }, [clientId]);
+  }, [clientId, enabled]);
 
   const renderInto = useCallback(
     (element: HTMLElement | null) => {

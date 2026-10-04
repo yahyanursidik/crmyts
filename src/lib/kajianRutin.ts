@@ -8,6 +8,29 @@ import { apiClient } from './apiClient';
 
 export const KAJIAN_RUTIN_PORTAL_TOKEN_KEY = 'kajian_rutin_portal_token';
 
+/**
+ * Baca profil langsung dari payload token portal (tanpa panggilan server)
+ * agar halaman peserta tampil instan; data tetap disegarkan lewat /portal/me.
+ */
+export function readPortalTokenProfile(token: string): { name: string; email: string } | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3 || parts[0] !== 'kajian-rutin-portal' || !parts[1]) return null;
+    const bytes = Uint8Array.from(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+    const payload = JSON.parse(new TextDecoder().decode(bytes)) as {
+      kind?: string;
+      name?: string;
+      email?: string;
+      exp?: number;
+    };
+    if (payload.kind !== 'kajian_rutin_portal' || !payload.email) return null;
+    if (!payload.exp || payload.exp < Math.floor(Date.now() / 1000)) return null;
+    return { name: payload.name || payload.email.split('@')[0] || 'Jamaah', email: payload.email };
+  } catch {
+    return null;
+  }
+}
+
 export interface KajianRutinSeries {
   id: string;
   title: string;

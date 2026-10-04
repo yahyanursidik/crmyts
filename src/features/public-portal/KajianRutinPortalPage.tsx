@@ -28,6 +28,7 @@ import {
   formatWibTime,
   formatWibDateTime,
   KAJIAN_RUTIN_PORTAL_TOKEN_KEY,
+  readPortalTokenProfile,
   type DaurahEventItem,
   type DaurahHistoryItem,
   type KajianRutinScanContext,
@@ -241,7 +242,8 @@ export function KajianRutinPortalPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 2. Pulihkan sesi login portal bila ada.
+  // 2. Pulihkan sesi login portal bila ada — tampilan langsung dari profil
+  // token (instan), data lengkap disegarkan paralel di belakang.
   useEffect(() => {
     let active = true;
     const token = readStoredToken();
@@ -249,28 +251,48 @@ export function KajianRutinPortalPage() {
       setAuthState('guest');
       return;
     }
-    fetchMe(token)
-      .catch(() => {
+    const quick = readPortalTokenProfile(token);
+    if (quick) {
+      setProfile((prev) => ({
+        gender: null,
+        province: null,
+        educationLevel: null,
+        pictureUrl: null,
+        ...prev,
+        ...quick,
+      }));
+      setAuthState('authed');
+      void fetchSessions();
+      void fetchDaurah();
+      void fetchMe(token).catch(() => {
         if (!active) return;
+        // Token kedaluwarsa/tidak valid: kembali ke halaman login.
         localStorage.removeItem(KAJIAN_RUTIN_PORTAL_TOKEN_KEY);
         setAuthState('guest');
-      })
-      .finally(() => {
-        if (active && authState === 'checking') setAuthState((prev) => (prev === 'checking' ? 'guest' : prev));
+        setProfile(null);
+        setSessions(null);
+        setDaurah(null);
+        setHistory([]);
       });
+    } else {
+      // Token lama tanpa profil terbaca: pulihkan lewat server.
+      void fetchMe(token)
+        .then(() => {
+          if (!active) return;
+          void fetchSessions();
+          void fetchDaurah();
+        })
+        .catch(() => {
+          if (!active) return;
+          localStorage.removeItem(KAJIAN_RUTIN_PORTAL_TOKEN_KEY);
+          setAuthState('guest');
+        });
+    }
     return () => {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchMe]);
-
-  // 3. Muat daftar sesi rutin + daurah setelah login.
-  useEffect(() => {
-    if (authState === 'authed') {
-      void fetchSessions();
-      void fetchDaurah();
-    }
-  }, [authState, fetchSessions, fetchDaurah]);
+  }, [fetchMe, fetchSessions, fetchDaurah]);
 
   const handleCredential = useCallback(
     async (credential: string) => {
@@ -294,6 +316,8 @@ export function KajianRutinPortalPage() {
         localStorage.setItem(KAJIAN_RUTIN_PORTAL_TOKEN_KEY, data.token);
         setProfile(data.profile);
         setAuthState('authed');
+        void fetchSessions();
+        void fetchDaurah();
         if (data.scan) setScan(data.scan);
         if (data.scanError) setBanner({ type: 'error', text: data.scanError });
         if (data.alreadyAbsen && scan && data.alreadyAbsen.sessionId === scan.session.id) {
@@ -306,10 +330,13 @@ export function KajianRutinPortalPage() {
         setLoginBusy(false);
       }
     },
-    [scan, scanToken, fetchMe]
+    [scan, scanToken, fetchMe, fetchSessions, fetchDaurah]
   );
 
-  const { renderInto, clientIdMissing, failed: gsiFailed } = useGoogleIdentity((credential) => void handleCredential(credential));
+  const { renderInto, clientIdMissing, failed: gsiFailed } = useGoogleIdentity(
+    (credential) => void handleCredential(credential),
+    authState === 'guest'
+  );
 
   useEffect(() => {
     if (authState === 'guest' && !loginBusy) renderInto(googleButtonRef.current);
