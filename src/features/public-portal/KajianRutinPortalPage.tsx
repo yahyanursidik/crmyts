@@ -426,10 +426,14 @@ export function KajianRutinPortalPage() {
     () => daurah?.events.filter((event) => event.canSelfCheckin || event.status === 'ongoing') ?? [],
     [daurah]
   );
-  const daurahUpcoming = useMemo(
-    () => daurah?.events.filter((event) => !event.canSelfCheckin && event.status !== 'ongoing') ?? [],
-    [daurah]
-  );
+  const daurahUpcoming = useMemo(() => {
+    const now = Date.now();
+    return (
+      daurah?.events.filter(
+        (event) => !event.canSelfCheckin && event.status !== 'ongoing' && new Date(event.startAt).getTime() >= now
+      ) ?? []
+    );
+  }, [daurah]);
 
   // Riwayat gabungan kajian rutin + daurah untuk tab Riwayat.
   const mergedHistory = useMemo<PortalHistoryEntry[]>(() => {
@@ -1045,8 +1049,16 @@ export function KajianRutinPortalPage() {
                   ) : (
                     <div className="rounded-2xl border border-[#1B4332]/12 bg-white p-6 text-center shadow-sm">
                       <Clock className="mx-auto h-8 w-8 text-[#8A9690]" />
-                      <p className="mt-2 text-[13.5px] font-semibold text-[#3D4A44]">Tidak ada kajian daurah yang berlangsung saat ini.</p>
-                      <p className="mt-1 text-[12px] text-[#8A9690]">Check-in mandiri terbuka mulai 12 jam sebelum kajian dimulai.</p>
+                      <p className="mt-2 text-[13.5px] font-semibold text-[#3D4A44]">Tidak ada kajian daurah yang akan datang.</p>
+                      <p className="mt-1 text-[12px] text-[#8A9690]">
+                        Kajian daurah baru dari panitia otomatis tampil di sini. Check-in mandiri terbuka mulai 12 jam sebelum kajian dimulai.
+                      </p>
+                      <Link
+                        to="/kajian"
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-[#1B4332] px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-[#14352A]"
+                      >
+                        Lihat Semua Kajian Daurah
+                      </Link>
                     </div>
                   )}
                 </section>
