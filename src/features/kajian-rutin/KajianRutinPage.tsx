@@ -6,7 +6,9 @@ import {
   ChevronRight,
   CalendarDays,
   Layers,
+  LayoutGrid,
   LoaderCircle,
+  Megaphone,
   Pencil,
   Power,
   QrCode,
@@ -31,6 +33,7 @@ import {
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { KajianRutinSeriesModal } from './KajianRutinSeriesModal';
 import { KajianRutinSessionEditModal } from './KajianRutinSessionEditModal';
+import { KajianRutinAnnouncementsModal } from './KajianRutinAnnouncementsModal';
 import { KajianRutinQrModal } from './KajianRutinQrModal';
 import { KajianRutinAttendanceModal } from './KajianRutinAttendanceModal';
 
@@ -58,6 +61,12 @@ export function KajianRutinPage() {
   const [seriesList, setSeriesList] = useState<KajianRutinSeries[] | null>(null);
   const [listError, setListError] = useState('');
   const [notice, setNotice] = useState('');
+  const [totalUniqueAttendees, setTotalUniqueAttendees] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<'card' | 'table'>(() => {
+    const saved = localStorage.getItem('kajian_rutin_view');
+    return saved === 'table' ? 'table' : 'card';
+  });
+  const [announcementsOpen, setAnnouncementsOpen] = useState(false);
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [sessionsData, setSessionsData] = useState<SessionsPayload | null>(null);
@@ -94,13 +103,30 @@ export function KajianRutinPage() {
   const loadSeries = useCallback(async (silent = false) => {
     if (!silent) setSeriesList(null);
     try {
-      const { data } = await apiClient<KajianRutinSeries[]>('/kajian-rutin/series');
+      const { data, meta } = await apiClient<KajianRutinSeries[]>('/kajian-rutin/series');
       setSeriesList(data);
+      setTotalUniqueAttendees(Number(meta?.totalUniqueAttendees ?? 0));
       setListError('');
     } catch (err) {
       setListError(err instanceof ApiClientError ? err.message : 'Gagal memuat daftar kajian rutin.');
     }
   }, []);
+
+  const switchViewMode = (mode: 'card' | 'table') => {
+    setViewMode(mode);
+    localStorage.setItem('kajian_rutin_view', mode);
+  };
+
+  const openSeriesFromTable = (seriesId: string) => {
+    setViewMode('card');
+    localStorage.setItem('kajian_rutin_view', 'card');
+    if (expandedId === seriesId) return;
+    setExpandedId(seriesId);
+    setSessionsData(null);
+    setShowAddSession(false);
+    void loadSessions(seriesId);
+    void loadEarlyBirds(seriesId);
+  };
 
   useEffect(() => {
     void loadSeries();
@@ -322,26 +348,62 @@ export function KajianRutinPage() {
             jamaah (nama, email, jam absen) yang absen mandiri lewat portal <span className="font-semibold">/peserta/kajian</span>.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setEditingSeries(null);
-            setSeriesError('');
-            setSeriesModalOpen(true);
-          }}
-          className="flex items-center gap-2 rounded-xl bg-[#1b4332] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition-all hover:bg-[#14352a] active:scale-98"
-        >
-          <CalendarPlus className="h-4 w-4 text-[#e0b970]" />
-          Kajian Rutin Baru
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setAnnouncementsOpen(true)}
+            title="Kelola pengumuman yang tampil di halaman peserta kajian"
+            className="flex items-center gap-2 rounded-xl border border-[#1b4332]/20 bg-white px-4 py-2.5 text-xs font-bold text-[#1b4332] shadow-sm transition-all hover:bg-[#f2eee4] active:scale-98"
+          >
+            <Megaphone className="h-4 w-4 text-[#b58b3c]" />
+            Pengumuman
+          </button>
+          <div className="flex items-center gap-1 rounded-xl border border-[#1b4332]/15 bg-white p-1 shadow-sm" role="group" aria-label="Mode tampilan">
+            <button
+              type="button"
+              onClick={() => switchViewMode('card')}
+              title="Tampilan kartu"
+              aria-pressed={viewMode === 'card'}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11.5px] font-bold transition-all ${
+                viewMode === 'card' ? 'bg-[#1b4332] text-white' : 'text-[#6b7a72] hover:bg-[#f2eee4]'
+              }`}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" /> Kartu
+            </button>
+            <button
+              type="button"
+              onClick={() => switchViewMode('table')}
+              title="Tampilan tabel"
+              aria-pressed={viewMode === 'table'}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11.5px] font-bold transition-all ${
+                viewMode === 'table' ? 'bg-[#1b4332] text-white' : 'text-[#6b7a72] hover:bg-[#f2eee4]'
+              }`}
+            >
+              <Table2 className="h-3.5 w-3.5" /> Tabel
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setEditingSeries(null);
+              setSeriesError('');
+              setSeriesModalOpen(true);
+            }}
+            className="flex items-center gap-2 rounded-xl bg-[#1b4332] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition-all hover:bg-[#14352a] active:scale-98"
+          >
+            <CalendarPlus className="h-4 w-4 text-[#e0b970]" />
+            Kajian Rutin Baru
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
           { label: 'Kajian Aktif', value: activeCount, icon: Activity },
           { label: 'Total Sesi', value: totalSessions, icon: Layers },
-          { label: 'Total Absensi', value: totalAttendance, icon: Users },
+          { label: 'Total Absensi', value: totalAttendance, icon: Table2 },
+          { label: 'Total Peserta', value: totalUniqueAttendees ?? 0, icon: Users },
         ].map(({ label, value, icon: Icon }) => (
           <div key={label} className="flex items-center gap-3 rounded-2xl border border-[#1b4332]/12 bg-white p-4 shadow-sm">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#f2eee4]">
@@ -395,7 +457,7 @@ export function KajianRutinPage() {
         </div>
       )}
 
-      <div className="space-y-3">
+      <div className={viewMode === 'table' ? 'hidden' : 'space-y-3'}>
         {seriesList?.map((series) => {
           const isExpanded = expandedId === series.id;
           return (
@@ -674,6 +736,109 @@ export function KajianRutinPage() {
         })}
       </div>
 
+      {/* Tampilan tabel */}
+      {viewMode === 'table' && seriesList && seriesList.length > 0 && (
+        <div className="overflow-hidden rounded-2xl border border-[#1b4332]/12 bg-white shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-[12.5px]">
+              <thead>
+                <tr className="border-b border-[#e7e4d8] bg-[#fbfaf6] text-[10.5px] font-black uppercase tracking-wider text-[#6b7a72]">
+                  <th className="px-4 py-3">Kajian Rutin</th>
+                  <th className="px-4 py-3">Pemateri</th>
+                  <th className="px-4 py-3">Sesi</th>
+                  <th className="px-4 py-3">Peserta</th>
+                  <th className="px-4 py-3">Absensi</th>
+                  <th className="px-4 py-3">Berikutnya</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3 text-right">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#f0eee6]">
+                {seriesList.map((series) => (
+                  <tr key={series.id} className="hover:bg-[#fbfaf6]">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2.5">
+                        {series.posterUrl ? (
+                          <img src={series.posterUrl} alt="" className="h-9 w-9 shrink-0 rounded-lg border border-[#e7e4d8] object-cover" />
+                        ) : (
+                          <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${series.isActive ? 'bg-[#1b4332]' : 'bg-[#d5d1c1]'}`}>
+                            <CalendarDays className="h-4 w-4 text-white" />
+                          </span>
+                        )}
+                        <div className="min-w-0">
+                          <p className="truncate font-bold text-[#1c321d]">{series.title}</p>
+                          <p className="truncate text-[10.5px] text-[#8a9690]">{describeJadwal(series)}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-[#4b5a52]">{series.speaker || '—'}</td>
+                    <td className="px-4 py-3 font-bold text-[#1b4332]">{series.totalSessions || 0}</td>
+                    <td className="px-4 py-3 font-bold text-[#1b4332]" title="Peserta unik (akun Google berbeda)">
+                      {series.uniqueAttendees ?? 0}
+                    </td>
+                    <td className="px-4 py-3 text-[#4b5a52]">{series.totalAttendance || 0}</td>
+                    <td className="px-4 py-3">
+                      {series.nextSessionDate ? (
+                        <span className="rounded-lg bg-[#1b4332] px-2 py-1 text-[10.5px] font-bold text-white">
+                          {formatWibShortDate(`${series.nextSessionDate}T00:00:00+07:00`)}
+                        </span>
+                      ) : (
+                        <span className="text-[#8a9690]">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`rounded-md px-2 py-0.5 text-[10.5px] font-bold ${series.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-[#f2eee4] text-[#8a9690]'}`}>
+                        {series.isActive ? 'Aktif' : 'Nonaktif'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openSeriesFromTable(series.id)}
+                          title="Kelola sesi & QR"
+                          className="flex items-center gap-1.5 rounded-lg bg-[#1b4332] px-2.5 py-1.5 text-[11px] font-bold text-white hover:bg-[#14352a]"
+                        >
+                          <QrCode className="h-3.5 w-3.5" /> Kelola
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingSeries(series);
+                            setSeriesError('');
+                            setSeriesModalOpen(true);
+                          }}
+                          title="Ubah kajian rutin"
+                          className="rounded-lg border border-[#1b4332]/15 bg-white p-1.5 text-[#3d4a44] hover:bg-[#f2eee4]"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void toggleSeriesActive(series)}
+                          title={series.isActive ? 'Nonaktifkan dari portal jamaah' : 'Aktifkan kembali'}
+                          className="rounded-lg border border-[#1b4332]/15 bg-white p-1.5 text-[#3d4a44] hover:bg-amber-50 hover:text-amber-700"
+                        >
+                          <Power className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteSeries(series)}
+                          title="Hapus kajian rutin"
+                          className="rounded-lg border border-[#1b4332]/15 bg-white p-1.5 text-[#3d4a44] hover:bg-rose-50 hover:text-rose-600"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Modals */}
       <KajianRutinSeriesModal
         isOpen={seriesModalOpen}
@@ -711,6 +876,8 @@ export function KajianRutinPage() {
       />
 
       <KajianRutinAttendanceModal sessionId={attendanceSessionId} onClose={() => setAttendanceSessionId(null)} />
+
+      <KajianRutinAnnouncementsModal isOpen={announcementsOpen} onClose={() => setAnnouncementsOpen(false)} />
 
       <ConfirmDialog
         isOpen={Boolean(confirmDeleteSeries)}

@@ -9,6 +9,7 @@ import {
   eventAttendance,
   personRoles,
   persons,
+  kajianRutinAnnouncements,
   kajianRutinAttendance,
   kajianRutinSeries,
   kajianRutinSessions,
@@ -81,6 +82,16 @@ const portalProfileSchema = z.object({
   gender: z.enum(['ikhwan', 'akhwat']).optional().nullable(),
   educationLevel: z.string().trim().max(80).optional().nullable(),
 }).refine((v) => Object.keys(v).length > 0, 'Tidak ada perubahan.');
+
+const announcementCreateSchema = z.object({
+  title: z.string().trim().min(3, 'Judul pengumuman minimal 3 karakter').max(160),
+  body: z.string().trim().min(5, 'Isi pengumuman minimal 5 karakter').max(2000),
+  isPinned: z.boolean().default(false),
+  isActive: z.boolean().default(true),
+});
+
+const announcementUpdateSchema = announcementCreateSchema.partial()
+  .refine((v) => Object.keys(v).length > 0, 'Tidak ada perubahan.');
 
 const manualAttendanceSchema = z.object({
   fullName: z.string().trim().min(2, 'Nama lengkap minimal 2 karakter').max(160),
@@ -187,6 +198,16 @@ async function ensureKajianRutinTables() {
         created_at timestamptz NOT NULL DEFAULT now())`));
       await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS kajian_rutin_rate_limits (
         key text PRIMARY KEY, hits integer NOT NULL DEFAULT 1, expires_at timestamptz NOT NULL)`));
+      await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS kajian_rutin_announcements (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        title text NOT NULL,
+        body text NOT NULL,
+        is_pinned boolean NOT NULL DEFAULT false,
+        is_active boolean NOT NULL DEFAULT true,
+        created_by uuid REFERENCES app_users(id) ON DELETE SET NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now())`));
+      await db.execute(sql.raw('CREATE INDEX IF NOT EXISTS idx_kajian_rutin_announcements_active ON kajian_rutin_announcements (is_active)'));
       await db.execute(sql.raw('CREATE UNIQUE INDEX IF NOT EXISTS idx_kajian_rutin_sessions_series_date ON kajian_rutin_sessions (series_id, session_date)'));
       await db.execute(sql.raw('CREATE UNIQUE INDEX IF NOT EXISTS idx_kajian_rutin_sessions_qr_token ON kajian_rutin_sessions (qr_token)'));
       await db.execute(sql.raw('CREATE UNIQUE INDEX IF NOT EXISTS idx_kajian_rutin_accounts_sub ON kajian_rutin_accounts (google_sub)'));
@@ -482,22 +503,36 @@ export function registerKajianRutinRoutes(router: Router) {
       .select({
         seriesId: kajianRutinAttendance.seriesId,
         total: sql<number>`cast(count(*) as int)`,
+        unique: sql<number>`cast(count(distinct case when ${kajianRutinAttendance.googleSub} not like 'manual:%' then ${kajianRutinAttendance.googleSub} end) as int)`,
         lastCheckIn: sql<string | null>`max(${kajianRutinAttendance.checkInAt})`,
       })
       .from(kajianRutinAttendance)
       .groupBy(kajianRutinAttendance.seriesId);
     const attendanceMap = new Map(attendanceStats.map((s) => [s.seriesId, s]));
 
+    // Peserta unik lintas seluruh kajian rutin (absensi panitia manual tidak dihitung ganda).
+    const [overall] = await db
+      .select({
+        unique: sql<number>`cast(count(distinct case when ${kajianRutinAttendance.googleSub} not like 'manual:%' then ${kajianRutinAttendance.googleSub} end) as int)`,
+      })
+      .from(kajianRutinAttendance);
+
     const items = rows.map((row) => ({
       ...serializeSeries(row),
       totalSessions: Number(sessionMap.get(row.id)?.total || 0),
       nextSessionDate: sessionMap.get(row.id)?.nextDate || null,
       totalAttendance: Number(attendanceMap.get(row.id)?.total || 0),
+      uniqueAttendees: Number(attendanceMap.get(row.id)?.unique || 0),
       lastAttendanceAt: attendanceMap.get(row.id)?.lastCheckIn
         ? new Date(String(attendanceMap.get(row.id)!.lastCheckIn)).toISOString()
         : null,
     }));
-    return successResponse(items, { requestId: ctx.requestId, total: items.length }, 200, { 'Cache-Control': 'no-store' });
+    return successResponse(
+      items,
+      { requestId: ctx.requestId, total: items.length, totalUniqueAttendees: Number(overall?.unique || 0) },
+      200,
+      { 'Cache-Control': 'no-store' }
+    );
   }));
 
   router.post('/api/kajian-rutin/series', requirePermission(PERMISSIONS.EVENTS_MANAGE,
@@ -1018,6 +1053,94 @@ export function registerKajianRutinRoutes(router: Router) {
       return successResponse(result, { requestId: ctx.requestId }, created ? 201 : 200, { 'Cache-Control': 'no-store' });
     })));
 
+  // ===================== ADMIN: PENGUMUMAN UNTUK PORTAL PESERTA =====================
+
+  function serializeAnnouncement(row: typeof kajianRutinAnnouncements.$inferSelect) {
+    return {
+      id: row.id,
+      title: row.title,
+      body: row.body,
+      isPinned: row.isPinned,
+      isActive: row.isActive,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  router.get('/api/kajian-rutin/announcements', requirePermission(PERMISSIONS.EVENTS_VIEW, async (ctx) => {
+    await ensureKajianRutinTables();
+    const rows = await getDb()
+      .select()
+      .from(kajianRutinAnnouncements)
+      .orderBy(desc(kajianRutinAnnouncements.isPinned), desc(kajianRutinAnnouncements.updatedAt))
+      .limit(100);
+    return successResponse(
+      rows.map(serializeAnnouncement),
+      { requestId: ctx.requestId, total: rows.length },
+      200,
+      { 'Cache-Control': 'no-store' }
+    );
+  }));
+
+  router.post('/api/kajian-rutin/announcements', requirePermission(PERMISSIONS.EVENTS_MANAGE,
+    validateBody(announcementCreateSchema, async (ctx, body) => {
+      await ensureKajianRutinTables();
+      const [created] = await getDb().insert(kajianRutinAnnouncements).values({
+        title: body.title,
+        body: body.body,
+        isPinned: body.isPinned,
+        isActive: body.isActive,
+        createdBy: ctx.user!.id,
+      }).returning();
+      if (!created) return errorResponse('INTERNAL_ERROR', 'Pengumuman belum dapat disimpan.', 500, ctx.requestId);
+      try {
+        await logAuditEvent({ actorUserId: ctx.user!.id, action: 'kajian_rutin_announcement_create', entityType: 'kajian_rutin_announcement',
+          entityId: created.id, afterJson: { title: created.title }, requestId: ctx.requestId });
+      } catch (error) { console.error('[Kajian Rutin Audit Error]', error); }
+      return successResponse(serializeAnnouncement(created), { requestId: ctx.requestId }, 201, { 'Cache-Control': 'no-store' });
+    })));
+
+  router.patch('/api/kajian-rutin/announcements/:id', requirePermission(PERMISSIONS.EVENTS_MANAGE,
+    validateBody(announcementUpdateSchema, async (ctx, body) => {
+      if (!z.string().uuid().safeParse(ctx.params.id).success) {
+        return errorResponse('VALIDATION_ERROR', 'ID pengumuman tidak valid.', 400, ctx.requestId);
+      }
+      await ensureKajianRutinTables();
+      const db = getDb();
+      const [before] = await db.select().from(kajianRutinAnnouncements).where(eq(kajianRutinAnnouncements.id, ctx.params.id!)).limit(1);
+      if (!before) return errorResponse('NOT_FOUND', 'Pengumuman tidak ditemukan.', 404, ctx.requestId);
+      const [updated] = await db.update(kajianRutinAnnouncements).set({
+        ...(body.title !== undefined ? { title: body.title } : {}),
+        ...(body.body !== undefined ? { body: body.body } : {}),
+        ...(body.isPinned !== undefined ? { isPinned: body.isPinned } : {}),
+        ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+        updatedAt: new Date(),
+      }).where(eq(kajianRutinAnnouncements.id, before.id)).returning();
+      if (!updated) return errorResponse('NOT_FOUND', 'Pengumuman tidak ditemukan.', 404, ctx.requestId);
+      try {
+        await logAuditEvent({ actorUserId: ctx.user!.id, action: 'kajian_rutin_announcement_update', entityType: 'kajian_rutin_announcement',
+          entityId: before.id, beforeJson: { title: before.title, isActive: before.isActive },
+          afterJson: { title: updated.title, isActive: updated.isActive }, requestId: ctx.requestId });
+      } catch (error) { console.error('[Kajian Rutin Audit Error]', error); }
+      return successResponse(serializeAnnouncement(updated), { requestId: ctx.requestId }, 200, { 'Cache-Control': 'no-store' });
+    })));
+
+  router.delete('/api/kajian-rutin/announcements/:id', requirePermission(PERMISSIONS.EVENTS_MANAGE, async (ctx) => {
+    if (!z.string().uuid().safeParse(ctx.params.id).success) {
+      return errorResponse('VALIDATION_ERROR', 'ID pengumuman tidak valid.', 400, ctx.requestId);
+    }
+    await ensureKajianRutinTables();
+    const db = getDb();
+    const [before] = await db.select().from(kajianRutinAnnouncements).where(eq(kajianRutinAnnouncements.id, ctx.params.id!)).limit(1);
+    if (!before) return errorResponse('NOT_FOUND', 'Pengumuman tidak ditemukan.', 404, ctx.requestId);
+    await db.delete(kajianRutinAnnouncements).where(eq(kajianRutinAnnouncements.id, before.id));
+    try {
+      await logAuditEvent({ actorUserId: ctx.user!.id, action: 'kajian_rutin_announcement_delete', entityType: 'kajian_rutin_announcement',
+        entityId: before.id, beforeJson: { title: before.title }, requestId: ctx.requestId });
+    } catch (error) { console.error('[Kajian Rutin Audit Error]', error); }
+    return successResponse({ deleted: true }, { requestId: ctx.requestId }, 200, { 'Cache-Control': 'no-store' });
+  }));
+
   // ===================== PUBLIK: QR SCAN + LOGIN GOOGLE + ABSEN =====================
 
   router.get('/api/public/kajian-rutin/scan', async (ctx) => {
@@ -1062,6 +1185,30 @@ export function registerKajianRutinRoutes(router: Router) {
         },
       },
       { requestId: ctx.requestId },
+      200,
+      { 'Cache-Control': 'no-store' }
+    );
+  });
+
+  // ---- Pengumuman publik: kolom pengumuman di halaman peserta kajian ----
+
+  router.get('/api/public/kajian-rutin/announcements', async (ctx) => {
+    await ensureKajianRutinTables();
+    const rows = await getDb()
+      .select({
+        id: kajianRutinAnnouncements.id,
+        title: kajianRutinAnnouncements.title,
+        body: kajianRutinAnnouncements.body,
+        isPinned: kajianRutinAnnouncements.isPinned,
+        createdAt: kajianRutinAnnouncements.createdAt,
+      })
+      .from(kajianRutinAnnouncements)
+      .where(eq(kajianRutinAnnouncements.isActive, true))
+      .orderBy(desc(kajianRutinAnnouncements.isPinned), desc(kajianRutinAnnouncements.updatedAt))
+      .limit(10);
+    return successResponse(
+      rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() })),
+      { requestId: ctx.requestId, total: rows.length },
       200,
       { 'Cache-Control': 'no-store' }
     );

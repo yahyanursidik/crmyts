@@ -30,6 +30,8 @@ export interface KajianRutinSeries {
   totalSessions?: number;
   nextSessionDate?: string | null;
   totalAttendance?: number;
+  /** Jumlah peserta unik (akun Google berbeda) pada kajian ini. */
+  uniqueAttendees?: number;
   lastAttendanceAt?: string | null;
 }
 
@@ -88,6 +90,25 @@ export interface PortalHistoryEntry {
   date: string;
   checkInAt: string | null;
   source?: string | null;
+}
+
+/** Pengumuman YTS yang dikelola admin dan tampil di halaman peserta kajian. */
+export interface KajianRutinAnnouncement {
+  id: string;
+  title: string;
+  body: string;
+  isPinned: boolean;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PublicAnnouncement {
+  id: string;
+  title: string;
+  body: string;
+  isPinned: boolean;
+  createdAt: string;
 }
 
 export interface KajianRutinScanContext {
