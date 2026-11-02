@@ -66,6 +66,19 @@ function injectMetadata(html: string, title: string, description: string, canoni
   return replaceManagedTag(page, 'twitter-description', `<meta data-page-meta="twitter-description" name="twitter:description" content="${escapedDescription}" />`);
 }
 
+/**
+ * Link previews from WhatsApp, Facebook and Telegram refetch this page on every
+ * share, and each miss wakes the Neon compute for one small query. The durable
+ * directive keeps the rendered HTML in Netlify's CDN so repeat fetches are
+ * served without invoking the function, and stale-while-revalidate lets an
+ * expired copy go out immediately while it refreshes in the background.
+ */
+const HTML_CACHE_HEADERS = {
+  'Content-Type': 'text/html; charset=utf-8',
+  'Cache-Control': 'public, max-age=300',
+  'Netlify-CDN-Cache-Control': 'public, s-maxage=600, stale-while-revalidate=86400, durable',
+};
+
 export const handler = async (event: NetlifyEvent) => {
   const eventId = event.queryStringParameters?.eventId;
   const host = event.headers.host || 'app.yts.web.id';
@@ -77,7 +90,7 @@ export const handler = async (event: NetlifyEvent) => {
   try {
     const shell = await getAppShell();
     if (!eventId) {
-      return { statusCode: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' }, body: injectMetadata(shell, defaultTitle, defaultDescription, `${protocol}://${host}/kajian`) };
+      return { statusCode: 200, headers: HTML_CACHE_HEADERS, body: injectMetadata(shell, defaultTitle, defaultDescription, `${protocol}://${host}/kajian`) };
     }
 
     const eventItem = await getDb().query.events.findFirst({
@@ -91,11 +104,11 @@ export const handler = async (event: NetlifyEvent) => {
 
     return {
       statusCode: 200,
-      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' },
+      headers: HTML_CACHE_HEADERS,
       body: injectMetadata(shell, title, description, canonicalUrl),
     };
   } catch (error) {
     console.error('[Page Metadata Error]:', error);
-    return { statusCode: 500, headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: 'Halaman tidak dapat dimuat.' };
+    return { statusCode: 500, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'Netlify-CDN-Cache-Control': 'no-store' }, body: 'Halaman tidak dapat dimuat.' };
   }
 };
