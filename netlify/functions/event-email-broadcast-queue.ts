@@ -5,7 +5,7 @@ import { processPendingEventBroadcasts } from '../../server/domain/events/broadc
  * This scheduler never starts a campaign itself. It only continues queues that
  * an authenticated admin has deliberately created from a kajian dashboard.
  */
-export const config = { schedule: '*/15 * * * *' };
+export const config = { schedule: '0 * * * *' };
 
 export default async () => {
   try {
