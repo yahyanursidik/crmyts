@@ -1,6 +1,6 @@
 import { processDueDripCampaigns } from '../../server/domain/automation/routes';
 
-export const config = { schedule: '*/15 * * * *' };
+export const config = { schedule: '0 * * * *' };
 
 export default async () => {
   try {
