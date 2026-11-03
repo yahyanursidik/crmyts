@@ -1,6 +1,16 @@
 import { processDueDripCampaigns } from '../../server/domain/automation/routes';
 
-export const config = { schedule: '0 * * * *' };
+/**
+ * Dijalankan empat kali sehari, bukan tiap jam. Setiap invocation selalu query
+ * database walau tidak ada kampanye berjalan, dan satu query membangunkan
+ * compute Neon selama 5 menit penuh karena suspend timeout minimum pada plan
+ * ini 300 detik. isDripCampaignDue hanya membandingkan jam WIB, jadi kampanye
+ * tetap terkirim pada harinya.
+ *
+ * Untuk menjalankan segera di luar jadwal: tombol Run now pada halaman
+ * Functions di dashboard Netlify, atau `netlify functions:invoke`.
+ */
+export const config = { schedule: '20 */6 * * *' };
 
 export default async () => {
   try {
