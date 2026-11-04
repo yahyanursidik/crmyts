@@ -1,13 +1,15 @@
 import { z } from 'zod';
 import { Router } from '../../http/router';
-import { requireAuth, validateBody } from '../../http/middleware';
+import { requireAuth, requirePermission, validateBody } from '../../http/middleware';
 import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import { tasks, appUsers } from '../../db/schema';
 import { eq, desc, and, sql, ilike, or } from 'drizzle-orm';
 import { logAuditEvent } from '../../audit/service';
+import { PERMISSIONS, hasPermission } from '../../permissions/constants';
+import { sendEmail, renderEmailLayout } from '../../email/service';
 
-let cachedTasksStats: { data: any; timestamp: number } | null = null;
+const taskStatsCache = new Map<string, { data: any; timestamp: number }>();
 const STATS_CACHE_TTL_MS = 60_000;
 
 const createTaskSchema = z.object({
@@ -16,7 +18,7 @@ const createTaskSchema = z.object({
   personId: z.string().uuid().optional().nullable(),
   ownerUserId: z.string().uuid().optional().nullable(), // Target assigned admin/staff
   priority: z.enum(['low', 'medium', 'high', 'urgent']).default('medium'),
-  dueAt: z.string().min(1, 'Batas waktu (due date) wajib diisi'),
+  dueAt: z.string().min(1, 'Batas waktu wajib diisi').refine((value) => Number.isFinite(Date.parse(value)), 'Batas waktu tidak valid.'),
   taskType: z.enum(['kunjungan', 'telepon', 'whatsapp', 'administrasi']).default('whatsapp'),
   visitLocation: z.string().optional().nullable(),
 });
@@ -44,6 +46,12 @@ export function registerTasksRoutes(router: Router) {
       const user = ctx.user;
       if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
 
+      const viewAll = hasPermission(user.roles, PERMISSIONS.TASKS_VIEW_ALL);
+      if (!viewAll && !hasPermission(user.roles, PERMISSIONS.TASKS_VIEW_OWN)) return errorResponse('FORBIDDEN', 'Izin melihat tugas diperlukan.', 403, ctx.requestId);
+      const statsKey = viewAll ? 'all' : user.id;
+      const cachedTasksStats = taskStatsCache.get(statsKey);
+      const ownerFilter = viewAll ? sql`true` : sql`owner_user_id = ${user.id}`;
+
       const page = ctx.query.page ? Math.max(1, parseInt(ctx.query.page, 10)) : 1;
       const pageSize = ctx.query.pageSize ? Math.min(100, Math.max(1, parseInt(ctx.query.pageSize, 10))) : (ctx.query.page ? 15 : undefined);
       const offset = pageSize ? (page - 1) * pageSize : undefined;
@@ -56,12 +64,13 @@ export function registerTasksRoutes(router: Router) {
       const isOverdue = ctx.query.isOverdue === 'true';
 
       const conditions = [];
+      if (!viewAll) conditions.push(eq(tasks.ownerUserId, user.id));
       if (search) {
         conditions.push(
           or(
             ilike(tasks.title, `%${search}%`),
             ilike(tasks.description, `%${search}%`),
-            sql`EXISTS (SELECT 1 FROM people WHERE people.id = ${tasks.personId} AND (people.full_name ILIKE ${'%' + search + '%'} OR people.phone_e164 ILIKE ${'%' + search + '%'}))`
+            sql`EXISTS (SELECT 1 FROM persons WHERE persons.id = ${tasks.personId} AND (persons.full_name ILIKE ${'%' + search + '%'} OR persons.phone_e164 ILIKE ${'%' + search + '%'}))`
           )
         );
       }
@@ -103,16 +112,16 @@ export function registerTasksRoutes(router: Router) {
         try {
           const [statsRes] = await db
             .select({
-              totalAll: sql<number>`(SELECT count(*)::int FROM "tasks")`,
-              pendingCount: sql<number>`(SELECT count(*)::int FROM "tasks" WHERE "status" IN ('pending', 'in_progress', 'waiting'))`,
-              overdueCount: sql<number>`(SELECT count(*)::int FROM "tasks" WHERE "due_at" < NOW() AND "status" != 'completed')`,
-              completedCount: sql<number>`(SELECT count(*)::int FROM "tasks" WHERE "status" = 'completed')`,
+              totalAll: sql<number>`(SELECT count(*)::int FROM "tasks" WHERE ${ownerFilter})`,
+              pendingCount: sql<number>`(SELECT count(*)::int FROM "tasks" WHERE ${ownerFilter} AND "status" IN ('pending', 'in_progress', 'waiting'))`,
+              overdueCount: sql<number>`(SELECT count(*)::int FROM "tasks" WHERE ${ownerFilter} AND "due_at" < NOW() AND "status" != 'completed')`,
+              completedCount: sql<number>`(SELECT count(*)::int FROM "tasks" WHERE ${ownerFilter} AND "status" = 'completed')`,
             })
             .from(sql`(SELECT 1) dummy`);
 
           if (statsRes) {
             stats = statsRes;
-            cachedTasksStats = { data: statsRes, timestamp: nowTime };
+            taskStatsCache.set(statsKey, { data: statsRes, timestamp: nowTime });
           }
         } catch (err) {
           stats = {
@@ -217,7 +226,9 @@ export function registerTasksRoutes(router: Router) {
         const db = getDb();
         if (!ctx.user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
 
+        if (!hasPermission(ctx.user.roles, PERMISSIONS.TASKS_CREATE)) return errorResponse('FORBIDDEN', 'Izin membuat tugas diperlukan.', 403, ctx.requestId);
         const assignedOwnerId = body.ownerUserId || ctx.user.id;
+        if (assignedOwnerId !== ctx.user.id && !hasPermission(ctx.user.roles, PERMISSIONS.TASKS_REASSIGN)) return errorResponse('FORBIDDEN', 'Penugasan ke staf lain hanya tersedia untuk administrator.', 403, ctx.requestId);
 
         // Encode taskType and location into description for backward compatibility
         let compositeDesc = body.description || '';
@@ -262,6 +273,7 @@ export function registerTasksRoutes(router: Router) {
           requestId: ctx.requestId,
         });
 
+        taskStatsCache.clear();
         return successResponse(created, { requestId: ctx.requestId }, 201);
       })
     )
@@ -276,6 +288,8 @@ export function registerTasksRoutes(router: Router) {
         const taskId = ctx.params.id;
 
         if (!taskId) return errorResponse('VALIDATION_ERROR', 'ID Task diperlukan', 400, ctx.requestId);
+        const user = ctx.user!;
+        if (!hasPermission(user.roles, PERMISSIONS.TASKS_UPDATE_OWN) && !hasPermission(user.roles, PERMISSIONS.TASKS_MANAGE_OWN)) return errorResponse('FORBIDDEN', 'Izin memperbarui tugas diperlukan.', 403, ctx.requestId);
 
         const [updated] = await db
           .update(tasks)
@@ -284,13 +298,14 @@ export function registerTasksRoutes(router: Router) {
             completedAt: body.status === 'completed' ? new Date() : null,
             updatedAt: new Date(),
           })
-          .where(eq(tasks.id, taskId))
+          .where(and(eq(tasks.id, taskId), hasPermission(user.roles, PERMISSIONS.TASKS_VIEW_ALL) ? undefined : eq(tasks.ownerUserId, user.id)))
           .returning();
 
         if (!updated) {
           return errorResponse('NOT_FOUND', 'Task tidak ditemukan', 404, ctx.requestId);
         }
 
+        taskStatsCache.clear();
         return successResponse(updated, { requestId: ctx.requestId });
       })
     )
@@ -299,7 +314,7 @@ export function registerTasksRoutes(router: Router) {
   // POST /api/tasks/:id/reassign
   router.post(
     '/api/tasks/:id/reassign',
-    requireAuth(
+    requirePermission(PERMISSIONS.TASKS_REASSIGN,
       validateBody(reassignTaskSchema, async (ctx, body) => {
         const db = getDb();
         const taskId = ctx.params.id;
@@ -335,6 +350,7 @@ export function registerTasksRoutes(router: Router) {
           requestId: ctx.requestId,
         });
 
+        taskStatsCache.clear();
         return successResponse(updated, { requestId: ctx.requestId });
       })
     )
@@ -357,6 +373,10 @@ export function registerTasksRoutes(router: Router) {
         });
 
         if (!task) return errorResponse('NOT_FOUND', 'Tugas tidak ditemukan', 404, ctx.requestId);
+        if (!hasPermission(actor.roles, PERMISSIONS.TASKS_CREATE) || (!hasPermission(actor.roles, PERMISSIONS.TASKS_VIEW_ALL) && task.ownerUserId !== actor.id)) return errorResponse('FORBIDDEN', 'Hanya petugas yang ditugaskan dapat mengirim pemberitahuan.', 403, ctx.requestId);
+        const escape = (value: string) => value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
+        const result = await sendEmail({ to: body.recipientEmail, subject: `YTS · ${task.title}`, html: renderEmailLayout('Pemberitahuan kunjungan', `<p>Assalamu’alaikum ${escape(task.person?.fullName || 'Bapak/Ibu')},</p><p>${escape(task.title)}</p><p>${escape(body.notes || '')}</p>`), text: `${task.title}\n${body.notes || ''}` });
+        if (!result.success) return errorResponse('INTERNAL_ERROR', result.error || 'Email belum berhasil dikirim.', 502, ctx.requestId);
 
         // Record audit for email dispatch
         await logAuditEvent({
@@ -390,9 +410,10 @@ export function registerTasksRoutes(router: Router) {
   router.get(
     '/api/tasks/staff-list',
     requireAuth(async (ctx) => {
+      if (!hasPermission(ctx.user!.roles, PERMISSIONS.TASKS_CREATE) && !hasPermission(ctx.user!.roles, PERMISSIONS.TASKS_VIEW_OWN)) return errorResponse('FORBIDDEN', 'Izin tugas diperlukan.', 403, ctx.requestId);
       const db = getDb();
       const staffUsers = await db.query.appUsers.findMany({
-        where: eq(appUsers.isActive, true),
+        where: and(eq(appUsers.isActive, true), hasPermission(ctx.user!.roles, PERMISSIONS.TASKS_REASSIGN) ? undefined : eq(appUsers.id, ctx.user!.id)),
         columns: { id: true, fullName: true, email: true },
       });
       return successResponse(staffUsers, { requestId: ctx.requestId });
@@ -414,8 +435,10 @@ export function registerTasksRoutes(router: Router) {
       });
       if (!current) return errorResponse('NOT_FOUND', 'Tugas tidak ditemukan', 404, ctx.requestId);
 
-      await db.delete(tasks).where(eq(tasks.id, taskId));
-      cachedTasksStats = null;
+      if (!hasPermission(actor.roles, PERMISSIONS.TASKS_MANAGE_OWN) && !hasPermission(actor.roles, PERMISSIONS.TASKS_UPDATE_OWN)) return errorResponse('FORBIDDEN', 'Izin mengelola tugas diperlukan.', 403, ctx.requestId);
+      if (!hasPermission(actor.roles, PERMISSIONS.TASKS_VIEW_ALL) && current.ownerUserId !== actor.id) return errorResponse('FORBIDDEN', 'Anda hanya dapat mengelola tugas sendiri.', 403, ctx.requestId);
+      await db.delete(tasks).where(and(eq(tasks.id, taskId), hasPermission(actor.roles, PERMISSIONS.TASKS_VIEW_ALL) ? undefined : eq(tasks.ownerUserId, actor.id)));
+      taskStatsCache.clear();
 
       await logAuditEvent({
         actorUserId: actor.id,

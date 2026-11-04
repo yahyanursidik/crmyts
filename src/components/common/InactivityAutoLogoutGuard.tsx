@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Clock, LogOut, ShieldAlert, CheckCircle2 } from 'lucide-react';
 import { useTheme } from '@/lib/themeContext';
+import { clearSession } from '@/lib/session';
+import { apiClient } from '@/lib/apiClient';
 
 interface InactivityAutoLogoutGuardProps {
   /**
@@ -36,8 +38,8 @@ export function InactivityAutoLogoutGuard({
   const performLogout = useCallback(() => {
     setShowWarning(false);
     isWarningOpenRef.current = false;
-    localStorage.removeItem('crm_user_token');
-    localStorage.removeItem('crm_user_session');
+    void apiClient('/auth/logout', { method: 'POST', keepalive: true }).catch(() => {});
+    clearSession();
     // Redirect to login with reason
     window.location.href = '/login?reason=inactivity';
   }, []);

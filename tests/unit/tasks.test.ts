@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Router } from '../../server/http/router';
 import { registerTasksRoutes } from '../../server/domain/tasks/routes';
+import * as emailService from '../../server/email/service';
 import { ROLES, PERMISSIONS } from '../../server/permissions/constants';
 import * as client from '../../server/db/client';
 
@@ -111,7 +112,7 @@ describe('Tasks & Visitation Assignment with WhatsApp Template (M07)', () => {
         dueAt: '2026-08-22T09:00:00.000Z',
         visitLocation: 'Jl. Riau No. 45, Bandung',
       },
-      user: csUser,
+      user: { ...csUser, roles: [ROLES.CRM_ADMIN] },
     });
 
     expect(res.statusCode).toBe(201);
@@ -120,12 +121,14 @@ describe('Tasks & Visitation Assignment with WhatsApp Template (M07)', () => {
   });
 
   it('3. POST /api/tasks/:id/dispatch-email sends visitation email notice', async () => {
+    vi.spyOn(emailService, 'sendEmail').mockResolvedValue({ success: true, messageId: 'test-message' });
     const mockDb = {
       query: {
         tasks: {
           findFirst: vi.fn().mockResolvedValue({
             id: '018f9999-0000-7000-8000-666666666666',
             title: 'Kunjungan Silaturahmi',
+            ownerUserId: csUser.id,
             person: targetPerson,
             owner: assignedStaff,
           }),
@@ -153,5 +156,6 @@ describe('Tasks & Visitation Assignment with WhatsApp Template (M07)', () => {
     expect(res.statusCode).toBe(200);
     const json = JSON.parse(res.body);
     expect(json.data.sent).toBe(true);
+    expect(emailService.sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'muhsin@example.com' }));
   });
 });

@@ -21,6 +21,7 @@ import { errorResponse, successResponse, ErrorCode } from '../../http/response';
 import { Router } from '../../http/router';
 import { PERMISSIONS } from '../../permissions/constants';
 import { createJamaahPortalToken, generateQrToken, resolveJamaahSession } from './tokens';
+import { normalizePhoneE164 } from '../../lib/phone';
 
 const RECURRENCES = ['weekly', 'biweekly', 'monthly'] as const;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -412,7 +413,8 @@ function daurahMatchCondition(personIds: string[], email: string) {
  */
 async function syncPersonFromJamaah(input: {
   fullName: string;
-  email: string;
+  email?: string | null;
+  phone?: string | null;
   gender?: string | null;
   cityRegency?: string | null;
   province?: string | null;
@@ -420,13 +422,18 @@ async function syncPersonFromJamaah(input: {
 }): Promise<void> {
   try {
     const db = getDb();
+    const email = input.email?.trim().toLowerCase() || null;
+    const phone = normalizePhoneE164(input.phone);
+    if (!email && !phone) return;
     const [existing] = await db
-      .select({ id: persons.id, cityRegency: persons.cityRegency, province: persons.province, gender: persons.gender, educationLevel: persons.educationLevel })
+      .select({ id: persons.id, email: persons.email, phoneE164: persons.phoneE164, cityRegency: persons.cityRegency, province: persons.province, gender: persons.gender, educationLevel: persons.educationLevel })
       .from(persons)
-      .where(sql`lower(${persons.email}) = ${input.email}`)
+      .where(or(email ? sql`lower(${persons.email}) = ${email}` : undefined, phone ? eq(persons.phoneE164, phone) : undefined))
       .limit(1);
     if (existing) {
       const patch: Record<string, unknown> = {};
+      if (!existing.email && email) patch.email = email;
+      if (!existing.phoneE164 && phone) patch.phoneE164 = phone;
       if (!existing.cityRegency && input.cityRegency) patch.cityRegency = input.cityRegency;
       if (!existing.province && input.province) patch.province = input.province;
       if (!existing.gender && (input.gender === 'ikhwan' || input.gender === 'akhwat')) patch.gender = input.gender;
@@ -440,7 +447,8 @@ async function syncPersonFromJamaah(input: {
       .insert(persons)
       .values({
         fullName: input.fullName,
-        email: input.email,
+        email,
+        phoneE164: phone,
         gender: input.gender === 'ikhwan' || input.gender === 'akhwat' ? input.gender : null,
         cityRegency: input.cityRegency || null,
         province: input.province || null,
@@ -905,6 +913,7 @@ export function registerKajianRutinRoutes(router: Router) {
         note: body.note || null,
       }).onConflictDoNothing().returning();
       if (!created) return errorResponse('CONFLICT', 'Peserta tersebut sudah tercatat hadir pada sesi ini.', 409, ctx.requestId);
+      await syncPersonFromJamaah({ fullName: body.fullName, email: body.email, phone: body.phone });
       try {
         await logAuditEvent({ actorUserId: ctx.user!.id, action: 'kajian_rutin_attendance_manual', entityType: 'kajian_rutin_attendance',
           entityId: created.id, afterJson: { fullName: created.fullName, sessionId: row.session.id }, requestId: ctx.requestId });

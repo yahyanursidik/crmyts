@@ -3,6 +3,7 @@ export * from './enums';
 
 // Identity & Roles
 export * from './identity';
+export * from './settings';
 
 // People & Relationships
 export * from './people';

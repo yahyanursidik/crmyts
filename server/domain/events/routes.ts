@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { Router } from '../../http/router';
-import { requireAuth, validateBody } from '../../http/middleware';
+import { validateBody } from '../../http/middleware';
+import { requireEventAccess } from './access';
 import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import { events, eventAttendance, persons } from '../../db/schema';
@@ -95,7 +96,7 @@ export function registerEventsRoutes(router: Router) {
   // 1. GET /api/events (List all events with participant counts, quotas & parking)
   router.get(
     '/api/events',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
 
       try {
@@ -197,7 +198,7 @@ export function registerEventsRoutes(router: Router) {
   // 2. GET /api/events/:id (Detail event with full participant roster & logistics)
   router.get(
     '/api/events/:id',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
       if (!eventId) {
@@ -367,12 +368,12 @@ export function registerEventsRoutes(router: Router) {
   // 3. POST /api/events (Create new event with audience segment, quotas, payment & parking)
   router.post(
     '/api/events',
-    requireAuth(
+    requireEventAccess(
       validateBody(createEventSchema, async (ctx, body) => {
         const db = getDb();
         if (!ctx.user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
 
-        const defaultFormConfig = body.formConfig || {
+        const defaultFormConfig = {
           collectEmail: true,
           requireEmail: false,
           collectCity: true,
@@ -383,10 +384,11 @@ export function registerEventsRoutes(router: Router) {
           maxMultiParticipants: 10,
           allowStaffFamilyRegistration: false,
             maxStaffFamilyParticipants: 4,
-            gateAccessToken: createStaffRegistrationToken(),
             customFields: [],
           whatsappMessageTemplate:
             "Bismillah. Pendaftaran kajian Anda telah terkonfirmasi. Tiket: {{ticket_code}}. Mohon hadir 15 menit sebelum acara dimulai dan menaati tata tertib majelis. Barakallahu fiikum.",
+        ...body.formConfig,
+        gateAccessToken: createStaffRegistrationToken(),
         };
 
         const [created] = await db
@@ -446,7 +448,7 @@ export function registerEventsRoutes(router: Router) {
   // 4. PUT /api/events/:id (Update event, quotas, venue rules, payment & form builder)
   router.put(
     '/api/events/:id',
-    requireAuth(
+    requireEventAccess(
       validateBody(updateEventSchema, async (ctx, body) => {
         const db = getDb();
         const eventId = ctx.params.id;
@@ -507,7 +509,7 @@ export function registerEventsRoutes(router: Router) {
         if (body.venueRules !== undefined) updatePayload.venueRules = body.venueRules;
         if (body.customVenueRules !== undefined) updatePayload.customVenueRules = body.customVenueRules;
         
-        if (body.formConfig !== undefined) updatePayload.formConfig = body.formConfig;
+        if (body.formConfig !== undefined) updatePayload.formConfig = { ...body.formConfig, gateAccessToken: existing.formConfig?.gateAccessToken || createStaffRegistrationToken() };
 
         const [updated] = await db
           .update(events)
@@ -523,7 +525,7 @@ export function registerEventsRoutes(router: Router) {
   // Regenerating a link immediately invalidates the previous staff-only link.
   router.post(
     '/api/events/:id/staff-registration-token',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const eventId = ctx.params.id;
       if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
       const [updated] = await getDb()
@@ -552,7 +554,7 @@ export function registerEventsRoutes(router: Router) {
   // 5. DELETE /api/events/:id (Delete / cancel event)
   router.delete(
     '/api/events/:id',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
       if (!eventId) {
@@ -575,7 +577,7 @@ export function registerEventsRoutes(router: Router) {
   // 6. POST /api/events/:id/attendance (Check-in by Person ID or QR)
   router.post(
     '/api/events/:id/attendance',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
       const { personId, source, ticketCode } = (ctx.body as any) || {};
@@ -664,7 +666,7 @@ export function registerEventsRoutes(router: Router) {
   // 7. POST /api/events/:id/toggle-attendance (Toggle attended / registered status)
   router.post(
     '/api/events/:id/toggle-attendance',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
       const { attendanceId } = (ctx.body as any) || {};
@@ -712,7 +714,7 @@ export function registerEventsRoutes(router: Router) {
   // 7b. POST /api/events/:id/attendances/:attendanceId/verify-payment (Verify/Approve Payment by Admin/Finance)
   router.post(
     '/api/events/:id/attendances/:attendanceId/verify-payment',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
       const attendanceId = ctx.params.attendanceId;
@@ -781,7 +783,7 @@ export function registerEventsRoutes(router: Router) {
   // 7c. POST /api/events/:id/attendances/:attendanceId/reject-payment (Reject Payment Proof with Reason)
   router.post(
     '/api/events/:id/attendances/:attendanceId/reject-payment',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
       const attendanceId = ctx.params.attendanceId;
@@ -855,7 +857,7 @@ export function registerEventsRoutes(router: Router) {
   // participant data to anyone who guesses an event ID.
   router.get(
     '/api/events/:id/gate-access',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
       if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
@@ -875,7 +877,7 @@ export function registerEventsRoutes(router: Router) {
 
   router.post(
     '/api/events/:id/gate-access',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
       if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
@@ -892,7 +894,7 @@ export function registerEventsRoutes(router: Router) {
   // 7a. PATCH participant contact details. Ticket/QR and attendance fields are intentionally immutable here.
   router.patch(
     '/api/events/:id/attendances/:attendanceId',
-    requireAuth(validateBody(editEventParticipantSchema, async (ctx, body) => {
+    requireEventAccess(validateBody(editEventParticipantSchema, async (ctx, body) => {
       const db = getDb();
       const eventId = ctx.params.id;
       const attendanceId = ctx.params.attendanceId;
@@ -947,7 +949,7 @@ export function registerEventsRoutes(router: Router) {
   // 7d. POST /api/events/:id/attendances/:attendanceId/email-ticket (Resend current e-ticket after data correction)
   router.post(
     '/api/events/:id/attendances/:attendanceId/email-ticket',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
       const attendanceId = ctx.params.attendanceId;
@@ -1016,7 +1018,7 @@ export function registerEventsRoutes(router: Router) {
   // 7e. POST /api/events/:id/email-reminder (Manual H-1 delivery, protected by the global daily broadcast limit)
   router.post(
     '/api/events/:id/email-reminder',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
       if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
@@ -1050,7 +1052,7 @@ export function registerEventsRoutes(router: Router) {
   // 7f. POST /api/events/:id/email-broadcast (Admin-triggered announcement to this event's participant emails only)
   router.post(
     '/api/events/:id/email-broadcast',
-    requireAuth(
+    requireEventAccess(
       validateBody(eventBroadcastEmailSchema, async (ctx, body) => {
         const db = getDb();
         const eventId = ctx.params.id;
@@ -1091,7 +1093,7 @@ export function registerEventsRoutes(router: Router) {
   // 7g. GET /api/events/:id/email-broadcasts (Persisted, provider-confirmed broadcast metrics)
   router.get(
     '/api/events/:id/email-broadcasts',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
       if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
@@ -1107,7 +1109,7 @@ export function registerEventsRoutes(router: Router) {
   // the global SMTP quota because other automation may also use that quota.
   router.get(
     '/api/events/:id/email-broadcasts/today',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
       if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
@@ -1120,12 +1122,12 @@ export function registerEventsRoutes(router: Router) {
 
   router.get(
     '/api/events/:id/email-broadcast-templates',
-    requireAuth(async (ctx) => successResponse(await listEventEmailTemplates(getDb()), { requestId: ctx.requestId }))
+    requireEventAccess(async (ctx) => successResponse(await listEventEmailTemplates(getDb()), { requestId: ctx.requestId }))
   );
 
   router.post(
     '/api/events/:id/email-broadcast-templates',
-    requireAuth(validateBody(eventBroadcastTemplateSchema, async (ctx, body) => {
+    requireEventAccess(validateBody(eventBroadcastTemplateSchema, async (ctx, body) => {
       const template = await saveEventEmailTemplate(getDb(), { ...body, createdBy: ctx.user?.id });
       await logAuditEvent({ actorUserId: ctx.user?.id, action: 'save_event_email_broadcast_template', entityType: 'event', entityId: ctx.params.id, afterJson: { templateId: template.id, name: template.name }, requestId: ctx.requestId });
       return successResponse(template, { requestId: ctx.requestId }, 201);
@@ -1135,7 +1137,7 @@ export function registerEventsRoutes(router: Router) {
   // 7d. POST /api/events/:id/attendances/bulk-checkin (Bulk Check-in / Uncheck-in)
   router.post(
     '/api/events/:id/attendances/bulk-checkin',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
       const { attendanceIds = [], status = 'attended' } = (ctx.body as any) || {};
@@ -1174,7 +1176,7 @@ export function registerEventsRoutes(router: Router) {
   // 7e-1. DELETE /api/events/:id/attendances/:attendanceId (Remove Single Registrant & Restore Quota)
   router.delete(
     '/api/events/:id/attendances/:attendanceId',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
       const attendanceId = ctx.params.attendanceId;
@@ -1260,7 +1262,7 @@ export function registerEventsRoutes(router: Router) {
   // 7e-2. POST /api/events/:id/attendances/bulk-delete (Bulk Remove Attendances & Restore Quota)
   router.post(
     '/api/events/:id/attendances/bulk-delete',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
       const { attendanceIds = [], deleteAssociatedGroups = false } = (ctx.body as any) || {};
@@ -1346,7 +1348,7 @@ export function registerEventsRoutes(router: Router) {
   // 7f. POST /api/events/:id/attendances/scan (Fast Gate Scanner with Ticket / Phone / ID Verification)
   router.post(
     '/api/events/:id/attendances/scan',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
       const { ticketCode, phoneQuery, attendanceId } = (ctx.body as any) || {};
@@ -1471,7 +1473,7 @@ export function registerEventsRoutes(router: Router) {
   // 8. POST /api/events/:id/participants/manual (Manually add participant by staff with invite support & wa.me)
   router.post(
     '/api/events/:id/participants/manual',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
       const {
@@ -1659,7 +1661,7 @@ export function registerEventsRoutes(router: Router) {
   // 9. POST /api/events/:id/import-participants (Bulk import participants with duplicate skip feature)
   router.post(
     '/api/events/:id/import-participants',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
       const body = (ctx.body as any) || {};

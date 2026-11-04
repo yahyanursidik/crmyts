@@ -38,6 +38,10 @@ import { useTheme, THEME_PRESETS, ThemeId } from '@/lib/themeContext';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { apiClient } from '@/lib/apiClient';
 import { LoadingState } from '@/components/common/LoadingState';
+import { usePermissions } from '@refinedev/core';
+import { PERMISSIONS, type PermissionCode } from '@server/permissions/constants';
+import { clearSession, getSessionUser, updateSessionUser } from '@/lib/session';
+import type { UserIdentity } from '@/lib/authProvider';
 
 interface UserItem {
   id: string;
@@ -54,6 +58,7 @@ interface BankAccount {
   accountNumber: string;
   accountHolder: string;
   branch: string;
+  category?: 'infaq' | 'waqf';
 }
 
 interface FoundationInfo {
@@ -88,6 +93,8 @@ const AVAILABLE_ROLES = [
   { code: 'waqf_officer', name: 'Wakaf Officer', desc: 'Kelola sertifikat wakaf & konsultasi wakaf tanah/bangunan' },
   { code: 'finance_verifier', name: 'Finance Verifier', desc: 'Verifikasi mutasi rekening donasi & rekonsiliasi bank' },
   { code: 'crm_admin', name: 'CRM Super Admin', desc: 'Akses penuh manajemen pengguna, sistem & audit security' },
+  { code: 'broadcast_officer', name: 'Komunikasi & Broadcast', desc: 'Kampanye email, pengingat dan komunikasi jamaah' },
+  { code: 'auditor', name: 'Auditor', desc: 'Pemeriksaan log audit dan laporan yayasan' },
   { code: 'leadership_viewer', name: 'Pimpinan (Viewer)', desc: 'Hak pantau eksekutif, laporan analitik & dashboard yayasan' },
 ];
 
@@ -102,6 +109,9 @@ const TAG_CATEGORIES = [
 ];
 
 export function SettingsPage() {
+  const { data: permissions = [], isLoading: loadingPermissions } = usePermissions<PermissionCode[]>({});
+  const canManageUsers = permissions.includes(PERMISSIONS.USERS_MANAGE);
+  const canConfigure = permissions.includes(PERMISSIONS.SYSTEM_CONFIGURE);
   const [activeTab, setActiveTab] = useState<'profile' | 'users' | 'foundation' | 'taxonomy' | 'email' | 'system' | 'theme'>('profile');
   const { themeId, setThemeId, resetToDefault } = useTheme();
 
@@ -154,6 +164,10 @@ export function SettingsPage() {
   const [newUserModal, setNewUserModal] = useState(false);
   const [newUserName, setNewUserName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
+  const [passwordResetUser, setPasswordResetUser] = useState<UserItem | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resettingPassword, setResettingPassword] = useState(false);
   const [newUserRoles, setNewUserRoles] = useState<string[]>(['cs_officer']);
   const [creatingUser, setCreatingUser] = useState(false);
 
@@ -298,10 +312,8 @@ export function SettingsPage() {
 
     await Promise.allSettled([
       fetchProfile(),
-      fetchUsers(force),
-      fetchFoundation(),
-      fetchTaxonomy(force),
-      fetchSystemHealth(force),
+      ...(canManageUsers ? [fetchUsers(force)] : []),
+      ...(canConfigure ? [fetchFoundation(), fetchTaxonomy(force), fetchSystemHealth(force)] : []),
     ]);
 
     setInitialLoading(false);
@@ -309,8 +321,8 @@ export function SettingsPage() {
   };
 
   useEffect(() => {
-    loadAllInitialData();
-  }, []);
+    if (!loadingPermissions) void loadAllInitialData();
+  }, [loadingPermissions, canManageUsers, canConfigure]);
 
   // Lazy load email health when entering email tab
   useEffect(() => {
@@ -332,7 +344,9 @@ export function SettingsPage() {
         method: 'PUT',
         body: JSON.stringify({ fullName: fullNameInput.trim() }),
       });
-      showToast('Profil nama amil berhasil diperbarui!');
+      const cachedUser = getSessionUser<UserIdentity>();
+      if (cachedUser) updateSessionUser({ ...cachedUser, fullName: fullNameInput.trim(), name: fullNameInput.trim() });
+      showToast('Profil berhasil diperbarui.');
       fetchProfile();
     } catch (err: any) {
       showToast(err.message || 'Gagal memperbarui profil', 'error');
@@ -366,6 +380,8 @@ export function SettingsPage() {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
+      clearSession();
+      window.location.assign('/login?reason=expired');
     } catch (err: any) {
       showToast(err.message || 'Gagal memperbarui kata sandi', 'error');
     } finally {
@@ -389,12 +405,14 @@ export function SettingsPage() {
           fullName: newUserName.trim(),
           email: newUserEmail.trim(),
           roleCodes: newUserRoles,
+          password: newUserPassword,
         }),
       });
       showToast(`Pengguna staf ${newUserName} berhasil didaftarkan.`);
       setNewUserModal(false);
       setNewUserName('');
       setNewUserEmail('');
+      setNewUserPassword('');
       setNewUserRoles(['cs_officer']);
       fetchUsers(true);
     } catch (err: any) {
@@ -812,7 +830,7 @@ export function SettingsPage() {
             <span>Profil &amp; Keamanan</span>
           </button>
 
-          <button
+          {canManageUsers && (<button
             onClick={() => setActiveTab('users')}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-2 ${
               activeTab === 'users'
@@ -825,9 +843,9 @@ export function SettingsPage() {
             <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/20 text-white font-mono">
               {users.length}
             </span>
-          </button>
+          </button>)}
 
-          <button
+          {canConfigure && (<button
             onClick={() => setActiveTab('foundation')}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-2 ${
               activeTab === 'foundation'
@@ -842,9 +860,9 @@ export function SettingsPage() {
                 {foundation.bankAccounts.length} Rek
               </span>
             )}
-          </button>
+          </button>)}
 
-          <button
+          {canConfigure && (<button
             onClick={() => setActiveTab('taxonomy')}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-2 ${
               activeTab === 'taxonomy'
@@ -857,9 +875,9 @@ export function SettingsPage() {
             <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/20 text-white font-mono">
               {programs.length + tagsList.length}
             </span>
-          </button>
+          </button>)}
 
-          <button
+          {canConfigure && (<button
             onClick={() => setActiveTab('email')}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-2 ${
               activeTab === 'email'
@@ -869,9 +887,9 @@ export function SettingsPage() {
           >
             <Mail className={`w-4 h-4 ${activeTab === 'email' ? 'text-[#E0B970]' : 'text-[#6B7A72]'}`} />
             <span>Mailketing Email</span>
-          </button>
+          </button>)}
 
-          <button
+          {canConfigure && (<button
             onClick={() => setActiveTab('system')}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-2 ${
               activeTab === 'system'
@@ -881,7 +899,7 @@ export function SettingsPage() {
           >
             <Server className={`w-4 h-4 ${activeTab === 'system' ? 'text-[#E0B970]' : 'text-[#6B7A72]'}`} />
             <span>Status Sistem &amp; Audit</span>
-          </button>
+          </button>)}
 
           <button
             onClick={() => setActiveTab('theme')}
@@ -1080,7 +1098,7 @@ export function SettingsPage() {
       )}
 
       {/* 4. TAB 2: PENGGUNA & HAK AKSES STAF */}
-      {activeTab === 'users' && (
+      {activeTab === 'users' && canManageUsers && (
         <div className="space-y-4">
           {/* Action Bar & Filters */}
           <div className="p-4 bg-white rounded-2xl border border-[#1B4332]/12 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1207,6 +1225,7 @@ export function SettingsPage() {
                               <Edit3 className="w-3.5 h-3.5" />
                             </button>
 
+                            <button type="button" onClick={() => { setPasswordResetUser(u); setResetPassword(''); }} className="p-2 rounded-lg bg-cream-200 text-brand-900" title="Atur ulang kata sandi" aria-label={`Atur ulang kata sandi ${u.fullName}`}><KeyRound className="h-4 w-4" /></button>
                             <button
                               onClick={() => handleToggleUserStatus(u)}
                               className={`p-1.5 rounded-lg border transition-all ${
@@ -1436,7 +1455,7 @@ export function SettingsPage() {
       )}
 
       {/* 6. TAB 4: PROGRAM INFAQ & MASTER TAGGING */}
-      {activeTab === 'taxonomy' && (
+      {activeTab === 'taxonomy' && canConfigure && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Sub-Card 1: Program Infaq */}
           <div className="p-6 bg-white rounded-2xl border border-[#1B4332]/12 shadow-2xs space-y-4">
@@ -1664,7 +1683,7 @@ export function SettingsPage() {
       )}
 
       {/* 7. TAB 5: MAILKETING EMAIL */}
-      {activeTab === 'email' && (
+      {activeTab === 'email' && canConfigure && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Mailketing configuration card */}
           <div className="p-6 bg-white rounded-2xl border border-[#1B4332]/12 shadow-2xs space-y-4">
@@ -1832,7 +1851,7 @@ export function SettingsPage() {
       )}
 
       {/* 8. TAB 6: STATUS SISTEM & AUDIT */}
-      {activeTab === 'system' && (
+      {activeTab === 'system' && canConfigure && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Database Diagnostics */}
           <div className="p-6 bg-white rounded-2xl border border-[#1B4332]/12 shadow-2xs space-y-4">
@@ -2071,6 +2090,12 @@ export function SettingsPage() {
               </div>
 
               <div>
+                <label htmlFor="new-staff-password" className="block text-xs font-bold text-brand-950 mb-1.5">Kata sandi awal</label>
+                <input id="new-staff-password" type="password" autoComplete="new-password" minLength={8} maxLength={128} required value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} className="w-full rounded-xl border border-surface-300 px-3.5 py-2.5 text-sm" />
+                <p className="mt-1.5 text-xs text-surface-500">Minimal 8 karakter. Sampaikan langsung kepada staf.</p>
+              </div>
+
+              <div>
                 <label className="block text-xs font-bold text-[#1C2321] mb-1.5">Pilih Peran Kewenangan (Bisa Lebih Dari 1)</label>
                 <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
                   {AVAILABLE_ROLES.map((r) => {
@@ -2128,6 +2153,13 @@ export function SettingsPage() {
           </div>
         </div>
       )}
+
+      {passwordResetUser && canManageUsers && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"><form className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6" role="dialog" aria-modal="true" aria-labelledby="reset-password-title" onSubmit={async (e) => {
+        e.preventDefault(); if (resettingPassword) return; setResettingPassword(true);
+        try { await apiClient(`/settings/users/${passwordResetUser.id}/password`, { method: 'POST', body: JSON.stringify({ password: resetPassword }) }); showToast('Kata sandi diperbarui. Sampaikan langsung kepada staf.'); setPasswordResetUser(null); setResetPassword(''); }
+        catch (error: any) { showToast(error.message || 'Gagal memperbarui kata sandi.', 'error'); }
+        finally { setResettingPassword(false); }
+      }}><h2 id="reset-password-title" className="text-lg font-bold text-brand-950">Atur ulang kata sandi</h2><p className="text-sm text-surface-600">{passwordResetUser.fullName}</p><label className="block text-sm font-semibold" htmlFor="reset-staff-password">Kata sandi baru</label><input id="reset-staff-password" type="password" autoComplete="new-password" minLength={8} maxLength={128} required value={resetPassword} onChange={(e) => setResetPassword(e.target.value)} className="w-full rounded-xl border border-surface-300 px-3 py-2.5" /><p className="text-xs text-surface-500">Semua sesi lama akun ini akan diakhiri.</p><div className="flex justify-end gap-2"><button type="button" className="btn-secondary" disabled={resettingPassword} onClick={() => { setPasswordResetUser(null); setResetPassword(''); }}>Batal</button><button type="submit" className="btn-primary" disabled={resettingPassword}>{resettingPassword ? 'Menyimpan…' : 'Simpan kata sandi'}</button></div></form></div>}
 
       {/* Modal 2: Edit Roles Pengguna */}
       {selectedUserForRoleEdit && (
@@ -2221,6 +2253,7 @@ export function SettingsPage() {
             </div>
 
             <form onSubmit={handleSaveBankAccount} className="space-y-3.5">
+              <div><label htmlFor="bank-category" className="mb-1 block text-xs font-bold text-brand-950">Peruntukan rekening</label><select id="bank-category" value={bankForm.category || 'infaq'} onChange={(e) => setBankForm({ ...bankForm, category: e.target.value as 'infaq' | 'waqf' })} className="w-full rounded-xl border border-surface-300 px-3 py-2 text-sm"><option value="infaq">Infaq & donasi</option><option value="waqf">Wakaf</option></select></div>
               <div>
                 <label className="block text-xs font-bold text-[#1C2321] mb-1">Nama Bank</label>
                 <input

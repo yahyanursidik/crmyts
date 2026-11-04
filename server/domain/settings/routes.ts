@@ -5,6 +5,7 @@ import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import {
   appUsers,
+  appUserCredentials,
   userRoles,
   donationPrograms,
   tags,
@@ -12,7 +13,8 @@ import {
   persons,
 } from '../../db/schema';
 import { eq, desc, sql } from 'drizzle-orm';
-import { PERMISSIONS } from '../../permissions/constants';
+import { PERMISSIONS, ROLES } from '../../permissions/constants';
+import { hashPassword, verifyPassword } from '../../auth/password';
 import { logAuditEvent } from '../../audit/service';
 import {
   verifyMailketingConnection,
@@ -23,32 +25,9 @@ import {
   sendWaqfInquiryConfirmationEmail,
 } from '../../email/service';
 import { getBroadcastDailyQuota } from '../../email/broadcastQuota';
+import { getServerEnv } from '../../config/env';
 
-// Mock storage config info (can be overridden by env in production)
-const FOUNDATION_DEFAULT = {
-  foundationName: 'Yayasan Tarbiyah Sunnah',
-  skKemenkumham: 'AHU-0012345.AH.01.04.Tahun 2020',
-  headOfficeAddress: 'Jl. Jurang No.64, Pasteur, Kec. Sukajadi, Kota Bandung, Jawa Barat 40161',
-  officialPhone: '0811-2401-476',
-  officialEmail: 'info@tarbiyahsunnah.id',
-  officialWebsite: 'https://tarbiyahsunnah.id',
-  bankAccounts: [
-    {
-      bankName: 'Bank Syariah Indonesia (BSI)',
-      accountNumber: '7123456789',
-      accountHolder: 'Yayasan Tarbiyah Sunnah (Operasional & Dakwah)',
-      branch: 'KCP Bandung Dago',
-    },
-    {
-      bankName: 'Bank Syariah Indonesia (BSI)',
-      accountNumber: '7999888777',
-      accountHolder: 'Yayasan Tarbiyah Sunnah (Wakaf Umat)',
-      branch: 'KCP Bandung Dago',
-    },
-  ],
-};
-
-let foundationData = { ...FOUNDATION_DEFAULT };
+import { getFoundation, saveFoundation } from './foundation';
 
 interface CacheEntry<T> {
   data: T;
@@ -91,11 +70,12 @@ const changePasswordSchema = z.object({
 const createUserSchema = z.object({
   fullName: z.string().min(2, 'Nama lengkap minimal 2 karakter'),
   email: z.string().email('Format email tidak valid'),
-  roleCodes: z.array(z.string()).min(1, 'Pilih minimal 1 peran untuk user ini'),
+  roleCodes: z.array(z.nativeEnum(ROLES)).min(1, 'Pilih minimal 1 peran untuk user ini'),
+  password: z.string().min(8, 'Kata sandi minimal 8 karakter').max(128),
 });
 
 const updateUserRolesSchema = z.object({
-  roleCodes: z.array(z.string()).min(1, 'Pilih minimal 1 peran'),
+  roleCodes: z.array(z.nativeEnum(ROLES)).min(1, 'Pilih minimal 1 peran'),
 });
 
 const createProgramSchema = z.object({
@@ -110,7 +90,7 @@ const createTagSchema = z.object({
 
 const updateFoundationSchema = z.object({
   foundationName: z.string().min(3),
-  skKemenkumham: z.string().min(5),
+  skKemenkumham: z.string().max(200),
   headOfficeAddress: z.string().min(5),
   officialPhone: z.string().min(5),
   officialEmail: z.string().email(),
@@ -121,11 +101,25 @@ const updateFoundationSchema = z.object({
       accountNumber: z.string(),
       accountHolder: z.string(),
       branch: z.string(),
+      category: z.enum(['infaq', 'waqf']).optional(),
+      bankCode: z.string().optional(),
     })
   ).optional(),
 });
 
 export function registerSettingsRoutes(router: Router) {
+  router.post('/api/settings/users/:id/password', requirePermission(PERMISSIONS.USERS_MANAGE,
+    validateBody(z.object({ password: z.string().min(8, 'Kata sandi minimal 8 karakter').max(128) }), async (ctx, body) => {
+      const db = getDb();
+      const target = await db.query.appUsers.findFirst({ where: eq(appUsers.id, ctx.params.id!) });
+      if (!target) return errorResponse('NOT_FOUND', 'Akun staf tidak ditemukan.', 404, ctx.requestId);
+      const passwordHash = await hashPassword(body.password);
+      await db.insert(appUserCredentials).values({ userId: target.id, passwordHash })
+        .onConflictDoUpdate({ target: appUserCredentials.userId, set: { passwordHash, sessionVersion: sql`${appUserCredentials.sessionVersion} + 1`, updatedAt: new Date() } });
+      await logAuditEvent({ actorUserId: ctx.user!.id, action: 'reset_staff_password', entityType: 'app_user', entityId: target.id, afterJson: { changed: true }, reason: 'Pemulihan akses staf oleh administrator', requestId: ctx.requestId });
+      return successResponse({ message: 'Kata sandi staf diperbarui. Semua sesi lama diakhiri.' }, { requestId: ctx.requestId });
+    })));
+
   // 1. GET /api/settings/profile (Current User Profile)
   router.get(
     '/api/settings/profile',
@@ -185,9 +179,17 @@ export function registerSettingsRoutes(router: Router) {
   router.post(
     '/api/settings/change-password',
     requireAuth(
-      validateBody(changePasswordSchema, async (ctx, _body) => {
+      validateBody(changePasswordSchema, async (ctx, body) => {
         const user = ctx.user;
         if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+
+        const db = getDb();
+        const credential = await db.query.appUserCredentials.findFirst({ where: eq(appUserCredentials.userId, user.id) });
+        if (!credential || !await verifyPassword(body.currentPassword, credential.passwordHash)) {
+          return errorResponse('VALIDATION_ERROR', 'Kata sandi saat ini tidak cocok.', 400, ctx.requestId);
+        }
+        const passwordHash = await hashPassword(body.newPassword);
+        await db.update(appUserCredentials).set({ passwordHash, sessionVersion: sql`${appUserCredentials.sessionVersion} + 1`, updatedAt: new Date() }).where(eq(appUserCredentials.userId, user.id));
 
         // Record audit without password secrets
         await logAuditEvent({
@@ -202,7 +204,7 @@ export function registerSettingsRoutes(router: Router) {
         });
 
         return successResponse(
-          { message: 'Kata sandi berhasil diperbarui dengan aman' },
+          { message: 'Kata sandi diperbarui. Silakan masuk kembali.', reauthenticate: true },
           { requestId: ctx.requestId }
         );
       })
@@ -275,6 +277,11 @@ export function registerSettingsRoutes(router: Router) {
           }
 
           const result = await db.transaction(async (tx) => {
+            const allRoles = await tx.query.roles.findMany();
+            const matchedRoles = allRoles.filter((r) => body.roleCodes.includes(r.code as typeof body.roleCodes[number]));
+            if (new Set(matchedRoles.map((r) => r.code)).size !== new Set(body.roleCodes).size) {
+              throw new Error('VALIDATION_ERROR: Peran belum terdaftar. Periksa konfigurasi peran.');
+            }
             const [newUser] = await tx
               .insert(appUsers)
               .values({
@@ -289,9 +296,7 @@ export function registerSettingsRoutes(router: Router) {
               throw new Error('INTERNAL_ERROR: Gagal membuat akun pengguna');
             }
 
-            // Resolve roles
-            const allRoles = await tx.query.roles.findMany();
-            const matchedRoles = allRoles.filter((r) => body.roleCodes.includes(r.code));
+            await tx.insert(appUserCredentials).values({ userId: newUser.id, passwordHash: await hashPassword(body.password) });
 
             for (const r of matchedRoles) {
               await tx.insert(userRoles).values({
@@ -325,7 +330,7 @@ export function registerSettingsRoutes(router: Router) {
               recipientEmail: result.email,
               fullName: result.fullName,
               assignedRoles: body.roleCodes,
-              loginUrl: `https://yts.web.id/login`,
+              loginUrl: new URL('/login', getServerEnv().APP_URL).toString(),
             }).catch((err) => console.warn('[Email Staff Welcome Error]:', err));
           }
 
@@ -360,14 +365,14 @@ export function registerSettingsRoutes(router: Router) {
 
         const newStatus = !current.isActive;
 
-        const [updated] = await db
-          .update(appUsers)
-          .set({
-            isActive: newStatus,
-            updatedAt: new Date(),
-          })
-          .where(eq(appUsers.id, targetUserId))
-          .returning();
+        const updated = await db.transaction(async (tx) => {
+          const [row] = await tx.update(appUsers).set({ isActive: newStatus, updatedAt: new Date() })
+            .where(eq(appUsers.id, targetUserId)).returning();
+          if (!newStatus) await tx.update(appUserCredentials)
+            .set({ sessionVersion: sql`${appUserCredentials.sessionVersion} + 1`, updatedAt: new Date() })
+            .where(eq(appUserCredentials.userId, targetUserId));
+          return row;
+        });
 
         await logAuditEvent({
           actorUserId: actor.id,
@@ -399,6 +404,7 @@ export function registerSettingsRoutes(router: Router) {
           const actor = ctx.user;
           if (!actor) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
           if (!targetUserId) return errorResponse('VALIDATION_ERROR', 'ID User diperlukan', 400, ctx.requestId);
+          if (targetUserId === actor.id && !body.roleCodes.includes(ROLES.CRM_ADMIN)) return errorResponse('VALIDATION_ERROR', 'Peran administrator akun sendiri harus dipertahankan.', 400, ctx.requestId);
 
           const target = await db.query.appUsers.findFirst({
             where: eq(appUsers.id, targetUserId),
@@ -411,7 +417,8 @@ export function registerSettingsRoutes(router: Router) {
 
             // Find role IDs
             const allRoles = await tx.query.roles.findMany();
-            const matchedRoles = allRoles.filter((r) => body.roleCodes.includes(r.code));
+            const matchedRoles = allRoles.filter((r) => body.roleCodes.includes(r.code as typeof body.roleCodes[number]));
+            if (new Set(matchedRoles.map((r) => r.code)).size !== new Set(body.roleCodes).size) throw new Error('VALIDATION_ERROR: Peran belum terdaftar.');
 
             for (const r of matchedRoles) {
               await tx.insert(userRoles).values({
@@ -443,7 +450,7 @@ export function registerSettingsRoutes(router: Router) {
   router.get(
     '/api/settings/foundation',
     requireAuth(async (ctx) => {
-      return successResponse(foundationData, { requestId: ctx.requestId });
+      return successResponse(await getFoundation(), { requestId: ctx.requestId });
     })
   );
 
@@ -454,7 +461,8 @@ export function registerSettingsRoutes(router: Router) {
       requirePermission(
         PERMISSIONS.USERS_MANAGE,
         validateBody(updateFoundationSchema, async (ctx, body) => {
-          foundationData = { ...foundationData, ...body };
+          const foundationData = { ...await getFoundation(), ...body };
+          await saveFoundation(foundationData);
 
           if (ctx.user) {
             await logAuditEvent({
@@ -467,7 +475,7 @@ export function registerSettingsRoutes(router: Router) {
             });
           }
 
-          return successResponse(foundationData, { requestId: ctx.requestId });
+          return successResponse(await getFoundation(), { requestId: ctx.requestId });
         })
       )
     )
@@ -747,7 +755,7 @@ export function registerSettingsRoutes(router: Router) {
   // 15. GET /api/settings/system-health (Diagnostics & Security Status)
   router.get(
     '/api/settings/system-health',
-    requireAuth(async (ctx) => {
+    requirePermission(PERMISSIONS.SYSTEM_CONFIGURE, async (ctx) => {
       const forceRefresh = ctx.query?.refresh === 'true' || ctx.query?.refresh === '1';
       if (!forceRefresh && systemHealthCache && Date.now() - systemHealthCache.timestamp < CACHE_TTL_MS) {
         return successResponse(systemHealthCache.data, { requestId: ctx.requestId });
@@ -801,7 +809,7 @@ export function registerSettingsRoutes(router: Router) {
   // 16. GET /api/settings/ping (Live Database Latency & Server Status)
   router.get(
     '/api/settings/ping',
-    requireAuth(async (ctx) => {
+    requirePermission(PERMISSIONS.SYSTEM_CONFIGURE, async (ctx) => {
       const db = getDb();
       const start = Date.now();
       await db.execute(sql`SELECT 1`);
@@ -822,7 +830,7 @@ export function registerSettingsRoutes(router: Router) {
   // 17. GET /api/settings/email-health (Test Mailketing API connection)
   router.get(
     '/api/settings/email-health',
-    requireAuth(async (ctx) => {
+    requirePermission(PERMISSIONS.SYSTEM_CONFIGURE, async (ctx) => {
       const [health, quotaResult] = await Promise.all([
         verifyMailketingConnection(),
         getBroadcastDailyQuota(getDb()).then(
@@ -858,7 +866,7 @@ export function registerSettingsRoutes(router: Router) {
 
   router.post(
     '/api/settings/send-test-email',
-    requireAuth(
+    requirePermission(PERMISSIONS.SYSTEM_CONFIGURE,
       validateBody(sendTestEmailSchema, async (ctx, body) => {
         let sendResult: { success: boolean; messageId?: string; error?: string };
 
@@ -874,7 +882,7 @@ export function registerSettingsRoutes(router: Router) {
             gender: 'ikhwan',
             familyCount: 2,
             isPaid: false,
-            eventUrl: 'https://yts.web.id/kajian',
+            eventUrl: new URL('/kajian', getServerEnv().APP_URL).toString(),
           });
         } else if (body.templateType === 'donation_receipt') {
           sendResult = await sendDonationVerifiedReceiptEmail({
@@ -899,7 +907,7 @@ export function registerSettingsRoutes(router: Router) {
             recipientEmail: body.recipientEmail,
             fullName: 'Pengurus Baru YTS (Simulasi)',
             assignedRoles: ['Admin Kajian & Acara', 'CS Jamaah Care'],
-            loginUrl: 'https://yts.web.id/login',
+            loginUrl: new URL('/login', getServerEnv().APP_URL).toString(),
           });
         } else {
           sendResult = await sendTestEmail(body.recipientEmail);

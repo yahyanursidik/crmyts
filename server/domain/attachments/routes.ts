@@ -1,9 +1,32 @@
 import { z } from 'zod';
 import { Router } from '../../http/router';
-import { requireAuth, validateBody } from '../../http/middleware';
+import { requireAuth, validateBody, type RequestContext } from '../../http/middleware';
 import { successResponse, errorResponse } from '../../http/response';
 import { defaultAttachmentService } from '../../storage/service';
 import { SensitivityLevel } from '../../storage/types';
+import { getDb } from '../../db/client';
+import { donations, waqfDocuments } from '../../db/schema';
+import { and, eq } from 'drizzle-orm';
+import { PERMISSIONS as P, hasPermission } from '../../permissions/constants';
+
+async function authorizedAttachment(ctx: RequestContext, attachmentId: string, write = false) {
+  const metadata = await defaultAttachmentService.getMetadata(attachmentId);
+  if (!metadata) return { error: errorResponse('NOT_FOUND', 'Berkas tidak ditemukan.', 404, ctx.requestId) };
+  const user = ctx.user!;
+  if (metadata.uploadedBy === user.id || hasPermission(user.roles, P.SYSTEM_CONFIGURE)) return { metadata };
+  if (!write) {
+    const db = getDb();
+    if (hasPermission(user.roles, P.DONATIONS_VIEW_DETAIL) || hasPermission(user.roles, P.DONATIONS_VIEW_UNVERIFIED)) {
+      const linked = await db.query.donations.findFirst({ where: and(eq(donations.proofAttachmentId, attachmentId), hasPermission(user.roles, P.DONATIONS_VIEW_DETAIL) ? undefined : eq(donations.verificationStatus, 'unverified')) });
+      if (linked) return { metadata };
+    }
+    if (hasPermission(user.roles, P.WAQF_VIEW_DETAIL)) {
+      const linked = await db.query.waqfDocuments.findFirst({ where: eq(waqfDocuments.attachmentId, attachmentId) });
+      if (linked) return { metadata };
+    }
+  }
+  return { error: errorResponse('FORBIDDEN', 'Lampiran ini tidak tersedia untuk peran Anda.', 403, ctx.requestId) };
+}
 
 const uploadAttachmentSchema = z.object({
   originalFilename: z.string().min(1, 'Nama berkas asli wajib diisi'),
@@ -25,6 +48,7 @@ export function registerAttachmentsRoutes(router: Router) {
       validateBody(uploadAttachmentSchema, async (ctx, body) => {
         const user = ctx.user;
         if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+        if (![P.PERSONS_CREATE, P.INTERACTIONS_CREATE, P.DONATIONS_CREATE, P.DONATIONS_VERIFY, P.WAQF_DOCUMENTS_MANAGE, P.EVENTS_MANAGE].some((permission) => hasPermission(user.roles, permission))) return errorResponse('FORBIDDEN', 'Izin mengunggah dokumen diperlukan.', 403, ctx.requestId);
 
         try {
           // Decode Base64
@@ -63,6 +87,8 @@ export function registerAttachmentsRoutes(router: Router) {
       }
 
       const expiresInSeconds = ctx.query.expiresInSeconds ? parseInt(ctx.query.expiresInSeconds, 10) : 900;
+      const access = await authorizedAttachment(ctx, attachmentId);
+      if (access.error) return access.error;
 
       try {
         const result = await defaultAttachmentService.getTemporaryUrl(attachmentId, {
@@ -87,12 +113,9 @@ export function registerAttachmentsRoutes(router: Router) {
         return errorResponse('VALIDATION_ERROR', 'ID Lampiran diperlukan', 400, ctx.requestId);
       }
 
-      const metadata = await defaultAttachmentService.getMetadata(attachmentId);
-      if (!metadata) {
-        return errorResponse('NOT_FOUND', 'Metadata berkas tidak ditemukan', 404, ctx.requestId);
-      }
-
-      return successResponse(metadata, { requestId: ctx.requestId });
+      const access = await authorizedAttachment(ctx, attachmentId);
+      if (access.error) return access.error;
+      return successResponse(access.metadata, { requestId: ctx.requestId });
     })
   );
 
@@ -108,6 +131,9 @@ export function registerAttachmentsRoutes(router: Router) {
         if (!attachmentId) {
           return errorResponse('VALIDATION_ERROR', 'ID Lampiran diperlukan', 400, ctx.requestId);
         }
+
+        const access = await authorizedAttachment(ctx, attachmentId, true);
+        if (access.error) return access.error;
 
         try {
           await defaultAttachmentService.softDelete(attachmentId, {

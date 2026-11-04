@@ -1,3 +1,5 @@
+import { lazy, Suspense } from 'react';
+import { LoadingState } from './components/common/LoadingState';
 import { Refine, Authenticated } from '@refinedev/core';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
 import { dataProvider } from './lib/dataProvider';
@@ -5,35 +7,37 @@ import { authProvider } from './lib/authProvider';
 import { routerProvider, Outlet } from './lib/routerProvider';
 import { ThemeProvider } from './lib/themeContext';
 import { AppShell } from './components/layout/AppShell';
-import { DashboardPage } from './features/dashboard/DashboardPage';
 import { LoginPage } from './features/auth/LoginPage';
-import { PersonsListPage } from './features/persons/PersonsListPage';
-import { PersonDetailPage } from './features/persons/PersonDetailPage';
-import { EventsListPage } from './features/events/EventsListPage';
-import { InteractionsListPage } from './features/interactions/InteractionsListPage';
-import { TasksListPage } from './features/tasks/TasksListPage';
-import { DonationsListPage } from './features/donations/DonationsListPage';
-import { WaqfPipelinePage } from './features/waqf/WaqfPipelinePage';
-import { DataQualityPage } from './features/data-quality/DataQualityPage';
-import { AuditLogPage } from './features/audit/AuditLogPage';
-import { SettingsPage } from './features/settings/SettingsPage';
-import { ReportsPage } from './features/reports/ReportsPage';
-import { AutomationPage } from './features/automation/AutomationPage';
-import { DonorPipelinePage } from './features/donors/DonorPipelinePage';
-import { DonationsPortalPage } from './features/public-portal/DonationsPortalPage';
-import { EventsPortalPage } from './features/public-portal/EventsPortalPage';
-import { StaffEventRegistrationPage } from './features/public-portal/StaffEventRegistrationPage';
-import { BazaarCatalogPortalPage } from './features/public-portal/BazaarCatalogPortalPage';
-import { BazaarPortalPage } from './features/public-portal/BazaarPortalPage';
-import { BazaarSurveyPortalPage } from './features/public-portal/BazaarSurveyPortalPage';
-import { BazaarHubPage } from './features/bazaar/BazaarHubPage';
-import { ParticipantPortalPage } from './features/public-portal/ParticipantPortalPage';
-import { GateScannerPage } from './features/gate/GateScannerPage';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
-import { JamaahRoomPage } from './features/jamaah-room/JamaahRoomPage';
-import { JamaahRoomInboxPage } from './features/jamaah-room/JamaahRoomInboxPage';
-import { KajianRutinPage } from './features/kajian-rutin/KajianRutinPage';
-import { KajianRutinPortalPage } from './features/public-portal/KajianRutinPortalPage';
+import { LoginRedirect, RouteAccess, NotFoundPage } from './components/common/RouteAccess';
+
+const DashboardPage = lazy(() => import('./features/dashboard/DashboardPage').then((module) => ({ default: module.DashboardPage })));
+const PersonsListPage = lazy(() => import('./features/persons/PersonsListPage').then((module) => ({ default: module.PersonsListPage })));
+const PersonDetailPage = lazy(() => import('./features/persons/PersonDetailPage').then((module) => ({ default: module.PersonDetailPage })));
+const EventsListPage = lazy(() => import('./features/events/EventsListPage').then((module) => ({ default: module.EventsListPage })));
+const InteractionsListPage = lazy(() => import('./features/interactions/InteractionsListPage').then((module) => ({ default: module.InteractionsListPage })));
+const TasksListPage = lazy(() => import('./features/tasks/TasksListPage').then((module) => ({ default: module.TasksListPage })));
+const DonationsListPage = lazy(() => import('./features/donations/DonationsListPage').then((module) => ({ default: module.DonationsListPage })));
+const WaqfPipelinePage = lazy(() => import('./features/waqf/WaqfPipelinePage').then((module) => ({ default: module.WaqfPipelinePage })));
+const DataQualityPage = lazy(() => import('./features/data-quality/DataQualityPage').then((module) => ({ default: module.DataQualityPage })));
+const AuditLogPage = lazy(() => import('./features/audit/AuditLogPage').then((module) => ({ default: module.AuditLogPage })));
+const SettingsPage = lazy(() => import('./features/settings/SettingsPage').then((module) => ({ default: module.SettingsPage })));
+const ReportsPage = lazy(() => import('./features/reports/ReportsPage').then((module) => ({ default: module.ReportsPage })));
+const AutomationPage = lazy(() => import('./features/automation/AutomationPage').then((module) => ({ default: module.AutomationPage })));
+const DonorPipelinePage = lazy(() => import('./features/donors/DonorPipelinePage').then((module) => ({ default: module.DonorPipelinePage })));
+const DonationsPortalPage = lazy(() => import('./features/public-portal/DonationsPortalPage').then((module) => ({ default: module.DonationsPortalPage })));
+const EventsPortalPage = lazy(() => import('./features/public-portal/EventsPortalPage').then((module) => ({ default: module.EventsPortalPage })));
+const StaffEventRegistrationPage = lazy(() => import('./features/public-portal/StaffEventRegistrationPage').then((module) => ({ default: module.StaffEventRegistrationPage })));
+const BazaarCatalogPortalPage = lazy(() => import('./features/public-portal/BazaarCatalogPortalPage').then((module) => ({ default: module.BazaarCatalogPortalPage })));
+const BazaarPortalPage = lazy(() => import('./features/public-portal/BazaarPortalPage').then((module) => ({ default: module.BazaarPortalPage })));
+const BazaarSurveyPortalPage = lazy(() => import('./features/public-portal/BazaarSurveyPortalPage').then((module) => ({ default: module.BazaarSurveyPortalPage })));
+const BazaarHubPage = lazy(() => import('./features/bazaar/BazaarHubPage').then((module) => ({ default: module.BazaarHubPage })));
+const ParticipantPortalPage = lazy(() => import('./features/public-portal/ParticipantPortalPage').then((module) => ({ default: module.ParticipantPortalPage })));
+const GateScannerPage = lazy(() => import('./features/gate/GateScannerPage').then((module) => ({ default: module.GateScannerPage })));
+const JamaahRoomPage = lazy(() => import('./features/jamaah-room/JamaahRoomPage').then((module) => ({ default: module.JamaahRoomPage })));
+const JamaahRoomInboxPage = lazy(() => import('./features/jamaah-room/JamaahRoomInboxPage').then((module) => ({ default: module.JamaahRoomInboxPage })));
+const KajianRutinPage = lazy(() => import('./features/kajian-rutin/KajianRutinPage').then((module) => ({ default: module.KajianRutinPage })));
+const KajianRutinPortalPage = lazy(() => import('./features/public-portal/KajianRutinPortalPage').then((module) => ({ default: module.KajianRutinPortalPage })));
 
 export function App() {
   return (
@@ -112,12 +116,12 @@ export function App() {
           ]}
         >
           <ErrorBoundary moduleName="Aplikasi">
-            <Routes>
+            <Suspense fallback={<LoadingState message="Memuat halaman…" />}><Routes>
               <Route
                 element={
-                  <Authenticated key="authenticated-routes" fallback={<Navigate to="/login" replace />}>
+                  <Authenticated key="authenticated-routes" fallback={<LoginRedirect />}>
                     <AppShell>
-                      <Outlet />
+                      <RouteAccess><Outlet /></RouteAccess>
                     </AppShell>
                   </Authenticated>
                 }
@@ -199,7 +203,8 @@ export function App() {
                   </Authenticated>
                 }
               />
-            </Routes>
+              <Route path="*" element={<NotFoundPage />} />
+            </Routes></Suspense>
           </ErrorBoundary>
         </Refine>
       </ThemeProvider>

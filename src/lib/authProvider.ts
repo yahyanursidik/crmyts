@@ -1,6 +1,8 @@
 import { AuthProvider } from '@refinedev/core';
 import { apiClient } from './apiClient';
-import { PermissionCode, RoleCode, ROLES, PERMISSIONS, ROLE_PERMISSIONS } from '@server/permissions/constants';
+import { PermissionCode, RoleCode, ROLE_PERMISSIONS } from '@server/permissions/constants';
+import { canOpenPath, safeReturnPath } from '@server/permissions/navigation';
+import { clearSession, getSessionToken, getSessionUser, storeSession, updateSessionUser } from './session';
 
 export interface UserIdentity {
   id: string;
@@ -14,134 +16,59 @@ export interface UserIdentity {
   permissions: PermissionCode[];
 }
 
+export function getIdentityPermissions(user: UserIdentity | null): PermissionCode[] {
+  return [...new Set((user?.roles || []).flatMap((role) => ROLE_PERMISSIONS[role] || []))];
+}
+
 export const authProvider: AuthProvider = {
-  login: async ({ email, password }) => {
+  login: async ({ email, password, rememberMe = false, returnTo }) => {
     try {
-      const response = await apiClient<{ user: UserIdentity; token: string }>('/auth/login', {
+      const { data } = await apiClient<{ user: UserIdentity; token: string }>('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: String(email).trim().toLowerCase(), password, rememberMe }),
       });
-
-      if (response.data?.token && response.data?.user) {
-        localStorage.setItem('crm_user_token', response.data.token);
-        localStorage.setItem('crm_user_session', JSON.stringify(response.data.user));
-        return {
-          success: true,
-          redirectTo: '/',
-        };
-      }
-
-      return {
-        success: false,
-        error: {
-          name: 'LoginError',
-          message: 'Email atau password tidak valid',
-        },
-      };
-    } catch (err: any) {
-      return {
-        success: false,
-        error: {
-          name: 'LoginError',
-          message: err?.message || 'Login gagal. Periksa kredensial Anda.',
-        },
-      };
+      if (!data?.token || !data?.user?.isActive) throw new Error('Email atau kata sandi tidak cocok.');
+      storeSession(data.token, data.user, rememberMe);
+      const destination = safeReturnPath(returnTo);
+      return { success: true, redirectTo: canOpenPath(destination, getIdentityPermissions(data.user)) ? destination : '/' };
+    } catch (error: unknown) {
+      return { success: false, error: { name: 'LoginError', message: error instanceof Error ? error.message : 'Gagal masuk. Silakan coba lagi.' } };
     }
   },
-
   logout: async () => {
     try {
       await apiClient('/auth/logout', { method: 'POST' }).catch(() => {});
     } finally {
-      localStorage.removeItem('crm_user_token');
-      localStorage.removeItem('crm_user_session');
+      clearSession();
     }
-    return {
-      success: true,
-      redirectTo: '/login',
-    };
+    return { success: true, redirectTo: '/login' };
   },
-
   check: async () => {
-    const token = localStorage.getItem('crm_user_token');
-    const session = localStorage.getItem('crm_user_session');
-
-    if (!token || !session) {
-      return {
-        authenticated: false,
-        redirectTo: '/login',
-      };
-    }
-
+    if (!getSessionToken()) return { authenticated: false, redirectTo: '/login' };
     try {
-      const parsed = JSON.parse(session);
-      if (parsed?.id && parsed?.isActive) {
-        return {
-          authenticated: true,
-        };
+      const { data } = await apiClient<{ user: UserIdentity }>('/auth/me');
+      if (!data?.user?.id || !data.user.isActive) {
+        clearSession();
+        return { authenticated: false, redirectTo: '/login?reason=expired' };
       }
-    } catch {
-      localStorage.removeItem('crm_user_token');
-      localStorage.removeItem('crm_user_session');
+      updateSessionUser(data.user);
+      return { authenticated: true };
+    } catch (error: any) {
+      if (error?.statusCode === 401 || error?.statusCode === 403) clearSession();
+      return { authenticated: false, redirectTo: error?.statusCode === 0 || error?.statusCode >= 500 ? '/login?reason=connection' : '/login?reason=expired' };
     }
-
-    return {
-      authenticated: false,
-      redirectTo: '/login',
-    };
   },
-
   onError: async (error) => {
-    if (error?.status === 401 || error?.statusCode === 401 || error?.status === 403 || error?.statusCode === 403) {
-      localStorage.removeItem('crm_user_token');
-      localStorage.removeItem('crm_user_session');
-      return {
-        logout: true,
-        redirectTo: '/login',
-      };
+    if (error?.status === 401 || error?.statusCode === 401) {
+      clearSession();
+      return { logout: true, redirectTo: '/login?reason=expired' };
     }
+    // Permission denials must not sign users out.
     return { error };
   },
-
-  getPermissions: async () => {
-    const session = localStorage.getItem('crm_user_session');
-    if (session) {
-      try {
-        const parsed = JSON.parse(session);
-        if (parsed.roles?.includes(ROLES.CRM_ADMIN) || parsed.roles?.includes('crm_admin')) {
-          return Object.values(PERMISSIONS);
-        }
-        if (parsed.roles && Array.isArray(parsed.roles)) {
-          const perms = new Set<PermissionCode>(parsed.permissions || []);
-          for (const r of parsed.roles) {
-            const rolePerms = ROLE_PERMISSIONS[r as RoleCode];
-            if (rolePerms) {
-              rolePerms.forEach((p) => perms.add(p));
-            }
-          }
-          return Array.from(perms);
-        }
-        return parsed.permissions || [];
-      } catch {
-        return [];
-      }
-    }
-    return [];
-  },
-
+  getPermissions: async () => getIdentityPermissions(getSessionUser<UserIdentity>()),
   getIdentity: async () => {
-    const session = localStorage.getItem('crm_user_session');
-    if (session) {
-      try {
-        const parsed = JSON.parse(session);
-        return {
-          ...parsed,
-          name: parsed.fullName || parsed.name || parsed.email,
-        };
-      } catch {
-        return null;
-      }
-    }
-    return null;
+    const user = getSessionUser<UserIdentity>();
+    return user ? { ...user, name: user.fullName || user.name || user.email } : null;
   },
 };

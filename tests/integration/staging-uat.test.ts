@@ -93,6 +93,7 @@ describe('Staging & UAT Test Suite — CRM Yayasan Tarbiyah Sunnah (CRM YTS)', (
 
   // 2. Login Check
   it('UAT 2: Login Authentication & Session Check', async () => {
+    vi.spyOn(client, 'getDb').mockReturnValue({ update: vi.fn().mockReturnValue({ set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }) }) } as any);
     const res = await router.handle({
       requestId: 'uat_auth_logout',
       method: 'POST',
@@ -395,6 +396,7 @@ describe('Staging & UAT Test Suite — CRM Yayasan Tarbiyah Sunnah (CRM YTS)', (
 
   // 11. Logout & Password Security Flow
   it('UAT 11: Logout & Password Reset Security Flow', async () => {
+    vi.spyOn(client, 'getDb').mockReturnValue({ update: vi.fn().mockReturnValue({ set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }) }) } as any);
     const res = await router.handle({
       requestId: 'uat_logout',
       method: 'POST',

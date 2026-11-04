@@ -1,33 +1,57 @@
-import { describe, it, expect } from 'vitest';
-import { loginUser } from '../../server/auth/service';
+import { beforeAll, beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
+import { loginUser, resolveUserBySubject } from '../../server/auth/service';
+import { hashPassword } from '../../server/auth/password';
+import { verifySessionToken } from '../../server/auth/token';
+import { ROLES } from '../../server/permissions/constants';
+import * as client from '../../server/db/client';
 
-describe('Strict Password Enforcement for Admin Accounts', () => {
-  it('allows login for admin@tarbiyahsunnah.id with correct password admin123', async () => {
-    const result = await loginUser('admin@tarbiyahsunnah.id', 'admin123');
-    expect(result).not.toBeNull();
-    expect(result?.user.email).toBe('admin@tarbiyahsunnah.id');
-    expect(result?.token).toBeDefined();
-  }, 15000);
+const password = ' StafYTS#2026 ';
+let passwordHash: string;
+let db: any;
+const user = { id: '018f0000-0000-7000-8000-000000000001', authSubject: 'sub_staf', email: 'staf@yts.id', fullName: 'Staf YTS', isActive: true, userRoles: [{ role: { code: ROLES.CS_OFFICER } }] };
+beforeAll(async () => { passwordHash = await hashPassword(password); });
+beforeEach(() => {
+  db = {
+    query: { appUsers: { findFirst: vi.fn().mockResolvedValue(user) }, appUserCredentials: { findFirst: vi.fn().mockResolvedValue({ userId: user.id, passwordHash, sessionVersion: 2 }) } },
+    update: vi.fn().mockReturnValue({ set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }) }),
+  };
+  vi.spyOn(client, 'getDb').mockReturnValue(db);
+});
+afterEach(() => vi.restoreAllMocks());
 
-  it('rejects login for admin@tarbiyahsunnah.id with any incorrect password', async () => {
-    const result1 = await loginUser('admin@tarbiyahsunnah.id', 'wrongpass');
-    expect(result1).toBeNull();
-
-    const result2 = await loginUser('admin@tarbiyahsunnah.id', '123456');
-    expect(result2).toBeNull();
-
-    const result3 = await loginUser('admin@tarbiyahsunnah.id', '');
-    expect(result3).toBeNull();
-  }, 15000);
-
-  it('allows login for crm_admin@tarbiyahsunnah.id with correct password admin123', async () => {
-    const result = await loginUser('crm_admin@tarbiyahsunnah.id', 'admin123');
-    expect(result).not.toBeNull();
-    expect(result?.user.email).toBe('crm_admin@tarbiyahsunnah.id');
-  }, 15000);
-
-  it('rejects login for crm_admin@tarbiyahsunnah.id with any incorrect password', async () => {
-    const result = await loginUser('crm_admin@tarbiyahsunnah.id', 'password_salah');
-    expect(result).toBeNull();
+describe('Staff authentication uses provisioned database credentials', () => {
+  it.each(Object.values(ROLES))('allows a provisioned active account for %s', async (role) => {
+    db.query.appUsers.findFirst.mockResolvedValue({ ...user, userRoles: [{ role: { code: role } }] });
+    const result = await loginUser(' STAF@YTS.ID ', password);
+    expect(result?.user.roles).toEqual([role]);
+    expect(result?.user).not.toHaveProperty('passwordHash');
+    expect(verifySessionToken(result!.token).payload?.sessionVersion).toBe(2);
+  });
+  it('preserves spaces in passwords and rejects a wrong password', async () => {
+    expect(await loginUser(user.email, password.trim())).toBeNull();
+    expect(await loginUser(user.email, 'wrong')).toBeNull();
+    expect(db.update).not.toHaveBeenCalled();
+  });
+  it('rejects accounts without credentials, without roles or suspended', async () => {
+    db.query.appUserCredentials.findFirst.mockResolvedValue(null);
+    expect(await loginUser(user.email, password)).toBeNull();
+    db.query.appUsers.findFirst.mockResolvedValue({ ...user, isActive: false });
+    expect(await loginUser(user.email, password)).toBeNull();
+    db.query.appUsers.findFirst.mockResolvedValue({ ...user, userRoles: [] });
+    expect(await loginUser(user.email, password)).toBeNull();
+  });
+  it('does not fall back to a seed administrator when the database fails', async () => {
+    db.query.appUsers.findFirst.mockRejectedValue(new Error('database unavailable'));
+    await expect(loginUser('admin@tarbiyahsunnah.id', 'admin123')).rejects.toThrow('database unavailable');
+  });
+  it('issues a 24-hour session or a remembered 14-day session', async () => {
+    const normal = verifySessionToken((await loginUser(user.email, password))!.token).payload!;
+    const remembered = verifySessionToken((await loginUser(user.email, password, true))!.token).payload!;
+    expect(normal.exp - normal.iat).toBe(86400);
+    expect(remembered.exp - remembered.iat).toBe(86400 * 14);
+  });
+  it('rejects old session versions after logout or password reset', async () => {
+    expect(await resolveUserBySubject(user.authSubject, 1)).toBeNull();
+    expect((await resolveUserBySubject(user.authSubject, 2))?.id).toBe(user.id);
   });
 });

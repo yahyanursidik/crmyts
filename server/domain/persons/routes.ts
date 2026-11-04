@@ -21,7 +21,7 @@ import {
 } from '../../db/schema';
 import { eq, desc, asc, ilike, or, and, sql, inArray } from 'drizzle-orm';
 import { normalizePhoneE164 } from '../../lib/phone';
-import { PERMISSIONS } from '../../permissions/constants';
+import { PERMISSIONS, hasPermission } from '../../permissions/constants';
 
 const createPersonSchema = z.object({
   fullName: z.string().min(2, 'Nama lengkap minimal 2 karakter'),
@@ -86,7 +86,7 @@ export function registerPersonsRoutes(router: Router) {
   // GET /api/persons/check-duplicate
   router.get(
     '/api/persons/check-duplicate',
-    requireAuth(async (ctx) => {
+    requirePermission(PERMISSIONS.PERSONS_LIST, async (ctx) => {
       const db = getDb();
       const rawPhone = ctx.query.phone?.trim();
       const rawEmail = ctx.query.email?.trim();
@@ -138,7 +138,7 @@ export function registerPersonsRoutes(router: Router) {
   // GET /api/persons (Comprehensive Paginated and Filtered List)
   router.get(
     '/api/persons',
-    requireAuth(async (ctx) => {
+    requirePermission(PERMISSIONS.PERSONS_LIST, async (ctx) => {
       const db = getDb();
 
       // Pagination params
@@ -438,6 +438,8 @@ export function registerPersonsRoutes(router: Router) {
   router.get(
     '/api/persons/:id',
     requireAuth(async (ctx) => {
+      const roles = ctx.user!.roles;
+      if (![PERMISSIONS.PERSONS_VIEW, PERMISSIONS.PERSONS_VIEW_OPERATIONAL].some((permission) => hasPermission(roles, permission))) return errorResponse('FORBIDDEN', 'Izin melihat profil jamaah diperlukan.', 403, ctx.requestId);
       const db = getDb();
       const personId = ctx.params.id;
 
@@ -446,11 +448,11 @@ export function registerPersonsRoutes(router: Router) {
       }
 
       // Check if user has permission to view sensitive notes
-      const userRoles = ctx.user?.roles || [];
-      const canViewSensitiveNotes =
-        userRoles.includes('crm_admin') ||
-        userRoles.includes('data_steward') ||
-        userRoles.includes('leadership_viewer');
+      const canViewSensitiveNotes = hasPermission(roles, PERMISSIONS.SENSITIVE_NOTES_VIEW);
+      const canInteractions = hasPermission(roles, PERMISSIONS.INTERACTIONS_VIEW);
+      const canTasks = hasPermission(roles, PERMISSIONS.TASKS_VIEW_OWN) || hasPermission(roles, PERMISSIONS.TASKS_VIEW_ALL);
+      const canDonations = hasPermission(roles, PERMISSIONS.DONATIONS_VIEW_DETAIL) || hasPermission(roles, PERMISSIONS.DONATIONS_VIEW_UNVERIFIED);
+      const canWaqf = hasPermission(roles, PERMISSIONS.WAQF_VIEW_DETAIL);
 
       const person = await db.query.persons.findFirst({
         where: eq(persons.id, personId),
@@ -511,7 +513,7 @@ export function registerPersonsRoutes(router: Router) {
           .where(eq(eventAttendance.personId, personId))
           .orderBy(desc(events.startAt)),
 
-        db.query.interactions.findMany({
+        canInteractions ? db.query.interactions.findMany({
           where: eq(interactions.personId, personId),
           orderBy: [desc(interactions.occurredAt)],
           with: {
@@ -522,10 +524,10 @@ export function registerPersonsRoutes(router: Router) {
               },
             },
           },
-        }),
+        }) : [],
 
-        db.query.tasks.findMany({
-          where: eq(tasks.personId, personId),
+        canTasks ? db.query.tasks.findMany({
+          where: and(eq(tasks.personId, personId), hasPermission(roles, PERMISSIONS.TASKS_VIEW_ALL) ? undefined : eq(tasks.ownerUserId, ctx.user!.id)),
           orderBy: [desc(tasks.dueAt)],
           with: {
             owner: {
@@ -535,10 +537,10 @@ export function registerPersonsRoutes(router: Router) {
               },
             },
           },
-        }),
+        }) : [],
 
-        db.query.donations.findMany({
-          where: eq(donations.personId, personId),
+        canDonations ? db.query.donations.findMany({
+          where: and(eq(donations.personId, personId), hasPermission(roles, PERMISSIONS.DONATIONS_VIEW_DETAIL) ? undefined : eq(donations.verificationStatus, 'unverified')),
           orderBy: [desc(donations.donationDate)],
           with: {
             program: true,
@@ -549,9 +551,9 @@ export function registerPersonsRoutes(router: Router) {
               },
             },
           },
-        }),
+        }) : [],
 
-        db.query.waqfCases.findMany({
+        canWaqf ? db.query.waqfCases.findMany({
           where: eq(waqfCases.personId, personId),
           orderBy: [desc(waqfCases.openedAt)],
           with: {
@@ -562,7 +564,7 @@ export function registerPersonsRoutes(router: Router) {
               },
             },
           },
-        }),
+        }) : [],
       ]);
 
       // Calculate aggregated metrics
@@ -570,8 +572,12 @@ export function registerPersonsRoutes(router: Router) {
         .filter((d) => d.verificationStatus === 'verified')
         .reduce((sum, d) => sum + Number(d.amountRupiah), 0);
 
-      // Kehadiran Kajian Rutin (absensi mandiri) — dicocokkan lewat email jamaah.
-      const routineAttendance = person.email
+      // Match both verified portal email and the normalized contact used by staff.
+      const routineContacts = [
+        person.email ? sql`lower(${kajianRutinAttendance.email}) = ${person.email.toLowerCase()}` : undefined,
+        person.phoneE164 ? sql`regexp_replace(coalesce(${kajianRutinAttendance.phone}, ''), '[^0-9]', '', 'g') = ${person.phoneE164.replace(/\D/g, '')}` : undefined,
+      ].filter(Boolean);
+      const routineAttendance = routineContacts.length
         ? await db
             .select({
               id: kajianRutinAttendance.id,
@@ -586,7 +592,7 @@ export function registerPersonsRoutes(router: Router) {
             .from(kajianRutinAttendance)
             .innerJoin(kajianRutinSessions, eq(kajianRutinAttendance.sessionId, kajianRutinSessions.id))
             .innerJoin(kajianRutinSeries, eq(kajianRutinAttendance.seriesId, kajianRutinSeries.id))
-            .where(sql`lower(${kajianRutinAttendance.email}) = ${person.email.toLowerCase()}`)
+            .where(or(...routineContacts))
             .orderBy(desc(kajianRutinAttendance.checkInAt))
             .limit(20)
         : [];
@@ -684,7 +690,7 @@ export function registerPersonsRoutes(router: Router) {
           attendances,
           routineAttendance,
           interactions: personInteractions,
-          tasks: personTasks,
+          tasks: personTasks.map((task) => ({ ...task, assignee: task.owner })),
           donations: personDonations.map((d) => ({
             ...d,
             amountRupiah: Number(d.amountRupiah),
@@ -693,7 +699,7 @@ export function registerPersonsRoutes(router: Router) {
             ...w,
             estimatedValueRupiah: w.estimatedValueRupiah ? Number(w.estimatedValueRupiah) : null,
           })),
-          sensitiveNotes: person.sensitiveNotes || [],
+          sensitiveNotes: canViewSensitiveNotes ? person.sensitiveNotes || [] : [],
           metrics: {
             totalAttendances: attendances.length + routineAttendance.length,
             totalInteractions: personInteractions.length,

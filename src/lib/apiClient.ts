@@ -1,4 +1,5 @@
 import { env } from './env';
+import { getSessionToken } from './session';
 
 export interface ApiResponse<T = unknown> {
   data?: T;
@@ -52,7 +53,7 @@ export async function apiClient<T>(
 
   // Automatically attach session token if available
   if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('crm_user_token');
+    const token = getSessionToken();
     if (token && !headers.has('Authorization')) {
       headers.set('Authorization', `Bearer ${token}`);
     }

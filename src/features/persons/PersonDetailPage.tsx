@@ -30,6 +30,9 @@ import { PersonFormModal } from './components/PersonFormModal';
 import { AddInteractionModal } from './components/AddInteractionModal';
 import { ECertificateModal } from '../events/ECertificateModal';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { usePermissions } from '@refinedev/core';
+import { PERMISSIONS, type PermissionCode } from '@server/permissions/constants';
+import { PermissionGate } from '@/components/common/PermissionGate';
 
 interface PersonDetailData {
   id: string;
@@ -52,7 +55,7 @@ interface PersonDetailData {
   attendances: Array<{
     id: string;
     status: string;
-    checkedInAt: string;
+    checkInAt: string;
     event: {
       id: string;
       title: string;
@@ -156,6 +159,7 @@ function getInitials(name: string): string {
 }
 
 export const PersonDetailPage: React.FC = () => {
+  const { data: permissions = [] } = usePermissions<PermissionCode[]>({});
   const { id } = useParams<{ id: string }>();
   const [data, setData] = useState<PersonDetailData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -250,23 +254,23 @@ export const PersonDetailPage: React.FC = () => {
         </Link>
 
         <div className="flex items-center gap-2">
-          <button
+          <PermissionGate permission={PERMISSIONS.INTERACTIONS_CREATE}><button
             onClick={() => setInteractionModalOpen(true)}
             className="px-3.5 py-2 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-semibold shadow-2xs transition-all flex items-center gap-1.5 active:scale-98"
           >
             <MessageSquare className="w-3.5 h-3.5 text-[#E0B970]" />
             <span>Catat Sapaan</span>
-          </button>
+          </button></PermissionGate>
 
-          <button
+          <PermissionGate permission={PERMISSIONS.PERSONS_EDIT}><button
             onClick={() => setEditModalOpen(true)}
             className="px-3.5 py-2 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#1C2321] rounded-xl text-xs font-semibold border border-[#1B4332]/12 transition-all flex items-center gap-1.5 active:scale-98"
           >
             <Edit3 className="w-3.5 h-3.5 text-[#6B7A72]" />
             <span>Edit Profil</span>
-          </button>
+          </button></PermissionGate>
 
-          <button
+          <PermissionGate permission={PERMISSIONS.PERSONS_DELETE}><button
             type="button"
             onClick={() => setIsDeleteDialogOpen(true)}
             className="p-2 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-xl border border-rose-200 transition-all text-xs font-bold flex items-center gap-1 active:scale-98"
@@ -274,7 +278,7 @@ export const PersonDetailPage: React.FC = () => {
           >
             <Trash2 className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Hapus</span>
-          </button>
+          </button></PermissionGate>
         </div>
       </div>
 
@@ -408,17 +412,17 @@ export const PersonDetailPage: React.FC = () => {
             <span className="text-xl font-bold text-[#C77A16] font-display">{data.metrics.pendingTasksCount}</span>
           </div>
 
-          <div className="p-3 bg-white border border-[#1B4332]/10 rounded-xl border-l-[3px] border-l-[#2F7D4F] space-y-0.5">
+          <PermissionGate permission={[PERMISSIONS.DONATIONS_VIEW_DETAIL, PERMISSIONS.DONATIONS_VIEW_UNVERIFIED]}><div className="p-3 bg-white border border-[#1B4332]/10 rounded-xl border-l-[3px] border-l-[#2F7D4F] space-y-0.5">
             <span className="text-[10px] font-mono font-semibold text-[#2F7D4F] uppercase tracking-wider block">DONASI SAH</span>
             <span className="text-sm font-bold text-[#2F7D4F] font-mono block mt-1">
               Rp {data.metrics.verifiedTotalDonationsRupiah.toLocaleString('id-ID')}
             </span>
-          </div>
+          </div></PermissionGate>
 
-          <div className="p-3 bg-white border border-[#1B4332]/10 rounded-xl border-l-[3px] border-l-[#0F4C4A] space-y-0.5">
+          <PermissionGate permission={PERMISSIONS.WAQF_VIEW_DETAIL}><div className="p-3 bg-white border border-[#1B4332]/10 rounded-xl border-l-[3px] border-l-[#0F4C4A] space-y-0.5">
             <span className="text-[10px] font-mono font-semibold text-[#0F4C4A] uppercase tracking-wider block">KASUS WAKAF</span>
             <span className="text-xl font-bold text-[#0F4C4A] font-display">{data.metrics.activeWaqfCasesCount}</span>
-          </div>
+          </div></PermissionGate>
 
           <div className="p-3 bg-white border border-[#1B4332]/10 rounded-xl border-l-[3px] border-l-[#8A9690] space-y-0.5">
             <span className="text-[10px] font-mono font-semibold text-[#6B7A72] uppercase tracking-wider block">TERDAFTAR</span>
@@ -439,7 +443,7 @@ export const PersonDetailPage: React.FC = () => {
           { key: 'donations', label: 'Riwayat Donasi', count: data.donations.length },
           { key: 'waqf', label: 'Aset Wakaf', count: data.waqfCases.length },
           { key: 'sensitive', label: 'Catatan Khusus', count: data.sensitiveNotes.length },
-        ].map((tab) => (
+        ].filter((tab) => tab.key === 'donations' ? permissions.includes(PERMISSIONS.DONATIONS_VIEW_DETAIL) || permissions.includes(PERMISSIONS.DONATIONS_VIEW_UNVERIFIED) : tab.key === 'waqf' ? permissions.includes(PERMISSIONS.WAQF_VIEW_DETAIL) : tab.key === 'sensitive' ? permissions.includes(PERMISSIONS.SENSITIVE_NOTES_VIEW) : tab.key === 'interactions' ? permissions.includes(PERMISSIONS.INTERACTIONS_VIEW) : tab.key === 'tasks' ? permissions.includes(PERMISSIONS.TASKS_VIEW_OWN) || permissions.includes(PERMISSIONS.TASKS_VIEW_ALL) : true).map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key as any)}

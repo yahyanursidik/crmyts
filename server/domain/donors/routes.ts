@@ -54,7 +54,7 @@ export function registerDonorsPipelineRoutes(router: Router) {
   router.get(
     '/api/donors/pipeline',
     requireAuth(
-      requirePermission(PERMISSIONS.DONATIONS_LIST, async (ctx) => {
+      requirePermission(PERMISSIONS.DONORS_VIEW, async (ctx) => {
         const db = getDb();
         const user = ctx.user;
         if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);

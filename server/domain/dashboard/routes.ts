@@ -1,6 +1,6 @@
 import { Router } from '../../http/router';
 import { requireAuth } from '../../http/middleware';
-import { successResponse } from '../../http/response';
+import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import { 
   persons, 
@@ -11,16 +11,19 @@ import {
   donationPrograms, 
   waqfCases,
   interactions,
-  auditLogs 
+  auditLogs,
+  emailCampaigns
 } from '../../db/schema';
 import { sql, eq, and, or, isNull, inArray, gte, lte, desc, asc } from 'drizzle-orm';
-import { ROLES, RoleCode } from '../../permissions/constants';
+import { ROLES, RoleCode, PERMISSIONS, ROLE_PERMISSIONS, hasPermission } from '../../permissions/constants';
+import { canOpenPath } from '../../permissions/navigation';
 
 export function registerDashboardRoutes(router: Router) {
   // 1. Executive Stats for Leadership
   router.get(
     '/api/dashboard/stats',
     requireAuth(async (ctx) => {
+      if (!ctx.user!.roles.some((role) => [ROLES.CRM_ADMIN, ROLES.LEADERSHIP_VIEWER, ROLES.AUDITOR].includes(role as any))) return errorResponse('FORBIDDEN', 'Ikhtisar yayasan terbatas untuk pimpinan, administrator dan auditor.', 403, ctx.requestId);
       const db = getDb();
 
       const now = new Date();
@@ -249,8 +252,9 @@ export function registerDashboardRoutes(router: Router) {
             })),
           },
           queues: {
-            urgentTasks: urgentTasks.map((t) => ({
+            urgentTasks: (hasPermission(ctx.user!.roles, PERMISSIONS.TASKS_VIEW_ALL) ? urgentTasks : []).map((t) => ({
               id: t.id,
+              ownerUserId: t.ownerUserId,
               title: t.title,
               personId: t.person?.id || null,
               personName: t.person?.fullName || null,
@@ -259,14 +263,14 @@ export function registerDashboardRoutes(router: Router) {
               dueAt: t.dueAt,
               isOverdue: new Date(t.dueAt).getTime() < Date.now(),
             })),
-            unverifiedDonations: unverifiedDonationList.map((d) => ({
+            unverifiedDonations: (hasPermission(ctx.user!.roles, PERMISSIONS.DONATIONS_LIST) ? unverifiedDonationList : []).map((d) => ({
               id: d.id,
               personName: d.person?.fullName || 'Anonim',
               programName: d.program?.name || 'Infaq Umum',
               amountRupiah: Number(d.amountRupiah),
               donationDate: d.donationDate,
             })),
-            recentAuditLogs: recentAuditLogs.map((a: any) => ({
+            recentAuditLogs: (hasPermission(ctx.user!.roles, PERMISSIONS.AUDIT_VIEW) ? recentAuditLogs : []).map((a: any) => ({
               id: a.id,
               action: a.action,
               entityType: a.entityType,
@@ -286,11 +290,15 @@ export function registerDashboardRoutes(router: Router) {
   router.get(
     '/api/dashboard/role-view',
     requireAuth(async (ctx) => {
-      const db = getDb();
       const user = ctx.user;
 
       // Active role or requested role
       const requestedRole = (ctx.query.role?.trim() || user?.roles[0] || ROLES.LEADERSHIP_VIEWER) as RoleCode;
+      if (!Object.hasOwn(ROLE_PERMISSIONS, requestedRole)) return errorResponse('VALIDATION_ERROR', 'Peran tidak dikenali.', 400, ctx.requestId);
+      if (!user!.roles.includes(requestedRole) && !user!.roles.includes(ROLES.CRM_ADMIN)) return errorResponse('FORBIDDEN', 'Dashboard hanya tersedia untuk peran akun Anda.', 403, ctx.requestId);
+      const db = getDb();
+      const canReadTasks = hasPermission(user!.roles, PERMISSIONS.TASKS_VIEW_OWN) || hasPermission(user!.roles, PERMISSIONS.TASKS_VIEW_ALL);
+      const taskScope = hasPermission(user!.roles, PERMISSIONS.TASKS_VIEW_ALL) ? undefined : eq(tasks.ownerUserId, user!.id);
 
       const now = new Date();
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
@@ -298,10 +306,10 @@ export function registerDashboardRoutes(router: Router) {
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
       // Common Overdue Tasks for user / role
-      const overdueTasks = await db.query.tasks.findMany({
+      const overdueTasks = canReadTasks ? await db.query.tasks.findMany({
         where: and(
           or(eq(tasks.status, 'pending'), eq(tasks.status, 'in_progress')),
-          lte(tasks.dueAt, now)
+          lte(tasks.dueAt, now), taskScope
         ),
         orderBy: [asc(tasks.dueAt)],
         limit: 8,
@@ -314,14 +322,14 @@ export function registerDashboardRoutes(router: Router) {
             },
           },
         },
-      });
+      }) : [];
 
       // Today's Scheduled Tasks
-      const todayTasks = await db.query.tasks.findMany({
+      const todayTasks = canReadTasks ? await db.query.tasks.findMany({
         where: and(
           or(eq(tasks.status, 'pending'), eq(tasks.status, 'in_progress')),
           gte(tasks.dueAt, todayStart),
-          lte(tasks.dueAt, todayEnd)
+          lte(tasks.dueAt, todayEnd), taskScope
         ),
         orderBy: [asc(tasks.dueAt)],
         limit: 8,
@@ -334,7 +342,7 @@ export function registerDashboardRoutes(router: Router) {
             },
           },
         },
-      });
+      }) : [];
 
       let roleName = 'Pimpinan Eksekutif';
       let roleKpis: Array<{ label: string; value: string | number; change?: string; color: string }> = [];
@@ -383,15 +391,15 @@ export function registerDashboardRoutes(router: Router) {
           const [recentAuditsRes] = await db.select({ count: sql<number>`count(*)::int` }).from(auditLogs).where(gte(auditLogs.createdAt, todayStart));
 
           roleKpis = [
-            { label: 'Total User Staf', value: totalUsersRes?.count || 10, color: 'text-brand-800' },
+            { label: 'Total User Staf', value: totalUsersRes?.count || 0, color: 'text-brand-800' },
             { label: 'Jamaah Tanpa Owner', value: unassignedPersonsRes?.count || 0, color: 'text-amber-800' },
-            { label: 'Audit Log 24 Jam', value: recentAuditsRes?.count || 24, color: 'text-blue-800' },
+            { label: 'Audit Log 24 Jam', value: recentAuditsRes?.count || 0, color: 'text-blue-800' },
             { label: 'Total Overdue Tugas', value: overdueTasks.length, color: 'text-red-800' },
           ];
 
           quickActions = [
-            { label: 'Audit Security Log', href: '/dashboard', icon: 'Shield', description: 'Pantau riwayat aksi sensitif' },
-            { label: 'Data Quality & Dedup', href: '/people', icon: 'Database', description: 'Review kualitas data jamaah' },
+            { label: 'Log audit', href: '/audit', icon: 'Shield', description: 'Riwayat perubahan data' },
+            { label: 'Kualitas data', href: '/data-quality', icon: 'Database', description: 'Duplikasi dan kelengkapan jamaah' },
             { label: '+ Buat Tugas Global', href: '/tasks', icon: 'Plus', description: 'Delegasikan tugas ke staf yayasan' },
             { label: 'Master Jamaah', href: '/people', icon: 'Users', description: 'Buka database master jamaah' },
           ];
@@ -437,7 +445,7 @@ export function registerDashboardRoutes(router: Router) {
           ];
 
           quickActions = [
-            { label: 'Review Duplikasi Jamaah', href: '/people', icon: 'Layers', description: 'Cek potensi duplikasi nomor telepon' },
+            { label: 'Review Duplikasi Jamaah', href: '/data-quality', icon: 'Layers', description: 'Cek potensi duplikasi nomor telepon' },
             { label: '+ Input Jamaah Baru', href: '/people', icon: 'UserPlus', description: 'Pencatatan jamaah dengan validasi E.164' },
             { label: 'Lengkapi Data Domisili', href: '/people', icon: 'MapPin', description: 'Filter jamaah tanpa kota/kabupaten' },
           ];
@@ -571,7 +579,7 @@ export function registerDashboardRoutes(router: Router) {
 
           quickActions = [
             { label: '+ Jadwal Kajian Baru', href: '/events', icon: 'Plus', description: 'Buat agenda kajian tematik / rutin' },
-            { label: 'Buka Scanner Gate', href: '/events', icon: 'QrCode', description: 'Live check-in barcode tiket di pintu masjid' },
+            { label: 'Buka Scanner Gate', href: '/gate', icon: 'QrCode', description: 'Pindai tiket peserta di pintu masuk' },
             { label: 'Kelola Peserta & Presensi', href: '/events', icon: 'FileSpreadsheet', description: 'Cek daftar jamaah, ekspor & impor' },
             { label: 'Portal Kajian Publik', href: '/kajian', icon: 'Globe', description: 'Buka halaman pendaftaran online jamaah' },
             { label: 'Database Jamaah', href: '/people', icon: 'IdCard', description: 'Direktori kontak 360° jamaah majelis' },
@@ -801,21 +809,38 @@ export function registerDashboardRoutes(router: Router) {
         }
 
         // ==========================================
-        // DEFAULT / LEADERSHIP
+        // Dedicated views for communication and audit staff.
         // ==========================================
+        case ROLES.BROADCAST_OFFICER: {
+          roleName = 'Komunikasi & Broadcast';
+          const [campaigns] = await db.select({ count: sql<number>`count(*)::int` }).from(emailCampaigns);
+          roleKpis = [{ label: 'Kampanye email', value: campaigns?.count ?? 0, color: 'text-brand-800' }];
+          quickActions = [{ label: 'Kelola komunikasi', href: '/automation', icon: 'MessageSquare' }, { label: 'Akun saya', href: '/settings', icon: 'Users' }];
+          break;
+        }
+        case ROLES.AUDITOR: {
+          roleName = 'Auditor';
+          const [audits] = await db.select({ count: sql<number>`count(*)::int` }).from(auditLogs).where(gte(auditLogs.createdAt, todayStart));
+          roleKpis = [{ label: 'Jejak audit hari ini', value: audits?.count ?? 0, color: 'text-brand-800' }];
+          quickActions = [{ label: 'Periksa log audit', href: '/audit', icon: 'ShieldCheck' }, { label: 'Buka laporan', href: '/reports', icon: 'FileSpreadsheet' }];
+          break;
+        }
         default: {
           roleName = 'Pimpinan & Pengawas Yayasan';
+          const [[people], [donation], [waqf]] = await Promise.all([
+            db.select({ count: sql<number>`count(*)::int` }).from(persons).where(eq(persons.isActive, true)),
+            db.select({ total: sql<string>`coalesce(sum(${donations.amountRupiah}), 0)::text` }).from(donations).where(and(eq(donations.verificationStatus, 'verified'), gte(donations.donationDate, new Date(now.getFullYear(), now.getMonth(), 1)))),
+            db.select({ count: sql<number>`count(*)::int` }).from(waqfCases).where(inArray(waqfCases.currentStage, ['interested', 'consulted', 'pledged', 'document_preparation', 'in_progress'])),
+          ]);
           roleKpis = [
-            { label: 'Total Jamaah', value: '1,250', color: 'text-brand-800' },
-            { label: 'Donasi Bulan Ini', value: 'Rp 145 Jt', color: 'text-emerald-800' },
-            { label: 'Wakaf Aktif', value: '12 Kasus', color: 'text-purple-800' },
-            { label: 'Overdue Organisasi', value: overdueTasks.length, color: 'text-red-800' },
+            { label: 'Total jamaah', value: people?.count ?? 0, color: 'text-brand-800' },
+            { label: 'Donasi bulan ini', value: new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(Number(donation?.total || 0)), color: 'text-emerald-800' },
+            { label: 'Wakaf aktif', value: waqf?.count ?? 0, color: 'text-purple-800' },
           ];
 
           quickActions = [
             { label: 'Ringkasan Eksekutif', href: '/', icon: 'BarChart3', description: 'Lihat 10 KPI & 5 visual grafik' },
-            { label: 'Laporan Finansial & Infaq', href: '/donations', icon: 'Coins', description: 'Pantau realisasi donasi' },
-            { label: 'Portofolio Wakaf', href: '/waqf', icon: 'Building2', description: 'Aset wakaf tanah dan markaz' },
+            { label: 'Laporan yayasan', href: '/reports', icon: 'FileSpreadsheet' },
           ];
 
           todayItems = mapToday(todayTasks);
@@ -829,7 +854,7 @@ export function registerDashboardRoutes(router: Router) {
           role: requestedRole,
           roleName,
           roleKpis,
-          quickActions,
+          quickActions: quickActions.filter((action) => ['/gate', '/kajian'].includes(action.href) || canOpenPath(action.href, [...new Set(user!.roles.flatMap((role) => ROLE_PERMISSIONS[role] || []))])),
           todayItems,
           overdueItems,
           attentionItems,

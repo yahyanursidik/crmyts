@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { z } from 'zod';
 import { Router } from '../../http/router';
-import { requireAuth, validateBody, type RequestContext } from '../../http/middleware';
+import { requireAuth, validateBody, type RequestContext, type Handler } from '../../http/middleware';
 import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import {
@@ -25,7 +25,7 @@ import { getServerEnv } from '../../config/env';
 import { getBroadcastDailyQuota, reserveBroadcastEmailSlot } from '../../email/broadcastQuota';
 import { formatEventDateTimeWib } from '../events/emailNotifications';
 import { getJakartaDateKey } from '../../email/broadcastQuota';
-import { ROLES } from '../../permissions/constants';
+import { ROLES, PERMISSIONS, hasPermission } from '../../permissions/constants';
 
 export type { DripRecipient, DripCampaignStats };
 
@@ -930,11 +930,22 @@ export async function processDueDripCampaigns(now = new Date()): Promise<{ check
   return { checked: candidates.length, processed, errors };
 }
 
+function requireAutomationAccess(handler: Handler): Handler {
+  return requireAuth(async (ctx) => {
+    const roles = ctx.user!.roles;
+    const communication = hasPermission(roles, PERMISSIONS.BROADCAST_DRAFT) || hasPermission(roles, PERMISSIONS.BROADCAST_HISTORY);
+    const donationOnly = ctx.path.includes('donation-thanks') || ctx.path.includes('program-report');
+    const waqfOnly = ctx.path.includes('waqf-followup');
+    if (donationOnly ? !hasPermission(roles, PERMISSIONS.DONATIONS_VIEW_DETAIL) : waqfOnly ? !hasPermission(roles, PERMISSIONS.WAQF_LIST) : !communication) return errorResponse('FORBIDDEN', 'Akses komunikasi tidak tersedia untuk peran Anda.', 403, ctx.requestId);
+    return handler(ctx);
+  });
+}
+
 export function registerAutomationRoutes(router: Router) {
   // 1. GET /api/automation/templates
   router.get(
     '/api/automation/templates',
-    requireAuth(async (ctx) => {
+    requireAutomationAccess(async (ctx) => {
       const templates = [
         {
           id: 'event_reminder',
@@ -985,7 +996,7 @@ export function registerAutomationRoutes(router: Router) {
   // 2. POST /api/automation/trigger-event-reminder (Batch Reminders Before Event)
   router.post(
     '/api/automation/trigger-event-reminder',
-    requireAuth(
+    requireAutomationAccess(
       validateBody(triggerBatchReminderSchema, async (ctx, body) => {
         const db = getDb();
         const user = ctx.user;
@@ -1068,7 +1079,7 @@ export function registerAutomationRoutes(router: Router) {
   // 3. POST /api/automation/trigger-attendance-thanks (Post-Event Gratitude & Doa Istiqomah)
   router.post(
     '/api/automation/trigger-attendance-thanks',
-    requireAuth(
+    requireAutomationAccess(
       validateBody(triggerAttendanceThanksSchema, async (ctx, body) => {
         const db = getDb();
         const user = ctx.user;
@@ -1135,7 +1146,7 @@ export function registerAutomationRoutes(router: Router) {
   // 4. POST /api/automation/trigger-donation-thanks (Donation E-Receipt)
   router.post(
     '/api/automation/trigger-donation-thanks',
-    requireAuth(
+    requireAutomationAccess(
       validateBody(triggerDonationThanksSchema, async (ctx, body) => {
         const db = getDb();
         const user = ctx.user;
@@ -1196,7 +1207,7 @@ export function registerAutomationRoutes(router: Router) {
   // 5. POST /api/automation/trigger-waqf-followup
   router.post(
     '/api/automation/trigger-waqf-followup',
-    requireAuth(
+    requireAutomationAccess(
       validateBody(triggerWaqfFollowupSchema, async (ctx, body) => {
         const db = getDb();
         const user = ctx.user;
@@ -1262,7 +1273,7 @@ export function registerAutomationRoutes(router: Router) {
   // 6. POST /api/automation/trigger-program-report (Program Impact Report Broadcast)
   router.post(
     '/api/automation/trigger-program-report',
-    requireAuth(
+    requireAutomationAccess(
       validateBody(triggerProgramReportSchema, async (ctx, body) => {
         const db = getDb();
         const user = ctx.user;
@@ -1331,7 +1342,7 @@ export function registerAutomationRoutes(router: Router) {
   // 6. GET /api/automation/inactive-attendees (Jamaah Rindu Majelis Detection)
   router.get(
     '/api/automation/inactive-attendees',
-    requireAuth(async (ctx) => {
+    requireAutomationAccess(async (ctx) => {
       const db = getDb();
       const parsedMinDays = Number.parseInt(ctx.query.minDays || '30', 10);
       const minDays = Number.isFinite(parsedMinDays) ? Math.min(Math.max(parsedMinDays, 1), 3650) : 30;
@@ -1522,7 +1533,7 @@ export function registerAutomationRoutes(router: Router) {
   // 7. POST /api/automation/send-inactive-greeting (Log WhatsApp outreach & optional follow-up task)
   router.post(
     '/api/automation/send-inactive-greeting',
-    requireAuth(
+    requireAutomationAccess(
       validateBody(sendInactiveGreetingSchema, async (ctx, body) => {
         const db = getDb();
         const user = ctx.user;
@@ -1622,7 +1633,7 @@ export function registerAutomationRoutes(router: Router) {
   // 8. GET /api/automation/email-broadcast-quota (Global WIB dispatch safeguard)
   router.get(
     '/api/automation/email-broadcast-quota',
-    requireAuth(async (ctx) => {
+    requireAutomationAccess(async (ctx) => {
       const quota = await getBroadcastDailyQuota(getDb());
       return successResponse(quota, { requestId: ctx.requestId });
     })
@@ -1631,7 +1642,7 @@ export function registerAutomationRoutes(router: Router) {
   // 9. POST /api/automation/log-outreach (Generic CRM Interaction Logger for all automation channels)
   router.post(
     '/api/automation/log-outreach',
-    requireAuth(
+    requireAutomationAccess(
       validateBody(logOutreachSchema, async (ctx, body) => {
         const db = getDb();
         const user = ctx.user;
@@ -1677,7 +1688,7 @@ export function registerAutomationRoutes(router: Router) {
   // 10. GET /api/automation/email-campaigns (List Drip Email Campaigns from PostgreSQL with fallback)
   router.get(
     '/api/automation/email-campaigns',
-    requireAuth(async (ctx) => {
+    requireAutomationAccess(async (ctx) => {
       const db = getDb();
       await ensureEmailCampaignsTableAndSeed(db);
 
@@ -1710,7 +1721,7 @@ export function registerAutomationRoutes(router: Router) {
   // 11. GET /api/automation/email-campaigns/:id (Get Single Drip Email Campaign)
   router.get(
     '/api/automation/email-campaigns/:id',
-    requireAuth(async (ctx) => {
+    requireAutomationAccess(async (ctx) => {
       const db = getDb();
       const campaignId = ctx.params?.id || '';
 
@@ -1726,7 +1737,7 @@ export function registerAutomationRoutes(router: Router) {
   // 12. POST /api/automation/email-campaigns (Create New Drip Campaign with Real Emails)
   router.post(
     '/api/automation/email-campaigns',
-    requireAuth(
+    requireAutomationAccess(
       validateBody(createEmailCampaignSchema, async (ctx, body) => {
         const db = getDb();
         const user = ctx.user;
@@ -1833,7 +1844,7 @@ export function registerAutomationRoutes(router: Router) {
   // 13. PUT /api/automation/email-campaigns/:id (Update Campaign Details)
   router.put(
     '/api/automation/email-campaigns/:id',
-    requireAuth(
+    requireAutomationAccess(
       validateBody(updateEmailCampaignSchema, async (ctx, body) => {
         const db = getDb();
         const campaignId = ctx.params?.id || '';
@@ -1870,12 +1881,12 @@ export function registerAutomationRoutes(router: Router) {
   );
 
   // 14. POST /api/automation/email-campaigns/:id/dispatch-today
-  router.post('/api/automation/email-campaigns/:id/dispatch-today', requireAuth((ctx) => dispatchDripCampaign(ctx)));
+  router.post('/api/automation/email-campaigns/:id/dispatch-today', requireAutomationAccess((ctx) => dispatchDripCampaign(ctx)));
 
   // 15. POST /api/automation/email-campaigns/:id/test-email (Send Single Test Email)
   router.post(
     '/api/automation/email-campaigns/:id/test-email',
-    requireAuth(
+    requireAutomationAccess(
       validateBody(testEmailCampaignSchema, async (ctx, body) => {
         const campaignId = ctx.params?.id || '';
         const db = getDb();
@@ -1916,7 +1927,7 @@ export function registerAutomationRoutes(router: Router) {
   // 16. POST /api/automation/email-campaigns/:id/pause
   router.post(
     '/api/automation/email-campaigns/:id/pause',
-    requireAuth(async (ctx) => {
+    requireAutomationAccess(async (ctx) => {
       const campaignId = ctx.params?.id || '';
       const db = getDb();
       const campaign = await findCampaign(db, campaignId);
@@ -1935,7 +1946,7 @@ export function registerAutomationRoutes(router: Router) {
   // 17. POST /api/automation/email-campaigns/:id/resume
   router.post(
     '/api/automation/email-campaigns/:id/resume',
-    requireAuth(async (ctx) => {
+    requireAutomationAccess(async (ctx) => {
       const campaignId = ctx.params?.id || '';
       const db = getDb();
       const campaign = await findCampaign(db, campaignId);
@@ -1954,7 +1965,7 @@ export function registerAutomationRoutes(router: Router) {
   // 18. DELETE /api/automation/email-campaigns/:id
   router.delete(
     '/api/automation/email-campaigns/:id',
-    requireAuth(async (ctx) => {
+    requireAutomationAccess(async (ctx) => {
       const campaignId = ctx.params?.id || '';
       const db = getDb();
       const campaign = await findCampaign(db, campaignId);
@@ -1981,7 +1992,7 @@ export function registerAutomationRoutes(router: Router) {
   // 19. POST /api/automation/email-campaigns/:id/reset (Reset campaign to Day 1)
   router.post(
     '/api/automation/email-campaigns/:id/reset',
-    requireAuth(async (ctx) => {
+    requireAutomationAccess(async (ctx) => {
       const campaignId = ctx.params?.id || '';
       const db = getDb();
       const campaign = await findCampaign(db, campaignId);
@@ -2032,7 +2043,7 @@ export function registerAutomationRoutes(router: Router) {
   // 20. GET /api/automation/email-campaigns-audience-preview
   router.get(
     '/api/automation/email-campaigns-audience-preview',
-    requireAuth(async (ctx) => {
+    requireAutomationAccess(async (ctx) => {
       const db = getDb();
       const gender = ctx.query?.gender;
 
@@ -2065,7 +2076,7 @@ export function registerAutomationRoutes(router: Router) {
   // 21. GET /api/automation/email-blacklist (List & Stats of Email Blacklist)
   router.get(
     '/api/automation/email-blacklist',
-    requireAuth(async (ctx) => {
+    requireAutomationAccess(async (ctx) => {
       const db = getDb();
       await ensureEmailBlacklistTable(db);
 
@@ -2132,7 +2143,7 @@ export function registerAutomationRoutes(router: Router) {
   // 22. POST /api/automation/email-blacklist (Add Email to Blacklist)
   router.post(
     '/api/automation/email-blacklist',
-    requireAuth(
+    requireAutomationAccess(
       validateBody(createEmailBlacklistSchema, async (ctx, body) => {
         const db = getDb();
         const user = ctx.user;
@@ -2176,7 +2187,7 @@ export function registerAutomationRoutes(router: Router) {
   // 23. DELETE /api/automation/email-blacklist/:id (Remove from Blacklist)
   router.delete(
     '/api/automation/email-blacklist/:id',
-    requireAuth(async (ctx) => {
+    requireAutomationAccess(async (ctx) => {
       const db = getDb();
       const idOrEmail = ctx.params?.id || '';
       const user = ctx.user;
@@ -2200,7 +2211,7 @@ export function registerAutomationRoutes(router: Router) {
   // 24. POST /api/automation/email-campaigns/:id/recipients/:recipientEmail/blacklist
   router.post(
     '/api/automation/email-campaigns/:id/recipients/:recipientEmail/blacklist',
-    requireAuth(async (ctx) => {
+    requireAutomationAccess(async (ctx) => {
       const db = getDb();
       const campaignId = ctx.params?.id || '';
       const recipientEmail = decodeURIComponent(ctx.params?.recipientEmail || '').toLowerCase().trim();
@@ -2239,7 +2250,7 @@ export function registerAutomationRoutes(router: Router) {
   // 25. POST /api/automation/email-campaigns/:id/recipients/:recipientEmail/unblacklist
   router.post(
     '/api/automation/email-campaigns/:id/recipients/:recipientEmail/unblacklist',
-    requireAuth(async (ctx) => {
+    requireAutomationAccess(async (ctx) => {
       const db = getDb();
       const campaignId = ctx.params?.id || '';
       const recipientEmail = decodeURIComponent(ctx.params?.recipientEmail || '').toLowerCase().trim();

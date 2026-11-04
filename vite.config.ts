@@ -77,6 +77,7 @@ import basicSsl from '@vitejs/plugin-basic-ssl';
 const isHttps = process.env.HTTPS === 'true' || process.argv.includes('--https');
 
 export default defineConfig({
+  cacheDir: process.env.VITE_CACHE_DIR || 'scratch/.vite',
   plugins: [
     react(),
     apiDevServerPlugin(),

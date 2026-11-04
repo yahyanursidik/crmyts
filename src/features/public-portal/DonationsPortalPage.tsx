@@ -879,6 +879,7 @@ export function DonationsPortalPage() {
             </div>
 
             <div className="space-y-4">
+              {data?.bankAccounts.length === 0 && <p className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">Rekening belum tersedia. Hubungi pengurus sebelum melakukan transfer.</p>}
               {data?.bankAccounts.map((acc, idx) => (
                 <div
                   key={idx}
@@ -917,9 +918,9 @@ export function DonationsPortalPage() {
               <CheckCircle2 className="w-8 h-8" />
             </div>
 
-            <h3 className="text-xl font-bold text-slate-900">Alhamdulillah, Infaq Diterima!</h3>
+            <h3 className="text-xl font-bold text-slate-900">Konfirmasi infaq tercatat</h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Jazakumullahu khairan katsiran kepada <b>{donationSuccess.donorName}</b> atas infaq sebesar <b>{formatRupiah(donationSuccess.amountRupiah)}</b>.
+              Jazakumullahu khairan katsiran kepada <b>{donationSuccess.donorName}</b> atas konfirmasi infaq sebesar <b>{formatRupiah(donationSuccess.amountRupiah)}</b>.
             </p>
 
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono">

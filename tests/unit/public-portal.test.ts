@@ -1,8 +1,18 @@
+import { beforeAll, afterAll } from 'vitest';
 import { describe, it, expect, vi } from 'vitest';
 import { Router } from '../../server/http/router';
 import { registerPublicPortalRoutes } from '../../server/domain/public/routes';
 import * as client from '../../server/db/client';
 import { persons, donations, waqfCases, tasks, waqfChecklistItems, eventAttendance } from '../../server/db/schema';
+
+beforeAll(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-08-01T00:00:00Z')); });
+afterAll(() => vi.useRealTimers());
+
+
+vi.mock('../../server/domain/settings/foundation', async () => {
+  const { foundationFixture } = await import('../fixtures/foundation');
+  return { getFoundation: vi.fn().mockResolvedValue(foundationFixture), saveFoundation: vi.fn().mockResolvedValue(undefined) };
+});
 
 describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)', () => {
   const router = new Router();
@@ -1668,6 +1678,7 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
 
     it('GET /api/public/gate/events/:id returns operational event data, statistics, and participants', async () => {
       const targetEvent = {
+        formConfig: { gateAccessToken: 'unit-test-private-gate-token' },
         id: '018f0000-0000-0000-0000-000000000099',
         title: 'Kajian Akbar Bedah Buku',
         speaker: 'Ustadz Yazid, Lc.',
@@ -1730,7 +1741,7 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
       const res = await router.handle({
         path: '/api/public/gate/events/018f0000-0000-0000-0000-000000000099',
         method: 'GET',
-        headers: {},
+        headers: { 'x-gate-access': 'unit-test-private-gate-token' },
         query: {},
         params: { id: '018f0000-0000-0000-0000-000000000099' },
         body: null,
@@ -1851,7 +1862,7 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
       const mockDb = {
         query: {
           events: {
-            findFirst: vi.fn().mockResolvedValue({ id: '018f0000-0000-0000-0000-000000000099', formConfig: {} }),
+            findFirst: vi.fn().mockResolvedValue({ id: '018f0000-0000-0000-0000-000000000099', formConfig: { gateAccessToken: 'unit-test-private-gate-token' } }),
           },
           eventAttendance: {
             findFirst: vi.fn().mockImplementation(() => {
@@ -1895,7 +1906,7 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
       const res1 = await router.handle({
         path: '/api/public/gate/events/018f0000-0000-0000-0000-000000000099/scan',
         method: 'POST',
-        headers: {},
+        headers: { 'x-gate-access': 'unit-test-private-gate-token' },
         query: {},
         params: { id: '018f0000-0000-0000-0000-000000000099' },
         body: {
@@ -1916,7 +1927,7 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
       const res2 = await router.handle({
         path: '/api/public/gate/events/018f0000-0000-0000-0000-000000000099/scan',
         method: 'POST',
-        headers: {},
+        headers: { 'x-gate-access': 'unit-test-private-gate-token' },
         query: {},
         params: { id: '018f0000-0000-0000-0000-000000000099' },
         body: {
@@ -1951,7 +1962,7 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
       const mockDb = {
         query: {
           events: {
-            findFirst: vi.fn().mockResolvedValue({ id: '018f0000-0000-0000-0000-000000000099', formConfig: {} }),
+            findFirst: vi.fn().mockResolvedValue({ id: '018f0000-0000-0000-0000-000000000099', formConfig: { gateAccessToken: 'unit-test-private-gate-token' } }),
           },
           eventAttendance: {
             findFirst: vi.fn().mockResolvedValue(mockTarget),
@@ -1977,7 +1988,7 @@ describe('Public Portal & Landing Page API (Infaq, Waqf & Kajian Registration)',
       const res = await router.handle({
         path: '/api/public/gate/events/018f0000-0000-0000-0000-000000000099/toggle-checkin',
         method: 'POST',
-        headers: {},
+        headers: { 'x-gate-access': 'unit-test-private-gate-token' },
         query: {},
         params: { id: '018f0000-0000-0000-0000-000000000099' },
         body: {

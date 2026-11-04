@@ -16,14 +16,20 @@ import {
   Mail,
 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
+import { usePermissions } from '@refinedev/core';
+import { PERMISSIONS, type PermissionCode } from '@server/permissions/constants';
 import { InactiveAttendeesTab } from './InactiveAttendeesTab';
 import { DripEmailCampaignTab } from './DripEmailCampaignTab';
 import { KajianBroadcastTab } from './KajianBroadcastTab';
 
 export function AutomationPage() {
+  const { data: permissions = [], isLoading: permissionsLoading } = usePermissions<PermissionCode[]>({});
+  const canReadDonations = permissions.includes(PERMISSIONS.DONATIONS_VIEW_DETAIL);
+  const canReadWaqf = permissions.includes(PERMISSIONS.WAQF_LIST);
   const [activeTab, setActiveTab] = useState<'inactive' | 'drip_email' | 'reminder' | 'donation' | 'waqf' | 'impact'>('inactive');
   const [kajianMode, setKajianMode] = useState<'reminder' | 'post_attendance'>('reminder');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   // Event Reminder & Attendance State
   const [eventsList, setEventsList] = useState<any[]>([]);
@@ -48,11 +54,11 @@ export function AutomationPage() {
   // Program Impact State
   const [programsList, setProgramsList] = useState<any[]>([]);
   const [selectedProgramId, setSelectedProgramId] = useState<string>('');
-  const [impactTitle, setImpactTitle] = useState<string>('Penyaluran Bantuan Sembako Tahap 3');
+  const [impactTitle, setImpactTitle] = useState<string>('');
   const [impactSummary, setImpactSummary] = useState<string>(
-    'Alhamdulillah, dana infaq Bapak/Ibu telah disalurkan kepada 150 keluarga dhuafa di Bandung Timur pada hari Jumat berkah.'
+    ''
   );
-  const [impactDocUrl, setImpactDocUrl] = useState<string>('https://tarbiyahsunnah.id/laporan-penyaluran');
+  const [impactDocUrl, setImpactDocUrl] = useState<string>('');
   const [impactResult, setImpactResult] = useState<any | null>(null);
   const [generatingImpact, setGeneratingImpact] = useState(false);
 
@@ -105,12 +111,17 @@ export function AutomationPage() {
   const loadTemplatesAndData = async () => {
     try {
       setLoading(true);
+      setLoadError('');
+      const fallback = { data: [] as any[] };
+      let failed = false;
+      const recover = () => { failed = true; return fallback; };
       const [evtRes, donRes, wqfRes, prgRes] = await Promise.all([
-        apiClient<any[]>('/events'),
-        apiClient<any[]>('/donations?verificationStatus=verified&pageSize=50'),
-        apiClient<any[]>('/waqf'),
-        apiClient<any[]>('/donation-programs'),
+        permissions.includes(PERMISSIONS.EVENTS_VIEW) ? apiClient<any[]>('/events').catch(recover) : fallback,
+        canReadDonations ? apiClient<any[]>('/donations?verificationStatus=verified&pageSize=50').catch(recover) : fallback,
+        canReadWaqf ? apiClient<any[]>('/waqf').catch(recover) : fallback,
+        canReadDonations ? apiClient<any[]>('/donation-programs').catch(recover) : fallback,
       ]);
+      if (failed) setLoadError('Sebagian data belum dapat dimuat. Coba segarkan kembali.');
 
       if (evtRes.data && evtRes.data.length > 0) {
         setEventsList(evtRes.data);
@@ -136,8 +147,8 @@ export function AutomationPage() {
   };
 
   useEffect(() => {
-    loadTemplatesAndData();
-  }, []);
+    if (!permissionsLoading) void loadTemplatesAndData();
+  }, [permissionsLoading, permissions.join(',')]);
 
   const handleGenerateKajianMessage = async () => {
     if (!selectedEventId) return;
@@ -251,6 +262,7 @@ export function AutomationPage() {
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto pb-16">
+      {loadError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><span>{loadError}</span><button className="btn-secondary" onClick={() => void loadTemplatesAndData()}>Coba kembali</button></div>}
       {/* 1. Header Page */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#1B4332]/12 pb-4">
         <div>
@@ -293,7 +305,7 @@ export function AutomationPage() {
             title: 'Drip Email Jamaah',
             subtitle: 'Warm-up 14 Hari',
             icon: Mail,
-            badge: '397 Email Asli',
+            badge: 'Email',
           },
           {
             id: 'reminder',
@@ -323,7 +335,7 @@ export function AutomationPage() {
             icon: FileText,
             badge: 'Dokumentasi',
           },
-        ].map((tab) => {
+        ].filter((tab) => !(['donation', 'impact'].includes(tab.id) && !canReadDonations) && !(tab.id === 'waqf' && !canReadWaqf)).map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (

@@ -60,7 +60,7 @@ export function registerWaqfRoutes(router: Router) {
   // GET /api/waqf (List with Kanban metrics, checklist completeness, aging, and pagination)
   router.get(
     '/api/waqf',
-    requireAuth(async (ctx) => {
+    requirePermission(PERMISSIONS.WAQF_LIST, async (ctx) => {
       const db = getDb();
 
       const page = ctx.query.page ? Math.max(1, parseInt(ctx.query.page, 10)) : 1;
@@ -79,7 +79,7 @@ export function registerWaqfRoutes(router: Router) {
         conditions.push(
           or(
             ilike(waqfCases.notesSummary, `%${search}%`),
-            sql`EXISTS (SELECT 1 FROM people WHERE people.id = ${waqfCases.personId} AND (people.full_name ILIKE ${'%' + search + '%'} OR people.phone_e164 ILIKE ${'%' + search + '%'} OR people.city_regency ILIKE ${'%' + search + '%'}))`
+            sql`EXISTS (SELECT 1 FROM persons WHERE persons.id = ${waqfCases.personId} AND (persons.full_name ILIKE ${'%' + search + '%'} OR persons.phone_e164 ILIKE ${'%' + search + '%'} OR persons.city_regency ILIKE ${'%' + search + '%'}))`
           )
         );
       }

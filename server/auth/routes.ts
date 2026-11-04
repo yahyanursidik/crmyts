@@ -2,11 +2,13 @@ import { z } from 'zod';
 import { Router } from '../http/router';
 import { validateBody, requireAuth } from '../http/middleware';
 import { successResponse, errorResponse } from '../http/response';
-import { loginUser, resolveUserBySubject } from './service';
+import { loginUser, resolveUserBySubject, revokeUserSessions } from './service';
+import { logAuditEvent } from '../audit/service';
 
 const loginSchema = z.object({
-  email: z.string().email('Format email tidak valid'),
-  password: z.string().min(1, 'Password tidak boleh kosong'),
+  email: z.string().trim().toLowerCase().email('Format email tidak valid'),
+  password: z.string().min(1, 'Password tidak boleh kosong').max(128),
+  rememberMe: z.boolean().default(false),
 });
 
 export function registerAuthRoutes(router: Router) {
@@ -15,7 +17,7 @@ export function registerAuthRoutes(router: Router) {
     '/api/auth/login',
     validateBody(loginSchema, async (ctx, body) => {
       try {
-        const result = await loginUser(body.email, body.password);
+        const result = await loginUser(body.email, body.password, body.rememberMe);
 
         if (!result) {
           return errorResponse(
@@ -35,6 +37,7 @@ export function registerAuthRoutes(router: Router) {
           );
         }
 
+        await logAuditEvent({ actorUserId: result.user.id, action: 'login', entityType: 'app_user', entityId: result.user.id, requestId: ctx.requestId });
         return successResponse(result, { requestId: ctx.requestId });
       } catch (err: any) {
         console.error('[Login Error]:', err);
@@ -49,9 +52,10 @@ export function registerAuthRoutes(router: Router) {
   );
 
   // 2. POST /api/auth/logout
-  router.post('/api/auth/logout', async (ctx) => {
+  router.post('/api/auth/logout', requireAuth(async (ctx) => {
+    await revokeUserSessions(ctx.user!.id);
     return successResponse({ success: true }, { requestId: ctx.requestId });
-  });
+  }));
 
   // 3. GET /api/auth/me
   router.get(

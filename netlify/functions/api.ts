@@ -94,7 +94,7 @@ export const handler = async (event: NetlifyEvent) => {
 
     if (tokenClaims?.authSubject) {
       try {
-        const user = await resolveUserBySubject(tokenClaims.authSubject);
+        const user = await resolveUserBySubject(tokenClaims.authSubject, tokenClaims.sessionVersion);
         if (user) {
           authenticatedUser = user;
         }
