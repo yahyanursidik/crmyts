@@ -1,4 +1,4 @@
-import { environmentArg, prepareEnvironment, readVault, saveReport, fingerprint } from './access-runtime';
+import { environmentArg, prepareEnvironment, readVault, saveReport, fingerprint, targets } from './access-runtime';
 import { ROLE_PERMISSIONS, PERMISSIONS as P, type PermissionCode, type RoleCode } from '../server/permissions/constants';
 import { canViewReport } from '../server/permissions/navigation';
 
@@ -7,7 +7,7 @@ const checks: Check[] = [];
 const environment = environmentArg();
 const baseUrlArg = process.argv.indexOf('--base-url');
 const baseUrl = baseUrlArg >= 0 ? process.argv[baseUrlArg + 1] : null;
-const expectedBaseUrl = environment === 'production' ? 'https://app.yts.web.id' : 'https://deploy-preview-25--crmyts.netlify.app';
+const expectedBaseUrl = environment === 'production' ? 'https://app.yts.web.id' : (targets.staging.previewUrl || 'https://deploy-preview-25--crmyts.netlify.app');
 if (baseUrl && baseUrl !== expectedBaseUrl) throw new Error('Target HTTP harus domain YTS yang sesuai dengan environment terverifikasi.');
 const vault = readVault(environment);
 if (!vault) throw new Error('Vault akun belum tersedia.');
