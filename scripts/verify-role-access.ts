@@ -1,4 +1,4 @@
-import { environmentArg, prepareEnvironment, readVault, saveReport, fingerprint } from './access-runtime';
+import { environmentArg, prepareEnvironment, readVault, saveReport, fingerprint, targets } from './access-runtime';
 import { ROLE_PERMISSIONS, PERMISSIONS as P, type PermissionCode, type RoleCode } from '../server/permissions/constants';
 import { canViewReport } from '../server/permissions/navigation';
 
@@ -7,7 +7,7 @@ const checks: Check[] = [];
 const environment = environmentArg();
 const baseUrlArg = process.argv.indexOf('--base-url');
 const baseUrl = baseUrlArg >= 0 ? process.argv[baseUrlArg + 1] : null;
-const expectedBaseUrl = environment === 'production' ? 'https://app.yts.web.id' : 'https://deploy-preview-25--crmyts.netlify.app';
+const expectedBaseUrl = environment === 'production' ? 'https://app.yts.web.id' : (targets.staging.previewUrl || 'https://deploy-preview-25--crmyts.netlify.app');
 if (baseUrl && baseUrl !== expectedBaseUrl) throw new Error('Target HTTP harus domain YTS yang sesuai dengan environment terverifikasi.');
 const vault = readVault(environment);
 if (!vault) throw new Error('Vault akun belum tersedia.');
@@ -84,13 +84,13 @@ try {
   const before = await fingerprint(pool);
   await request('anonymous', 'kesehatan API', '/api/health', 200);
   await request('anonymous', 'proteksi sesi', '/api/auth/me', 401);
-  for (const account of vault.accounts) {
+  const verifyAccount = async (account: NonNullable<typeof vault>['accounts'][number]) => {
     const role = account.role as RoleCode;
     const permissions = ROLE_PERMISSIONS[role];
     await request(role, 'tolak sandi salah', '/api/auth/login', 401, undefined, 'POST', { email: account.email, password: account.password + 'invalid' });
     const login = await request(role, 'login', '/api/auth/login', 200, undefined, 'POST', { email: account.email, password: account.password });
     const token = login.data?.token;
-    if (!token) continue;
+    if (!token) return;
     const identity = await request(role, 'identitas dan sesi', '/api/auth/me', 200, token);
     checks.push({ role, feature: 'role tersimpan sesuai akun', expected: 1, actual: identity.data?.user?.roles?.includes(role) ? 1 : 0, passed: identity.data?.user?.roles?.includes(role) === true });
     const userJson = JSON.stringify(identity);
@@ -106,6 +106,10 @@ try {
     await request(role, 'logout', '/api/auth/logout', 200, token, 'POST');
     await request(role, 'token dicabut', '/api/auth/me', 401, token);
     console.log(JSON.stringify({ role, passed: checks.filter((c) => c.role === role && c.passed).length, failed: checks.filter((c) => c.role === role && !c.passed).length }));
+  };
+  const concurrency = baseUrl ? 3 : 1;
+  for (let offset = 0; offset < vault.accounts.length; offset += concurrency) {
+    await Promise.all(vault.accounts.slice(offset, offset + concurrency).map(verifyAccount));
   }
   const after = await fingerprint(pool);
   const preserved = before.filter((table) => !['app_users', 'audit_logs'].includes(table.table_name)).every((table) => JSON.stringify(table) === JSON.stringify(after.find((row) => row.table_name === table.table_name)));

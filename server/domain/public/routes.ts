@@ -2,6 +2,7 @@ import { getFoundation } from '../settings/foundation';
 import { getServerEnv } from '../../config/env';
 import { z } from 'zod';
 import { publicEventFormConfig } from '../events/publicConfig';
+import { paymentCheckInError } from '../events/paymentAccess';
 import { randomBytes } from 'node:crypto';
 import { Router } from '../../http/router';
 import { validateBody } from '../../http/middleware';
@@ -2643,6 +2644,8 @@ export function registerPublicPortalRoutes(router: Router) {
       }
 
       const alreadyCheckedIn = targetAttendance.status === 'attended';
+      const paymentError = paymentCheckInError(targetAttendance);
+      if (paymentError) return errorResponse('INVALID_STATE_TRANSITION', paymentError, 400, ctx.requestId);
       const previousCheckInAt = targetAttendance.checkInAt ? new Date(targetAttendance.checkInAt).toISOString() : null;
 
       let updatedAttendance = targetAttendance;
@@ -2767,6 +2770,8 @@ export function registerPublicPortalRoutes(router: Router) {
       }
 
       const nextStatus = targetStatus || (target.status === 'attended' ? 'registered' : 'attended');
+      const paymentError = nextStatus === 'attended' ? paymentCheckInError(target) : null;
+      if (paymentError) return errorResponse('INVALID_STATE_TRANSITION', paymentError, 400, ctx.requestId);
       const nextCheckInAt = nextStatus === 'attended' ? new Date() : sql`NULL`;
 
       const existingRegData = (target.registrationData as any) || {};

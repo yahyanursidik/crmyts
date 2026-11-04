@@ -22,6 +22,7 @@ import { Router } from '../../http/router';
 import { PERMISSIONS } from '../../permissions/constants';
 import { createJamaahPortalToken, generateQrToken, resolveJamaahSession } from './tokens';
 import { normalizePhoneE164 } from '../../lib/phone';
+import { paymentCheckInError } from '../events/paymentAccess';
 
 const RECURRENCES = ['weekly', 'biweekly', 'monthly'] as const;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -1599,7 +1600,7 @@ export function registerKajianRutinRoutes(router: Router) {
     const ticketByEvent = new Map<string, (typeof myRows)[number]>();
     for (const row of myRows) {
       const existing = ticketByEvent.get(row.eventId);
-      if (!existing || row.checkInAt.getTime() > existing.checkInAt.getTime()) {
+      if (!existing || (row.checkInAt?.getTime() || 0) > (existing.checkInAt?.getTime() || 0)) {
         ticketByEvent.set(row.eventId, row);
       }
     }
@@ -1731,6 +1732,8 @@ export function registerKajianRutinRoutes(router: Router) {
           ctx.requestId
         );
       }
+      const paymentError = paymentCheckInError(mine);
+      if (paymentError) return errorResponse('INVALID_STATE_TRANSITION', paymentError, 400, ctx.requestId);
       if (mine.status === 'attended') {
         return successResponse(
           {

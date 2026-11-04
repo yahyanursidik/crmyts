@@ -436,6 +436,7 @@ describe('Role-by-Role Comprehensive UAT Suite (CRM YTS)', () => {
 
     it('UAT-EVT-02: Live Attendance QR Scan Check-In (Idempotent)', async () => {
       const mockDb = {
+        query: { eventAttendance: { findFirst: vi.fn().mockResolvedValue(null) }, events: { findFirst: vi.fn().mockResolvedValue({ isPaid: false }) } },
         insert: vi.fn().mockReturnValue({
           values: vi.fn().mockReturnValue({
             onConflictDoNothing: vi.fn().mockReturnValue({

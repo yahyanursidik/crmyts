@@ -36,7 +36,8 @@ describe('Database: Schema Constraints, Foreign Keys & Indices (CRM YTS)', () =>
     const cols = getTableColumns(eventAttendance);
     expect(cols.eventId.notNull).toBe(true);
     expect(cols.personId.notNull).toBe(true);
-    expect(cols.checkInAt.notNull).toBe(true);
+    expect(cols.checkInAt.notNull).toBe(false);
+    expect(cols.checkInAt.hasDefault).toBe(false);
     expect(cols.status.notNull).toBe(true);
   });
 

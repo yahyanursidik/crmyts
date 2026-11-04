@@ -150,6 +150,7 @@ export function registerReportsRoutes(router: Router) {
           .from(eventAttendance)
           .where(
             and(
+              eq(eventAttendance.status, 'attended'),
               gte(eventAttendance.checkInAt, startOfMonth),
               lte(eventAttendance.checkInAt, endOfMonth)
             )
