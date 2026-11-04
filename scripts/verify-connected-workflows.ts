@@ -196,9 +196,10 @@ try {
     const renewed = await api(null, 'login dengan sandi baru', 'POST', '/api/auth/login', { email, password: nextPassword });
     tokens.set('uat_staff', renewed.token);
     await api('crm_admin', 'nonaktifkan akun uji', 'PATCH', `/api/settings/users/${staff.id}/status`, { isActive: false });
-    await api('uat_staff', 'akun nonaktif tidak memakai sesi lama', 'GET', '/api/auth/me', undefined, 403);
+    await api('uat_staff', 'akun nonaktif tidak memakai sesi lama', 'GET', '/api/auth/me', undefined, 401);
     await api(null, 'akun nonaktif tidak login', 'POST', '/api/auth/login', { email, password: nextPassword }, 401);
     await api('crm_admin', 'aktifkan akun uji', 'PATCH', `/api/settings/users/${staff.id}/status`, { isActive: true });
+    await api('uat_staff', 'aktivasi tidak menghidupkan sesi yang dicabut', 'GET', '/api/auth/me', undefined, 401);
     await api('crm_admin', 'ubah peran akun', 'PUT', `/api/settings/users/${staff.id}/roles`, { roleCodes: ['auditor'] });
     const newRole = await api(null, 'login dengan role terbaru', 'POST', '/api/auth/login', { email, password: nextPassword });
     verify('role tersambung ke sesi', newRole.user.roles.includes('auditor') && !newRole.user.roles.includes('cs_officer'));

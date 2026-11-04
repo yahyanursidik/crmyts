@@ -42,7 +42,7 @@ Staf dapat mengganti sandi melalui Akun & pengaturan. Sesi lama dicabut setelah 
 - 376/376 unit dan integrasi dengan mock berhasil; tes tersebut sekarang dipisahkan dari kredensial database/storage/email nyata.
 - 483/483 pemeriksaan login, sesi, dashboard, hak akses dan endpoint fitur untuk 10 peran berhasil di staging.
 - 483/483 pemeriksaan yang sama berhasil menggunakan kode rilis dan database produksi; pengujian ini tidak membuat transaksi bisnis.
-- 115/115 pemeriksaan alur transaksi berhasil di staging: master jamaah/duplikasi; pendaftaran keluarga/tiket/presensi/laporan; gate privat; interaksi/tugas dan isolasi pemilik; donasi/verifikasi/donatur/CSV; wakaf/checklist/tugas/dokumen; ruang jamaah; kajian rutin; tenant/stan/check-in/evaluasi; pembuatan staf/ganti sandi/status/peran.
+- 116/116 pemeriksaan alur transaksi berhasil di staging: master jamaah/duplikasi; pendaftaran keluarga/tiket/presensi/laporan; gate privat; interaksi/tugas dan isolasi pemilik; donasi/verifikasi/donatur/CSV; wakaf/checklist/tugas/dokumen; ruang jamaah; kajian rutin; tenant/stan/check-in/evaluasi; pembuatan staf/ganti sandi/status/peran. Penonaktifan mencabut sesi secara atomik; aktivasi kembali tidak menghidupkan token lama.
 - Penyimpanan Contabo diuji dengan berkas sintetis: unggah, URL sementara, unduh, pembatasan lintas peran, dan penolakan unduh tanpa tanda tangan berhasil. Berkas uji tersebut dibersihkan.
 - Build produksi berhasil dengan endpoint `/api`, Client ID Google produksi, serta pemeriksaan bahwa rahasia server dan alamat API lokal tidak masuk JavaScript browser. Peringatan ukuran chunk utama sekitar 746 kB masih ada.
 - Laporan terperinci tersimpan lokal di `scratch/access-rollout/*-verification.json` dan `*-provisioning.json`; tidak memuat token sesi atau sandi.
@@ -62,6 +62,8 @@ Staf dapat mengganti sandi melalui Akun & pengaturan. Sesi lama dicabut setelah 
 ## Aktivasi hosting
 
 Target yang diverifikasi: `https://app.yts.web.id`, situs Netlify `crmyts`. Konfigurasi database, S3, Mailketing dan Google yang sudah ada dipertahankan. `AUTH_SECRET` acak dan `APP_URL` aplikasi ditambahkan melalui API hosting. Cadangan konfigurasi hosting disimpan terenkripsi lokal, bukan dalam repository.
+
+Upload fungsi awal gagal pada runtime bawaan. Build, bundling dan pemindaian rahasia sudah lulus pada percobaan tersebut. Setelah build dan runtime fungsi dipatok ke Node.js 22 LTS, preview berhasil diterbitkan. Konteks deploy-preview diarahkan ke branch database UAT beserta kunci sesi staging, sehingga terpisah dari produksi. Nilai environment rahasia yang dimasking API tidak digunakan sebagai Client ID Google dalam artifact lokal.
 
 Status verifikasi domain setelah rilis dicatat pada bagian berikut setelah deployment selesai.
 

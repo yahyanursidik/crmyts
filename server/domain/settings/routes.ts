@@ -365,14 +365,14 @@ export function registerSettingsRoutes(router: Router) {
 
         const newStatus = !current.isActive;
 
-        const [updated] = await db
-          .update(appUsers)
-          .set({
-            isActive: newStatus,
-            updatedAt: new Date(),
-          })
-          .where(eq(appUsers.id, targetUserId))
-          .returning();
+        const updated = await db.transaction(async (tx) => {
+          const [row] = await tx.update(appUsers).set({ isActive: newStatus, updatedAt: new Date() })
+            .where(eq(appUsers.id, targetUserId)).returning();
+          if (!newStatus) await tx.update(appUserCredentials)
+            .set({ sessionVersion: sql`${appUserCredentials.sessionVersion} + 1`, updatedAt: new Date() })
+            .where(eq(appUserCredentials.userId, targetUserId));
+          return row;
+        });
 
         await logAuditEvent({
           actorUserId: actor.id,
