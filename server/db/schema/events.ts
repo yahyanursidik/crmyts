@@ -157,7 +157,7 @@ export const eventAttendance = pgTable(
     personId: uuid('person_id')
       .references(() => persons.id, { onDelete: 'cascade' })
       .notNull(),
-    checkInAt: timestamp('check_in_at', { withTimezone: true }).defaultNow().notNull(),
+    checkInAt: timestamp('check_in_at', { withTimezone: true }),
     source: attendanceSourceEnum('source').default('manual_input').notNull(),
     status: text('status').default('attended').notNull(),
     ticketCode: text('ticket_code'),

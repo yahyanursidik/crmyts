@@ -2,10 +2,11 @@ import { z } from 'zod';
 import { Router } from '../../http/router';
 import { validateBody } from '../../http/middleware';
 import { requireEventAccess } from './access';
+import { paymentCheckInError, PENDING_PAYMENT_STATUSES } from './paymentAccess';
 import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import { events, eventAttendance, persons } from '../../db/schema';
-import { desc, eq, and, inArray, sql, or, ilike } from 'drizzle-orm';
+import { desc, eq, and, inArray, notInArray, sql, or, ilike } from 'drizzle-orm';
 import { isValidE164, normalizeIndonesianPhone } from '../../lib/phone';
 import { extractTicketCode } from '../../../src/lib/participantTicket';
 import { createMemorableTicketCode } from './participantCodes';
@@ -601,6 +602,8 @@ export function registerEventsRoutes(router: Router) {
           });
 
           if (attendance) {
+            const paymentError = paymentCheckInError(attendance);
+            if (paymentError) return errorResponse('INVALID_STATE_TRANSITION', paymentError, 400, ctx.requestId);
             const [updated] = await db
               .update(eventAttendance)
               .set({ status: 'attended', checkInAt: new Date() })
@@ -625,6 +628,17 @@ export function registerEventsRoutes(router: Router) {
         }
 
         if (personId) {
+          const existingAttendance = await db.query.eventAttendance.findFirst({ where: and(eq(eventAttendance.eventId, eventId), eq(eventAttendance.personId, personId)) });
+          if (existingAttendance) {
+            const paymentError = paymentCheckInError(existingAttendance);
+            if (paymentError) return errorResponse('INVALID_STATE_TRANSITION', paymentError, 400, ctx.requestId);
+            const [updated] = await db.update(eventAttendance).set({ status: 'attended', checkInAt: new Date() })
+              .where(eq(eventAttendance.id, existingAttendance.id)).returning();
+            return successResponse(updated, { requestId: ctx.requestId });
+          }
+          const event = await db.query.events.findFirst({ where: eq(events.id, eventId) });
+          if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan.', 404, ctx.requestId);
+          if (event.isPaid) return errorResponse('INVALID_STATE_TRANSITION', 'Daftarkan peserta dan verifikasi pembayaran terlebih dahulu.', 400, ctx.requestId);
           const insertQuery = db
             .insert(eventAttendance)
             .values({
@@ -684,10 +698,12 @@ export function registerEventsRoutes(router: Router) {
       }
 
       const newStatus = existing.status === 'attended' ? 'registered' : 'attended';
+      const paymentError = newStatus === 'attended' ? paymentCheckInError(existing) : null;
+      if (paymentError) return errorResponse('INVALID_STATE_TRANSITION', paymentError, 400, ctx.requestId);
 
       const [updated] = await db
         .update(eventAttendance)
-        .set({ status: newStatus })
+        .set({ status: newStatus, checkInAt: newStatus === 'attended' ? new Date() : null })
         .where(eq(eventAttendance.id, attendanceId))
         .returning();
 
@@ -1152,20 +1168,22 @@ export function registerEventsRoutes(router: Router) {
         .update(eventAttendance)
         .set({
           status: validStatus,
-          checkInAt: validStatus === 'attended' ? new Date() : undefined,
+          checkInAt: validStatus === 'attended' ? new Date() : null,
         })
         .where(
           and(
             eq(eventAttendance.eventId, eventId),
-            inArray(eventAttendance.id, attendanceIds)
+            inArray(eventAttendance.id, attendanceIds),
+            validStatus === 'attended' ? notInArray(eventAttendance.paymentStatus, [...PENDING_PAYMENT_STATUSES]) : undefined
           )
         )
         .returning();
 
       return successResponse(
         {
-          message: `Berhasil mengubah status ${updated.length} peserta menjadi ${validStatus === 'attended' ? 'Hadir' : 'Terdaftar'}.`,
+          message: `Berhasil mengubah status ${updated.length} peserta menjadi ${validStatus === 'attended' ? 'Hadir' : 'Terdaftar'}.${attendanceIds.length > updated.length ? ` ${attendanceIds.length - updated.length} peserta dilewati; periksa status pembayaran atau data peserta.` : ''}`,
           updatedCount: updated.length,
+          skippedCount: attendanceIds.length - updated.length,
           attendances: updated,
         },
         { requestId: ctx.requestId }
@@ -1431,6 +1449,8 @@ export function registerEventsRoutes(router: Router) {
       }
 
       const alreadyCheckedIn = targetAttendance.status === 'attended';
+      const paymentError = paymentCheckInError(targetAttendance);
+      if (paymentError) return errorResponse('INVALID_STATE_TRANSITION', paymentError, 400, ctx.requestId);
       const previousCheckInAt = targetAttendance.checkInAt;
 
       // Update to attended if not already

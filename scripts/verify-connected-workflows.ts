@@ -83,6 +83,30 @@ try {
     const publicDetail = await api(null, 'form pendaftaran publik', 'GET', `/api/public/events/${eventId}`);
     verify('kunci gate tidak bocor ke pendaftaran', !JSON.stringify(publicDetail).includes(key.gateAccessToken));
   });
+  await scenario('event berbayar, persetujuan pembayaran dan kontrol gate', async () => {
+    const event = await api('event_admin', 'buat event berbayar', 'POST', '/api/events', { title: `${marker} Berbayar`, category: 'Daurah', speaker: 'Ustadz Pengujian', startAt: new Date(Date.now()-1800000).toISOString(), endAt: new Date(Date.now()+1800000).toISOString(), isPaid: true, priceRupiah: 50000 }, 201);
+    const paidEmail = `paid-${run}@example.test`;
+    const registration = await api(null, 'pendaftaran menunggu pembayaran', 'POST', '/api/public/register-event', { eventId: event.id, fullName: `${marker} Berbayar`, phone: `${fixturePhone.slice(0,-1)}7`, gender: 'ikhwan', age: 35, email: paidEmail });
+    const attendance = (await pool.query('SELECT id, status FROM event_attendance WHERE event_id = $1', [event.id])).rows[0];
+    const key = await api('event_admin', 'kunci gate event berbayar', 'GET', `/api/events/${event.id}/gate-access`);
+    const { createJamaahPortalToken } = await import('../server/domain/kajian-rutin/tokens');
+    tokens.set('uat_jamaah', createJamaahPortalToken({ accountId: event.id, sub: `fixture-${run}`, email: paidEmail, name: marker }));
+    await api('uat_jamaah', 'absensi mandiri menolak pembayaran belum sah', 'POST', '/api/public/kajian-rutin/portal/absen-daurah', { eventId: event.id }, 400);
+    await api('event_admin', 'scanner staf menolak pembayaran belum sah', 'POST', `/api/events/${event.id}/attendances/scan`, { ticketCode: registration.ticketCode }, 400);
+    await api('event_admin', 'check-in manual menolak pembayaran belum sah', 'POST', `/api/events/${event.id}/toggle-attendance`, { attendanceId: attendance.id }, 400);
+    await api('event_admin', 'endpoint tiket lama menolak pembayaran belum sah', 'POST', `/api/events/${event.id}/attendance`, { ticketCode: registration.ticketCode }, 400);
+    await api(null, 'gate relawan menolak pembayaran belum sah', 'POST', `/api/public/gate/events/${event.id}/scan`, { ticketCode: registration.ticketCode }, 400, { 'x-gate-access': key.gateAccessToken });
+    await api(null, 'toggle gate menolak pembayaran belum sah', 'POST', `/api/public/gate/events/${event.id}/toggle-checkin`, { attendanceId: attendance.id, targetStatus: 'attended' }, 400, { 'x-gate-access': key.gateAccessToken });
+    const skipped = await api('event_admin', 'check-in massal melewati pembayaran belum sah', 'POST', `/api/events/${event.id}/attendances/bulk-checkin`, { attendanceIds: [attendance.id] });
+    verify('pembayaran pending tidak mengubah presensi', skipped.updatedCount === 0 && skipped.skippedCount === 1);
+    await api('event_admin', 'setujui pembayaran event', 'POST', `/api/events/${event.id}/attendances/${attendance.id}/verify-payment`, {});
+    const checked = await api(null, 'gate menerima pembayaran sah', 'POST', `/api/public/gate/events/${event.id}/scan`, { ticketCode: registration.ticketCode }, 200, { 'x-gate-access': key.gateAccessToken });
+    verify('pembayaran sah tersambung presensi', checked.checkedInNow === true);
+    await api('event_admin', 'batalkan check-in', 'POST', `/api/events/${event.id}/attendances/bulk-checkin`, { attendanceIds: [attendance.id], status: 'registered' });
+    const cleared = (await pool.query('SELECT status, check_in_at FROM event_attendance WHERE id = $1', [attendance.id])).rows[0];
+    verify('pembatalan menghapus waktu presensi agar laporan benar', cleared.status === 'registered' && cleared.check_in_at === null);
+    await api('uat_jamaah', 'absensi mandiri setelah pembayaran sah', 'POST', '/api/public/kajian-rutin/portal/absen-daurah', { eventId: event.id }, 201);
+  });
   await scenario('interaksi, penugasan dan isolasi staf', async () => {
     const result = await api('cs_officer', 'interaksi dengan tindak lanjut', 'POST', '/api/interactions', { personId, channel: 'phone_call', summary: `${marker} konsultasi`, outcome: 'minta_dihubungi_kembali', nextAction: 'Hubungi kembali', taskDueAt: dueAt }, 201);
     const taskId = result.createdTask?.id || result.task?.id;

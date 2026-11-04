@@ -55,6 +55,7 @@ describe('Integration: Event & Kajian Attendance Flow (CRM YTS)', () => {
     const mockDb = {
       insert: mockInsert,
       query: {
+        eventAttendance: { findFirst: vi.fn().mockResolvedValue(null) },
         events: {
           findFirst: vi.fn().mockResolvedValue(sampleEvent),
         },

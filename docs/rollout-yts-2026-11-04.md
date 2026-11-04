@@ -39,10 +39,10 @@ Staf dapat mengganti sandi melalui Akun & pengaturan. Sesi lama dicabut setelah 
 
 ## Hasil validasi
 
-- 376/376 unit dan integrasi dengan mock berhasil; tes tersebut sekarang dipisahkan dari kredensial database/storage/email nyata.
+- 394/394 unit dan integrasi dengan mock berhasil; tes tersebut sekarang dipisahkan dari kredensial database/storage/email nyata.
 - 483/483 pemeriksaan login, sesi, dashboard, hak akses dan endpoint fitur untuk 10 peran berhasil di staging.
 - 483/483 pemeriksaan yang sama berhasil menggunakan kode rilis dan database produksi; pengujian ini tidak membuat transaksi bisnis.
-- 116/116 pemeriksaan alur transaksi berhasil di staging: master jamaah/duplikasi; pendaftaran keluarga/tiket/presensi/laporan; gate privat; interaksi/tugas dan isolasi pemilik; donasi/verifikasi/donatur/CSV; wakaf/checklist/tugas/dokumen; ruang jamaah; kajian rutin; tenant/stan/check-in/evaluasi; pembuatan staf/ganti sandi/status/peran. Penonaktifan mencabut sesi secara atomik; aktivasi kembali tidak menghidupkan token lama.
+- 133/133 pemeriksaan alur transaksi berhasil di staging: master jamaah/duplikasi; pendaftaran keluarga/tiket/presensi/laporan; gate privat; event berbayar/verifikasi pembayaran/kontrol akses hadir/pembatalan; interaksi/tugas dan isolasi pemilik; donasi/verifikasi/donatur/CSV; wakaf/checklist/tugas/dokumen; ruang jamaah; kajian rutin; tenant/stan/check-in/evaluasi; pembuatan staf/ganti sandi/status/peran. Penonaktifan mencabut sesi secara atomik; aktivasi kembali tidak menghidupkan token lama.
 - Penyimpanan Contabo diuji dengan berkas sintetis: unggah, URL sementara, unduh, pembatasan lintas peran, dan penolakan unduh tanpa tanda tangan berhasil. Berkas uji tersebut dibersihkan.
 - Build produksi berhasil dengan endpoint `/api`, Client ID Google produksi, serta pemeriksaan bahwa rahasia server dan alamat API lokal tidak masuk JavaScript browser. Peringatan ukuran chunk utama sekitar 746 kB masih ada.
 - Laporan terperinci tersimpan lokal di `scratch/access-rollout/*-verification.json` dan `*-provisioning.json`; tidak memuat token sesi atau sandi.
@@ -65,7 +65,15 @@ Target yang diverifikasi: `https://app.yts.web.id`, situs Netlify `crmyts`. Konf
 
 Upload fungsi awal gagal pada runtime bawaan. Build, bundling dan pemindaian rahasia sudah lulus pada percobaan tersebut. Setelah build dan runtime fungsi dipatok ke Node.js 22 LTS, preview berhasil diterbitkan. Konteks deploy-preview diarahkan ke branch database UAT beserta kunci sesi staging, sehingga terpisah dari produksi. Nilai environment rahasia yang dimasking API tidak digunakan sebagai Client ID Google dalam artifact lokal.
 
-Status verifikasi domain setelah rilis dicatat pada bagian berikut setelah deployment selesai.
+Rilis awal aktif pada 5 November 2026, 00:13 WIB melalui PR #25, commit `13325cc8a383cfb0e3075ea1d70ee925370792fe`, deploy `6aeb67a4056d28fe59dfafaa`. Sebanyak 483/483 pemeriksaan HTTPS pada domain produksi dan 483/483 pada preview berhasil. Halaman login, kajian, donasi, bazar, kajian rutin, ruang jamaah, tiket peserta, health API dan portal-info merespons 200. Client ID Google publik valid dan bundel tidak memuat endpoint API lokal. Koneksi Mailketing terverifikasi tanpa mengirim pesan.
+
+## Kontrol pembayaran dan waktu hadir (0013)
+
+UAT tambahan menemukan check-in dapat melewati verifikasi pembayaran, serta kolom `event_attendance.check_in_at` lama mempunyai default waktu sekarang dan batasan NOT NULL. Akibatnya, pembatalan hadir tidak dapat mengosongkan waktu dan berpotensi mengganggu rekap.
+
+Migrasi `0013_attendance_checkin_nullable.sql` mengizinkan waktu hadir kosong dan menghapus default otomatis. Tidak ada nilai historis yang dihapus atau diperbarui. Fingerprint 50 tabel lama di staging cocok sebelum/sesudah migrasi. Skema Drizzle dan semua jalur check-in diselaraskan; laporan eksekutif menghitung status `attended`. Pemilihan tiket portal menerima waktu kosong dengan aman.
+
+Regresi pembayaran menguji pembayaran pending/verifikasi/rejected pada endpoint tiket lama, person ID, scanner staf, gate privat, toggle dan bulk check-in. Portal absensi mandiri juga menolak pembayaran belum sah. Setelah pembayaran disetujui, gate menerima peserta; pembatalan membersihkan waktu hadir dan peserta dapat melakukan absensi mandiri kembali. Pengujian portal memakai sesi fixture yang ditandatangani aplikasi pada staging; pengujian ini tidak menggantikan login Google interaktif pengguna.
 
 ## Batas verifikasi dan konfigurasi lembaga
 

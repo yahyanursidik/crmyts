@@ -192,6 +192,7 @@ describe('Staging & UAT Test Suite — CRM Yayasan Tarbiyah Sunnah (CRM YTS)', (
   // 6. Attendance Check
   it('UAT 6: Kajian Event Attendance Check-in', async () => {
     const mockDb = {
+      query: { eventAttendance: { findFirst: vi.fn().mockResolvedValue(null) }, events: { findFirst: vi.fn().mockResolvedValue({ isPaid: false }) } },
       insert: vi.fn().mockReturnValue({
         values: vi.fn().mockReturnValue({
           onConflictDoNothing: vi.fn().mockReturnValue({
