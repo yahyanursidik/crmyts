@@ -22,6 +22,17 @@
   --color-warning: #d87114;
   --color-warning-paper: #fff6eb;
   --color-success: #447346;
+  --color-success-paper: #e4f1e5;
+  --color-gold-paper: #fef6d8;
+  --color-gold-ink: #734c03;
+  --color-danger-ink: #9f1239;
+  --color-sidebar: #1c321d;
+  --color-sidebar-muted: #cde4ce;
+  --color-sidebar-ink: #ffffff;
+  --color-info: #0369a1;
+  --color-info-paper: #e0f2fe;
+  --color-scrim: #12201380;
+  --shadow-panel: 0 16px 48px #1c321d08;
 
   --font-display: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
   --font-body: Inter, system-ui, -apple-system, sans-serif;
@@ -52,4 +63,21 @@
   --radius-input: 0.75rem;
   --radius-card: 0.75rem;
   --page-gutter: clamp(1rem, 4vw, 2rem);
+}
+
+/* Existing theme preferences also apply to the shared workspace navigation. */
+:root[data-theme="modern-clean"] {
+  --color-sidebar: var(--color-paper-3);
+  --color-sidebar-muted: var(--color-ink-2);
+  --color-sidebar-ink: var(--color-ink);
+}
+:root[data-theme="midnight-forest"] {
+  --color-sidebar: #0c180e;
+}
+:root[data-theme="warm-terracotta"] {
+  --color-sidebar: #1a1411;
+  --color-brand: #c05c0f;
+  --color-brand-ink: #7a3806;
+  --color-focus: #c05c0f;
+  --color-sidebar-muted: #fdebaf;
 }

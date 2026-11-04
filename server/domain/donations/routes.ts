@@ -59,7 +59,7 @@ export function registerDonationsRoutes(router: Router) {
   // GET /api/donation-programs
   router.get(
     '/api/donation-programs',
-    requireAuth(async (ctx) => {
+    requirePermission(PERMISSIONS.DONATIONS_LIST, async (ctx) => {
       const db = getDb();
       const programs = await db.query.donationPrograms.findMany({
         where: eq(donationPrograms.isActive, true),
@@ -72,7 +72,7 @@ export function registerDonationsRoutes(router: Router) {
   // GET /api/donations (Paginated and Filtered Donation Records)
   router.get(
     '/api/donations',
-    requireAuth(async (ctx) => {
+    requirePermission(PERMISSIONS.DONATIONS_LIST, async (ctx) => {
       const db = getDb();
 
       const page = Math.max(1, parseInt(ctx.query.page || '1', 10));
@@ -90,7 +90,7 @@ export function registerDonationsRoutes(router: Router) {
         conditions.push(
           or(
             ilike(donations.externalReference, `%${search}%`),
-            sql`EXISTS (SELECT 1 FROM people WHERE people.id = ${donations.personId} AND (people.full_name ILIKE ${'%' + search + '%'} OR people.phone_e164 ILIKE ${'%' + search + '%'}))`,
+            sql`EXISTS (SELECT 1 FROM persons WHERE persons.id = ${donations.personId} AND (persons.full_name ILIKE ${'%' + search + '%'} OR persons.phone_e164 ILIKE ${'%' + search + '%'}))`,
             sql`EXISTS (SELECT 1 FROM donation_programs WHERE donation_programs.id = ${donations.programId} AND donation_programs.name ILIKE ${'%' + search + '%'})`
           )
         );
@@ -213,7 +213,7 @@ export function registerDonationsRoutes(router: Router) {
   // GET /api/donors (Master Donatur - Aggregated Persons with role 'donatur')
   router.get(
     '/api/donors',
-    requireAuth(async (ctx) => {
+    requirePermission(PERMISSIONS.DONORS_VIEW, async (ctx) => {
       const db = getDb();
 
       // Find all persons having role 'donatur'

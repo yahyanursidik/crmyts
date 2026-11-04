@@ -84,7 +84,8 @@ describe('Integration: Person / Jamaah Lifecycle CRUD (CRM YTS)', () => {
       const chain: any = {
         innerJoin: vi.fn().mockImplementation(() => chain),
         where: vi.fn().mockImplementation(() => chain),
-        orderBy: vi.fn().mockImplementation(() => Promise.resolve(val)),
+        orderBy: vi.fn().mockImplementation(() => chain),
+        limit: vi.fn().mockResolvedValue(val),
         then: (resolve: any) => Promise.resolve(val).then(resolve),
       };
       return chain;

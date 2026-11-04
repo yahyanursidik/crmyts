@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, boolean, timestamp, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, boolean, timestamp, primaryKey, integer } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 /**
@@ -13,6 +13,14 @@ export const appUsers = pgTable('app_users', {
   isActive: boolean('is_active').default(true).notNull(),
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Kept separate from profiles so password hashes never appear in user/profile responses.
+export const appUserCredentials = pgTable('app_user_credentials', {
+  userId: uuid('user_id').primaryKey().references(() => appUsers.id, { onDelete: 'cascade' }),
+  passwordHash: text('password_hash').notNull(),
+  sessionVersion: integer('session_version').default(0).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 

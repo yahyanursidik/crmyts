@@ -1,3 +1,4 @@
+import { beforeAll, afterAll } from 'vitest';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Router } from '../../server/http/router';
 import { registerPublicPortalRoutes } from '../../server/domain/public/routes';
@@ -5,6 +6,9 @@ import { registerEventsRoutes } from '../../server/domain/events/routes';
 import * as client from '../../server/db/client';
 import { eventAttendance, persons } from '../../server/db/schema';
 import { ROLES, PERMISSIONS } from '../../server/permissions/constants';
+
+beforeAll(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-08-01T00:00:00Z')); });
+afterAll(() => vi.useRealTimers());
 
 describe('Event Minimum Age (minAge) Feature', () => {
   const router = new Router();

@@ -1,3 +1,5 @@
+import { PermissionGate } from '@/components/common/PermissionGate';
+import { PERMISSIONS } from '@server/permissions/constants';
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { apiClient } from '@/lib/apiClient';
@@ -881,7 +883,7 @@ export const TasksListPage: React.FC = () => {
                           <p className="font-semibold text-xs text-[#1C2321]">
                             {task.owner?.fullName || 'Belum Ditugaskan'}
                           </p>
-                          <button
+                          <PermissionGate permission={PERMISSIONS.TASKS_REASSIGN}><button
                             type="button"
                             onClick={() => {
                               setReassignModal(task);
@@ -891,7 +893,7 @@ export const TasksListPage: React.FC = () => {
                           >
                             <ArrowRightLeft className="w-2.5 h-2.5" />
                             <span>Ganti PIC</span>
-                          </button>
+                          </button></PermissionGate>
                         </div>
                       </td>
 

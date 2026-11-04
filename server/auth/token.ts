@@ -7,6 +7,7 @@ export interface SessionTokenPayload {
   email: string;
   exp: number; // Unix timestamp in seconds
   iat: number;
+  sessionVersion?: number;
 }
 
 function base64UrlEncode(str: string): string {
@@ -37,6 +38,7 @@ export function createSessionToken(
 
   const fullPayload: SessionTokenPayload = {
     ...payload,
+    sessionVersion: payload.sessionVersion ?? 0,
     iat: now,
     exp: now + expiresInSeconds,
   };
@@ -100,7 +102,10 @@ export function verifySessionToken(token: string): VerifyTokenResult {
     const payload: SessionTokenPayload = JSON.parse(payloadJson);
 
     const now = Math.floor(Date.now() / 1000);
-    if (payload.exp && payload.exp < now) {
+    if (!Number.isFinite(payload.exp) || !Number.isFinite(payload.iat) || !payload.userId || !payload.authSubject || !payload.email || !Number.isInteger(payload.sessionVersion) || payload.sessionVersion! < 0) {
+      return { valid: false, error: 'MALFORMED' };
+    }
+    if (payload.exp <= now) {
       return { valid: false, error: 'EXPIRED' };
     }
 

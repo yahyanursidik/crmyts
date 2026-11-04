@@ -30,6 +30,8 @@ export interface EventFormConfig {
   /** Maksimum anggota keluarga tambahan dalam satu pendaftaran staff. */
   maxStaffFamilyParticipants?: number;
   adminInviteCode?: string;
+  /** Private field-scanner access; excluded from every public registration response. */
+  gateAccessToken?: string;
   customFields?: EventFormField[];
   whatsappMessageTemplate?: string;
   /** Tautan grup hanya ditampilkan kepada peserta dengan gender yang sesuai. */

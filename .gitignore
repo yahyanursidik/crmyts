@@ -38,6 +38,7 @@ lerna-debug.log*
 
 # Temporary & artifacts
 scratch/
+.netlify/
 .system_generated/
 netlify/functions/*.js
 netlify/functions/*.d.ts

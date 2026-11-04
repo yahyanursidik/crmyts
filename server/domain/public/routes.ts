@@ -1,4 +1,7 @@
+import { getFoundation } from '../settings/foundation';
+import { getServerEnv } from '../../config/env';
 import { z } from 'zod';
+import { publicEventFormConfig } from '../events/publicConfig';
 import { randomBytes } from 'node:crypto';
 import { Router } from '../../http/router';
 import { validateBody } from '../../http/middleware';
@@ -194,7 +197,7 @@ function gateAccessTokenFromRequest(ctx: { headers: Record<string, string | unde
  */
 function requireGateAccess(ctx: { headers: Record<string, string | undefined>; query: Record<string, string | undefined> }, event: { formConfig?: Record<string, any> | null }) {
   const expected = typeof event.formConfig?.gateAccessToken === 'string' ? event.formConfig.gateAccessToken : null;
-  if (!expected) return null;
+  if (!expected) return 'Tautan Gate belum diaktifkan. Minta panitia membuka tautan privat Gate dari halaman event.';
   return hasValidSecretToken(gateAccessTokenFromRequest(ctx), expected)
     ? null
     : 'Tautan Gate tidak valid atau sudah diganti oleh admin. Gunakan tautan privat terbaru dari panitia.';
@@ -319,30 +322,16 @@ export function registerPublicPortalRoutes(router: Router) {
         .from(waqfCases),
     ]);
 
-    const bankAccounts = [
-      {
-        bankName: 'Bank Syariah Indonesia (BSI)',
-        bankCode: '451',
-        accountNumber: '7123456789',
-        accountHolder: 'Yayasan Tarbiyah Sunnah (Infaq Dakwah)',
-        category: 'infaq',
-      },
-      {
-        bankName: 'Bank Syariah Indonesia (BSI)',
-        bankCode: '451',
-        accountNumber: '7987654321',
-        accountHolder: 'Yayasan Tarbiyah Sunnah (Amanah Wakaf)',
-        category: 'waqf',
-      },
-    ];
+    const foundationSettings = await getFoundation();
+    const bankAccounts = foundationSettings.bankAccounts.map((account) => ({ ...account, bankCode: account.bankCode || '', category: account.category || (/wakaf/i.test(account.accountHolder) ? 'waqf' : 'infaq') }));
 
     return successResponse(
       {
         foundation: {
-          name: 'Yayasan Tarbiyah Sunnah',
+          name: foundationSettings.foundationName,
           slogan: "Meniti Sunnah di Atas Manhaj Salafus Shalih",
-          address: 'Jl. Jurang No.64, Pasteur, Kec. Sukajadi, Kota Bandung, Jawa Barat 40161',
-          whatsappContact: '0811-2401-476',
+          address: foundationSettings.headOfficeAddress,
+          whatsappContact: foundationSettings.officialPhone,
           email: 'info@tarbiyahsunnah.id',
         },
         metrics: {
@@ -357,42 +346,12 @@ export function registerPublicPortalRoutes(router: Router) {
           name: p.name,
           code: p.code,
         })),
-        waqfProjects: [
-          {
-            id: 'wq_project_1',
-            title: 'Pembebasan Lahan Pesantren & Islamic Center',
-            type: 'tanah',
-            targetRupiah: 2500000000,
-            collectedRupiah: 1850000000,
-            location: 'Cileungsi / Bandung Timur',
-            description: 'Perluasan sarana asrama santri penghafal Al-Qur\'an dan majelis ilmu sunnah.',
-            progressPercent: 74,
-          },
-          {
-            id: 'wq_project_2',
-            title: 'Pembangunan Masjid & Studio Radio Dakwah',
-            type: 'bangunan',
-            targetRupiah: 1200000000,
-            collectedRupiah: 980000000,
-            location: 'Kompleks Tarbiyah Sunnah',
-            description: 'Sarana ibadah representatif dan sentra penyiaran dakwah radio & live streaming.',
-            progressPercent: 81,
-          },
-          {
-            id: 'wq_project_3',
-            title: 'Wakaf Sarana Air Bersih & Sumur Bor Pelosok',
-            type: 'sarana_air',
-            targetRupiah: 150000000,
-            collectedRupiah: 125000000,
-            location: 'Daerah Rawan Kekeringan',
-            description: 'Penyediaan air bersih untuk masjid dan warga dhuafa di pelosok desa.',
-            progressPercent: 83,
-          },
-        ],
+        // No public project catalogue exists yet; never publish sample financial claims.
+        waqfProjects: [],
         events: activeUpcomingEvents.map((ev) => {
           const atts = ev.attendances || [];
           // URL grup tidak boleh muncul pada katalog publik; hanya endpoint tiket terverifikasi yang mengirimkannya.
-          const { whatsappGroupIkhwanUrl, whatsappGroupAkhwatUrl, ...publicFormConfig } = ev.formConfig || {};
+          const publicFormConfig = publicEventFormConfig(ev.formConfig);
           const ikhwanCount = atts.filter((a) => a.person?.gender === 'ikhwan').length;
           const akhwatCount = atts.filter((a) => a.person?.gender === 'akhwat').length;
           const carsCount = atts.filter((a) => a.vehicleType === 'car').length;
@@ -578,8 +537,10 @@ export function registerPublicPortalRoutes(router: Router) {
           dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // Due in 24h
         });
 
-      // Send Email Confirmation to Donor if email provided
-      if (body.email) {
+      // Use the same bank settings as the public portal.
+      const foundation = await getFoundation();
+      const bankAccount = foundation.bankAccounts.find((account) => account.category !== 'waqf' && !/wakaf/i.test(account.accountHolder));
+      if (body.email && bankAccount) {
         if (db.query?.donationPrograms?.findFirst) {
           db.query.donationPrograms
             .findFirst({
@@ -593,9 +554,9 @@ export function registerPublicPortalRoutes(router: Router) {
                 amountRupiah: body.amountRupiah,
                 donationCode: invoiceRef,
                 paymentMethod: body.paymentMethod || 'bank_transfer',
-                bankName: 'Bank Syariah Indonesia (BSI)',
-                accountNumber: '7123456789',
-                accountHolder: 'Yayasan Tarbiyah Sunnah (Infaq Dakwah)',
+                bankName: bankAccount.bankName,
+                accountNumber: bankAccount.accountNumber,
+                accountHolder: bankAccount.accountHolder,
               }).catch((err) => console.warn('[Email Donation Error]:', err));
             })
             .catch((err) => console.warn('[Email Donation Program Lookup Error]:', err));
@@ -607,9 +568,9 @@ export function registerPublicPortalRoutes(router: Router) {
             amountRupiah: body.amountRupiah,
             donationCode: invoiceRef,
             paymentMethod: body.paymentMethod || 'bank_transfer',
-            bankName: 'Bank Syariah Indonesia (BSI)',
-            accountNumber: '7123456789',
-            accountHolder: 'Yayasan Tarbiyah Sunnah (Infaq Dakwah)',
+            bankName: bankAccount.bankName,
+            accountNumber: bankAccount.accountNumber,
+            accountHolder: bankAccount.accountHolder,
           }).catch((err) => console.warn('[Email Donation Error]:', err));
         }
       }
@@ -1142,7 +1103,7 @@ export function registerPublicPortalRoutes(router: Router) {
     }
 
     const atts = targetEvent.attendances || [];
-    const { whatsappGroupIkhwanUrl, whatsappGroupAkhwatUrl, ...publicFormConfig } = targetEvent.formConfig || {};
+    const publicFormConfig = publicEventFormConfig(targetEvent.formConfig);
     const ikhwanCount = atts.filter((a) => a.person?.gender === 'ikhwan').length;
     const akhwatCount = atts.filter((a) => a.person?.gender === 'akhwat').length;
     const carsCount = atts.filter((a) => a.vehicleType === 'car').length;
@@ -1657,7 +1618,6 @@ export function registerPublicPortalRoutes(router: Router) {
         {
           ticketCode,
           isSpecialInvite,
-          adminInviteCode: officialAdminInviteCode,
           participantPortalPath: buildParticipantPortalPath(targetEvent.id, ticketCode),
           registrationGroupId,
           isGroupRegistration: isGroup,
@@ -1725,7 +1685,7 @@ export function registerPublicPortalRoutes(router: Router) {
           groupTickets: groupTickets.length > 1 ? groupTickets : undefined,
           isPaid: isPaidEvent,
           priceRupiah: totalGroupPrice,
-          eventUrl: `https://yts.web.id/kajian/${targetEvent.id}`,
+          eventUrl: new URL(`/kajian/${targetEvent.id}`, getServerEnv().APP_URL).toString(),
         }).catch((err) => console.warn('[Email Event Ticket Error]:', err));
       }
 

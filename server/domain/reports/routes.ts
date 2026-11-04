@@ -13,7 +13,10 @@ import {
   tasks,
 } from '../../db/schema';
 import { eq, and, sql, desc, gte, lte, ilike, or } from 'drizzle-orm';
-import { PERMISSIONS } from '../../permissions/constants';
+import { canViewReport, type ReportTab } from '../../permissions/navigation';
+import { type Handler } from '../../http/middleware';
+import { recordsToCsv } from '../../lib/csv';
+import { PERMISSIONS, ROLE_PERMISSIONS, hasPermission } from '../../permissions/constants';
 import { logExportEvent, logAuditEvent } from '../../audit/service';
 import { normalizeIndonesianPhone, isValidE164 } from '../../lib/phone';
 
@@ -77,12 +80,20 @@ const commitImportSchema = z.object({
   reason: z.string().min(5, 'Alasan impor data massal wajib diisi'),
 });
 
+function reportAccess(tab: ReportTab, handler: Handler): Handler {
+  return requireAuth(async (ctx) => {
+    const permissions = [...new Set(ctx.user!.roles.flatMap((role) => ROLE_PERMISSIONS[role] || []))];
+    if (!canViewReport(tab, permissions)) return errorResponse('FORBIDDEN', 'Laporan ini tidak tersedia untuk peran Anda.', 403, ctx.requestId);
+    return handler(ctx);
+  });
+}
+
 export function registerReportsRoutes(router: Router) {
   // 1. GET /api/reports/executive-monthly
   router.get(
     '/api/reports/executive-monthly',
     requireAuth(
-      requirePermission(PERMISSIONS.REPORTS_VIEW, async (ctx) => {
+      reportAccess('executive', async (ctx) => {
         const db = getDb();
         const monthParam = ctx.query.month || new Date().toISOString().substring(0, 7); // YYYY-MM
         const cacheKey = `executive_${monthParam}`;
@@ -151,7 +162,7 @@ export function registerReportsRoutes(router: Router) {
             activeCasesCount: sql<number>`count(*)::int`,
           })
           .from(waqfCases)
-          .where(sql`${waqfCases.currentStage} NOT IN ('cancelled', 'stalled')`);
+          .where(sql`${waqfCases.currentStage} IN ('interested', 'consulted', 'pledged', 'document_preparation', 'in_progress')`);
 
         // 5. Follow-Up Resolution Rate
         const [tasksStats] = await db
@@ -393,7 +404,7 @@ export function registerReportsRoutes(router: Router) {
   router.get(
     '/api/reports/waqf-portfolio',
     requireAuth(
-      requirePermission(PERMISSIONS.REPORTS_VIEW, async (ctx) => {
+      reportAccess('waqf', async (ctx) => {
         const db = getDb();
         const stageFilter = ctx.query.stage as string | undefined;
         const typeFilter = ctx.query.type as string | undefined;
@@ -490,28 +501,40 @@ export function registerReportsRoutes(router: Router) {
     '/api/reports/export-csv',
     requireAuth(
       requirePermission(
-        PERMISSIONS.REPORTS_VIEW,
+        PERMISSIONS.DATA_EXPORT,
         validateBody(exportReportSchema, async (ctx, body) => {
           const user = ctx.user;
           if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
 
-          // Log export event to audit
-          await logExportEvent({
-            actorUserId: user.id,
-            exportType: `report_${body.reportType}`,
-            rowCount: 100, // Estimated batch
-            reason: body.reason,
-            filterJson: { dateFrom: body.dateFrom, dateTo: body.dateTo },
-            requestId: ctx.requestId,
-          });
-
-          return successResponse(
-            {
-              downloadUrl: `/api/reports/download/${body.reportType}.csv?req=${ctx.requestId}`,
-              message: 'Ekspor laporan berhasil diotorisasi dan dicatat ke audit log.',
-            },
-            { requestId: ctx.requestId }
-          );
+          if (!hasPermission(user.roles, PERMISSIONS.DATA_EXPORT)) return errorResponse('FORBIDDEN', 'Izin ekspor data diperlukan.', 403, ctx.requestId);
+          const permissions = [...new Set(user.roles.flatMap((role) => ROLE_PERMISSIONS[role] || []))];
+          const definitions = {
+            executive_monthly: { path: '/api/reports/executive-monthly', tab: 'executive' },
+            donations_reconciliation: { path: '/api/reports/donations-reconciliation', tab: 'donations' },
+            attendance_summary: { path: '/api/reports/attendance-summary', tab: 'attendance' },
+            waqf_pipeline: { path: '/api/reports/waqf-portfolio', tab: 'waqf' },
+          } as const;
+          let rows: Record<string, unknown>[] = [];
+          if (body.reportType === 'jamaah_demographics') {
+            if (!hasPermission(user.roles, PERMISSIONS.PERSONS_LIST)) return errorResponse('FORBIDDEN', 'Izin direktori jamaah diperlukan.', 403, ctx.requestId);
+            rows = await getDb().query.persons.findMany({ columns: { id: true, fullName: true, cityRegency: true, gender: true, engagementStatus: true }, limit: 10001 });
+          } else {
+            const definition = definitions[body.reportType];
+            if (!canViewReport(definition.tab, permissions)) return errorResponse('FORBIDDEN', 'Laporan ini tidak tersedia untuk peran Anda.', 403, ctx.requestId);
+            for (let page = 1; page <= 101; page++) {
+              const response = await router.handle({ ...ctx, method: 'GET', path: definition.path, params: {}, query: { page: String(page), limit: '100', month: body.dateFrom?.slice(0, 7), from: body.dateFrom, to: body.dateTo } });
+              if (response.statusCode !== 200) return response;
+              const payload = JSON.parse(response.body);
+              if (body.reportType === 'executive_monthly') { rows = [{ period: payload.data.period, ...payload.data.summary }]; break; }
+              const batch = Array.isArray(payload.data) ? payload.data : payload.data.items || [];
+              rows.push(...batch);
+              const totalPages = payload.data.pagination?.totalPages ?? payload.meta?.pagination?.totalPages ?? 1;
+              if (page >= totalPages || !batch.length || rows.length > 10000) break;
+            }
+          }
+          if (rows.length > 10000) return errorResponse('VALIDATION_ERROR', 'Batasi periode ekspor hingga maksimal 10.000 baris.', 400, ctx.requestId);
+          await logExportEvent({ actorUserId: user.id, exportType: `report_${body.reportType}`, rowCount: rows.length, reason: body.reason, filterJson: { dateFrom: body.dateFrom, dateTo: body.dateTo }, requestId: ctx.requestId });
+          return successResponse({ csvContent: recordsToCsv(rows), filename: `yts-${body.reportType}.csv`, rowCount: rows.length, message: `${rows.length} baris berhasil diekspor.` }, { requestId: ctx.requestId });
         })
       )
     )

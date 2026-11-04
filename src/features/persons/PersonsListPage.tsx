@@ -1,3 +1,5 @@
+import { PermissionGate } from '@/components/common/PermissionGate';
+import { PERMISSIONS } from '@server/permissions/constants';
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { apiClient } from '@/lib/apiClient';
@@ -255,13 +257,13 @@ export const PersonsListPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2.5">
-          <button
+          <PermissionGate permission={PERMISSIONS.PERSONS_CREATE}><button
             onClick={() => setIsCreateModalOpen(true)}
             className="px-4 py-2.5 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-semibold transition-all flex items-center gap-2 shadow-xs active:scale-98"
           >
             <Plus className="w-4 h-4 text-[#E0B970]" />
             <span>+ Tambah Jamaah Baru</span>
-          </button>
+          </button></PermissionGate>
         </div>
       </div>
 

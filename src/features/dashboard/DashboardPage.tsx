@@ -70,6 +70,7 @@ interface DashboardResponse {
     urgentTasks: Array<{
       id: string;
       title: string;
+      ownerUserId?: string;
       personId?: string | null;
       personName?: string | null;
       personPhone?: string | null;
@@ -134,24 +135,22 @@ function getIndonesianFullDate(): string {
 
 export const DashboardPage: React.FC = () => {
   const { data: identity } = useGetIdentity<UserIdentity>();
-  const [viewTab, setViewTab] = useState<'antrean' | 'executive' | 'role'>('antrean');
+  const [viewTab, setViewTab] = useState<'antrean' | 'executive' | 'role'>('role');
   const [queueFilter, setQueueFilter] = useState<'all' | 'mine' | 'overdue'>('all');
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const isFinanceUser = identity?.roles?.some((r) => ['keuangan', 'crm_admin', 'super_admin'].includes(r));
+  const isFinanceUser = identity?.roles?.some((r) => ['finance_verifier', 'crm_admin'].includes(r));
+
+  const canExecutive = identity?.roles?.includes('crm_admin') || false;
 
   useEffect(() => {
-    if (identity?.roles?.includes('event_admin') && !identity?.roles?.includes('crm_admin')) {
-      setViewTab('role');
-    }
-  }, [identity]);
-
-  useEffect(() => {
+    if (viewTab === 'role' || !canExecutive) { setLoading(false); return; }
     async function loadStats() {
       try {
         setLoading(true);
+        setError(null);
         const res = await apiClient<DashboardResponse>('/dashboard/stats');
         setData(res.data);
       } catch (err: any) {
@@ -161,7 +160,7 @@ export const DashboardPage: React.FC = () => {
       }
     }
     loadStats();
-  }, []);
+  }, [viewTab, canExecutive]);
 
   if (loading && viewTab !== 'role') {
     return <LoadingState message="Memuat ruang kendali amanah..." />;
@@ -184,15 +183,16 @@ export const DashboardPage: React.FC = () => {
   // Filter urgent tasks based on pill selection
   const filteredTasks = (data?.queues.urgentTasks || []).filter((t) => {
     if (queueFilter === 'overdue') return t.isOverdue;
+    if (queueFilter === 'mine') return t.ownerUserId === identity?.id;
     return true;
   });
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto pb-10">
       {/* 1. VIEW MODE SELECTOR (Mockup 1a/1b/Role) */}
-      <div className="flex items-center justify-between pb-3 border-b border-[#1B4332]/12">
-        <div className="bg-[#F2EEE4] p-1 rounded-xl flex items-center gap-1 border border-[#1B4332]/12 shadow-2xs">
-          <button
+      <div className="flex flex-wrap gap-3 items-center justify-between pb-3 border-b border-[#1B4332]/12">
+        <div className="bg-[#F2EEE4] max-w-full overflow-x-auto p-1 rounded-xl flex items-center gap-1 border border-[#1B4332]/12 shadow-2xs">
+          {canExecutive && (<button
             onClick={() => setViewTab('antrean')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
               viewTab === 'antrean'
@@ -200,10 +200,10 @@ export const DashboardPage: React.FC = () => {
                 : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-white/60'
             }`}
           >
-            <CheckSquare className="w-3.5 h-3.5" /> Beranda Kerja (Antrean Hari Ini)
-          </button>
+            <CheckSquare className="w-3.5 h-3.5" /> Antrean kerja
+          </button>)}
 
-          <button
+          {canExecutive && (<button
             onClick={() => setViewTab('executive')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
               viewTab === 'executive'
@@ -211,8 +211,8 @@ export const DashboardPage: React.FC = () => {
                 : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-white/60'
             }`}
           >
-            <TrendingUp className="w-3.5 h-3.5" /> Ikhtisar Lembaga (Pimpinan)
-          </button>
+            <TrendingUp className="w-3.5 h-3.5" /> Ikhtisar yayasan
+          </button>)}
 
           <button
             onClick={() => setViewTab('role')}
@@ -222,7 +222,7 @@ export const DashboardPage: React.FC = () => {
                 : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-white/60'
             }`}
           >
-            <Layers className="w-3.5 h-3.5" /> Dashboard 7 Peran Operasional
+            <Layers className="w-3.5 h-3.5" /> Ruang kerja saya
           </button>
         </div>
 

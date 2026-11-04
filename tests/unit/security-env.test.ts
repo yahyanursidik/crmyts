@@ -1,9 +1,15 @@
-import { describe, it, expect } from 'vitest';
-import { getServerEnv } from '../../server/config/env';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { getServerEnv, resetServerEnvCache } from '../../server/config/env';
 import fs from 'fs';
 import path from 'path';
 
+afterEach(() => { vi.unstubAllEnvs(); resetServerEnvCache(); });
+
 describe('Security & Environment Configuration', () => {
+  it.each(['', 'tarbiyah-sunnah-crm-jwt-secret-key-production-2026-auth'])('rejects a missing or published signing secret in production', (secret) => {
+    vi.stubEnv('NODE_ENV', 'production'); vi.stubEnv('AUTH_SECRET', secret); resetServerEnvCache();
+    expect(() => getServerEnv()).toThrow('AUTH_SECRET');
+  });
   it('should validate server environment properly', () => {
     const env = getServerEnv();
     expect(env).toBeDefined();

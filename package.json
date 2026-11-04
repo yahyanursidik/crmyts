@@ -4,17 +4,19 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "dev:https": "vite --https",
-    "build": "tsc --noEmit && vite build",
+    "dev": "vite --config vite.config.ts --configLoader runner",
+    "dev:https": "vite --config vite.config.ts --configLoader runner --https",
+    "build": "tsc --noEmit && vite build --config vite.config.ts --configLoader runner",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest --config vitest.config.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx server/db/migrateAndSeed.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "db:migrate:access": "tsx scripts/migrate-access.ts",
+    "auth:bootstrap": "tsx scripts/bootstrap-staff-auth.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1130.0",

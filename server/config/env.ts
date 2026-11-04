@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
+import { randomBytes } from 'node:crypto';
 
 // Load local environment files if in node environment
 dotenv.config({ path: '.env.local' });
@@ -8,7 +9,7 @@ dotenv.config();
 const serverEnvSchema = z.object({
   DATABASE_URL: z.string().default(''),
   DATABASE_URL_DIRECT: z.string().optional(),
-  AUTH_SECRET: z.string().default('tarbiyah-sunnah-crm-jwt-secret-key-production-2026-auth'),
+  AUTH_SECRET: z.string().default(''),
   APP_URL: z.string().url().default('http://localhost:5173'),
   NODE_ENV: z.enum(['development', 'staging', 'production', 'test']).default('development'),
   
@@ -49,7 +50,10 @@ export function getServerEnv(): ServerEnv {
       console.error('❌ Invalid server environment configuration:', result.error.format());
       throw new Error('Server environment validation failed');
     }
-    _serverEnv = result.data;
+    if (result.data.NODE_ENV === 'production' && (result.data.AUTH_SECRET.length < 32 || result.data.AUTH_SECRET === 'tarbiyah-sunnah-crm-jwt-secret-key-production-2026-auth')) {
+      throw new Error('AUTH_SECRET acak minimal 32 karakter wajib dikonfigurasi untuk produksi. Nilai contoh lama tidak dapat digunakan.');
+    }
+    _serverEnv = { ...result.data, AUTH_SECRET: result.data.AUTH_SECRET || randomBytes(48).toString('hex') };
   }
   return _serverEnv;
 }

@@ -5,6 +5,12 @@ import * as client from '../../server/db/client';
 import { isEventPast } from '../../src/lib/eventUtils';
 import { eventAttendance, persons } from '../../server/db/schema';
 
+
+vi.mock('../../server/domain/settings/foundation', async () => {
+  const { foundationFixture } = await import('../fixtures/foundation');
+  return { getFoundation: vi.fn().mockResolvedValue(foundationFixture), saveFoundation: vi.fn().mockResolvedValue(undefined) };
+});
+
 describe('Past Events & Registration Deactivation Feature', () => {
   const router = new Router();
   registerPublicPortalRoutes(router);

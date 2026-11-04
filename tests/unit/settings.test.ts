@@ -4,6 +4,12 @@ import { registerSettingsRoutes } from '../../server/domain/settings/routes';
 import { ROLES, PERMISSIONS } from '../../server/permissions/constants';
 import * as client from '../../server/db/client';
 
+
+vi.mock('../../server/domain/settings/foundation', async () => {
+  const { foundationFixture } = await import('../fixtures/foundation');
+  return { getFoundation: vi.fn().mockResolvedValue(foundationFixture), saveFoundation: vi.fn().mockResolvedValue(undefined) };
+});
+
 describe('Settings & Master Data Domain (Step 33 / Settings)', () => {
   const router = new Router();
   registerSettingsRoutes(router);

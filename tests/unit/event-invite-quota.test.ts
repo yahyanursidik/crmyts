@@ -14,8 +14,8 @@ describe('Dual-Track Quota (Regular & Undangan VIP) & WhatsApp Ticket Feature', 
     authSubject: 'sub-admin',
     email: 'admin@tarbiyahsunnah.id',
     fullName: 'Admin Majelis',
-    roles: ['superadmin' as any],
-    permissions: ['events:create' as any, 'events:update' as any],
+    roles: ['event_admin' as any],
+    permissions: ['events.manage' as any, 'attendance.manage' as any],
     isActive: true,
   };
 

@@ -22,6 +22,9 @@ import {
 import { apiClient } from '@/lib/apiClient';
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { LoadingState } from '@/components/common/LoadingState';
+import { usePermissions } from '@refinedev/core';
+import { PERMISSIONS, type PermissionCode } from '@server/permissions/constants';
+import { canViewReport, type ReportTab } from '@server/permissions/navigation';
 
 interface ExecutiveSummary {
   period: string;
@@ -142,6 +145,8 @@ const WAQF_TYPE_LABELS: Record<string, string> = {
 };
 
 export function ReportsPage() {
+  const { data: permissions = [], isLoading: permissionsLoading } = usePermissions<PermissionCode[]>({});
+  const permitted = (tab: ReportTab) => canViewReport(tab, permissions);
   const [activeTab, setActiveTab] = useState<'executive' | 'donations' | 'waqf' | 'attendance' | 'import_export'>('executive');
   
   // 1. Executive Tab State
@@ -285,6 +290,12 @@ export function ReportsPage() {
 
   // Initial and reactive effects
   useEffect(() => {
+    if (permissionsLoading) return;
+    if (!permitted(activeTab)) {
+      const next = (['executive', 'donations', 'waqf', 'attendance', 'import_export'] as ReportTab[]).find(permitted);
+      if (next) setActiveTab(next);
+      return;
+    }
     if (activeTab === 'executive') {
       fetchExecutiveReport();
     } else if (activeTab === 'donations') {
@@ -294,14 +305,14 @@ export function ReportsPage() {
     } else if (activeTab === 'attendance') {
       fetchAttendanceReport();
     }
-  }, [activeTab, selectedMonth, donationsPage, donationsStatus, waqfPage, waqfStageFilter, waqfTypeFilter, attendancePage, attendanceMode]);
+  }, [permissionsLoading, permissions.join(','), activeTab, selectedMonth, donationsPage, donationsStatus, waqfPage, waqfStageFilter, waqfTypeFilter, attendancePage, attendanceMode]);
 
   // Handle Export Submission
   const handleExportSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!exportModal) return;
     try {
-      const res = await apiClient<{ downloadUrl: string; message: string }>('/reports/export-csv', {
+      const res = await apiClient<{ csvContent: string; filename: string; message: string }>('/reports/export-csv', {
         method: 'POST',
         body: JSON.stringify({
           reportType: exportModal,
@@ -309,6 +320,10 @@ export function ReportsPage() {
         }),
       });
 
+      const url = URL.createObjectURL(new Blob([res.data.csvContent], { type: 'text/csv;charset=utf-8' }));
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = res.data.filename;
+      document.body.appendChild(anchor); anchor.click(); anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
       setExportSuccess(true);
       showToast(res.data.message || 'Ekspor berhasil dicatat ke log audit.');
       setTimeout(() => {
@@ -460,7 +475,7 @@ export function ReportsPage() {
 
       {/* 5 CATEGORY TABS */}
       <div className="flex border-b border-[#1B4332]/12 gap-2 overflow-x-auto pb-0.5">
-        <button
+        {permitted('executive') && (<button
           onClick={() => setActiveTab('executive')}
           className={`pb-3 px-3 text-xs font-bold flex items-center gap-2 border-b-2 whitespace-nowrap transition-all ${
             activeTab === 'executive'
@@ -470,9 +485,9 @@ export function ReportsPage() {
         >
           <FileBarChart2 className="w-4 h-4" />
           <span>Laporan Eksekutif Bulanan</span>
-        </button>
+        </button>)}
 
-        <button
+        {permitted('donations') && (<button
           onClick={() => setActiveTab('donations')}
           className={`pb-3 px-3 text-xs font-bold flex items-center gap-2 border-b-2 whitespace-nowrap transition-all ${
             activeTab === 'donations'
@@ -482,9 +497,9 @@ export function ReportsPage() {
         >
           <Coins className="w-4 h-4" />
           <span>Rekonsiliasi Infaq &amp; Finansial</span>
-        </button>
+        </button>)}
 
-        <button
+        {permitted('waqf') && (<button
           onClick={() => setActiveTab('waqf')}
           className={`pb-3 px-3 text-xs font-bold flex items-center gap-2 border-b-2 whitespace-nowrap transition-all ${
             activeTab === 'waqf'
@@ -494,9 +509,9 @@ export function ReportsPage() {
         >
           <Landmark className="w-4 h-4" />
           <span>Portofolio &amp; Pipeline Wakaf</span>
-        </button>
+        </button>)}
 
-        <button
+        {permitted('attendance') && (<button
           onClick={() => setActiveTab('attendance')}
           className={`pb-3 px-3 text-xs font-bold flex items-center gap-2 border-b-2 whitespace-nowrap transition-all ${
             activeTab === 'attendance'
@@ -506,9 +521,9 @@ export function ReportsPage() {
         >
           <CheckSquare className="w-4 h-4" />
           <span>Kehadiran Kajian &amp; Dakwah</span>
-        </button>
+        </button>)}
 
-        <button
+        {permitted('import_export') && (<button
           onClick={() => setActiveTab('import_export')}
           className={`pb-3 px-3 text-xs font-bold flex items-center gap-2 border-b-2 whitespace-nowrap transition-all ${
             activeTab === 'import_export'
@@ -518,13 +533,13 @@ export function ReportsPage() {
         >
           <FileSpreadsheet className="w-4 h-4" />
           <span>Hub Impor &amp; Ekspor Data</span>
-        </button>
+        </button>)}
       </div>
 
       {/* =========================================================================
           TAB 1: EXECUTIVE MONTHLY REPORT
       ========================================================================= */}
-      {activeTab === 'executive' && (
+      {activeTab === 'executive' && permitted('executive') && (
         <div className="space-y-6 animate-in fade-in duration-200">
           {/* Controls Bar */}
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-[#FBF9F4] p-4 rounded-2xl border border-[#1B4332]/12 shadow-2xs">
@@ -548,13 +563,13 @@ export function ReportsPage() {
                 <span>Kirim WA Pimpinan</span>
               </button>
 
-              <button
+              {permissions.includes(PERMISSIONS.DATA_EXPORT) && (<button
                 onClick={() => setExportModal('executive_monthly')}
                 className="px-3.5 py-2 text-xs font-bold bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl shadow-2xs transition-all flex items-center gap-1.5 active:scale-98"
               >
                 <Download className="w-3.5 h-3.5 text-[#E0B970]" />
                 <span>Unduh CSV Laporan</span>
-              </button>
+              </button>)}
             </div>
           </div>
 
@@ -661,7 +676,7 @@ export function ReportsPage() {
       {/* =========================================================================
           TAB 2: DONATIONS RECONCILIATION
       ========================================================================= */}
-      {activeTab === 'donations' && (
+      {activeTab === 'donations' && permitted('donations') && (
         <div className="bg-[#FBF9F4] border border-[#1B4332]/12 rounded-3xl p-6 shadow-xs space-y-5 animate-in fade-in duration-200">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#1B4332]/10 pb-4">
             <div>
@@ -673,13 +688,13 @@ export function ReportsPage() {
               </p>
             </div>
 
-            <button
+            {permissions.includes(PERMISSIONS.DATA_EXPORT) && (<button
               onClick={() => setExportModal('donations_reconciliation')}
               className="px-4 py-2 text-xs font-bold bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl shadow-2xs transition-all flex items-center gap-1.5 active:scale-98 self-start sm:self-auto"
             >
               <Download className="w-3.5 h-3.5 text-[#E0B970]" />
               <span>Ekspor Data Finansial</span>
-            </button>
+            </button>)}
           </div>
 
           {/* Metrics Strip */}
@@ -843,7 +858,7 @@ export function ReportsPage() {
       {/* =========================================================================
           TAB 3: WAQF PORTFOLIO & PIPELINE
       ========================================================================= */}
-      {activeTab === 'waqf' && (
+      {activeTab === 'waqf' && permitted('waqf') && (
         <div className="bg-[#FBF9F4] border border-[#1B4332]/12 rounded-3xl p-6 shadow-xs space-y-5 animate-in fade-in duration-200">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#1B4332]/10 pb-4">
             <div>
@@ -855,13 +870,13 @@ export function ReportsPage() {
               </p>
             </div>
 
-            <button
+            {permissions.includes(PERMISSIONS.DATA_EXPORT) && (<button
               onClick={() => setExportModal('waqf_pipeline')}
               className="px-4 py-2 text-xs font-bold bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl shadow-2xs transition-all flex items-center gap-1.5 active:scale-98 self-start sm:self-auto"
             >
               <Download className="w-3.5 h-3.5 text-[#E0B970]" />
               <span>Ekspor Data Wakaf</span>
-            </button>
+            </button>)}
           </div>
 
           {/* Metrics Strip */}
@@ -1021,7 +1036,7 @@ export function ReportsPage() {
       {/* =========================================================================
           TAB 4: ATTENDANCE & DAKWAH REPORT
       ========================================================================= */}
-      {activeTab === 'attendance' && (
+      {activeTab === 'attendance' && permitted('attendance') && (
         <div className="bg-[#FBF9F4] border border-[#1B4332]/12 rounded-3xl p-6 shadow-xs space-y-5 animate-in fade-in duration-200">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#1B4332]/10 pb-4">
             <div>
@@ -1033,13 +1048,13 @@ export function ReportsPage() {
               </p>
             </div>
 
-            <button
+            {permissions.includes(PERMISSIONS.DATA_EXPORT) && (<button
               onClick={() => setExportModal('attendance_summary')}
               className="px-4 py-2 text-xs font-bold bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl shadow-2xs transition-all flex items-center gap-1.5 active:scale-98 self-start sm:self-auto"
             >
               <Download className="w-3.5 h-3.5 text-[#E0B970]" />
               <span>Ekspor Presensi</span>
-            </button>
+            </button>)}
           </div>
 
           {/* Metrics Strip */}
@@ -1186,7 +1201,7 @@ export function ReportsPage() {
       {/* =========================================================================
           TAB 5: IMPORT & EXPORT HUB
       ========================================================================= */}
-      {activeTab === 'import_export' && (
+      {activeTab === 'import_export' && permitted('import_export') && (
         <div className="space-y-6 animate-in fade-in duration-200">
           <div className="bg-[#FBF9F4] border border-[#1B4332]/12 rounded-3xl p-6 sm:p-8 shadow-xs space-y-5">
             <div className="flex items-center gap-3">

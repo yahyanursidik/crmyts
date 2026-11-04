@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { Router } from '../../http/router';
-import { requireAuth, validateBody } from '../../http/middleware';
+import { validateBody } from '../../http/middleware';
+import { requireEventAccess } from '../events/access';
 import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import {
@@ -437,7 +438,7 @@ export function registerBazaarRoutes(router: Router) {
   // 0. GET /api/bazaar/overview (Single fast query for Bazaar Hub list)
   router.get(
     '/api/bazaar/overview',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       await ensureBazaarTablesExist(db);
 
@@ -525,7 +526,7 @@ export function registerBazaarRoutes(router: Router) {
   // 1. GET /api/events/:id/bazaar
   router.get(
     '/api/events/:id/bazaar',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       await ensureBazaarTablesExist(db);
       const eventId = ctx.params?.id;
@@ -576,7 +577,7 @@ export function registerBazaarRoutes(router: Router) {
   // 2. POST /api/events/:id/bazaar
   router.post(
     '/api/events/:id/bazaar',
-    requireAuth(
+    requireEventAccess(
       validateBody(createBazaarSchema, async (ctx, body) => {
         const db = getDb();
         await ensureBazaarTablesExist(db);
@@ -636,7 +637,7 @@ export function registerBazaarRoutes(router: Router) {
   // 3. PUT /api/events/:id/bazaar
   router.put(
     '/api/events/:id/bazaar',
-    requireAuth(
+    requireEventAccess(
       validateBody(createBazaarSchema.partial(), async (ctx, body) => {
         const db = getDb();
         await ensureBazaarTablesExist(db);
@@ -674,7 +675,7 @@ export function registerBazaarRoutes(router: Router) {
   // 4. BOOTH MANAGEMENT
   router.post(
     '/api/events/:id/bazaar/booths/bulk',
-    requireAuth(
+    requireEventAccess(
       validateBody(bulkCreateBoothsSchema, async (ctx, body) => {
         const db = getDb();
         await ensureBazaarTablesExist(db);
@@ -713,7 +714,7 @@ export function registerBazaarRoutes(router: Router) {
 
   router.put(
     '/api/events/:id/bazaar/booths/bulk-pricing',
-    requireAuth(
+    requireEventAccess(
       validateBody(bulkUpdateBoothPricingSchema, async (ctx, body) => {
         const db = getDb();
         await ensureBazaarTablesExist(db);
@@ -758,7 +759,7 @@ export function registerBazaarRoutes(router: Router) {
 
   router.put(
     '/api/events/:id/bazaar/booths/:boothId',
-    requireAuth(
+    requireEventAccess(
       validateBody(updateBoothSchema, async (ctx, body) => {
         const db = getDb();
         const boothId = ctx.params?.boothId;
@@ -791,7 +792,7 @@ export function registerBazaarRoutes(router: Router) {
 
   router.delete(
     '/api/events/:id/bazaar/booths/:boothId',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const boothId = ctx.params?.boothId;
       if (!boothId) {
@@ -806,7 +807,7 @@ export function registerBazaarRoutes(router: Router) {
   // 5. MASTER TENANT CRM
   router.get(
     '/api/bazaar/tenants',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       await ensureBazaarTablesExist(db);
 
@@ -873,7 +874,7 @@ export function registerBazaarRoutes(router: Router) {
 
   router.get(
     '/api/bazaar/tenants/:tenantId',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       await ensureBazaarTablesExist(db);
       const tenantId = ctx.params?.tenantId;
@@ -915,7 +916,7 @@ export function registerBazaarRoutes(router: Router) {
 
   router.put(
     '/api/bazaar/tenants/:tenantId',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const tenantId = ctx.params?.tenantId;
       if (!tenantId) {
@@ -964,7 +965,7 @@ export function registerBazaarRoutes(router: Router) {
   // Legacy Data Import Endpoint
   router.post(
     '/api/bazaar/tenants/import-legacy',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       await ensureBazaarTablesExist(db);
       const rows = (ctx.body as any)?.rows || [];
@@ -1025,7 +1026,7 @@ export function registerBazaarRoutes(router: Router) {
   // 6. APPLICATIONS & SELECTION LIFECYCLE
   router.get(
     '/api/events/:id/bazaar/applications',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       await ensureBazaarTablesExist(db);
       const eventId = ctx.params?.id;
@@ -1066,7 +1067,7 @@ export function registerBazaarRoutes(router: Router) {
 
   router.put(
     '/api/events/:id/bazaar/applications/:appId/status',
-    requireAuth(
+    requireEventAccess(
       validateBody(updateApplicationStatusSchema, async (ctx, body) => {
         const db = getDb();
         const appId = ctx.params?.appId;
@@ -1106,7 +1107,7 @@ export function registerBazaarRoutes(router: Router) {
   // Update Tenant Application Fee / Infaq Setting
   router.put(
     '/api/events/:id/bazaar/applications/:appId/fee',
-    requireAuth(
+    requireEventAccess(
       validateBody(updateTenantFeeSchema, async (ctx, body) => {
         const db = getDb();
         const appId = ctx.params?.appId;
@@ -1154,7 +1155,7 @@ export function registerBazaarRoutes(router: Router) {
   // Manual Booth Assignment by Admin (with Smart Collision Checks & Category Validation)
   router.put(
     '/api/events/:id/bazaar/applications/:appId/assign-booth',
-    requireAuth(
+    requireEventAccess(
       validateBody(assignBoothSchema, async (ctx, body) => {
         const db = getDb();
         const appId = ctx.params?.appId;
@@ -1287,7 +1288,7 @@ export function registerBazaarRoutes(router: Router) {
   // Toggle publish booth layout to tenants
   router.put(
     '/api/events/:id/bazaar/publish-layout',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params?.id;
       if (!eventId) {
@@ -1318,7 +1319,7 @@ export function registerBazaarRoutes(router: Router) {
   // 7. ON-DAY OPERATIONS
   router.post(
     '/api/events/:id/bazaar/check-in',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const applicationId = (ctx.body as any)?.applicationId;
 
@@ -1343,7 +1344,7 @@ export function registerBazaarRoutes(router: Router) {
 
   router.get(
     '/api/events/:id/bazaar/incidents',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params?.id;
       if (!eventId) {
@@ -1366,7 +1367,7 @@ export function registerBazaarRoutes(router: Router) {
 
   router.post(
     '/api/events/:id/bazaar/incidents',
-    requireAuth(
+    requireEventAccess(
       validateBody(recordIncidentSchema, async (ctx, body) => {
         const db = getDb();
         const eventId = ctx.params?.id;
@@ -1405,7 +1406,7 @@ export function registerBazaarRoutes(router: Router) {
   // 8. POST-EVENT: Surveys & Staff Evaluations
   router.get(
     '/api/events/:id/bazaar/surveys',
-    requireAuth(async (ctx) => {
+    requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params?.id;
       if (!eventId) {
@@ -1474,7 +1475,7 @@ export function registerBazaarRoutes(router: Router) {
 
   router.post(
     '/api/events/:id/bazaar/evaluations',
-    requireAuth(
+    requireEventAccess(
       validateBody(staffEvaluationSchema, async (ctx, body) => {
         const db = getDb();
         const eventId = ctx.params?.id;

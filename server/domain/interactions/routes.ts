@@ -39,7 +39,7 @@ export function registerInteractionsRoutes(router: Router) {
   // GET /api/interactions
   router.get(
     '/api/interactions',
-    requireAuth(async (ctx) => {
+    requirePermission(PERMISSIONS.INTERACTIONS_VIEW, async (ctx) => {
       const db = getDb();
 
       const page = Math.max(1, parseInt(ctx.query.page || '1', 10));
@@ -58,7 +58,7 @@ export function registerInteractionsRoutes(router: Router) {
         conditions.push(
           or(
             ilike(interactions.summary, `%${search}%`),
-            sql`EXISTS (SELECT 1 FROM people WHERE people.id = ${interactions.personId} AND (people.full_name ILIKE ${'%' + search + '%'} OR people.phone_e164 ILIKE ${'%' + search + '%'}))`
+            sql`EXISTS (SELECT 1 FROM persons WHERE persons.id = ${interactions.personId} AND (persons.full_name ILIKE ${'%' + search + '%'} OR persons.phone_e164 ILIKE ${'%' + search + '%'}))`
           )
         );
       }

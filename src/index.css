@@ -41,12 +41,16 @@
     border-color: hsl(var(--border));
   }
 
+  html, body { overflow-x: clip; }
+  :focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; }
+  h1, h2, h3, h4 { min-width: 0; overflow-wrap: anywhere; font-style: normal; }
+
   body {
     @apply bg-[#fbfaf6] text-surface-900 font-sans antialiased selection:bg-brand-100 selection:text-brand-900;
   }
 
   h1, h2, h3, h4 {
-    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    font-family: var(--font-display);
     letter-spacing: -0.02em;
   }
 }
