@@ -5,6 +5,9 @@ import { canViewReport } from '../server/permissions/navigation';
 type Check = { role: string; feature: string; expected: number; actual: number; passed: boolean; error?: string };
 const checks: Check[] = [];
 const environment = environmentArg();
+const baseUrlArg = process.argv.indexOf('--base-url');
+const baseUrl = baseUrlArg >= 0 ? process.argv[baseUrlArg + 1] : null;
+if (baseUrl && baseUrl !== 'https://app.yts.web.id') throw new Error('Target HTTP harus domain aplikasi YTS yang telah diverifikasi.');
 const vault = readVault(environment);
 if (!vault) throw new Error('Vault akun belum tersedia.');
 const pool = prepareEnvironment(environment, vault);
@@ -17,11 +20,15 @@ console.error = (...args: unknown[]) => {
   const cause = (message as any)?.cause;
   appErrors.push(String(cause?.message || message?.message || args[0]).split('\n')[0].slice(0, 300));
 };
-const { handler } = await import('../netlify/functions/api');
+const handler = baseUrl ? null : (await import('../netlify/functions/api')).handler;
 
 async function request(role: string, feature: string, path: string, expected: number, token?: string, method = 'GET', body?: unknown) {
   const url = new URL(path, 'http://localhost');
-  const response = await handler({ path: url.pathname, httpMethod: method, headers: token ? { authorization: `Bearer ${token}` } : {}, queryStringParameters: Object.fromEntries(url.searchParams), body: body === undefined ? null : JSON.stringify(body) });
+  const headers = { ...(token ? { authorization: `Bearer ${token}` } : {}), 'content-type': 'application/json' };
+  const response = baseUrl ? await (async () => {
+    const result = await fetch(new URL(path, baseUrl), { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { statusCode: result.status, body: await result.text() };
+  })() : await handler!({ path: url.pathname, httpMethod: method, headers, queryStringParameters: Object.fromEntries(url.searchParams), body: body === undefined ? null : JSON.stringify(body) });
   const payload = JSON.parse(response.body || '{}');
   const check: Check = { role, feature, expected, actual: response.statusCode, passed: response.statusCode === expected };
   if (!check.passed) check.error = payload.error?.message || 'Status tidak sesuai';
@@ -102,13 +109,12 @@ try {
   const after = await fingerprint(pool);
   const preserved = before.filter((table) => !['app_users', 'audit_logs'].includes(table.table_name)).every((table) => JSON.stringify(table) === JSON.stringify(after.find((row) => row.table_name === table.table_name)));
   checks.push({ role: 'database', feature: '48 tabel bisnis lama tidak berubah', expected: 1, actual: preserved ? 1 : 0, passed: preserved });
-  const report = { environment, runAt: new Date().toISOString(), total: checks.length, passed: checks.filter((c) => c.passed).length, failed: checks.filter((c) => !c.passed).length, checks, appErrors: [...new Set(appErrors)], businessDataPreserved: preserved };
-  saveReport(`${environment}-role-verification.json`, report);
+  const report = { environment, baseUrl, runAt: new Date().toISOString(), total: checks.length, passed: checks.filter((c) => c.passed).length, failed: checks.filter((c) => !c.passed).length, checks, appErrors: [...new Set(appErrors)], businessDataPreserved: preserved };
+  saveReport(`${environment}${baseUrl ? '-online' : ''}-role-verification.json`, report);
   console.log(JSON.stringify({ environment, total: report.total, passed: report.passed, failed: report.failed, appErrors: report.appErrors, businessDataPreserved: preserved }));
   process.exitCode = report.failed ? 1 : 0;
 } finally {
   console.error = originalError;
-  const { getDbPool } = await import('../server/db/client');
-  await getDbPool().end();
+  if (!baseUrl) { const { getDbPool } = await import('../server/db/client'); await getDbPool().end(); }
   await pool.end();
 }
