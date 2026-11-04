@@ -71,6 +71,19 @@
 .login-feedback { display: flex; align-items: center; justify-content: center; gap: .5rem; margin-top: 1rem; color: var(--color-ink-muted); font-size: .7rem; }
 .login-foot { display: flex; justify-content: space-between; gap: 1rem; padding: 1.2rem clamp(1rem, 5vw, 4rem); border-top: 1px solid var(--color-rule); color: var(--color-ink-muted); font-size: .7rem; }
 .login-foot a { display: flex; align-items: center; gap: .4rem; color: var(--color-brand-ink); white-space: nowrap; }
+@media (min-width: 768px) and (max-height: 780px) {
+  .login-shell { padding: 1.5rem 2rem; }
+  .login-panel { padding: 1.75rem 2rem; }
+  .login-form-emblem { width: 2.5rem; height: 2.5rem; margin-bottom: .9rem; }
+  .login-heading-sub { margin-bottom: 1.1rem; }
+  .login-field { gap: .35rem; margin-bottom: .65rem; }
+  .login-remember { margin-bottom: 1rem; }
+  .login-help { margin-top: 1rem; padding-top: 1rem; }
+  .login-feedback { margin-top: .65rem; }
+  .login-aside h1 { font-size: 2.1rem; margin: .8rem 0; line-height: 1.25; }
+  .login-connection { margin: 1rem 0; }
+  .login-portal { padding: .5rem 0; }
+}
 @media (max-width: 767px) {
   .login-shell { grid-template-columns: minmax(0, 1fr); padding: 1.5rem 1rem; gap: 2rem; max-width: 31rem; }
   .login-panel { order: 0; }
