@@ -61,6 +61,7 @@ async function request(
   checks.push({ role, feature, passed, actual: response.status });
   return passed ? json : null;
 }
+let paidSampleId = '';
 let sampleId = '',
   linkedPerson = '',
   largestRoster = 0,
@@ -97,6 +98,7 @@ try {
         (a: any, b: any) => b.attendanceCount - a.attendanceCount,
       )[0];
       sampleId ||= largest?.id;
+      paidSampleId ||= [...directory.data].filter((event: any) => event.isPaid).sort((a: any, b: any) => b.attendanceCount - a.attendanceCount)[0]?.id || '';
       largestRoster = Math.max(largestRoster, largest?.attendanceCount || 0);
       verify(
         role,
@@ -145,6 +147,14 @@ try {
         paymentReviewCount,
         detail.data.paymentReviewCount || 0,
       );
+    }
+    if (paidSampleId && allowed(P.EVENTS_VIEW)) {
+      const paid = await request(role, 'roster event berbayar dan status lama', `/api/events/${paidSampleId}`, 200, token);
+      if (paid?.data) {
+        const expectedReview = paid.data.participants.filter((row: any) => row.paymentStatus === 'free' && !row.isStaffRegistration);
+        verify(role, 'status pembayaran lama tetap tersimpan dan ditandai', paid.data.isPaid === true && paid.data.paymentReviewCount === expectedReview.length && expectedReview.every((row: any) => row.paymentNeedsReview === true));
+        paymentReviewCount = Math.max(paymentReviewCount, paid.data.paymentReviewCount || 0);
+      }
     }
     if (settings?.data)
       verify(
