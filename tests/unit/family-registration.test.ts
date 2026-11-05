@@ -1,3 +1,4 @@
+import { eventDb } from '../helpers/eventDb';
 import { describe, it, expect, vi } from 'vitest';
 import { Router } from '../../server/http/router';
 import { registerPublicPortalRoutes } from '../../server/domain/public/routes';
@@ -77,7 +78,7 @@ describe('Multi-Participant & Family Group Registration API', () => {
       }),
     };
 
-    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+    vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
     const res = await router.handle({
       path: '/api/public/register-event',
@@ -155,7 +156,7 @@ describe('Multi-Participant & Family Group Registration API', () => {
       }),
     };
 
-    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+    vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
     const res = await router.handle({
       path: '/api/events/018f0000-0000-0000-0000-000000000055/attendances/018f0000-0000-0000-0000-000000000088/verify-payment',

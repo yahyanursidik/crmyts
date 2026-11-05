@@ -458,7 +458,8 @@ export function EventsPortalPage() {
   };
 
   const handleCopyBankAccount = (accNum?: string | null) => {
-    const num = accNum || selectedEvent?.bankAccountNumber || '7123456789';
+    const num = accNum?.trim() || selectedEvent?.bankAccountNumber?.trim();
+    if (!num) return;
     navigator.clipboard.writeText(num);
     setCopiedBankAccount(true);
     setTimeout(() => setCopiedBankAccount(false), 2500);
@@ -2404,7 +2405,7 @@ export function EventsPortalPage() {
                         <div className="flex items-center justify-between">
                           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
                             <Building2 className="w-3 h-3 text-brand-800" />
-                            {selectedEvent.bankName || 'Bank Syariah Indonesia (BSI)'}
+                            {selectedEvent.bankName || 'Bank belum diatur'}
                           </span>
                           <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
                             Transfer Bank
@@ -2415,13 +2416,13 @@ export function EventsPortalPage() {
                           <div>
                             <span className="text-[10px] text-slate-500 block">Nomor Rekening:</span>
                             <span className="font-mono text-sm font-black text-brand-950 tracking-wider">
-                              {selectedEvent.bankAccountNumber || '7123456789'}
+                              {selectedEvent.bankAccountNumber || 'Hubungi panitia'}
                             </span>
                           </div>
 
                           <button
                             type="button"
-                            onClick={() => handleCopyBankAccount(selectedEvent.bankAccountNumber)}
+                            disabled={!selectedEvent.bankAccountNumber} onClick={() => handleCopyBankAccount(selectedEvent.bankAccountNumber)}
                             className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 shadow-2xs ${
                               copiedBankAccount
                                 ? 'bg-emerald-600 text-white border-emerald-600 ring-2 ring-emerald-200'
@@ -2446,7 +2447,7 @@ export function EventsPortalPage() {
                         <div className="text-[11px] text-slate-600 flex items-center justify-between">
                           <span>Atas Nama:</span>
                           <strong className="text-brand-950 font-bold">
-                            {selectedEvent.bankAccountName || 'Yayasan Tarbiyah Sunnah'}
+                            {selectedEvent.bankAccountName || 'Belum diatur'}
                           </strong>
                         </div>
                       </div>
@@ -2739,20 +2740,20 @@ export function EventsPortalPage() {
 
                 <div className="p-2 bg-white rounded-xl border border-amber-200 text-[11px] space-y-1">
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-500">{eventSuccess.event.bankName || 'Bank BSI'}:</span>
+                    <span className="text-slate-500">{eventSuccess.event.bankName || 'Bank belum diatur'}:</span>
                     <button
                       type="button"
-                      onClick={() => handleCopyBankAccount(eventSuccess.event.bankAccountNumber)}
+                      disabled={!eventSuccess.event.bankAccountNumber} onClick={() => handleCopyBankAccount(eventSuccess.event.bankAccountNumber)}
                       className="font-mono font-bold text-brand-950 flex items-center gap-1 hover:text-brand-700 active:scale-95 transition-transform"
                       title="Salin No. Rekening"
                     >
-                      <span>{eventSuccess.event.bankAccountNumber || '7123456789'}</span>
+                      <span>{eventSuccess.event.bankAccountNumber || 'Hubungi panitia'}</span>
                       <Copy className="w-3 h-3 text-slate-400" />
                     </button>
                   </div>
                   <div className="flex items-center justify-between text-slate-600 text-[10px]">
                     <span>Atas Nama:</span>
-                    <strong className="text-slate-800">{eventSuccess.event.bankAccountName || 'Yayasan Tarbiyah Sunnah'}</strong>
+                    <strong className="text-slate-800">{eventSuccess.event.bankAccountName || 'Belum diatur'}</strong>
                   </div>
                   <div className="flex items-center justify-between text-slate-600 text-[10px] pt-1 border-t border-slate-100">
                     <span>Total Infaq Daurah:</span>

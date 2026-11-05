@@ -80,6 +80,7 @@ interface EventScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAttendeeCheckIn?: () => void;
+  workspaceNav?: React.ReactNode;
 }
 
 export const EventScannerModal: React.FC<EventScannerModalProps> = ({
@@ -87,7 +88,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
   eventTitle,
   isOpen,
   onClose,
-  onAttendeeCheckIn,
+  onAttendeeCheckIn, workspaceNav,
 }) => {
   const [activeTab, setActiveTab] = useState<'camera' | 'manual'>('camera');
   const [ticketInput, setTicketInput] = useState('');
@@ -1094,7 +1095,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
 
             {/* Close Button */}
             <button
-              onClick={onClose}
+              aria-label="Tutup scanner" onClick={onClose}
               className="p-2 bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 rounded-xl transition-colors shrink-0 border border-slate-700"
             >
               <X className="w-5 h-5" />
@@ -1102,6 +1103,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
           </div>
         </div>
 
+        {workspaceNav}
         {/* 2. Session KPI Bar (Realtime Database & Session Live Stats) */}
         <div className="bg-slate-950 px-4 sm:px-6 py-2.5 border-b border-slate-800/80 grid grid-cols-3 gap-2 sm:gap-4 text-center">
           <div className="p-2 bg-slate-900/90 rounded-xl border border-slate-800 flex flex-col justify-center">

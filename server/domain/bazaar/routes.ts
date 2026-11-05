@@ -228,13 +228,13 @@ export async function ensureBazaarTablesExist(db: any) {
         ALTER TABLE bazaar_applications ADD COLUMN IF NOT EXISTS registered_at timestamp with time zone DEFAULT now() NOT NULL;
         ALTER TABLE bazaar_applications ADD COLUMN IF NOT EXISTS updated_at timestamp with time zone DEFAULT now() NOT NULL;
       `);
-    }
-    bazaarTablesInitialized = true;
-  } catch (err) {
-    console.error('ensureBazaarTablesExist error:', err);
-    bazaarTablesInitialized = true;
-  }
-  })();
+        }
+        bazaarTablesInitialized = true;
+      } catch (err) {
+        console.error('ensureBazaarTablesExist error:', err);
+        bazaarTablesInitialized = true;
+      }
+    })();
   }
   await bazaarInitPromise;
 }
@@ -261,7 +261,7 @@ const createBazaarSchema = z.object({
         name: z.string(),
         description: z.string().optional(),
         color: z.string().optional(),
-      })
+      }),
     )
     .optional()
     .nullable(),
@@ -270,7 +270,7 @@ const createBazaarSchema = z.object({
       z.object({
         category: z.string(),
         maxQuota: z.number().int().min(0),
-      })
+      }),
     )
     .optional()
     .nullable(),
@@ -289,7 +289,7 @@ const bulkCreateBoothsSchema = z.object({
         allowedCategory: z.string().default('all'),
         positionX: z.number().int().default(0),
         positionY: z.number().int().default(0),
-      })
+      }),
     )
     .min(1, 'Minimal 1 booth'),
 });
@@ -362,7 +362,14 @@ const updateTenantFeeSchema = z.object({
 const assignBoothSchema = z.object({
   boothId: z.string().uuid().nullable(),
   placementReason: z
-    .enum(['category_isolation', 'traffic_management', 'power_access', 'equity_rotation', 'partner_reserved', 'custom'])
+    .enum([
+      'category_isolation',
+      'traffic_management',
+      'power_access',
+      'equity_rotation',
+      'partner_reserved',
+      'custom',
+    ])
     .optional(),
   placementNotes: z.string().optional().nullable(),
   isPublished: z.boolean().optional(),
@@ -386,7 +393,9 @@ const staffEvaluationSchema = z.object({
   cleanlinessScore: z.number().int().min(1).max(5).default(5),
   trafficDisruptionRisk: z.number().int().min(1).max(5).default(1),
   recommendNextEvent: z.boolean().default(true),
-  suggestedFlag: z.enum(['normal', 'review_next_event', 'do_not_auto_accept']).default('normal'),
+  suggestedFlag: z
+    .enum(['normal', 'review_next_event', 'do_not_auto_accept'])
+    .default('normal'),
   internalNotes: z.string().optional().nullable(),
 });
 
@@ -395,7 +404,12 @@ const publicApplySchema = z.object({
   businessCategory: z.string().min(2, 'Kategori usaha diperlukan'),
   picName: z.string().min(2, 'Nama penanggung jawab diperlukan'),
   picPhone: z.string().min(8, 'Nomor WhatsApp tidak valid'),
-  picEmail: z.string().email('Format email tidak valid').optional().nullable().or(z.literal('')),
+  picEmail: z
+    .string()
+    .email('Format email tidak valid')
+    .optional()
+    .nullable()
+    .or(z.literal('')),
   picKtpNumber: z.string().optional().nullable(),
   instagram: z.string().optional().nullable(),
   threads: z.string().optional().nullable(),
@@ -433,6 +447,23 @@ const publicUploadProofSchema = z.object({
   paymentProofUrl: z.string().min(3, 'Bukti transfer pembayaran diperlukan'),
   paymentNotes: z.string().optional().nullable(),
 });
+
+function applicationInEvent(
+  applicationId: string,
+  eventId: string,
+  allowBazaarId = false,
+) {
+  return and(
+    eq(bazaarApplications.id, applicationId),
+    sql`EXISTS (SELECT 1 FROM bazaar_events b WHERE b.id = ${bazaarApplications.bazaarId} AND (b.event_id = ${eventId}::uuid OR (${allowBazaarId} AND b.id = ${eventId}::uuid)))`,
+  );
+}
+function boothInEvent(boothId: string, eventId: string) {
+  return and(
+    eq(bazaarBooths.id, boothId),
+    sql`EXISTS (SELECT 1 FROM bazaar_events b WHERE b.id = ${bazaarBooths.bazaarId} AND b.event_id = ${eventId}::uuid)`,
+  );
+}
 
 export function registerBazaarRoutes(router: Router) {
   // 0. GET /api/bazaar/overview (Single fast query for Bazaar Hub list)
@@ -476,14 +507,18 @@ export function registerBazaarRoutes(router: Router) {
       for (const baz of bazaarList) {
         const booths = baz.booths || [];
         const apps = baz.applications || [];
-        const availableBoothsCount = booths.filter((b: any) => b.status === 'available').length;
-        const bookedBoothsCount = booths.filter((b: any) => b.status === 'assigned').length;
+        const availableBoothsCount = booths.filter(
+          (b: any) => b.status === 'available',
+        ).length;
+        const bookedBoothsCount = booths.filter(
+          (b: any) => b.status === 'assigned',
+        ).length;
         const verifiedTenantsCount = apps.filter(
           (a: any) =>
             a.status === 'payment_verified' ||
             a.status === 'booth_assigned' ||
             a.status === 'checked_in' ||
-            a.status === 'completed'
+            a.status === 'completed',
         ).length;
         const totalInfaqRupiah = apps
           .filter(
@@ -491,7 +526,7 @@ export function registerBazaarRoutes(router: Router) {
               a.status === 'payment_verified' ||
               a.status === 'booth_assigned' ||
               a.status === 'checked_in' ||
-              a.status === 'completed'
+              a.status === 'completed',
           )
           .reduce((sum: number, a: any) => sum + (a.infaqAmountRupiah || 0), 0);
 
@@ -519,8 +554,11 @@ export function registerBazaarRoutes(router: Router) {
         bazaar: bazaarMap.get(ev.id) || null,
       }));
 
-      return successResponse(eventsWithBazaar, { requestId: ctx.requestId, total: eventsWithBazaar.length });
-    })
+      return successResponse(eventsWithBazaar, {
+        requestId: ctx.requestId,
+        total: eventsWithBazaar.length,
+      });
+    }),
   );
 
   // 1. GET /api/events/:id/bazaar
@@ -532,7 +570,12 @@ export function registerBazaarRoutes(router: Router) {
       const eventId = ctx.params?.id;
 
       if (!eventId) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID diperlukan.',
+          400,
+          ctx.requestId,
+        );
       }
 
       const eventRecord = await db.query.events.findFirst({
@@ -540,7 +583,12 @@ export function registerBazaarRoutes(router: Router) {
       });
 
       if (!eventRecord) {
-        return errorResponse('NOT_FOUND', 'Jadwal kajian tidak ditemukan.', 404, ctx.requestId);
+        return errorResponse(
+          'NOT_FOUND',
+          'Jadwal kajian tidak ditemukan.',
+          404,
+          ctx.requestId,
+        );
       }
 
       const bazaar = await db.query.bazaarEvents.findFirst({
@@ -569,9 +617,9 @@ export function registerBazaarRoutes(router: Router) {
           event: eventRecord,
           bazaar: bazaar || null,
         },
-        { requestId: ctx.requestId }
+        { requestId: ctx.requestId },
       );
-    })
+    }),
   );
 
   // 2. POST /api/events/:id/bazaar
@@ -584,7 +632,12 @@ export function registerBazaarRoutes(router: Router) {
         const eventId = ctx.params?.id;
 
         if (!eventId) {
-          return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+          return errorResponse(
+            'VALIDATION_ERROR',
+            'Event ID diperlukan.',
+            400,
+            ctx.requestId,
+          );
         }
 
         const eventRecord = await db.query.events.findFirst({
@@ -592,7 +645,12 @@ export function registerBazaarRoutes(router: Router) {
         });
 
         if (!eventRecord) {
-          return errorResponse('NOT_FOUND', 'Jadwal kajian tidak ditemukan.', 404, ctx.requestId);
+          return errorResponse(
+            'NOT_FOUND',
+            'Jadwal kajian tidak ditemukan.',
+            404,
+            ctx.requestId,
+          );
         }
 
         const existingBazaar = await db.query.bazaarEvents.findFirst({
@@ -600,7 +658,12 @@ export function registerBazaarRoutes(router: Router) {
         });
 
         if (existingBazaar) {
-          return errorResponse('CONFLICT', 'Bazar untuk kajian ini sudah pernah diaktifkan.', 409, ctx.requestId);
+          return errorResponse(
+            'CONFLICT',
+            'Bazar untuk kajian ini sudah pernah diaktifkan.',
+            409,
+            ctx.requestId,
+          );
         }
 
         const [created] = await db
@@ -616,22 +679,43 @@ export function registerBazaarRoutes(router: Router) {
             bankAccountNumber: body.bankAccountNumber || null,
             bankAccountName: body.bankAccountName || null,
             paymentInstructions: body.paymentInstructions || null,
-            registrationDeadline: body.registrationDeadline ? new Date(body.registrationDeadline) : null,
-            paymentDeadline: body.paymentDeadline ? new Date(body.paymentDeadline) : null,
-            surveyDeadline: body.surveyDeadline ? new Date(body.surveyDeadline) : null,
+            registrationDeadline: body.registrationDeadline
+              ? new Date(body.registrationDeadline)
+              : null,
+            paymentDeadline: body.paymentDeadline
+              ? new Date(body.paymentDeadline)
+              : null,
+            surveyDeadline: body.surveyDeadline
+              ? new Date(body.surveyDeadline)
+              : null,
             surveyEnabled: body.surveyEnabled ?? true,
             layoutZones: body.layoutZones || [
-              { id: 'zone_selasar', name: 'Selasar Depan', description: 'Area Utama Ramai Jamaah', color: '#047857' },
-              { id: 'zone_kuliner', name: 'Area Kuliner & Minuman', description: 'Dekat Tempat Wudhu & Parkir', color: '#b45309' },
-              { id: 'zone_busana', name: 'Area Busana & Herbal', description: 'Selasar Samping Masjid', color: '#4338ca' },
+              {
+                id: 'zone_selasar',
+                name: 'Selasar Depan',
+                description: 'Area Utama Ramai Jamaah',
+                color: '#047857',
+              },
+              {
+                id: 'zone_kuliner',
+                name: 'Area Kuliner & Minuman',
+                description: 'Dekat Tempat Wudhu & Parkir',
+                color: '#b45309',
+              },
+              {
+                id: 'zone_busana',
+                name: 'Area Busana & Herbal',
+                description: 'Selasar Samping Masjid',
+                color: '#4338ca',
+              },
             ],
             categoryQuotas: body.categoryQuotas || null,
           })
           .returning();
 
         return successResponse(created, { requestId: ctx.requestId });
-      })
-    )
+      }),
+    ),
   );
 
   // 3. PUT /api/events/:id/bazaar
@@ -644,7 +728,12 @@ export function registerBazaarRoutes(router: Router) {
         const eventId = ctx.params?.id;
 
         if (!eventId) {
-          return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+          return errorResponse(
+            'VALIDATION_ERROR',
+            'Event ID diperlukan.',
+            400,
+            ctx.requestId,
+          );
         }
 
         const existing = await db.query.bazaarEvents.findFirst({
@@ -652,24 +741,35 @@ export function registerBazaarRoutes(router: Router) {
         });
 
         if (!existing) {
-          return errorResponse('NOT_FOUND', 'Bazar belum diinisialisasi untuk kajian ini.', 404, ctx.requestId);
+          return errorResponse(
+            'NOT_FOUND',
+            'Bazar belum diinisialisasi untuk kajian ini.',
+            404,
+            ctx.requestId,
+          );
         }
 
         const [updated] = await db
           .update(bazaarEvents)
           .set({
             ...body,
-            registrationDeadline: body.registrationDeadline ? new Date(body.registrationDeadline) : existing.registrationDeadline,
-            paymentDeadline: body.paymentDeadline ? new Date(body.paymentDeadline) : existing.paymentDeadline,
-            surveyDeadline: body.surveyDeadline ? new Date(body.surveyDeadline) : existing.surveyDeadline,
+            registrationDeadline: body.registrationDeadline
+              ? new Date(body.registrationDeadline)
+              : existing.registrationDeadline,
+            paymentDeadline: body.paymentDeadline
+              ? new Date(body.paymentDeadline)
+              : existing.paymentDeadline,
+            surveyDeadline: body.surveyDeadline
+              ? new Date(body.surveyDeadline)
+              : existing.surveyDeadline,
             updatedAt: new Date(),
           })
           .where(eq(bazaarEvents.id, existing.id))
           .returning();
 
         return successResponse(updated, { requestId: ctx.requestId });
-      })
-    )
+      }),
+    ),
   );
 
   // 4. BOOTH MANAGEMENT
@@ -681,7 +781,12 @@ export function registerBazaarRoutes(router: Router) {
         await ensureBazaarTablesExist(db);
         const eventId = ctx.params?.id;
         if (!eventId) {
-          return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+          return errorResponse(
+            'VALIDATION_ERROR',
+            'Event ID diperlukan.',
+            400,
+            ctx.requestId,
+          );
         }
 
         const bazaar = await db.query.bazaarEvents.findFirst({
@@ -689,7 +794,12 @@ export function registerBazaarRoutes(router: Router) {
         });
 
         if (!bazaar) {
-          return errorResponse('NOT_FOUND', 'Bazar belum diinisialisasi.', 404, ctx.requestId);
+          return errorResponse(
+            'NOT_FOUND',
+            'Bazar belum diinisialisasi.',
+            404,
+            ctx.requestId,
+          );
         }
 
         const boothRows = body.booths.map((b) => ({
@@ -706,10 +816,16 @@ export function registerBazaarRoutes(router: Router) {
           positionY: b.positionY || 0,
         }));
 
-        const inserted = await db.insert(bazaarBooths).values(boothRows).returning();
-        return successResponse(inserted, { requestId: ctx.requestId, total: inserted.length });
-      })
-    )
+        const inserted = await db
+          .insert(bazaarBooths)
+          .values(boothRows)
+          .returning();
+        return successResponse(inserted, {
+          requestId: ctx.requestId,
+          total: inserted.length,
+        });
+      }),
+    ),
   );
 
   router.put(
@@ -720,7 +836,12 @@ export function registerBazaarRoutes(router: Router) {
         await ensureBazaarTablesExist(db);
         const eventId = ctx.params?.id;
         if (!eventId) {
-          return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+          return errorResponse(
+            'VALIDATION_ERROR',
+            'Event ID diperlukan.',
+            400,
+            ctx.requestId,
+          );
         }
 
         const bazaar = await db.query.bazaarEvents.findFirst({
@@ -728,7 +849,12 @@ export function registerBazaarRoutes(router: Router) {
         });
 
         if (!bazaar) {
-          return errorResponse('NOT_FOUND', 'Bazar belum diinisialisasi.', 404, ctx.requestId);
+          return errorResponse(
+            'NOT_FOUND',
+            'Bazar belum diinisialisasi.',
+            404,
+            ctx.requestId,
+          );
         }
 
         const conditions = [eq(bazaarBooths.bazaarId, bazaar.id)];
@@ -753,8 +879,8 @@ export function registerBazaarRoutes(router: Router) {
           total: updated.length,
           message: `Berhasil memperbarui tarif ${updated.length} stand.`,
         });
-      })
-    )
+      }),
+    ),
   );
 
   router.put(
@@ -764,30 +890,43 @@ export function registerBazaarRoutes(router: Router) {
         const db = getDb();
         const boothId = ctx.params?.boothId;
         if (!boothId) {
-          return errorResponse('VALIDATION_ERROR', 'Booth ID diperlukan.', 400, ctx.requestId);
+          return errorResponse(
+            'VALIDATION_ERROR',
+            'Booth ID diperlukan.',
+            400,
+            ctx.requestId,
+          );
         }
 
         const existing = await db.query.bazaarBooths.findFirst({
-          where: eq(bazaarBooths.id, boothId),
+          where: boothInEvent(boothId, ctx.params.id!),
         });
 
         if (!existing) {
-          return errorResponse('NOT_FOUND', 'Slot booth tidak ditemukan.', 404, ctx.requestId);
+          return errorResponse(
+            'NOT_FOUND',
+            'Slot booth tidak ditemukan.',
+            404,
+            ctx.requestId,
+          );
         }
 
         const [updated] = await db
           .update(bazaarBooths)
           .set({
             ...body,
-            reservedBy: body.status === 'reserved' ? (ctx.user?.id || null) : existing.reservedBy,
+            reservedBy:
+              body.status === 'reserved'
+                ? ctx.user?.id || null
+                : existing.reservedBy,
             updatedAt: new Date(),
           })
-          .where(eq(bazaarBooths.id, boothId))
+          .where(boothInEvent(boothId, ctx.params.id!))
           .returning();
 
         return successResponse(updated, { requestId: ctx.requestId });
-      })
-    )
+      }),
+    ),
   );
 
   router.delete(
@@ -796,12 +935,39 @@ export function registerBazaarRoutes(router: Router) {
       const db = getDb();
       const boothId = ctx.params?.boothId;
       if (!boothId) {
-        return errorResponse('VALIDATION_ERROR', 'Booth ID diperlukan.', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Booth ID diperlukan.',
+          400,
+          ctx.requestId,
+        );
       }
 
-      await db.delete(bazaarBooths).where(eq(bazaarBooths.id, boothId));
+      const existing = await db.query.bazaarBooths.findFirst({
+        where: boothInEvent(boothId, ctx.params.id!),
+      });
+      if (!existing)
+        return errorResponse(
+          'NOT_FOUND',
+          'Stan tidak ditemukan pada event ini.',
+          404,
+          ctx.requestId,
+        );
+      const referenced = await db.query.bazaarApplications.findFirst({
+        where: eq(bazaarApplications.assignedBoothId, boothId),
+      });
+      if (referenced)
+        return errorResponse(
+          'CONFLICT',
+          'Stan memiliki riwayat penempatan tenant. Nonaktifkan stan agar riwayat tetap tersimpan.',
+          409,
+          ctx.requestId,
+        );
+      await db
+        .delete(bazaarBooths)
+        .where(boothInEvent(boothId, ctx.params.id!));
       return successResponse({ success: true }, { requestId: ctx.requestId });
-    })
+    }),
   );
 
   // 5. MASTER TENANT CRM
@@ -839,7 +1005,7 @@ export function registerBazaarRoutes(router: Router) {
             t.brandName.toLowerCase().includes(q) ||
             t.picName.toLowerCase().includes(q) ||
             t.picPhone.includes(q) ||
-            (t.instagram && t.instagram.toLowerCase().includes(q))
+            (t.instagram && t.instagram.toLowerCase().includes(q)),
         );
       }
       if (category && category !== 'all') {
@@ -855,11 +1021,11 @@ export function registerBazaarRoutes(router: Router) {
             a.status === 'payment_verified' ||
             a.status === 'booth_assigned' ||
             a.status === 'checked_in' ||
-            a.status === 'completed'
+            a.status === 'completed',
         );
         const lifetimeInfaqRupiah = verifiedApps.reduce(
           (sum: number, a: any) => sum + (a.infaqAmountRupiah || 0),
-          0
+          0,
         );
         return {
           ...t,
@@ -868,8 +1034,11 @@ export function registerBazaarRoutes(router: Router) {
         };
       });
 
-      return successResponse(enriched, { requestId: ctx.requestId, total: enriched.length });
-    })
+      return successResponse(enriched, {
+        requestId: ctx.requestId,
+        total: enriched.length,
+      });
+    }),
   );
 
   router.get(
@@ -879,7 +1048,12 @@ export function registerBazaarRoutes(router: Router) {
       await ensureBazaarTablesExist(db);
       const tenantId = ctx.params?.tenantId;
       if (!tenantId) {
-        return errorResponse('VALIDATION_ERROR', 'Tenant ID diperlukan.', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Tenant ID diperlukan.',
+          400,
+          ctx.requestId,
+        );
       }
 
       const tenant = await db.query.bazaarTenants.findFirst({
@@ -907,11 +1081,16 @@ export function registerBazaarRoutes(router: Router) {
       });
 
       if (!tenant) {
-        return errorResponse('NOT_FOUND', 'Profil tenant tidak ditemukan.', 404, ctx.requestId);
+        return errorResponse(
+          'NOT_FOUND',
+          'Profil tenant tidak ditemukan.',
+          404,
+          ctx.requestId,
+        );
       }
 
       return successResponse(tenant, { requestId: ctx.requestId });
-    })
+    }),
   );
 
   router.put(
@@ -920,7 +1099,12 @@ export function registerBazaarRoutes(router: Router) {
       const db = getDb();
       const tenantId = ctx.params?.tenantId;
       if (!tenantId) {
-        return errorResponse('VALIDATION_ERROR', 'Tenant ID diperlukan.', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Tenant ID diperlukan.',
+          400,
+          ctx.requestId,
+        );
       }
       const body = (ctx.body as any) || {};
 
@@ -929,7 +1113,12 @@ export function registerBazaarRoutes(router: Router) {
       });
 
       if (!existing) {
-        return errorResponse('NOT_FOUND', 'Profil tenant tidak ditemukan.', 404, ctx.requestId);
+        return errorResponse(
+          'NOT_FOUND',
+          'Profil tenant tidak ditemukan.',
+          404,
+          ctx.requestId,
+        );
       }
 
       const [updated] = await db
@@ -937,19 +1126,31 @@ export function registerBazaarRoutes(router: Router) {
         .set({
           brandName: body.brandName ?? existing.brandName,
           picName: body.picName ?? existing.picName,
-          picPhone: body.picPhone ? normalizeIndonesianPhone(body.picPhone) : existing.picPhone,
+          picPhone: body.picPhone
+            ? normalizeIndonesianPhone(body.picPhone)
+            : existing.picPhone,
           picEmail: body.picEmail ?? existing.picEmail,
           picKtpNumber: body.picKtpNumber ?? existing.picKtpNumber,
-          instagram: body.instagram !== undefined ? body.instagram : existing.instagram,
+          instagram:
+            body.instagram !== undefined ? body.instagram : existing.instagram,
           threads: body.threads !== undefined ? body.threads : existing.threads,
-          websiteUrl: body.websiteUrl !== undefined ? body.websiteUrl : existing.websiteUrl,
+          websiteUrl:
+            body.websiteUrl !== undefined
+              ? body.websiteUrl
+              : existing.websiteUrl,
           logoUrl: body.logoUrl !== undefined ? body.logoUrl : existing.logoUrl,
           googleDriveCatalogUrl:
-            body.googleDriveCatalogUrl !== undefined ? body.googleDriveCatalogUrl : existing.googleDriveCatalogUrl,
-          catalogUrls: body.catalogUrls !== undefined ? body.catalogUrls : existing.catalogUrls,
+            body.googleDriveCatalogUrl !== undefined
+              ? body.googleDriveCatalogUrl
+              : existing.googleDriveCatalogUrl,
+          catalogUrls:
+            body.catalogUrls !== undefined
+              ? body.catalogUrls
+              : existing.catalogUrls,
           address: body.address ?? existing.address,
           businessCategory: body.businessCategory ?? existing.businessCategory,
-          productDescription: body.productDescription ?? existing.productDescription,
+          productDescription:
+            body.productDescription ?? existing.productDescription,
           internalTags: body.internalTags ?? existing.internalTags,
           internalFlag: body.internalFlag ?? existing.internalFlag,
           internalNotes: body.internalNotes ?? existing.internalNotes,
@@ -959,7 +1160,7 @@ export function registerBazaarRoutes(router: Router) {
         .returning();
 
       return successResponse(updated, { requestId: ctx.requestId });
-    })
+    }),
   );
 
   // Legacy Data Import Endpoint
@@ -979,7 +1180,10 @@ export function registerBazaarRoutes(router: Router) {
 
         // Deduplication check: Phone OR Brand
         const existing = await db.query.bazaarTenants.findFirst({
-          where: or(eq(bazaarTenants.picPhone, normalizedPhone), ilike(bazaarTenants.brandName, r.brandName.trim())),
+          where: or(
+            eq(bazaarTenants.picPhone, normalizedPhone),
+            ilike(bazaarTenants.brandName, r.brandName.trim()),
+          ),
         });
 
         if (existing) {
@@ -993,7 +1197,8 @@ export function registerBazaarRoutes(router: Router) {
               internalTags: currentTags,
               instagram: existing.instagram || r.instagram,
               address: existing.address || r.address,
-              productDescription: existing.productDescription || r.productDescription,
+              productDescription:
+                existing.productDescription || r.productDescription,
               updatedAt: new Date(),
             })
             .where(eq(bazaarTenants.id, existing.id));
@@ -1018,9 +1223,9 @@ export function registerBazaarRoutes(router: Router) {
 
       return successResponse(
         { imported, merged, totalProcessed: rows.length },
-        { requestId: ctx.requestId }
+        { requestId: ctx.requestId },
       );
-    })
+    }),
   );
 
   // 6. APPLICATIONS & SELECTION LIFECYCLE
@@ -1031,7 +1236,12 @@ export function registerBazaarRoutes(router: Router) {
       await ensureBazaarTablesExist(db);
       const eventId = ctx.params?.id;
       if (!eventId) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID diperlukan.',
+          400,
+          ctx.requestId,
+        );
       }
 
       const bazaar = await db.query.bazaarEvents.findFirst({
@@ -1061,8 +1271,11 @@ export function registerBazaarRoutes(router: Router) {
         },
       });
 
-      return successResponse(apps, { requestId: ctx.requestId, total: apps.length });
-    })
+      return successResponse(apps, {
+        requestId: ctx.requestId,
+        total: apps.length,
+      });
+    }),
   );
 
   router.put(
@@ -1072,15 +1285,25 @@ export function registerBazaarRoutes(router: Router) {
         const db = getDb();
         const appId = ctx.params?.appId;
         if (!appId) {
-          return errorResponse('VALIDATION_ERROR', 'App ID diperlukan.', 400, ctx.requestId);
+          return errorResponse(
+            'VALIDATION_ERROR',
+            'App ID diperlukan.',
+            400,
+            ctx.requestId,
+          );
         }
 
         const existing = await db.query.bazaarApplications.findFirst({
-          where: eq(bazaarApplications.id, appId),
+          where: applicationInEvent(appId, ctx.params.id!),
         });
 
         if (!existing) {
-          return errorResponse('NOT_FOUND', 'Pendaftaran tidak ditemukan.', 404, ctx.requestId);
+          return errorResponse(
+            'NOT_FOUND',
+            'Pendaftaran tidak ditemukan.',
+            404,
+            ctx.requestId,
+          );
         }
 
         const isVerified = body.status === 'payment_verified';
@@ -1091,17 +1314,22 @@ export function registerBazaarRoutes(router: Router) {
             rejectionReason: body.rejectionReason ?? existing.rejectionReason,
             adminNotes: body.adminNotes ?? existing.adminNotes,
             paymentNotes: body.paymentNotes ?? existing.paymentNotes,
-            infaqAmountRupiah: body.infaqAmountRupiah ?? existing.infaqAmountRupiah,
-            paymentVerifiedAt: isVerified ? new Date() : existing.paymentVerifiedAt,
-            paymentVerifiedBy: isVerified ? (ctx.user?.id || '00000000-0000-0000-0000-000000000000') : existing.paymentVerifiedBy,
+            infaqAmountRupiah:
+              body.infaqAmountRupiah ?? existing.infaqAmountRupiah,
+            paymentVerifiedAt: isVerified
+              ? new Date()
+              : existing.paymentVerifiedAt,
+            paymentVerifiedBy: isVerified
+              ? ctx.user?.id || '00000000-0000-0000-0000-000000000000'
+              : existing.paymentVerifiedBy,
             updatedAt: new Date(),
           })
-          .where(eq(bazaarApplications.id, appId))
+          .where(applicationInEvent(appId, ctx.params.id!))
           .returning();
 
         return successResponse(updated, { requestId: ctx.requestId });
-      })
-    )
+      }),
+    ),
   );
 
   // Update Tenant Application Fee / Infaq Setting
@@ -1112,16 +1340,26 @@ export function registerBazaarRoutes(router: Router) {
         const db = getDb();
         const appId = ctx.params?.appId;
         if (!appId) {
-          return errorResponse('VALIDATION_ERROR', 'App ID diperlukan.', 400, ctx.requestId);
+          return errorResponse(
+            'VALIDATION_ERROR',
+            'App ID diperlukan.',
+            400,
+            ctx.requestId,
+          );
         }
 
         const existing = await db.query.bazaarApplications.findFirst({
-          where: eq(bazaarApplications.id, appId),
+          where: applicationInEvent(appId, ctx.params.id!),
           with: { tenant: true },
         });
 
         if (!existing) {
-          return errorResponse('NOT_FOUND', 'Pendaftaran tenant tidak ditemukan.', 404, ctx.requestId);
+          return errorResponse(
+            'NOT_FOUND',
+            'Pendaftaran tenant tidak ditemukan.',
+            404,
+            ctx.requestId,
+          );
         }
 
         const isVerified = body.status === 'payment_verified';
@@ -1129,27 +1367,32 @@ export function registerBazaarRoutes(router: Router) {
           .update(bazaarApplications)
           .set({
             infaqAmountRupiah: body.infaqAmountRupiah,
-            paymentNotes: body.paymentNotes !== undefined ? body.paymentNotes : existing.paymentNotes,
+            paymentNotes:
+              body.paymentNotes !== undefined
+                ? body.paymentNotes
+                : existing.paymentNotes,
             status: body.status || existing.status,
             paymentVerifiedAt: isVerified
               ? new Date()
-              : body.status && body.status !== 'payment_verified' && existing.status === 'payment_verified'
-              ? null
-              : existing.paymentVerifiedAt,
+              : body.status &&
+                  body.status !== 'payment_verified' &&
+                  existing.status === 'payment_verified'
+                ? null
+                : existing.paymentVerifiedAt,
             paymentVerifiedBy: isVerified
-              ? (ctx.user?.id || '00000000-0000-0000-0000-000000000000')
+              ? ctx.user?.id || '00000000-0000-0000-0000-000000000000'
               : existing.paymentVerifiedBy,
             updatedAt: new Date(),
           })
-          .where(eq(bazaarApplications.id, appId))
+          .where(applicationInEvent(appId, ctx.params.id!))
           .returning();
 
         return successResponse(updated, {
           requestId: ctx.requestId,
           message: `Tarif pendaftaran untuk ${existing.tenant?.brandName || 'tenant'} berhasil diperbarui menjadi Rp ${body.infaqAmountRupiah.toLocaleString('id-ID')}`,
         });
-      })
-    )
+      }),
+    ),
   );
 
   // Manual Booth Assignment by Admin (with Smart Collision Checks & Category Validation)
@@ -1160,16 +1403,26 @@ export function registerBazaarRoutes(router: Router) {
         const db = getDb();
         const appId = ctx.params?.appId;
         if (!appId) {
-          return errorResponse('VALIDATION_ERROR', 'App ID diperlukan.', 400, ctx.requestId);
+          return errorResponse(
+            'VALIDATION_ERROR',
+            'App ID diperlukan.',
+            400,
+            ctx.requestId,
+          );
         }
 
         const application = await db.query.bazaarApplications.findFirst({
-          where: eq(bazaarApplications.id, appId),
+          where: applicationInEvent(appId, ctx.params.id!),
           with: { tenant: true, bazaar: true },
         });
 
         if (!application) {
-          return errorResponse('NOT_FOUND', 'Pendaftaran tidak ditemukan.', 404, ctx.requestId);
+          return errorResponse(
+            'NOT_FOUND',
+            'Pendaftaran tidak ditemukan.',
+            404,
+            ctx.requestId,
+          );
         }
 
         // If removing assignment
@@ -1188,10 +1441,13 @@ export function registerBazaarRoutes(router: Router) {
               placementNotes: null,
               assignedBy: null,
               assignedAt: null,
-              status: application.status === 'booth_assigned' ? 'payment_verified' : application.status,
+              status:
+                application.status === 'booth_assigned'
+                  ? 'payment_verified'
+                  : application.status,
               updatedAt: new Date(),
             })
-            .where(eq(bazaarApplications.id, appId))
+            .where(applicationInEvent(appId, ctx.params.id!))
             .returning();
 
           return successResponse(unassigned, { requestId: ctx.requestId });
@@ -1199,11 +1455,19 @@ export function registerBazaarRoutes(router: Router) {
 
         // Verify target booth
         const targetBooth = await db.query.bazaarBooths.findFirst({
-          where: and(eq(bazaarBooths.id, body.boothId), eq(bazaarBooths.bazaarId, application.bazaarId)),
+          where: and(
+            eq(bazaarBooths.id, body.boothId),
+            eq(bazaarBooths.bazaarId, application.bazaarId),
+          ),
         });
 
         if (!targetBooth) {
-          return errorResponse('NOT_FOUND', 'Slot booth tidak ditemukan.', 404, ctx.requestId);
+          return errorResponse(
+            'NOT_FOUND',
+            'Slot booth tidak ditemukan.',
+            404,
+            ctx.requestId,
+          );
         }
 
         // Smart warnings check: Check other applications in the same zone for same category
@@ -1211,7 +1475,7 @@ export function registerBazaarRoutes(router: Router) {
           where: and(
             eq(bazaarApplications.bazaarId, application.bazaarId),
             sql`${bazaarApplications.assignedBoothId} IS NOT NULL`,
-            sql`${bazaarApplications.id} != ${appId}`
+            sql`${bazaarApplications.id} != ${appId}`,
           ),
           with: { tenant: true, assignedBooth: true },
         });
@@ -1219,7 +1483,8 @@ export function registerBazaarRoutes(router: Router) {
         const sameCategoryInZone = zoneApps.filter(
           (za) =>
             za.assignedBooth?.zone === targetBooth.zone &&
-            za.tenant?.businessCategory === application.tenant?.businessCategory
+            za.tenant?.businessCategory ===
+              application.tenant?.businessCategory,
         );
 
         let smartWarning: string | null = null;
@@ -1235,11 +1500,16 @@ export function registerBazaarRoutes(router: Router) {
           targetBooth.allowedCategory !== application.tenant.businessCategory
         ) {
           const catWarning = `Perhatian: Stand '${targetBooth.code}' dialokasikan khusus untuk kategori '${targetBooth.allowedCategory}', sedangkan tenant berkategori '${application.tenant.businessCategory}'.`;
-          smartWarning = smartWarning ? `${smartWarning} | ${catWarning}` : catWarning;
+          smartWarning = smartWarning
+            ? `${smartWarning} | ${catWarning}`
+            : catWarning;
         }
 
         // Free previous booth if any
-        if (application.assignedBoothId && application.assignedBoothId !== body.boothId) {
+        if (
+          application.assignedBoothId &&
+          application.assignedBoothId !== body.boothId
+        ) {
           await db
             .update(bazaarBooths)
             .set({ status: 'available' })
@@ -1274,15 +1544,18 @@ export function registerBazaarRoutes(router: Router) {
             isPublished: body.isPublished ?? application.isPublished,
             updatedAt: new Date(),
           })
-          .where(eq(bazaarApplications.id, appId))
+          .where(applicationInEvent(appId, ctx.params.id!))
           .returning();
 
         return successResponse(
           { ...assigned, smartWarning },
-          { requestId: ctx.requestId, message: smartWarning || 'Booth berhasil ditetapkan' }
+          {
+            requestId: ctx.requestId,
+            message: smartWarning || 'Booth berhasil ditetapkan',
+          },
         );
-      })
-    )
+      }),
+    ),
   );
 
   // Toggle publish booth layout to tenants
@@ -1292,7 +1565,12 @@ export function registerBazaarRoutes(router: Router) {
       const db = getDb();
       const eventId = ctx.params?.id;
       if (!eventId) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID diperlukan.',
+          400,
+          ctx.requestId,
+        );
       }
       const isPublished = (ctx.body as any)?.isPublished ?? true;
 
@@ -1301,7 +1579,12 @@ export function registerBazaarRoutes(router: Router) {
       });
 
       if (!bazaar) {
-        return errorResponse('NOT_FOUND', 'Bazar tidak ditemukan.', 404, ctx.requestId);
+        return errorResponse(
+          'NOT_FOUND',
+          'Bazar tidak ditemukan.',
+          404,
+          ctx.requestId,
+        );
       }
 
       await db
@@ -1311,9 +1594,14 @@ export function registerBazaarRoutes(router: Router) {
 
       return successResponse(
         { isPublished: !!isPublished },
-        { requestId: ctx.requestId, message: isPublished ? 'Layout booth berhasil dipublikasikan ke tenant!' : 'Layout booth disembunyikan.' }
+        {
+          requestId: ctx.requestId,
+          message: isPublished
+            ? 'Layout booth berhasil dipublikasikan ke tenant!'
+            : 'Layout booth disembunyikan.',
+        },
       );
-    })
+    }),
   );
 
   // 7. ON-DAY OPERATIONS
@@ -1324,7 +1612,12 @@ export function registerBazaarRoutes(router: Router) {
       const applicationId = (ctx.body as any)?.applicationId;
 
       if (!applicationId) {
-        return errorResponse('VALIDATION_ERROR', 'Application ID diperlukan.', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Application ID diperlukan.',
+          400,
+          ctx.requestId,
+        );
       }
 
       const [checkedIn] = await db
@@ -1335,11 +1628,21 @@ export function registerBazaarRoutes(router: Router) {
           checkedInBy: ctx.user?.id || '00000000-0000-0000-0000-000000000000',
           updatedAt: new Date(),
         })
-        .where(eq(bazaarApplications.id, applicationId))
+        .where(applicationInEvent(applicationId, ctx.params.id!))
         .returning();
 
-      return successResponse(checkedIn, { requestId: ctx.requestId, message: 'Tenant berhasil check-in kehadiran!' });
-    })
+      if (!checkedIn)
+        return errorResponse(
+          'NOT_FOUND',
+          'Pendaftaran tenant tidak ditemukan pada event ini.',
+          404,
+          ctx.requestId,
+        );
+      return successResponse(checkedIn, {
+        requestId: ctx.requestId,
+        message: 'Tenant berhasil check-in kehadiran!',
+      });
+    }),
   );
 
   router.get(
@@ -1348,7 +1651,12 @@ export function registerBazaarRoutes(router: Router) {
       const db = getDb();
       const eventId = ctx.params?.id;
       if (!eventId) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID diperlukan.',
+          400,
+          ctx.requestId,
+        );
       }
 
       const incidentList = await db.query.bazaarIncidents.findMany({
@@ -1361,8 +1669,11 @@ export function registerBazaarRoutes(router: Router) {
         },
       });
 
-      return successResponse(incidentList, { requestId: ctx.requestId, total: incidentList.length });
-    })
+      return successResponse(incidentList, {
+        requestId: ctx.requestId,
+        total: incidentList.length,
+      });
+    }),
   );
 
   router.post(
@@ -1372,15 +1683,25 @@ export function registerBazaarRoutes(router: Router) {
         const db = getDb();
         const eventId = ctx.params?.id;
         if (!eventId) {
-          return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+          return errorResponse(
+            'VALIDATION_ERROR',
+            'Event ID diperlukan.',
+            400,
+            ctx.requestId,
+          );
         }
 
         const application = await db.query.bazaarApplications.findFirst({
-          where: eq(bazaarApplications.id, body.applicationId),
+          where: applicationInEvent(body.applicationId, eventId),
         });
 
         if (!application) {
-          return errorResponse('NOT_FOUND', 'Pendaftaran tenant tidak ditemukan.', 404, ctx.requestId);
+          return errorResponse(
+            'NOT_FOUND',
+            'Pendaftaran tenant tidak ditemukan.',
+            404,
+            ctx.requestId,
+          );
         }
 
         const [created] = await db
@@ -1398,9 +1719,12 @@ export function registerBazaarRoutes(router: Router) {
           })
           .returning();
 
-        return successResponse(created, { requestId: ctx.requestId, message: 'Catatan kejadian berhasil disimpan!' });
-      })
-    )
+        return successResponse(created, {
+          requestId: ctx.requestId,
+          message: 'Catatan kejadian berhasil disimpan!',
+        });
+      }),
+    ),
   );
 
   // 8. POST-EVENT: Surveys & Staff Evaluations
@@ -1410,7 +1734,12 @@ export function registerBazaarRoutes(router: Router) {
       const db = getDb();
       const eventId = ctx.params?.id;
       if (!eventId) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID diperlukan.',
+          400,
+          ctx.requestId,
+        );
       }
 
       const surveys = await db.query.bazaarSurveys.findMany({
@@ -1458,7 +1787,9 @@ export function registerBazaarRoutes(router: Router) {
         facilities: surveys.length ? +(sumFacilities / n).toFixed(1) : 0,
         traffic: surveys.length ? +(sumTraffic / n).toFixed(1) : 0,
         communication: surveys.length ? +(sumCommunication / n).toFixed(1) : 0,
-        willingPercentage: surveys.length ? Math.round((willingCount / surveys.length) * 100) : 0,
+        willingPercentage: surveys.length
+          ? Math.round((willingCount / surveys.length) * 100)
+          : 0,
       };
 
       return successResponse(
@@ -1468,9 +1799,9 @@ export function registerBazaarRoutes(router: Router) {
           averages,
           totalResponses: surveys.length,
         },
-        { requestId: ctx.requestId }
+        { requestId: ctx.requestId },
       );
-    })
+    }),
   );
 
   router.post(
@@ -1480,15 +1811,25 @@ export function registerBazaarRoutes(router: Router) {
         const db = getDb();
         const eventId = ctx.params?.id;
         if (!eventId) {
-          return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+          return errorResponse(
+            'VALIDATION_ERROR',
+            'Event ID diperlukan.',
+            400,
+            ctx.requestId,
+          );
         }
 
         const application = await db.query.bazaarApplications.findFirst({
-          where: eq(bazaarApplications.id, body.applicationId),
+          where: applicationInEvent(body.applicationId, eventId),
         });
 
         if (!application) {
-          return errorResponse('NOT_FOUND', 'Pendaftaran tidak ditemukan.', 404, ctx.requestId);
+          return errorResponse(
+            'NOT_FOUND',
+            'Pendaftaran tidak ditemukan.',
+            404,
+            ctx.requestId,
+          );
         }
 
         const existing = await db.query.bazaarEvaluations.findFirst({
@@ -1507,7 +1848,8 @@ export function registerBazaarRoutes(router: Router) {
               recommendNextEvent: body.recommendNextEvent,
               suggestedFlag: body.suggestedFlag,
               internalNotes: body.internalNotes || null,
-              evaluatedBy: ctx.user?.id || '00000000-0000-0000-0000-000000000000',
+              evaluatedBy:
+                ctx.user?.id || '00000000-0000-0000-0000-000000000000',
               evaluatedAt: new Date(),
             })
             .where(eq(bazaarEvaluations.id, existing.id))
@@ -1526,7 +1868,8 @@ export function registerBazaarRoutes(router: Router) {
               recommendNextEvent: body.recommendNextEvent,
               suggestedFlag: body.suggestedFlag,
               internalNotes: body.internalNotes || null,
-              evaluatedBy: ctx.user?.id || '00000000-0000-0000-0000-000000000000',
+              evaluatedBy:
+                ctx.user?.id || '00000000-0000-0000-0000-000000000000',
             })
             .returning();
         }
@@ -1538,9 +1881,12 @@ export function registerBazaarRoutes(router: Router) {
             .where(eq(bazaarTenants.id, application.tenantId));
         }
 
-        return successResponse(evaluation, { requestId: ctx.requestId, message: 'Evaluasi panitia berhasil disimpan!' });
-      })
-    )
+        return successResponse(evaluation, {
+          requestId: ctx.requestId,
+          message: 'Evaluasi panitia berhasil disimpan!',
+        });
+      }),
+    ),
   );
 
   // 9. PUBLIC PORTAL
@@ -1562,8 +1908,10 @@ export function registerBazaarRoutes(router: Router) {
       const boothPrices = (b.booths || [])
         .map((booth) => booth.priceRupiah)
         .filter((p) => typeof p === 'number' && p > 0);
-      const minFeeRupiah = boothPrices.length > 0 ? Math.min(...boothPrices) : b.defaultFeeRupiah;
-      const maxFeeRupiah = boothPrices.length > 0 ? Math.max(...boothPrices) : b.defaultFeeRupiah;
+      const minFeeRupiah =
+        boothPrices.length > 0 ? Math.min(...boothPrices) : b.defaultFeeRupiah;
+      const maxFeeRupiah =
+        boothPrices.length > 0 ? Math.max(...boothPrices) : b.defaultFeeRupiah;
 
       return {
         id: b.id,
@@ -1577,7 +1925,8 @@ export function registerBazaarRoutes(router: Router) {
         paymentDeadline: b.paymentDeadline,
         isOpen: b.isOpen,
         boothsCount: b.booths?.length || 0,
-        availableBoothsCount: b.booths?.filter((booth) => booth.status === 'available').length || 0,
+        availableBoothsCount:
+          b.booths?.filter((booth) => booth.status === 'available').length || 0,
         event: b.event
           ? {
               id: b.event.id,
@@ -1600,7 +1949,12 @@ export function registerBazaarRoutes(router: Router) {
     const eventId = ctx.params?.id;
 
     if (!eventId) {
-      return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+      return errorResponse(
+        'VALIDATION_ERROR',
+        'Event ID diperlukan.',
+        400,
+        ctx.requestId,
+      );
     }
 
     let eventRecord = await db.query.events.findFirst({
@@ -1646,7 +2000,12 @@ export function registerBazaarRoutes(router: Router) {
     }
 
     if (!bazaar || !eventRecord) {
-      return errorResponse('NOT_FOUND', 'Bazar atau jadwal kajian tidak ditemukan.', 404, ctx.requestId);
+      return errorResponse(
+        'NOT_FOUND',
+        'Bazar atau jadwal kajian tidak ditemukan.',
+        404,
+        ctx.requestId,
+      );
     }
 
     const sanitizedBooths = (bazaar.booths || []).map((b: any) => ({
@@ -1738,7 +2097,7 @@ export function registerBazaarRoutes(router: Router) {
           showcaseTenants,
         },
       },
-      { requestId: ctx.requestId }
+      { requestId: ctx.requestId },
     );
   });
 
@@ -1750,26 +2109,50 @@ export function registerBazaarRoutes(router: Router) {
       await ensureBazaarTablesExist(db);
       const eventId = ctx.params?.id;
       if (!eventId) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID diperlukan.',
+          400,
+          ctx.requestId,
+        );
       }
 
       const bazaar = await db.query.bazaarEvents.findFirst({
-        where: or(eq(bazaarEvents.eventId, eventId), eq(bazaarEvents.id, eventId)),
+        where: or(
+          eq(bazaarEvents.eventId, eventId),
+          eq(bazaarEvents.id, eventId),
+        ),
       });
 
       if (!bazaar || !bazaar.isOpen) {
-        return errorResponse('FORBIDDEN', 'Pendaftaran bazar untuk kajian ini sedang ditutup.', 403, ctx.requestId);
+        return errorResponse(
+          'FORBIDDEN',
+          'Pendaftaran bazar untuk kajian ini sedang ditutup.',
+          403,
+          ctx.requestId,
+        );
       }
 
-      if (bazaar.registrationDeadline && new Date() > new Date(bazaar.registrationDeadline)) {
-        return errorResponse('FORBIDDEN', 'Batas waktu pendaftaran bazar telah berakhir.', 403, ctx.requestId);
+      if (
+        bazaar.registrationDeadline &&
+        new Date() > new Date(bazaar.registrationDeadline)
+      ) {
+        return errorResponse(
+          'FORBIDDEN',
+          'Batas waktu pendaftaran bazar telah berakhir.',
+          403,
+          ctx.requestId,
+        );
       }
 
       const normalizedPhone = normalizeIndonesianPhone(body.picPhone);
 
       // 1. Find or create Master Tenant CRM profile
       let masterTenant = await db.query.bazaarTenants.findFirst({
-        where: or(eq(bazaarTenants.picPhone, normalizedPhone), ilike(bazaarTenants.brandName, body.brandName.trim())),
+        where: or(
+          eq(bazaarTenants.picPhone, normalizedPhone),
+          ilike(bazaarTenants.brandName, body.brandName.trim()),
+        ),
       });
 
       if (!masterTenant) {
@@ -1829,7 +2212,8 @@ export function registerBazaarRoutes(router: Router) {
             threads: body.threads || masterTenant.threads,
             websiteUrl: body.websiteUrl || masterTenant.websiteUrl,
             logoUrl: body.logoUrl || masterTenant.logoUrl,
-            googleDriveCatalogUrl: body.googleDriveCatalogUrl || masterTenant.googleDriveCatalogUrl,
+            googleDriveCatalogUrl:
+              body.googleDriveCatalogUrl || masterTenant.googleDriveCatalogUrl,
             address: body.address || masterTenant.address,
             productDescription: body.productDescription,
             internalTags: tags,
@@ -1839,16 +2223,29 @@ export function registerBazaarRoutes(router: Router) {
       }
 
       if (!masterTenant) {
-        return errorResponse('INTERNAL_ERROR', 'Gagal memproses master tenant.', 500, ctx.requestId);
+        return errorResponse(
+          'INTERNAL_ERROR',
+          'Gagal memproses master tenant.',
+          500,
+          ctx.requestId,
+        );
       }
 
       // 2. Check if already applied for this specific event
       const existingApp = await db.query.bazaarApplications.findFirst({
-        where: and(eq(bazaarApplications.bazaarId, bazaar.id), eq(bazaarApplications.tenantId, masterTenant.id)),
+        where: and(
+          eq(bazaarApplications.bazaarId, bazaar.id),
+          eq(bazaarApplications.tenantId, masterTenant.id),
+        ),
       });
 
       if (existingApp) {
-        return errorResponse('CONFLICT', 'Brand/Usaha Anda sudah terdaftar pada bazar kajian ini.', 409, ctx.requestId);
+        return errorResponse(
+          'CONFLICT',
+          'Brand/Usaha Anda sudah terdaftar pada bazar kajian ini.',
+          409,
+          ctx.requestId,
+        );
       }
 
       // 3. Create Application & Check Category Quotas
@@ -1856,7 +2253,9 @@ export function registerBazaarRoutes(router: Router) {
       let initialStatus = hasPayment ? 'payment_verification' : 'submitted';
 
       if (bazaar.categoryQuotas && Array.isArray(bazaar.categoryQuotas)) {
-        const catSetting = (bazaar.categoryQuotas as any[]).find((q: any) => q.category === body.businessCategory);
+        const catSetting = (bazaar.categoryQuotas as any[]).find(
+          (q: any) => q.category === body.businessCategory,
+        );
         if (catSetting && catSetting.maxQuota > 0) {
           const catApps = await db.query.bazaarApplications.findMany({
             where: eq(bazaarApplications.bazaarId, bazaar.id),
@@ -1866,7 +2265,7 @@ export function registerBazaarRoutes(router: Router) {
             (a: any) =>
               a.tenant?.businessCategory === body.businessCategory &&
               a.status !== 'rejected' &&
-              a.status !== 'cancelled'
+              a.status !== 'cancelled',
           ).length;
 
           if (activeCount >= catSetting.maxQuota) {
@@ -1879,7 +2278,7 @@ export function registerBazaarRoutes(router: Router) {
       const storedProofUrl = await ensureS3StorageUrl(
         body.paymentProofUrl,
         'bazaar-proofs',
-        `bazaar_${masterTenant.brandName}`
+        `bazaar_${masterTenant.brandName}`,
       );
 
       const [createdApp] = await db
@@ -1903,9 +2302,12 @@ export function registerBazaarRoutes(router: Router) {
           tenant: masterTenant,
           bazaarTitle: bazaar.title,
         },
-        { requestId: ctx.requestId, message: 'Pendaftaran formulir tenant bazar berhasil dikirim!' }
+        {
+          requestId: ctx.requestId,
+          message: 'Pendaftaran formulir tenant bazar berhasil dikirim!',
+        },
       );
-    })
+    }),
   );
 
   // Public Survey Submission
@@ -1917,21 +2319,29 @@ export function registerBazaarRoutes(router: Router) {
       const eventId = ctx.params?.id;
 
       if (!eventId) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID diperlukan.',
+          400,
+          ctx.requestId,
+        );
       }
 
       let application: any = null;
 
       if (body.applicationId) {
         application = await db.query.bazaarApplications.findFirst({
-          where: eq(bazaarApplications.id, body.applicationId),
+          where: applicationInEvent(body.applicationId, eventId, true),
           with: { tenant: true },
         });
       }
 
       if (!application && (body.phone || body.brandName)) {
         const bazaar = await db.query.bazaarEvents.findFirst({
-          where: or(eq(bazaarEvents.eventId, eventId), eq(bazaarEvents.id, eventId)),
+          where: or(
+            eq(bazaarEvents.eventId, eventId),
+            eq(bazaarEvents.id, eventId),
+          ),
         });
 
         if (bazaar) {
@@ -1940,12 +2350,26 @@ export function registerBazaarRoutes(router: Router) {
             with: { tenant: true },
           });
 
-          const normalizedPhone = body.phone ? normalizeIndonesianPhone(body.phone) : null;
-          const searchBrand = body.brandName ? body.brandName.trim().toLowerCase() : null;
+          const normalizedPhone = body.phone
+            ? normalizeIndonesianPhone(body.phone)
+            : null;
+          const searchBrand = body.brandName
+            ? body.brandName.trim().toLowerCase()
+            : null;
 
           application = apps.find((a) => {
-            if (normalizedPhone && a.tenant?.picPhone && normalizeIndonesianPhone(a.tenant.picPhone) === normalizedPhone) return true;
-            if (searchBrand && a.tenant?.brandName && a.tenant.brandName.toLowerCase().includes(searchBrand)) return true;
+            if (
+              normalizedPhone &&
+              a.tenant?.picPhone &&
+              normalizeIndonesianPhone(a.tenant.picPhone) === normalizedPhone
+            )
+              return true;
+            if (
+              searchBrand &&
+              a.tenant?.brandName &&
+              a.tenant.brandName.toLowerCase().includes(searchBrand)
+            )
+              return true;
             return false;
           });
         }
@@ -1956,7 +2380,7 @@ export function registerBazaarRoutes(router: Router) {
           'NOT_FOUND',
           'Data pendaftaran tenant tidak ditemukan. Pastikan No. WhatsApp atau Nama Brand terdaftar pada event ini.',
           404,
-          ctx.requestId
+          ctx.requestId,
         );
       }
 
@@ -1965,7 +2389,12 @@ export function registerBazaarRoutes(router: Router) {
       });
 
       if (existingSurvey) {
-        return errorResponse('CONFLICT', 'Anda sudah pernah mengisi survei untuk event ini. Jazakumullahu khairan!', 409, ctx.requestId);
+        return errorResponse(
+          'CONFLICT',
+          'Anda sudah pernah mengisi survei untuk event ini. Jazakumullahu khairan!',
+          409,
+          ctx.requestId,
+        );
       }
 
       const [survey] = await db
@@ -1990,8 +2419,11 @@ export function registerBazaarRoutes(router: Router) {
         .set({ status: 'completed', updatedAt: new Date() })
         .where(eq(bazaarApplications.id, application.id));
 
-      return successResponse(survey, { requestId: ctx.requestId, message: 'Jazakumullahu khairan! Survei pasca-event berhasil dikirim.' });
-    })
+      return successResponse(survey, {
+        requestId: ctx.requestId,
+        message: 'Jazakumullahu khairan! Survei pasca-event berhasil dikirim.',
+      });
+    }),
   );
 
   // Public Tenant Application Status Tracker
@@ -2000,32 +2432,53 @@ export function registerBazaarRoutes(router: Router) {
     await ensureBazaarTablesExist(db);
     const eventId = ctx.params?.id;
     if (!eventId) {
-      return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+      return errorResponse(
+        'VALIDATION_ERROR',
+        'Event ID diperlukan.',
+        400,
+        ctx.requestId,
+      );
     }
 
     const phone = ctx.query?.phone?.trim();
     const appId = ctx.query?.appId?.trim();
 
     if (!phone && !appId) {
-      return errorResponse('VALIDATION_ERROR', 'Harap masukkan Nomor WhatsApp atau ID Pendaftaran.', 400, ctx.requestId);
+      return errorResponse(
+        'VALIDATION_ERROR',
+        'Harap masukkan Nomor WhatsApp atau ID Pendaftaran.',
+        400,
+        ctx.requestId,
+      );
     }
 
     let bazaar = await db.query.bazaarEvents.findFirst({
-      where: or(eq(bazaarEvents.eventId, eventId), eq(bazaarEvents.id, eventId)),
+      where: or(
+        eq(bazaarEvents.eventId, eventId),
+        eq(bazaarEvents.id, eventId),
+      ),
       with: {
         event: true,
       },
     });
 
     if (!bazaar) {
-      return errorResponse('NOT_FOUND', 'Bazar tidak ditemukan.', 404, ctx.requestId);
+      return errorResponse(
+        'NOT_FOUND',
+        'Bazar tidak ditemukan.',
+        404,
+        ctx.requestId,
+      );
     }
 
     let application: any = null;
 
     if (appId) {
       application = await db.query.bazaarApplications.findFirst({
-        where: and(eq(bazaarApplications.id, appId), eq(bazaarApplications.bazaarId, bazaar.id)),
+        where: and(
+          eq(bazaarApplications.id, appId),
+          eq(bazaarApplications.bazaarId, bazaar.id),
+        ),
         with: {
           tenant: true,
           assignedBooth: true,
@@ -2045,7 +2498,9 @@ export function registerBazaarRoutes(router: Router) {
       });
 
       application = apps.find(
-        (a) => a.tenant?.picPhone && normalizeIndonesianPhone(a.tenant.picPhone) === normalizedPhone
+        (a) =>
+          a.tenant?.picPhone &&
+          normalizeIndonesianPhone(a.tenant.picPhone) === normalizedPhone,
       );
     }
 
@@ -2054,7 +2509,7 @@ export function registerBazaarRoutes(router: Router) {
         'NOT_FOUND',
         'Data pendaftaran tidak ditemukan. Pastikan Nomor WhatsApp atau ID Pendaftaran sesuai.',
         404,
-        ctx.requestId
+        ctx.requestId,
       );
     }
 
@@ -2119,7 +2574,7 @@ export function registerBazaarRoutes(router: Router) {
             }
           : null,
       },
-      { requestId: ctx.requestId }
+      { requestId: ctx.requestId },
     );
   });
 
@@ -2131,34 +2586,47 @@ export function registerBazaarRoutes(router: Router) {
       await ensureBazaarTablesExist(db);
       const eventId = ctx.params?.id;
       if (!eventId) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID diperlukan.',
+          400,
+          ctx.requestId,
+        );
       }
 
       const application = await db.query.bazaarApplications.findFirst({
-        where: eq(bazaarApplications.id, body.applicationId),
+        where: applicationInEvent(body.applicationId, eventId, true),
         with: {
           tenant: true,
         },
       });
 
       if (!application) {
-        return errorResponse('NOT_FOUND', 'Pendaftaran tidak ditemukan.', 404, ctx.requestId);
+        return errorResponse(
+          'NOT_FOUND',
+          'Pendaftaran tidak ditemukan.',
+          404,
+          ctx.requestId,
+        );
       }
 
       const inputPhone = normalizeIndonesianPhone(body.phone);
-      const tenantPhone = application.tenant?.picPhone ? normalizeIndonesianPhone(application.tenant.picPhone) : '';
+      const tenantPhone = application.tenant?.picPhone
+        ? normalizeIndonesianPhone(application.tenant.picPhone)
+        : '';
 
       if (inputPhone !== tenantPhone) {
         return errorResponse(
           'FORBIDDEN',
           'Nomor WhatsApp verifikasi tidak sesuai dengan data pendaftaran.',
           403,
-          ctx.requestId
+          ctx.requestId,
         );
       }
 
       const newStatus =
-        application.status === 'submitted' || application.status === 'payment_pending'
+        application.status === 'submitted' ||
+        application.status === 'payment_pending'
           ? 'payment_verification'
           : application.status;
 
@@ -2166,7 +2634,7 @@ export function registerBazaarRoutes(router: Router) {
       const storedProofUrl = await ensureS3StorageUrl(
         body.paymentProofUrl,
         'bazaar-proofs',
-        `bazaar_susulan_${application.id}`
+        `bazaar_susulan_${application.id}`,
       );
 
       const [updated] = await db
@@ -2186,9 +2654,10 @@ export function registerBazaarRoutes(router: Router) {
         },
         {
           requestId: ctx.requestId,
-          message: 'Bukti transfer berhasil diunggah! Panitia akan memverifikasi infaq Anda.',
-        }
+          message:
+            'Bukti transfer berhasil diunggah! Panitia akan memverifikasi infaq Anda.',
+        },
       );
-    })
+    }),
   );
 }

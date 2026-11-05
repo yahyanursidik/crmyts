@@ -142,6 +142,7 @@ interface EventBazaarManageModalProps {
   isOpen: boolean;
   onClose: () => void;
   onRefreshParent?: () => void;
+  workspaceNav?: React.ReactNode;
   initialTab?: 'overview' | 'layout' | 'applications' | 'operations' | 'surveys' | 'settings';
 }
 
@@ -177,7 +178,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
   eventId,
   isOpen,
   onClose,
-  onRefreshParent,
+  onRefreshParent, workspaceNav,
   initialTab,
 }) => {
   const [activeTab, setActiveTab] = useState<
@@ -1040,7 +1041,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
               </>
             )}
             <button
-              onClick={onClose}
+              aria-label="Tutup bazar" onClick={onClose}
               className="p-2 hover:bg-cream-200 text-surface-500 rounded-xl transition-colors"
             >
               <X className="w-5 h-5" />
@@ -1048,6 +1049,7 @@ export const EventBazaarManageModal: React.FC<EventBazaarManageModalProps> = ({
           </div>
         </div>
 
+        {workspaceNav}
         {/* 2. LOADING STATE / UNINITIALIZED STATE */}
         {loading ? (
           <div className="p-16 text-center">

@@ -69,5 +69,22 @@
       "restraint": 5,
       "variety": 4
     }
+  },
+  {
+    "date": "2026-11-05",
+    "macrostructure": "Workbench / Events directory and operational panels",
+    "theme": "tarbiyah-official-logo",
+    "enrichment": "none",
+    "scope": "Events / kajian, daurah, peserta dan bazar",
+    "brief": "Direktori ringkas, konteks event bersama, roster berpaginasi, form WIB, perlindungan riwayat serta hubungan Jamaah dan tenant",
+    "visualVerification": "Staging browser: directory/settings at 320 / 375 / 414 / 768 px and desktop, no document horizontal overflow; large roster 2065 people renders 25 rows; nested Escape and manual form error verified; scanner/manual and bazaar navigation retain event context",
+    "critique": {
+      "philosophy": 4,
+      "hierarchy": 4,
+      "execution": 4,
+      "specificity": 5,
+      "restraint": 4,
+      "variety": 4
+    }
   }
 ]

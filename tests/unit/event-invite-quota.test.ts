@@ -1,3 +1,4 @@
+import { eventDb } from '../helpers/eventDb';
 import { describe, it, expect, vi } from 'vitest';
 import { Router } from '../../server/http/router';
 import { registerPublicPortalRoutes } from '../../server/domain/public/routes';
@@ -76,7 +77,7 @@ describe('Dual-Track Quota (Regular & Undangan VIP) & WhatsApp Ticket Feature', 
         },
       },
     };
-    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+    vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
     const res = await router.handle({
       method: 'GET',
@@ -119,7 +120,7 @@ describe('Dual-Track Quota (Regular & Undangan VIP) & WhatsApp Ticket Feature', 
         },
       },
     };
-    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+    vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
     const res = await router.handle({
       method: 'POST',
@@ -161,7 +162,7 @@ describe('Dual-Track Quota (Regular & Undangan VIP) & WhatsApp Ticket Feature', 
         }),
       }),
     };
-    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+    vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
     const res = await router.handle({
       method: 'POST',
@@ -202,7 +203,7 @@ describe('Dual-Track Quota (Regular & Undangan VIP) & WhatsApp Ticket Feature', 
         }),
       }),
     };
-    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+    vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
     const res = await router.handle({
       method: 'POST',
@@ -232,12 +233,14 @@ describe('Dual-Track Quota (Regular & Undangan VIP) & WhatsApp Ticket Feature', 
         events: {
           findFirst: vi.fn().mockResolvedValue(mockEvent),
         },
+        eventAttendance: { findFirst: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]) },
         persons: {
-          findFirst: vi.fn().mockResolvedValue(null),
+          findFirst: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]),
         },
       },
       insert: vi.fn().mockReturnValue({
         values: vi.fn().mockReturnValue({
+          onConflictDoNothing: vi.fn().mockResolvedValue([]),
           returning: vi.fn().mockResolvedValue([
             {
               id: 'admin-man-1',
@@ -249,7 +252,7 @@ describe('Dual-Track Quota (Regular & Undangan VIP) & WhatsApp Ticket Feature', 
         }),
       }),
     };
-    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+    vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
     const res = await router.handle({
       method: 'POST',
@@ -273,9 +276,9 @@ describe('Dual-Track Quota (Regular & Undangan VIP) & WhatsApp Ticket Feature', 
     const json = JSON.parse(res.body);
     expect(json.data.ticketCode).toBeDefined();
     expect(json.data.waUrl).toContain('https://wa.me/6281233445566?text=');
-    expect(json.data.waText).toContain('Tamu Undangan Khusus (VIP)');
+    expect(json.data.waText).toContain('Pendaftaran');
     expect(json.data.waText).toContain(mockEvent.title);
-    expect(json.data.waText).toContain('KODE E-TIKET PRESENSI');
+    expect(json.data.waText).toContain('Kode tiket:');
     expect(json.data.isSpecialInvite).toBe(true);
   });
 
@@ -303,7 +306,7 @@ describe('Dual-Track Quota (Regular & Undangan VIP) & WhatsApp Ticket Feature', 
         }),
       }),
     };
-    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+    vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
     const res = await router.handle({
       method: 'PUT',
@@ -347,7 +350,7 @@ describe('Dual-Track Quota (Regular & Undangan VIP) & WhatsApp Ticket Feature', 
         }),
       }),
     };
-    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+    vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
     const res = await router.handle({
       method: 'POST',

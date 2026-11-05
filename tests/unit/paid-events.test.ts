@@ -1,3 +1,4 @@
+import { eventDb } from '../helpers/eventDb';
 import { describe, it, expect, vi } from 'vitest';
 import { Router } from '../../server/http/router';
 import { registerEventsRoutes } from '../../server/domain/events/routes';
@@ -36,7 +37,7 @@ describe('Paid Events & Payment Proof Verification System', () => {
       }),
     };
 
-    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+    vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
     const res = await router.handle({
       path: '/api/events',
@@ -104,7 +105,7 @@ describe('Paid Events & Payment Proof Verification System', () => {
       }),
     };
 
-    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+    vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
     const res = await router.handle({
       path: '/api/events/018f0000-0000-0000-0000-000000000099/attendances/018f0000-0000-0000-0000-000000000088/verify-payment',
@@ -160,7 +161,7 @@ describe('Paid Events & Payment Proof Verification System', () => {
       }),
     };
 
-    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+    vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
     const res = await router.handle({
       path: '/api/events/018f0000-0000-0000-0000-000000000099/attendances/018f0000-0000-0000-0000-000000000088/reject-payment',

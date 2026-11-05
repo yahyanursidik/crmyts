@@ -1,3 +1,10 @@
+import { removeRegistrations } from './removeRegistrations';
+import { eventScheduleError, mergeEventConfig } from './eventPolicy';
+import {
+  RegistrationError,
+  registerStaffParticipant,
+} from './staffRegistration';
+import { recordsToCsv } from '../../lib/csv';
 import { z } from 'zod';
 import { Router } from '../../http/router';
 import { validateBody } from '../../http/middleware';
@@ -5,38 +12,97 @@ import { requireEventAccess } from './access';
 import { paymentCheckInError, PENDING_PAYMENT_STATUSES } from './paymentAccess';
 import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
-import { events, eventAttendance, persons } from '../../db/schema';
-import { desc, eq, and, inArray, notInArray, sql, or, ilike } from 'drizzle-orm';
+import { events, eventAttendance, persons, auditLogs } from '../../db/schema';
+import {
+  desc,
+  eq,
+  and,
+  inArray,
+  notInArray,
+  sql,
+  or,
+  ilike,
+} from 'drizzle-orm';
 import { isValidE164, normalizeIndonesianPhone } from '../../lib/phone';
 import { extractTicketCode } from '../../../src/lib/participantTicket';
-import { createMemorableTicketCode } from './participantCodes';
-import { createStaffRegistrationToken, isSpecialInviteRegistration, isStaffFamilyRegistration, isStaffRegistration } from './registrationChannels';
+import {
+  createStaffRegistrationToken,
+  isSpecialInviteRegistration,
+  isStaffFamilyRegistration,
+  isStaffRegistration,
+} from './registrationChannels';
 import { logAuditEvent } from '../../audit/service';
 import {
   getPersonsAttendanceStats,
   getSinglePersonAttendanceStats,
 } from './attendanceHistory';
-import { getEventEmailSettings, sendEventTicketEmail } from './emailNotifications';
-import { dispatchEventReminders, listEventBroadcastSummaries } from './reminderDispatch';
+import {
+  getEventEmailSettings,
+  sendEventTicketEmail,
+} from './emailNotifications';
+import {
+  dispatchEventReminders,
+  listEventBroadcastSummaries,
+} from './reminderDispatch';
 import { getBroadcastDailyQuota } from '../../email/broadcastQuota';
-import { createQueuedEventBroadcast, getEventBroadcastToday, listEventEmailTemplates, listQueuedEventBroadcasts, processQueuedEventBroadcast, saveEventEmailTemplate } from './broadcastQueue';
-import { ensureEventRegistrationPhoneGuard, findEventRegistrationByPhone, isDuplicateEventPhoneError } from './registrationPhoneGuard';
+import {
+  createQueuedEventBroadcast,
+  getEventBroadcastToday,
+  listEventEmailTemplates,
+  listQueuedEventBroadcasts,
+  processQueuedEventBroadcast,
+  saveEventEmailTemplate,
+} from './broadcastQueue';
+import { isDuplicateEventPhoneError } from './registrationPhoneGuard';
 
 const createEventSchema = z.object({
   title: z.string().min(3, 'Judul kajian minimal 3 karakter'),
   category: z.string().min(2, 'Kategori kajian diperlukan'),
   speaker: z.string().min(3, 'Nama pemateri/ustadz diperlukan'),
   description: z.string().optional().nullable(),
-  startAt: z.string().min(1, 'Waktu mulai diperlukan'),
-  endAt: z.string().optional().nullable(),
+  startAt: z
+    .string()
+    .min(1, 'Waktu mulai diperlukan')
+    .transform((value) =>
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)
+        ? value + ':00+07:00'
+        : value,
+    ),
+  endAt: z
+    .string()
+    .transform((value) =>
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)
+        ? value + ':00+07:00'
+        : value,
+    )
+    .optional()
+    .nullable(),
   deliveryMode: z.enum(['offline', 'online', 'hybrid']).default('offline'),
   locationName: z.string().optional().nullable(),
-  locationAddress: z.string().max(500, 'Alamat lokasi maksimal 500 karakter').optional().nullable(),
-  googleMapsUrl: z.string().url('Tautan Google Maps tidak valid').optional().nullable().or(z.literal('')),
-  locationDirections: z.string().max(1000, 'Petunjuk lokasi maksimal 1000 karakter').optional().nullable(),
+  locationAddress: z
+    .string()
+    .max(500, 'Alamat lokasi maksimal 500 karakter')
+    .optional()
+    .nullable(),
+  googleMapsUrl: z
+    .string()
+    .url('Tautan Google Maps tidak valid')
+    .optional()
+    .nullable()
+    .or(z.literal('')),
+  locationDirections: z
+    .string()
+    .max(1000, 'Petunjuk lokasi maksimal 1000 karakter')
+    .optional()
+    .nullable(),
   showGoogleMaps: z.boolean().default(true),
-  meetingUrl: z.string().url('URL tidak valid').optional().nullable().or(z.literal('')),
-  
+  meetingUrl: z
+    .string()
+    .url('URL tidak valid')
+    .optional()
+    .nullable()
+    .or(z.literal('')),
+
   // Paid Event & Banking Configuration
   isPaid: z.boolean().default(false),
   priceRupiah: z.number().int().min(0).default(0),
@@ -44,10 +110,18 @@ const createEventSchema = z.object({
   bankAccountNumber: z.string().optional().nullable(),
   bankAccountName: z.string().optional().nullable(),
   paymentInstructions: z.string().optional().nullable(),
-  
+
   // Segmentation & Quota
-  targetAudience: z.enum(['umum', 'ikhwan_only', 'akhwat_only', 'anak', 'itikaf_ramadan']).default('umum'),
-  minAge: z.number().int().min(1, 'Usia minimal setidaknya 1 tahun').max(120, 'Usia minimal tidak valid').optional().nullable(),
+  targetAudience: z
+    .enum(['umum', 'ikhwan_only', 'akhwat_only', 'anak', 'itikaf_ramadan'])
+    .default('umum'),
+  minAge: z
+    .number()
+    .int()
+    .min(1, 'Usia minimal setidaknya 1 tahun')
+    .max(120, 'Usia minimal tidak valid')
+    .optional()
+    .nullable(),
   quota: z.number().int().min(0).optional().nullable(),
   quotaIkhwan: z.number().int().min(0).optional().nullable(),
   quotaAkhwat: z.number().int().min(0).optional().nullable(),
@@ -59,13 +133,13 @@ const createEventSchema = z.object({
   quotaStaffAkhwat: z.number().int().min(0).optional().nullable(),
   isRegistrationOpen: z.boolean().default(true),
   isStaffRegistrationOpen: z.boolean().default(false),
-  
+
   // Logistics & Rules
   carParkingQuota: z.number().int().min(0).optional().nullable(),
   motorcycleParkingQuota: z.number().int().min(0).optional().nullable(),
   venueRules: z.array(z.string()).optional().nullable(),
   customVenueRules: z.string().optional().nullable(),
-  
+
   formConfig: z.record(z.any()).optional().nullable(),
 });
 
@@ -74,8 +148,16 @@ const updateEventSchema = createEventSchema.partial().extend({
 });
 
 const eventBroadcastEmailSchema = z.object({
-  subject: z.string().trim().min(3, 'Subjek email minimal 3 karakter.').max(160, 'Subjek email maksimal 160 karakter.'),
-  message: z.string().trim().min(3, 'Isi email minimal 3 karakter.').max(5000, 'Isi email maksimal 5000 karakter.'),
+  subject: z
+    .string()
+    .trim()
+    .min(3, 'Subjek email minimal 3 karakter.')
+    .max(160, 'Subjek email maksimal 160 karakter.'),
+  message: z
+    .string()
+    .trim()
+    .min(3, 'Isi email minimal 3 karakter.')
+    .max(5000, 'Isi email maksimal 5000 karakter.'),
   batchSize: z.number().int().min(25).max(100).optional(),
   templateId: z.string().uuid().optional().nullable(),
 });
@@ -87,11 +169,32 @@ const eventBroadcastTemplateSchema = z.object({
 });
 
 const editEventParticipantSchema = z.object({
-  fullName: z.string().trim().min(3, 'Nama lengkap minimal 3 karakter.').max(160),
+  fullName: z
+    .string()
+    .trim()
+    .min(3, 'Nama lengkap minimal 3 karakter.')
+    .max(160),
   phone: z.string().trim().min(8, 'Nomor WhatsApp tidak valid.').max(24),
-  email: z.string().trim().email('Email tidak valid.').optional().or(z.literal('')),
+  email: z
+    .string()
+    .trim()
+    .email('Email tidak valid.')
+    .optional()
+    .or(z.literal('')),
   cityRegency: z.string().trim().max(120).optional().or(z.literal('')),
 });
+
+async function checkEventPayment(
+  db: ReturnType<typeof getDb>,
+  eventId: string,
+  attendance: { paymentStatus?: string | null },
+) {
+  const event = await db.query.events.findFirst({
+    where: eq(events.id, eventId),
+    columns: { isPaid: true },
+  });
+  return paymentCheckInError(attendance, event?.isPaid === true);
+}
 
 export function registerEventsRoutes(router: Router) {
   // 1. GET /api/events (List all events with participant counts, quotas & parking)
@@ -101,7 +204,10 @@ export function registerEventsRoutes(router: Router) {
       const db = getDb();
 
       try {
-        const eventList = await db.select().from(events).orderBy(desc(events.startAt));
+        const eventList = await db
+          .select()
+          .from(events)
+          .orderBy(desc(events.startAt));
 
         // Grouped aggregation query for event attendances (extremely fast & indexed)
         const stats = await db
@@ -143,6 +249,9 @@ export function registerEventsRoutes(router: Router) {
 
           return {
             ...e,
+            formConfig: undefined,
+            staffRegistrationToken: undefined,
+            attendances: undefined,
             attendanceCount: s.total || 0,
             attendedCount: s.attended || 0,
             registeredCount: s.registered || 0,
@@ -153,7 +262,10 @@ export function registerEventsRoutes(router: Router) {
           };
         });
 
-        return successResponse(formatted, { requestId: ctx.requestId, total: formatted.length });
+        return successResponse(formatted, {
+          requestId: ctx.requestId,
+          total: formatted.length,
+        });
       } catch (err) {
         // Fallback for minimal testing / legacy contexts
         const list = await db.query.events.findMany({
@@ -174,16 +286,26 @@ export function registerEventsRoutes(router: Router) {
 
         const formatted = list.map((e) => {
           const atts = e.attendances || [];
-          const ikhwanCount = atts.filter((a) => a.person?.gender === 'ikhwan').length;
-          const akhwatCount = atts.filter((a) => a.person?.gender === 'akhwat').length;
+          const ikhwanCount = atts.filter(
+            (a) => a.person?.gender === 'ikhwan',
+          ).length;
+          const akhwatCount = atts.filter(
+            (a) => a.person?.gender === 'akhwat',
+          ).length;
           const carsCount = atts.filter((a) => a.vehicleType === 'car').length;
-          const motorcyclesCount = atts.filter((a) => a.vehicleType === 'motorcycle').length;
+          const motorcyclesCount = atts.filter(
+            (a) => a.vehicleType === 'motorcycle',
+          ).length;
 
           return {
             ...e,
+            formConfig: undefined,
+            staffRegistrationToken: undefined,
+            attendances: undefined,
             attendanceCount: atts.length,
             attendedCount: atts.filter((a) => a.status === 'attended').length,
-            registeredCount: atts.filter((a) => a.status === 'registered').length,
+            registeredCount: atts.filter((a) => a.status === 'registered')
+              .length,
             ikhwanCount,
             akhwatCount,
             carsCount,
@@ -191,9 +313,138 @@ export function registerEventsRoutes(router: Router) {
           };
         });
 
-        return successResponse(formatted, { requestId: ctx.requestId, total: formatted.length });
+        return successResponse(formatted, {
+          requestId: ctx.requestId,
+          total: formatted.length,
+        });
       }
-    })
+    }),
+  );
+
+  router.get(
+    '/api/events/:id/settings',
+    requireEventAccess(async (ctx) => {
+      if (!z.string().uuid().safeParse(ctx.params.id).success)
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID tidak valid.',
+          400,
+          ctx.requestId,
+        );
+      const db = getDb();
+      const event = await db.query.events.findFirst({
+        where: eq(events.id, ctx.params.id!),
+      });
+      if (!event)
+        return errorResponse(
+          'NOT_FOUND',
+          'Kajian tidak ditemukan.',
+          404,
+          ctx.requestId,
+        );
+      const result = await db.execute(sql`SELECT
+      count(*)::int AS "totalParticipants",
+      count(*) FILTER (WHERE a.status = 'attended')::int AS "attendedCount",
+      count(*) FILTER (WHERE p.gender = 'ikhwan')::int AS "ikhwanCount",
+      count(*) FILTER (WHERE p.gender = 'akhwat')::int AS "akhwatCount",
+      count(*) FILTER (WHERE a.vehicle_type = 'car')::int AS "carsCount",
+      count(*) FILTER (WHERE a.vehicle_type = 'motorcycle')::int AS "motorcyclesCount",
+      count(*) FILTER (WHERE a.registration_data->>'registrationChannel' IN ('staff_yayasan', 'staff_yayasan_family'))::int AS "staffCount",
+      count(DISTINCT lower(p.email)) FILTER (WHERE p.email IS NOT NULL AND p.email <> '')::int AS "emailRecipientCount"
+      FROM event_attendance a LEFT JOIN persons p ON p.id = a.person_id WHERE a.event_id = ${event.id}`);
+      return successResponse(
+        {
+          ...event,
+          ...result.rows[0],
+          participants: [],
+          adminInviteCode:
+            event.formConfig?.adminInviteCode?.trim().toUpperCase() ||
+            `UNDANGAN-${event.id.slice(0, 6).toUpperCase()}`,
+          emailSettings: getEventEmailSettings(event.formConfig),
+        },
+        { requestId: ctx.requestId },
+      );
+    }),
+  );
+
+  router.post(
+    '/api/events/:id/participants/export',
+    requireEventAccess(async (ctx) => {
+      const parsed = z
+        .object({ attendanceIds: z.array(z.string().uuid()).min(1).max(20000) })
+        .safeParse(ctx.body);
+      if (!parsed.success)
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Pilih peserta yang akan diekspor.',
+          400,
+          ctx.requestId,
+        );
+      const db = getDb();
+      const roster = await db.query.eventAttendance.findMany({
+        where: and(
+          eq(eventAttendance.eventId, ctx.params.id!),
+          inArray(eventAttendance.id, parsed.data.attendanceIds),
+        ),
+        with: { person: true },
+      });
+      const event = await db.query.events.findFirst({
+        where: eq(events.id, ctx.params.id!),
+      });
+      const fields = (event?.formConfig?.customFields || []) as Array<{
+        id: string;
+        label: string;
+      }>;
+      const csvContent = recordsToCsv(
+        roster.map((row) => ({
+          'Kode tiket': row.ticketCode,
+          Nama: row.person?.fullName,
+          WhatsApp: row.person?.phoneE164,
+          Email: row.person?.email,
+          Gender: row.person?.gender,
+          Kota: row.person?.cityRegency,
+          Status: row.status,
+          'Hadir (WIB)': row.checkInAt
+            ? new Date(row.checkInAt).toLocaleString('id-ID', {
+                timeZone: 'Asia/Jakarta',
+              })
+            : '',
+          Pembayaran:
+            event?.isPaid &&
+            row.paymentStatus === 'free' &&
+            !isStaffRegistration(row)
+              ? 'Perlu ditinjau'
+              : row.paymentStatus,
+          Kendaraan: row.vehicleType,
+          'Nomor polisi': row.vehiclePlateNumber,
+          Rombongan: row.registrationGroupId,
+          Usia: row.age,
+          ...Object.fromEntries(
+            fields.map((field) => [
+              `Form: ${field.label} (${field.id})`,
+              row.registrationData?.[field.id],
+            ]),
+          ),
+        })),
+      );
+      await logAuditEvent({
+        actorUserId: ctx.user?.id,
+        action: 'export_event_participants',
+        entityType: 'event',
+        entityId: ctx.params.id!,
+        afterJson: { count: roster.length },
+        reason: 'Ekspor daftar peserta sesuai filter/pilihan',
+        requestId: ctx.requestId,
+      });
+      return successResponse(
+        {
+          csvContent,
+          count: roster.length,
+          filename: `peserta-${ctx.params.id}.csv`,
+        },
+        { requestId: ctx.requestId },
+      );
+    }),
   );
 
   // 2. GET /api/events/:id (Detail event with full participant roster & logistics)
@@ -203,7 +454,12 @@ export function registerEventsRoutes(router: Router) {
       const db = getDb();
       const eventId = ctx.params.id;
       if (!eventId) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID diperlukan',
+          400,
+          ctx.requestId,
+        );
       }
 
       const eventItem = await db.query.events.findFirst({
@@ -226,15 +482,26 @@ export function registerEventsRoutes(router: Router) {
       });
 
       if (!eventItem) {
-        return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
+        return errorResponse(
+          'NOT_FOUND',
+          'Kajian tidak ditemukan',
+          404,
+          ctx.requestId,
+        );
       }
 
       const adminInviteCode =
         eventItem.formConfig?.adminInviteCode?.trim().toUpperCase() ||
         `UNDANGAN-${eventItem.id.slice(0, 6).toUpperCase()}`;
 
-      const personIds = eventItem.attendances.map((att) => att.personId).filter(Boolean) as string[];
-      const attendanceStatsMap = await getPersonsAttendanceStats(db, personIds, eventId);
+      const personIds = eventItem.attendances
+        .map((att) => att.personId)
+        .filter(Boolean) as string[];
+      const attendanceStatsMap = await getPersonsAttendanceStats(
+        db,
+        personIds,
+        eventId,
+      );
 
       const participants = eventItem.attendances.map((att) => {
         const pStats = attendanceStatsMap.get(att.personId);
@@ -258,10 +525,11 @@ export function registerEventsRoutes(router: Router) {
           isStaffRegistration: isStaffRegistrant,
           isStaffFamilyRegistration: isStaffFamilyRegistration(att),
           referredByAttendanceId: att.referredByAttendanceId,
-          
+
           // Attendance History & Loyalty
           pastAttendedCount: pStats?.pastAttendedCount ?? 0,
-          totalAttendedCount: pStats?.totalAttendedCount ?? (att.status === 'attended' ? 1 : 0),
+          totalAttendedCount:
+            pStats?.totalAttendedCount ?? (att.status === 'attended' ? 1 : 0),
           pastRegisteredCount: pStats?.pastRegisteredCount ?? 0,
           currentKajianNumber: pStats?.currentKajianNumber ?? 1,
           loyaltyTier: pStats?.loyaltyTier ?? 'perdana',
@@ -270,9 +538,18 @@ export function registerEventsRoutes(router: Router) {
           lastAttendedDate: pStats?.lastAttendedDate ?? null,
 
           // Payment Information
-          paymentStatus: att.paymentStatus || (eventItem.isPaid ? 'pending_payment' : 'free'),
+          paymentNeedsReview: Boolean(
+            eventItem.isPaid &&
+              !isStaffRegistration(att) &&
+              (!att.paymentStatus || att.paymentStatus === 'free'),
+          ),
+          paymentStatus:
+            att.paymentStatus ||
+            (eventItem.isPaid ? 'pending_payment' : 'free'),
           paymentProofUrl: att.paymentProofUrl || null,
-          paymentAmountRupiah: att.paymentAmountRupiah || (eventItem.isPaid ? eventItem.priceRupiah : 0),
+          paymentAmountRupiah:
+            att.paymentAmountRupiah ||
+            (eventItem.isPaid ? eventItem.priceRupiah : 0),
           paymentVerifiedAt: att.paymentVerifiedAt || null,
           paymentRejectionReason: att.paymentRejectionReason || null,
 
@@ -294,49 +571,106 @@ export function registerEventsRoutes(router: Router) {
       const physicalPhoneCounts = new Map<string, number>();
       for (const participant of participants) {
         if (/^\+[1-9][0-9]{7,14}$/.test(participant.personPhone)) {
-          physicalPhoneCounts.set(participant.personPhone, (physicalPhoneCounts.get(participant.personPhone) || 0) + 1);
+          physicalPhoneCounts.set(
+            participant.personPhone,
+            (physicalPhoneCounts.get(participant.personPhone) || 0) + 1,
+          );
         }
       }
-      const participantsWithDuplicateContact = participants.map((participant) => ({
-        ...participant,
-        duplicatePhoneCount: physicalPhoneCounts.get(participant.personPhone) || 0,
-      }));
+      const participantsWithDuplicateContact = participants.map(
+        (participant) => ({
+          ...participant,
+          duplicatePhoneCount:
+            physicalPhoneCounts.get(participant.personPhone) || 0,
+        }),
+      );
 
-      const ikhwanCount = participants.filter((p) => p.personGender === 'ikhwan').length;
-      const akhwatCount = participants.filter((p) => p.personGender === 'akhwat').length;
-      const carsCount = participants.filter((p) => p.vehicleType === 'car').length;
-      const motorcyclesCount = participants.filter((p) => p.vehicleType === 'motorcycle').length;
-      const waitingVerificationCount = participants.filter((p) => p.paymentStatus === 'waiting_verification').length;
-      const verifiedPaymentCount = participants.filter((p) => p.paymentStatus === 'verified').length;
-      const pendingPaymentCount = participants.filter((p) => p.paymentStatus === 'pending_payment').length;
-      const specialInviteCount = participants.filter((p) => p.isSpecialInvite).length;
-      const specialInviteIkhwanCount = participants.filter((p) => p.isSpecialInvite && p.personGender === 'ikhwan').length;
-      const specialInviteAkhwatCount = participants.filter((p) => p.isSpecialInvite && p.personGender === 'akhwat').length;
-      const staffCount = participants.filter((p) => p.isStaffRegistration).length;
-      const staffIkhwanCount = participants.filter((p) => p.isStaffRegistration && p.personGender === 'ikhwan').length;
-      const staffAkhwatCount = participants.filter((p) => p.isStaffRegistration && p.personGender === 'akhwat').length;
-      const regularCount = participants.filter((p) => !p.isSpecialInvite && !p.isStaffRegistration).length;
-      const regularIkhwanCount = participants.filter((p) => !p.isSpecialInvite && !p.isStaffRegistration && p.personGender === 'ikhwan').length;
-      const regularAkhwatCount = participants.filter((p) => !p.isSpecialInvite && !p.isStaffRegistration && p.personGender === 'akhwat').length;
-      const firstTimerCount = participants.filter((p) => p.currentKajianNumber <= 1).length;
-      const returningCount = participants.filter((p) => p.currentKajianNumber > 1).length;
+      const ikhwanCount = participants.filter(
+        (p) => p.personGender === 'ikhwan',
+      ).length;
+      const akhwatCount = participants.filter(
+        (p) => p.personGender === 'akhwat',
+      ).length;
+      const carsCount = participants.filter(
+        (p) => p.vehicleType === 'car',
+      ).length;
+      const motorcyclesCount = participants.filter(
+        (p) => p.vehicleType === 'motorcycle',
+      ).length;
+      const waitingVerificationCount = participants.filter(
+        (p) => p.paymentStatus === 'waiting_verification',
+      ).length;
+      const verifiedPaymentCount = participants.filter(
+        (p) => p.paymentStatus === 'verified',
+      ).length;
+      const pendingPaymentCount = participants.filter(
+        (p) => p.paymentStatus === 'pending_payment',
+      ).length;
+      const specialInviteCount = participants.filter(
+        (p) => p.isSpecialInvite,
+      ).length;
+      const specialInviteIkhwanCount = participants.filter(
+        (p) => p.isSpecialInvite && p.personGender === 'ikhwan',
+      ).length;
+      const specialInviteAkhwatCount = participants.filter(
+        (p) => p.isSpecialInvite && p.personGender === 'akhwat',
+      ).length;
+      const staffCount = participants.filter(
+        (p) => p.isStaffRegistration,
+      ).length;
+      const staffIkhwanCount = participants.filter(
+        (p) => p.isStaffRegistration && p.personGender === 'ikhwan',
+      ).length;
+      const staffAkhwatCount = participants.filter(
+        (p) => p.isStaffRegistration && p.personGender === 'akhwat',
+      ).length;
+      const regularCount = participants.filter(
+        (p) => !p.isSpecialInvite && !p.isStaffRegistration,
+      ).length;
+      const regularIkhwanCount = participants.filter(
+        (p) =>
+          !p.isSpecialInvite &&
+          !p.isStaffRegistration &&
+          p.personGender === 'ikhwan',
+      ).length;
+      const regularAkhwatCount = participants.filter(
+        (p) =>
+          !p.isSpecialInvite &&
+          !p.isStaffRegistration &&
+          p.personGender === 'akhwat',
+      ).length;
+      const firstTimerCount = participants.filter(
+        (p) => p.currentKajianNumber <= 1,
+      ).length;
+      const returningCount = participants.filter(
+        (p) => p.currentKajianNumber > 1,
+      ).length;
       const emailRecipientCount = new Set(
         participants
           .map((participant) => participant.personEmail?.trim().toLowerCase())
-          .filter((email): email is string => Boolean(email))
+          .filter((email): email is string => Boolean(email)),
       ).size;
-      const emailReminderSentCount = participants.filter(
-        (participant) => Boolean((participant.registrationData as any)?.emailNotifications?.reminderH1SentAt)
+      const emailReminderSentCount = participants.filter((participant) =>
+        Boolean(
+          (participant.registrationData as any)?.emailNotifications
+            ?.reminderH1SentAt,
+        ),
       ).length;
-      const emailBroadcastQuota = await getBroadcastDailyQuota(db).catch(() => null);
+      const emailBroadcastQuota = await getBroadcastDailyQuota(db).catch(
+        () => null,
+      );
 
       return successResponse(
         {
           ...eventItem,
+          attendances: undefined,
+          paymentReviewCount: participants.filter((p) => p.paymentNeedsReview)
+            .length,
           adminInviteCode,
           participants: participantsWithDuplicateContact,
           totalParticipants: participants.length,
-          attendedCount: participants.filter((p) => p.status === 'attended').length,
+          attendedCount: participants.filter((p) => p.status === 'attended')
+            .length,
           ikhwanCount,
           akhwatCount,
           carsCount,
@@ -361,9 +695,9 @@ export function registerEventsRoutes(router: Router) {
           emailSettings: getEventEmailSettings(eventItem.formConfig),
           emailBroadcastQuota,
         },
-        { requestId: ctx.requestId }
+        { requestId: ctx.requestId },
       );
-    })
+    }),
   );
 
   // 3. POST /api/events (Create new event with audience segment, quotas, payment & parking)
@@ -372,7 +706,22 @@ export function registerEventsRoutes(router: Router) {
     requireEventAccess(
       validateBody(createEventSchema, async (ctx, body) => {
         const db = getDb();
-        if (!ctx.user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+        if (!ctx.user)
+          return errorResponse(
+            'UNAUTHENTICATED',
+            'Login diperlukan',
+            401,
+            ctx.requestId,
+          );
+
+        const scheduleError = eventScheduleError(body);
+        if (scheduleError)
+          return errorResponse(
+            'VALIDATION_ERROR',
+            scheduleError,
+            400,
+            ctx.requestId,
+          );
 
         const defaultFormConfig = {
           collectEmail: true,
@@ -384,12 +733,12 @@ export function registerEventsRoutes(router: Router) {
           allowMultiParticipant: false,
           maxMultiParticipants: 10,
           allowStaffFamilyRegistration: false,
-            maxStaffFamilyParticipants: 4,
-            customFields: [],
+          maxStaffFamilyParticipants: 4,
+          customFields: [],
           whatsappMessageTemplate:
-            "Bismillah. Pendaftaran kajian Anda telah terkonfirmasi. Tiket: {{ticket_code}}. Mohon hadir 15 menit sebelum acara dimulai dan menaati tata tertib majelis. Barakallahu fiikum.",
-        ...body.formConfig,
-        gateAccessToken: createStaffRegistrationToken(),
+            'Bismillah. Pendaftaran kajian Anda telah terkonfirmasi. Tiket: {{ticket_code}}. Mohon hadir 15 menit sebelum acara dimulai dan menaati tata tertib majelis. Barakallahu fiikum.',
+          ...body.formConfig,
+          gateAccessToken: createStaffRegistrationToken(),
         };
 
         const [created] = await db
@@ -408,7 +757,7 @@ export function registerEventsRoutes(router: Router) {
             locationDirections: body.locationDirections || null,
             showGoogleMaps: body.showGoogleMaps !== false,
             meetingUrl: body.meetingUrl || null,
-            
+
             isPaid: body.isPaid || false,
             priceRupiah: body.priceRupiah || 0,
             bankName: body.bankName || null,
@@ -422,28 +771,38 @@ export function registerEventsRoutes(router: Router) {
             quotaIkhwan: body.quotaIkhwan ? body.quotaIkhwan : null,
             quotaAkhwat: body.quotaAkhwat ? body.quotaAkhwat : null,
             quotaInvite: body.quotaInvite ? body.quotaInvite : null,
-            quotaInviteIkhwan: body.quotaInviteIkhwan ? body.quotaInviteIkhwan : null,
-            quotaInviteAkhwat: body.quotaInviteAkhwat ? body.quotaInviteAkhwat : null,
+            quotaInviteIkhwan: body.quotaInviteIkhwan
+              ? body.quotaInviteIkhwan
+              : null,
+            quotaInviteAkhwat: body.quotaInviteAkhwat
+              ? body.quotaInviteAkhwat
+              : null,
             quotaStaff: body.quotaStaff ? body.quotaStaff : null,
-            quotaStaffIkhwan: body.quotaStaffIkhwan ? body.quotaStaffIkhwan : null,
-            quotaStaffAkhwat: body.quotaStaffAkhwat ? body.quotaStaffAkhwat : null,
+            quotaStaffIkhwan: body.quotaStaffIkhwan
+              ? body.quotaStaffIkhwan
+              : null,
+            quotaStaffAkhwat: body.quotaStaffAkhwat
+              ? body.quotaStaffAkhwat
+              : null,
             isRegistrationOpen: body.isRegistrationOpen !== false,
             isStaffRegistrationOpen: body.isStaffRegistrationOpen === true,
             staffRegistrationToken: createStaffRegistrationToken(),
-            
+
             carParkingQuota: body.carParkingQuota ? body.carParkingQuota : null,
-            motorcycleParkingQuota: body.motorcycleParkingQuota ? body.motorcycleParkingQuota : null,
+            motorcycleParkingQuota: body.motorcycleParkingQuota
+              ? body.motorcycleParkingQuota
+              : null,
             venueRules: body.venueRules || [],
             customVenueRules: body.customVenueRules || null,
-            
+
             formConfig: defaultFormConfig,
-            createdBy: ctx.user.id,
+            createdBy: ctx.user!.id,
           })
           .returning();
 
         return successResponse(created, { requestId: ctx.requestId }, 201);
-      })
-    )
+      }),
+    ),
   );
 
   // 4. PUT /api/events/:id (Update event, quotas, venue rules, payment & form builder)
@@ -454,73 +813,170 @@ export function registerEventsRoutes(router: Router) {
         const db = getDb();
         const eventId = ctx.params.id;
         if (!eventId) {
-          return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
+          return errorResponse(
+            'VALIDATION_ERROR',
+            'Event ID diperlukan',
+            400,
+            ctx.requestId,
+          );
         }
 
-        const existing = await db.query.events.findFirst({
-          where: eq(events.id, eventId),
+        return db.transaction(async (tx) => {
+          await tx.execute(
+            sql`SELECT id FROM events WHERE id = ${eventId} FOR UPDATE`,
+          );
+          const existing = await tx.query.events.findFirst({
+            where: eq(events.id, eventId),
+          });
+
+          if (!existing) {
+            return errorResponse(
+              'NOT_FOUND',
+              'Kajian tidak ditemukan',
+              404,
+              ctx.requestId,
+            );
+          }
+
+          const scheduleError = eventScheduleError({ ...existing, ...body });
+          if (scheduleError)
+            return errorResponse(
+              'VALIDATION_ERROR',
+              scheduleError,
+              400,
+              ctx.requestId,
+            );
+
+          const updatePayload: any = {
+            updatedAt: new Date(),
+          };
+
+          if (body.title !== undefined) updatePayload.title = body.title;
+          if (body.category !== undefined)
+            updatePayload.category = body.category;
+          if (body.speaker !== undefined) updatePayload.speaker = body.speaker;
+          if (body.description !== undefined)
+            updatePayload.description = body.description;
+          if (body.startAt !== undefined)
+            updatePayload.startAt = new Date(body.startAt);
+          if (body.endAt !== undefined)
+            updatePayload.endAt = body.endAt ? new Date(body.endAt) : null;
+          if (body.deliveryMode !== undefined)
+            updatePayload.deliveryMode = body.deliveryMode;
+          if (body.locationName !== undefined)
+            updatePayload.locationName = body.locationName;
+          if (body.locationAddress !== undefined)
+            updatePayload.locationAddress = body.locationAddress;
+          if (body.googleMapsUrl !== undefined)
+            updatePayload.googleMapsUrl = body.googleMapsUrl || null;
+          if (body.locationDirections !== undefined)
+            updatePayload.locationDirections = body.locationDirections;
+          if (body.showGoogleMaps !== undefined)
+            updatePayload.showGoogleMaps = body.showGoogleMaps;
+          if (body.meetingUrl !== undefined)
+            updatePayload.meetingUrl = body.meetingUrl;
+          if (body.status !== undefined) updatePayload.status = body.status;
+
+          if (body.isPaid !== undefined) updatePayload.isPaid = body.isPaid;
+          if (body.priceRupiah !== undefined)
+            updatePayload.priceRupiah = body.priceRupiah;
+          if (body.bankName !== undefined)
+            updatePayload.bankName = body.bankName;
+          if (body.bankAccountNumber !== undefined)
+            updatePayload.bankAccountNumber = body.bankAccountNumber;
+          if (body.bankAccountName !== undefined)
+            updatePayload.bankAccountName = body.bankAccountName;
+          if (body.paymentInstructions !== undefined)
+            updatePayload.paymentInstructions = body.paymentInstructions;
+
+          if (body.targetAudience !== undefined)
+            updatePayload.targetAudience = body.targetAudience;
+          if (body.minAge !== undefined) updatePayload.minAge = body.minAge;
+          if (body.quota !== undefined)
+            updatePayload.quota = body.quota ? body.quota : null;
+          if (body.quotaIkhwan !== undefined)
+            updatePayload.quotaIkhwan = body.quotaIkhwan
+              ? body.quotaIkhwan
+              : null;
+          if (body.quotaAkhwat !== undefined)
+            updatePayload.quotaAkhwat = body.quotaAkhwat
+              ? body.quotaAkhwat
+              : null;
+          if (body.quotaInvite !== undefined)
+            updatePayload.quotaInvite = body.quotaInvite
+              ? body.quotaInvite
+              : null;
+          if (body.quotaInviteIkhwan !== undefined)
+            updatePayload.quotaInviteIkhwan = body.quotaInviteIkhwan
+              ? body.quotaInviteIkhwan
+              : null;
+          if (body.quotaInviteAkhwat !== undefined)
+            updatePayload.quotaInviteAkhwat = body.quotaInviteAkhwat
+              ? body.quotaInviteAkhwat
+              : null;
+          if (body.quotaStaff !== undefined)
+            updatePayload.quotaStaff = body.quotaStaff ? body.quotaStaff : null;
+          if (body.quotaStaffIkhwan !== undefined)
+            updatePayload.quotaStaffIkhwan = body.quotaStaffIkhwan
+              ? body.quotaStaffIkhwan
+              : null;
+          if (body.quotaStaffAkhwat !== undefined)
+            updatePayload.quotaStaffAkhwat = body.quotaStaffAkhwat
+              ? body.quotaStaffAkhwat
+              : null;
+          if (body.isRegistrationOpen !== undefined)
+            updatePayload.isRegistrationOpen = body.isRegistrationOpen;
+          if (body.isStaffRegistrationOpen !== undefined)
+            updatePayload.isStaffRegistrationOpen =
+              body.isStaffRegistrationOpen;
+
+          if (body.carParkingQuota !== undefined)
+            updatePayload.carParkingQuota = body.carParkingQuota
+              ? body.carParkingQuota
+              : null;
+          if (body.motorcycleParkingQuota !== undefined)
+            updatePayload.motorcycleParkingQuota = body.motorcycleParkingQuota
+              ? body.motorcycleParkingQuota
+              : null;
+          if (body.venueRules !== undefined)
+            updatePayload.venueRules = body.venueRules;
+          if (body.customVenueRules !== undefined)
+            updatePayload.customVenueRules = body.customVenueRules;
+
+          if (body.formConfig !== undefined)
+            updatePayload.formConfig = {
+              ...mergeEventConfig(existing.formConfig, body.formConfig),
+              gateAccessToken:
+                existing.formConfig?.gateAccessToken ||
+                createStaffRegistrationToken(),
+            };
+          if (
+            ['cancelled', 'completed'].includes(body.status || existing.status)
+          ) {
+            updatePayload.isRegistrationOpen = false;
+            updatePayload.isStaffRegistrationOpen = false;
+          }
+
+          const [updated] = await tx
+            .update(events)
+            .set(updatePayload)
+            .where(eq(events.id, eventId))
+            .returning();
+
+          await tx.insert(auditLogs).values({
+            actorUserId: ctx.user?.id,
+            action: 'update_event',
+            entityType: 'event',
+            entityId: eventId,
+            beforeJson: { status: existing.status },
+            afterJson: { fields: Object.keys(body), status: updated?.status },
+            reason: 'Perubahan pengaturan event',
+            requestId: ctx.requestId,
+          });
+          return successResponse(updated, { requestId: ctx.requestId });
         });
-
-        if (!existing) {
-          return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
-        }
-
-        const updatePayload: any = {
-          updatedAt: new Date(),
-        };
-
-        if (body.title !== undefined) updatePayload.title = body.title;
-        if (body.category !== undefined) updatePayload.category = body.category;
-        if (body.speaker !== undefined) updatePayload.speaker = body.speaker;
-        if (body.description !== undefined) updatePayload.description = body.description;
-        if (body.startAt !== undefined) updatePayload.startAt = new Date(body.startAt);
-        if (body.endAt !== undefined) updatePayload.endAt = body.endAt ? new Date(body.endAt) : null;
-        if (body.deliveryMode !== undefined) updatePayload.deliveryMode = body.deliveryMode;
-        if (body.locationName !== undefined) updatePayload.locationName = body.locationName;
-        if (body.locationAddress !== undefined) updatePayload.locationAddress = body.locationAddress;
-        if (body.googleMapsUrl !== undefined) updatePayload.googleMapsUrl = body.googleMapsUrl || null;
-        if (body.locationDirections !== undefined) updatePayload.locationDirections = body.locationDirections;
-        if (body.showGoogleMaps !== undefined) updatePayload.showGoogleMaps = body.showGoogleMaps;
-        if (body.meetingUrl !== undefined) updatePayload.meetingUrl = body.meetingUrl;
-        if (body.status !== undefined) updatePayload.status = body.status;
-        
-        if (body.isPaid !== undefined) updatePayload.isPaid = body.isPaid;
-        if (body.priceRupiah !== undefined) updatePayload.priceRupiah = body.priceRupiah;
-        if (body.bankName !== undefined) updatePayload.bankName = body.bankName;
-        if (body.bankAccountNumber !== undefined) updatePayload.bankAccountNumber = body.bankAccountNumber;
-        if (body.bankAccountName !== undefined) updatePayload.bankAccountName = body.bankAccountName;
-        if (body.paymentInstructions !== undefined) updatePayload.paymentInstructions = body.paymentInstructions;
-
-        if (body.targetAudience !== undefined) updatePayload.targetAudience = body.targetAudience;
-        if (body.minAge !== undefined) updatePayload.minAge = body.minAge;
-        if (body.quota !== undefined) updatePayload.quota = body.quota ? body.quota : null;
-        if (body.quotaIkhwan !== undefined) updatePayload.quotaIkhwan = body.quotaIkhwan ? body.quotaIkhwan : null;
-        if (body.quotaAkhwat !== undefined) updatePayload.quotaAkhwat = body.quotaAkhwat ? body.quotaAkhwat : null;
-        if (body.quotaInvite !== undefined) updatePayload.quotaInvite = body.quotaInvite ? body.quotaInvite : null;
-        if (body.quotaInviteIkhwan !== undefined) updatePayload.quotaInviteIkhwan = body.quotaInviteIkhwan ? body.quotaInviteIkhwan : null;
-        if (body.quotaInviteAkhwat !== undefined) updatePayload.quotaInviteAkhwat = body.quotaInviteAkhwat ? body.quotaInviteAkhwat : null;
-        if (body.quotaStaff !== undefined) updatePayload.quotaStaff = body.quotaStaff ? body.quotaStaff : null;
-        if (body.quotaStaffIkhwan !== undefined) updatePayload.quotaStaffIkhwan = body.quotaStaffIkhwan ? body.quotaStaffIkhwan : null;
-        if (body.quotaStaffAkhwat !== undefined) updatePayload.quotaStaffAkhwat = body.quotaStaffAkhwat ? body.quotaStaffAkhwat : null;
-        if (body.isRegistrationOpen !== undefined) updatePayload.isRegistrationOpen = body.isRegistrationOpen;
-        if (body.isStaffRegistrationOpen !== undefined) updatePayload.isStaffRegistrationOpen = body.isStaffRegistrationOpen;
-        
-        if (body.carParkingQuota !== undefined) updatePayload.carParkingQuota = body.carParkingQuota ? body.carParkingQuota : null;
-        if (body.motorcycleParkingQuota !== undefined) updatePayload.motorcycleParkingQuota = body.motorcycleParkingQuota ? body.motorcycleParkingQuota : null;
-        if (body.venueRules !== undefined) updatePayload.venueRules = body.venueRules;
-        if (body.customVenueRules !== undefined) updatePayload.customVenueRules = body.customVenueRules;
-        
-        if (body.formConfig !== undefined) updatePayload.formConfig = { ...body.formConfig, gateAccessToken: existing.formConfig?.gateAccessToken || createStaffRegistrationToken() };
-
-        const [updated] = await db
-          .update(events)
-          .set(updatePayload)
-          .where(eq(events.id, eventId))
-          .returning();
-
-        return successResponse(updated, { requestId: ctx.requestId });
-      })
-    )
+      }),
+    ),
   );
 
   // Regenerating a link immediately invalidates the previous staff-only link.
@@ -528,13 +984,28 @@ export function registerEventsRoutes(router: Router) {
     '/api/events/:id/staff-registration-token',
     requireEventAccess(async (ctx) => {
       const eventId = ctx.params.id;
-      if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
+      if (!eventId)
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID diperlukan',
+          400,
+          ctx.requestId,
+        );
       const [updated] = await getDb()
         .update(events)
-        .set({ staffRegistrationToken: createStaffRegistrationToken(), updatedAt: new Date() })
+        .set({
+          staffRegistrationToken: createStaffRegistrationToken(),
+          updatedAt: new Date(),
+        })
         .where(eq(events.id, eventId))
         .returning();
-      if (!updated) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
+      if (!updated)
+        return errorResponse(
+          'NOT_FOUND',
+          'Kajian tidak ditemukan',
+          404,
+          ctx.requestId,
+        );
       try {
         await logAuditEvent({
           actorUserId: ctx.user?.id,
@@ -548,8 +1019,11 @@ export function registerEventsRoutes(router: Router) {
       } catch (error) {
         console.error('Gagal mencatat audit regenerasi tautan staff:', error);
       }
-      return successResponse({ staffRegistrationToken: updated.staffRegistrationToken }, { requestId: ctx.requestId });
-    })
+      return successResponse(
+        { staffRegistrationToken: updated.staffRegistrationToken },
+        { requestId: ctx.requestId },
+      );
+    }),
   );
 
   // 5. DELETE /api/events/:id (Delete / cancel event)
@@ -559,20 +1033,68 @@ export function registerEventsRoutes(router: Router) {
       const db = getDb();
       const eventId = ctx.params.id;
       if (!eventId) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID diperlukan',
+          400,
+          ctx.requestId,
+        );
       }
 
-      const [deleted] = await db
-        .delete(events)
-        .where(eq(events.id, eventId))
-        .returning();
-
-      if (!deleted) {
-        return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
-      }
-
-      return successResponse({ message: 'Kajian berhasil dihapus', id: deleted.id }, { requestId: ctx.requestId });
-    })
+      return db.transaction(async (tx) => {
+        await tx.execute(
+          sql`SELECT id FROM events WHERE id = ${eventId} FOR UPDATE`,
+        );
+        const existing = await tx.query.events.findFirst({
+          where: eq(events.id, eventId),
+        });
+        if (!existing)
+          return errorResponse(
+            'NOT_FOUND',
+            'Kajian tidak ditemukan',
+            404,
+            ctx.requestId,
+          );
+        // Include dynamically provisioned broadcast/phone-claim tables and SET NULL references.
+        const references = await tx.execute(sql`
+          SELECT ns.nspname AS schema_name, child.relname AS table_name, col.attname AS column_name
+          FROM pg_constraint fk
+          JOIN pg_class child ON child.oid = fk.conrelid
+          JOIN pg_namespace ns ON ns.oid = child.relnamespace
+          JOIN pg_attribute col ON col.attrelid = child.oid AND col.attnum = ANY(fk.conkey)
+          WHERE fk.contype = 'f' AND fk.confrelid = 'public.events'::regclass`);
+        for (const ref of references.rows as Array<{
+          schema_name: string;
+          table_name: string;
+          column_name: string;
+        }>) {
+          const check = await tx.execute(
+            sql`SELECT EXISTS(SELECT 1 FROM ${sql.identifier(ref.schema_name)}.${sql.identifier(ref.table_name)} WHERE ${sql.identifier(ref.column_name)} = ${eventId}::uuid) AS present`,
+          );
+          if (check.rows[0]?.present)
+            return errorResponse(
+              'CONFLICT',
+              'Event memiliki riwayat peserta atau operasional. Gunakan status Dibatalkan agar data tetap tersimpan.',
+              409,
+              ctx.requestId,
+            );
+        }
+        await tx.insert(auditLogs).values({
+          actorUserId: ctx.user?.id,
+          action: 'delete_empty_event',
+          entityType: 'event',
+          entityId: eventId,
+          beforeJson: existing,
+          reason: 'Menghapus jadwal kosong tanpa riwayat',
+          requestId: ctx.requestId,
+        });
+        await tx.delete(events).where(eq(events.id, eventId));
+        return successResponse(
+          { message: 'Jadwal kosong berhasil dihapus', id: eventId },
+          { requestId: ctx.requestId },
+        );
+      });
+    }),
   );
 
   // 6. POST /api/events/:id/attendance (Check-in by Person ID or QR)
@@ -584,7 +1106,12 @@ export function registerEventsRoutes(router: Router) {
       const { personId, source, ticketCode } = (ctx.body as any) || {};
 
       if (!eventId || (!personId && !ticketCode)) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID dan Person ID / Ticket Code wajib disertakan', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID dan Person ID / Ticket Code wajib disertakan',
+          400,
+          ctx.requestId,
+        );
       }
 
       try {
@@ -596,23 +1123,42 @@ export function registerEventsRoutes(router: Router) {
               eq(eventAttendance.eventId, eventId),
               or(
                 eq(eventAttendance.ticketCode, normalizedTicketCode),
-                eq(eventAttendance.ticketCode, rawCode.toUpperCase())
-              )
+                eq(eventAttendance.ticketCode, rawCode.toUpperCase()),
+              ),
             ),
           });
 
           if (attendance) {
-            const paymentError = paymentCheckInError(attendance);
-            if (paymentError) return errorResponse('INVALID_STATE_TRANSITION', paymentError, 400, ctx.requestId);
+            const paymentError = await checkEventPayment(
+              db,
+              eventId,
+              attendance,
+            );
+            if (paymentError)
+              return errorResponse(
+                'INVALID_STATE_TRANSITION',
+                paymentError,
+                400,
+                ctx.requestId,
+              );
             const [updated] = await db
               .update(eventAttendance)
               .set({ status: 'attended', checkInAt: new Date() })
               .where(eq(eventAttendance.id, attendance.id))
               .returning();
             if (!updated) {
-              return errorResponse('INTERNAL_ERROR', 'Gagal mencatat presensi', 500, ctx.requestId);
+              return errorResponse(
+                'INTERNAL_ERROR',
+                'Gagal mencatat presensi',
+                500,
+                ctx.requestId,
+              );
             }
-            const pStats = await getSinglePersonAttendanceStats(db, updated.personId, eventId);
+            const pStats = await getSinglePersonAttendanceStats(
+              db,
+              updated.personId,
+              eventId,
+            );
             return successResponse(
               {
                 ...updated,
@@ -622,59 +1168,107 @@ export function registerEventsRoutes(router: Router) {
                 loyaltyTier: pStats.loyaltyTier,
                 loyaltyLabel: pStats.loyaltyLabel,
               },
-              { requestId: ctx.requestId }
+              { requestId: ctx.requestId },
             );
           }
         }
 
         if (personId) {
-          const existingAttendance = await db.query.eventAttendance.findFirst({ where: and(eq(eventAttendance.eventId, eventId), eq(eventAttendance.personId, personId)) });
+          const existingAttendance = await db.query.eventAttendance.findFirst({
+            where: and(
+              eq(eventAttendance.eventId, eventId),
+              eq(eventAttendance.personId, personId),
+            ),
+          });
           if (existingAttendance) {
-            const paymentError = paymentCheckInError(existingAttendance);
-            if (paymentError) return errorResponse('INVALID_STATE_TRANSITION', paymentError, 400, ctx.requestId);
-            const [updated] = await db.update(eventAttendance).set({ status: 'attended', checkInAt: new Date() })
-              .where(eq(eventAttendance.id, existingAttendance.id)).returning();
+            const paymentError = await checkEventPayment(
+              db,
+              eventId,
+              existingAttendance,
+            );
+            if (paymentError)
+              return errorResponse(
+                'INVALID_STATE_TRANSITION',
+                paymentError,
+                400,
+                ctx.requestId,
+              );
+            const [updated] = await db
+              .update(eventAttendance)
+              .set({ status: 'attended', checkInAt: new Date() })
+              .where(eq(eventAttendance.id, existingAttendance.id))
+              .returning();
             return successResponse(updated, { requestId: ctx.requestId });
           }
-          const event = await db.query.events.findFirst({ where: eq(events.id, eventId) });
-          if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan.', 404, ctx.requestId);
-          if (event.isPaid) return errorResponse('INVALID_STATE_TRANSITION', 'Daftarkan peserta dan verifikasi pembayaran terlebih dahulu.', 400, ctx.requestId);
-          const insertQuery = db
-            .insert(eventAttendance)
-            .values({
-              eventId,
-              personId,
-              source: source || 'manual_input',
-              status: 'attended',
-              checkInAt: new Date(),
-            });
+          const event = await db.query.events.findFirst({
+            where: eq(events.id, eventId),
+          });
+          if (!event)
+            return errorResponse(
+              'NOT_FOUND',
+              'Kajian tidak ditemukan.',
+              404,
+              ctx.requestId,
+            );
+          if (event.isPaid)
+            return errorResponse(
+              'INVALID_STATE_TRANSITION',
+              'Daftarkan peserta dan verifikasi pembayaran terlebih dahulu.',
+              400,
+              ctx.requestId,
+            );
+          const insertQuery = db.insert(eventAttendance).values({
+            eventId,
+            personId,
+            source: source || 'manual_input',
+            status: 'attended',
+            checkInAt: new Date(),
+          });
 
-          const onConflict = typeof (insertQuery as any).onConflictDoNothing === 'function'
-            ? (insertQuery as any).onConflictDoNothing()
-            : insertQuery;
+          const onConflict =
+            typeof (insertQuery as any).onConflictDoNothing === 'function'
+              ? (insertQuery as any).onConflictDoNothing()
+              : insertQuery;
 
           const [attendance] = await onConflict.returning();
           const targetPid = attendance ? attendance.personId : personId;
-          const pStats = await getSinglePersonAttendanceStats(db, targetPid, eventId);
+          const pStats = await getSinglePersonAttendanceStats(
+            db,
+            targetPid,
+            eventId,
+          );
 
           return successResponse(
             {
-              ...(attendance || { status: 'attended', message: 'Jamaah sudah tercatat hadir' }),
+              ...(attendance || {
+                status: 'attended',
+                message: 'Jamaah sudah tercatat hadir',
+              }),
               pastAttendedCount: pStats.pastAttendedCount,
               totalAttendedCount: pStats.pastAttendedCount + 1,
               currentKajianNumber: pStats.currentKajianNumber,
               loyaltyTier: pStats.loyaltyTier,
               loyaltyLabel: pStats.loyaltyLabel,
             },
-            { requestId: ctx.requestId }
+            { requestId: ctx.requestId },
           );
         }
 
-        return errorResponse('NOT_FOUND', 'Data kehadiran tidak ditemukan', 404, ctx.requestId);
+        return errorResponse(
+          'NOT_FOUND',
+          'Data kehadiran tidak ditemukan',
+          404,
+          ctx.requestId,
+        );
       } catch (err: any) {
-        return errorResponse('INTERNAL_ERROR', 'Gagal mencatat presensi', 500, ctx.requestId);
+        return errorResponse(
+          'INTERNAL_ERROR',
+          'Gagal mencatat presensi',
+          500,
+          ctx.requestId,
+        );
       }
-    })
+    }),
   );
 
   // 7. POST /api/events/:id/toggle-attendance (Toggle attended / registered status)
@@ -686,45 +1280,83 @@ export function registerEventsRoutes(router: Router) {
       const { attendanceId } = (ctx.body as any) || {};
 
       if (!eventId || !attendanceId) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID dan Attendance ID diperlukan', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID dan Attendance ID diperlukan',
+          400,
+          ctx.requestId,
+        );
       }
 
       const existing = await db.query.eventAttendance.findFirst({
-        where: and(eq(eventAttendance.id, attendanceId), eq(eventAttendance.eventId, eventId)),
+        where: and(
+          eq(eventAttendance.id, attendanceId),
+          eq(eventAttendance.eventId, eventId),
+        ),
       });
 
       if (!existing) {
-        return errorResponse('NOT_FOUND', 'Data kehadiran tidak ditemukan', 404, ctx.requestId);
+        return errorResponse(
+          'NOT_FOUND',
+          'Data kehadiran tidak ditemukan',
+          404,
+          ctx.requestId,
+        );
       }
 
-      const newStatus = existing.status === 'attended' ? 'registered' : 'attended';
-      const paymentError = newStatus === 'attended' ? paymentCheckInError(existing) : null;
-      if (paymentError) return errorResponse('INVALID_STATE_TRANSITION', paymentError, 400, ctx.requestId);
+      const newStatus =
+        existing.status === 'attended' ? 'registered' : 'attended';
+      const paymentError =
+        newStatus === 'attended'
+          ? await checkEventPayment(db, eventId, existing)
+          : null;
+      if (paymentError)
+        return errorResponse(
+          'INVALID_STATE_TRANSITION',
+          paymentError,
+          400,
+          ctx.requestId,
+        );
 
       const [updated] = await db
         .update(eventAttendance)
-        .set({ status: newStatus, checkInAt: newStatus === 'attended' ? new Date() : null })
+        .set({
+          status: newStatus,
+          checkInAt: newStatus === 'attended' ? new Date() : null,
+        })
         .where(eq(eventAttendance.id, attendanceId))
         .returning();
 
       if (!updated) {
-        return errorResponse('INTERNAL_ERROR', 'Gagal memperbarui status presensi', 500, ctx.requestId);
+        return errorResponse(
+          'INTERNAL_ERROR',
+          'Gagal memperbarui status presensi',
+          500,
+          ctx.requestId,
+        );
       }
 
-      const pStats = await getSinglePersonAttendanceStats(db, updated.personId, eventId);
+      const pStats = await getSinglePersonAttendanceStats(
+        db,
+        updated.personId,
+        eventId,
+      );
 
       return successResponse(
         {
           ...updated,
           pastAttendedCount: pStats.pastAttendedCount,
-          totalAttendedCount: newStatus === 'attended' ? pStats.pastAttendedCount + 1 : pStats.pastAttendedCount,
+          totalAttendedCount:
+            newStatus === 'attended'
+              ? pStats.pastAttendedCount + 1
+              : pStats.pastAttendedCount,
           currentKajianNumber: pStats.currentKajianNumber,
           loyaltyTier: pStats.loyaltyTier,
           loyaltyLabel: pStats.loyaltyLabel,
         },
-        { requestId: ctx.requestId }
+        { requestId: ctx.requestId },
       );
-    })
+    }),
   );
 
   // 7b. POST /api/events/:id/attendances/:attendanceId/verify-payment (Verify/Approve Payment by Admin/Finance)
@@ -736,64 +1368,98 @@ export function registerEventsRoutes(router: Router) {
       const attendanceId = ctx.params.attendanceId;
 
       if (!ctx.user) {
-        return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+        return errorResponse(
+          'UNAUTHENTICATED',
+          'Login diperlukan',
+          401,
+          ctx.requestId,
+        );
       }
 
       if (!eventId || !attendanceId) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID dan Attendance ID diperlukan', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID dan Attendance ID diperlukan',
+          400,
+          ctx.requestId,
+        );
       }
 
-      const existing = await db.query.eventAttendance.findFirst({
-        where: and(eq(eventAttendance.id, attendanceId), eq(eventAttendance.eventId, eventId)),
-      });
+      return db.transaction(async (tx) => {
+        await tx.execute(
+          sql`SELECT id FROM event_attendance WHERE event_id = ${eventId} FOR UPDATE`,
+        );
+        const existing = await tx.query.eventAttendance.findFirst({
+          where: and(
+            eq(eventAttendance.id, attendanceId),
+            eq(eventAttendance.eventId, eventId),
+          ),
+        });
 
-      if (!existing) {
-        return errorResponse('NOT_FOUND', 'Data pendaftaran peserta tidak ditemukan', 404, ctx.requestId);
-      }
+        if (!existing) {
+          return errorResponse(
+            'NOT_FOUND',
+            'Data pendaftaran peserta tidak ditemukan',
+            404,
+            ctx.requestId,
+          );
+        }
 
-      let updatedList: any[] = [];
-      if (existing.registrationGroupId) {
-        updatedList = await db
-          .update(eventAttendance)
-          .set({
-            paymentStatus: 'verified',
-            paymentVerifiedBy: ctx.user.id,
-            paymentVerifiedAt: new Date(),
-            paymentRejectionReason: null,
-            status: 'registered',
-          })
-          .where(
-            and(
-              eq(eventAttendance.eventId, eventId),
-              eq(eventAttendance.registrationGroupId, existing.registrationGroupId)
+        let updatedList: any[] = [];
+        if (existing.registrationGroupId) {
+          updatedList = await tx
+            .update(eventAttendance)
+            .set({
+              paymentStatus: 'verified',
+              paymentVerifiedBy: ctx.user!.id,
+              paymentVerifiedAt: new Date(),
+              paymentRejectionReason: null,
+            })
+            .where(
+              and(
+                eq(eventAttendance.eventId, eventId),
+                eq(
+                  eventAttendance.registrationGroupId,
+                  existing.registrationGroupId,
+                ),
+              ),
             )
-          )
-          .returning();
-      } else {
-        updatedList = await db
-          .update(eventAttendance)
-          .set({
-            paymentStatus: 'verified',
-            paymentVerifiedBy: ctx.user.id,
-            paymentVerifiedAt: new Date(),
-            paymentRejectionReason: null,
-            status: 'registered',
-          })
-          .where(eq(eventAttendance.id, attendanceId))
-          .returning();
-      }
+            .returning();
+        } else {
+          updatedList = await tx
+            .update(eventAttendance)
+            .set({
+              paymentStatus: 'verified',
+              paymentVerifiedBy: ctx.user!.id,
+              paymentVerifiedAt: new Date(),
+              paymentRejectionReason: null,
+            })
+            .where(eq(eventAttendance.id, attendanceId))
+            .returning();
+        }
 
-      return successResponse(
-        {
-          message: existing.registrationGroupId
-            ? `Bukti pembayaran untuk seluruh rombongan (${updatedList.length} orang) berhasil disetujui & tiket telah aktif.`
-            : 'Bukti pembayaran berhasil disetujui & tiket telah aktif.',
-          attendance: updatedList[0] || existing,
-          updatedCount: updatedList.length,
-        },
-        { requestId: ctx.requestId }
-      );
-    })
+        await tx.insert(auditLogs).values({
+          actorUserId: ctx.user!.id,
+          action: 'verify_event_payment',
+          entityType: 'event_attendance',
+          entityId: attendanceId,
+          beforeJson: { paymentStatus: existing.paymentStatus },
+          afterJson: { updatedIds: updatedList.map((row) => row.id) },
+          reason: 'Verifikasi pembayaran oleh pengelola',
+          requestId: ctx.requestId,
+        });
+        return successResponse(
+          {
+            message: existing.registrationGroupId
+              ? `Bukti pembayaran untuk seluruh rombongan (${updatedList.length} orang) berhasil disetujui & tiket telah aktif.`
+              : 'Bukti pembayaran berhasil disetujui & tiket telah aktif.',
+            attendance: updatedList[0] || existing,
+            updatedCount: updatedList.length,
+          },
+          { requestId: ctx.requestId },
+        );
+      });
+    }),
   );
 
   // 7c. POST /api/events/:id/attendances/:attendanceId/reject-payment (Reject Payment Proof with Reason)
@@ -806,66 +1472,107 @@ export function registerEventsRoutes(router: Router) {
       const { rejectionReason } = (ctx.body as any) || {};
 
       if (!ctx.user) {
-        return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+        return errorResponse(
+          'UNAUTHENTICATED',
+          'Login diperlukan',
+          401,
+          ctx.requestId,
+        );
       }
 
       if (!eventId || !attendanceId) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID dan Attendance ID diperlukan', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID dan Attendance ID diperlukan',
+          400,
+          ctx.requestId,
+        );
       }
 
       if (!rejectionReason || !rejectionReason.trim()) {
-        return errorResponse('VALIDATION_ERROR', 'Alasan penolakan pembayaran wajib diisi', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Alasan penolakan pembayaran wajib diisi',
+          400,
+          ctx.requestId,
+        );
       }
 
-      const existing = await db.query.eventAttendance.findFirst({
-        where: and(eq(eventAttendance.id, attendanceId), eq(eventAttendance.eventId, eventId)),
-      });
+      return db.transaction(async (tx) => {
+        await tx.execute(
+          sql`SELECT id FROM event_attendance WHERE event_id = ${eventId} FOR UPDATE`,
+        );
+        const existing = await tx.query.eventAttendance.findFirst({
+          where: and(
+            eq(eventAttendance.id, attendanceId),
+            eq(eventAttendance.eventId, eventId),
+          ),
+        });
 
-      if (!existing) {
-        return errorResponse('NOT_FOUND', 'Data pendaftaran peserta tidak ditemukan', 404, ctx.requestId);
-      }
+        if (!existing) {
+          return errorResponse(
+            'NOT_FOUND',
+            'Data pendaftaran peserta tidak ditemukan',
+            404,
+            ctx.requestId,
+          );
+        }
 
-      let updatedList: any[] = [];
-      if (existing.registrationGroupId) {
-        updatedList = await db
-          .update(eventAttendance)
-          .set({
-            paymentStatus: 'rejected',
-            paymentVerifiedBy: ctx.user.id,
-            paymentVerifiedAt: new Date(),
-            paymentRejectionReason: rejectionReason.trim(),
-          })
-          .where(
-            and(
-              eq(eventAttendance.eventId, eventId),
-              eq(eventAttendance.registrationGroupId, existing.registrationGroupId)
+        let updatedList: any[] = [];
+        if (existing.registrationGroupId) {
+          updatedList = await tx
+            .update(eventAttendance)
+            .set({
+              paymentStatus: 'rejected',
+              paymentVerifiedBy: ctx.user!.id,
+              paymentVerifiedAt: new Date(),
+              paymentRejectionReason: rejectionReason.trim(),
+            })
+            .where(
+              and(
+                eq(eventAttendance.eventId, eventId),
+                eq(
+                  eventAttendance.registrationGroupId,
+                  existing.registrationGroupId,
+                ),
+              ),
             )
-          )
-          .returning();
-      } else {
-        updatedList = await db
-          .update(eventAttendance)
-          .set({
-            paymentStatus: 'rejected',
-            paymentVerifiedBy: ctx.user.id,
-            paymentVerifiedAt: new Date(),
-            paymentRejectionReason: rejectionReason.trim(),
-          })
-          .where(eq(eventAttendance.id, attendanceId))
-          .returning();
-      }
+            .returning();
+        } else {
+          updatedList = await tx
+            .update(eventAttendance)
+            .set({
+              paymentStatus: 'rejected',
+              paymentVerifiedBy: ctx.user!.id,
+              paymentVerifiedAt: new Date(),
+              paymentRejectionReason: rejectionReason.trim(),
+            })
+            .where(eq(eventAttendance.id, attendanceId))
+            .returning();
+        }
 
-      return successResponse(
-        {
-          message: existing.registrationGroupId
-            ? `Status pembayaran rombongan (${updatedList.length} orang) berhasil ditolak.`
-            : 'Status pembayaran berhasil ditolak.',
-          attendance: updatedList[0] || existing,
-          updatedCount: updatedList.length,
-        },
-        { requestId: ctx.requestId }
-      );
-    })
+        await tx.insert(auditLogs).values({
+          actorUserId: ctx.user!.id,
+          action: 'reject_event_payment',
+          entityType: 'event_attendance',
+          entityId: attendanceId,
+          beforeJson: { paymentStatus: existing.paymentStatus },
+          afterJson: { updatedIds: updatedList.map((row) => row.id) },
+          reason: rejectionReason.trim(),
+          requestId: ctx.requestId,
+        });
+        return successResponse(
+          {
+            message: existing.registrationGroupId
+              ? `Status pembayaran rombongan (${updatedList.length} orang) berhasil ditolak.`
+              : 'Status pembayaran berhasil ditolak.',
+            attendance: updatedList[0] || existing,
+            updatedCount: updatedList.length,
+          },
+          { requestId: ctx.requestId },
+        );
+      });
+    }),
   );
 
   // The public gate remains login-free for field volunteers, but its private
@@ -876,19 +1583,39 @@ export function registerEventsRoutes(router: Router) {
     requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
-      if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
-      const event = await db.query.events.findFirst({ where: eq(events.id, eventId) });
-      if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
+      if (!eventId)
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID diperlukan',
+          400,
+          ctx.requestId,
+        );
+      const event = await db.query.events.findFirst({
+        where: eq(events.id, eventId),
+      });
+      if (!event)
+        return errorResponse(
+          'NOT_FOUND',
+          'Kajian tidak ditemukan',
+          404,
+          ctx.requestId,
+        );
 
       const formConfig = { ...(event.formConfig || {}) } as Record<string, any>;
-      const existingToken = typeof formConfig.gateAccessToken === 'string' ? formConfig.gateAccessToken : '';
+      const existingToken =
+        typeof formConfig.gateAccessToken === 'string'
+          ? formConfig.gateAccessToken
+          : '';
       const gateAccessToken = existingToken || createStaffRegistrationToken();
       if (!existingToken) {
         formConfig.gateAccessToken = gateAccessToken;
-        await db.update(events).set({ formConfig, updatedAt: new Date() }).where(eq(events.id, eventId));
+        await db
+          .update(events)
+          .set({ formConfig, updatedAt: new Date() })
+          .where(eq(events.id, eventId));
       }
       return successResponse({ gateAccessToken }, { requestId: ctx.requestId });
-    })
+    }),
   );
 
   router.post(
@@ -896,70 +1623,177 @@ export function registerEventsRoutes(router: Router) {
     requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
-      if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
-      const event = await db.query.events.findFirst({ where: eq(events.id, eventId) });
-      if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
+      if (!eventId)
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID diperlukan',
+          400,
+          ctx.requestId,
+        );
+      const event = await db.query.events.findFirst({
+        where: eq(events.id, eventId),
+      });
+      if (!event)
+        return errorResponse(
+          'NOT_FOUND',
+          'Kajian tidak ditemukan',
+          404,
+          ctx.requestId,
+        );
 
-      const formConfig = { ...(event.formConfig || {}), gateAccessToken: createStaffRegistrationToken() };
-      const [updated] = await db.update(events).set({ formConfig, updatedAt: new Date() }).where(eq(events.id, eventId)).returning();
-      await logAuditEvent({ actorUserId: ctx.user?.id, action: 'rotate_event_gate_access', entityType: 'event', entityId: eventId, afterJson: { rotated: true }, reason: 'Regenerasi tautan privat gate scanner', requestId: ctx.requestId });
-      return successResponse({ gateAccessToken: (updated?.formConfig as any)?.gateAccessToken }, { requestId: ctx.requestId });
-    })
+      const formConfig = {
+        ...(event.formConfig || {}),
+        gateAccessToken: createStaffRegistrationToken(),
+      };
+      const [updated] = await db
+        .update(events)
+        .set({ formConfig, updatedAt: new Date() })
+        .where(eq(events.id, eventId))
+        .returning();
+      await logAuditEvent({
+        actorUserId: ctx.user?.id,
+        action: 'rotate_event_gate_access',
+        entityType: 'event',
+        entityId: eventId,
+        afterJson: { rotated: true },
+        reason: 'Regenerasi tautan privat gate scanner',
+        requestId: ctx.requestId,
+      });
+      return successResponse(
+        { gateAccessToken: (updated?.formConfig as any)?.gateAccessToken },
+        { requestId: ctx.requestId },
+      );
+    }),
   );
 
   // 7a. PATCH participant contact details. Ticket/QR and attendance fields are intentionally immutable here.
   router.patch(
     '/api/events/:id/attendances/:attendanceId',
-    requireEventAccess(validateBody(editEventParticipantSchema, async (ctx, body) => {
-      const db = getDb();
-      const eventId = ctx.params.id;
-      const attendanceId = ctx.params.attendanceId;
-      if (!eventId || !attendanceId) return errorResponse('VALIDATION_ERROR', 'Kajian dan peserta diperlukan.', 400, ctx.requestId);
+    requireEventAccess(
+      validateBody(editEventParticipantSchema, async (ctx, body) => {
+        const db = getDb();
+        const eventId = ctx.params.id;
+        const attendanceId = ctx.params.attendanceId;
+        if (!eventId || !attendanceId)
+          return errorResponse(
+            'VALIDATION_ERROR',
+            'Kajian dan peserta diperlukan.',
+            400,
+            ctx.requestId,
+          );
 
-      const attendance = await db.query.eventAttendance.findFirst({
-        where: and(eq(eventAttendance.id, attendanceId), eq(eventAttendance.eventId, eventId)),
-        with: { person: true },
-      });
-      if (!attendance?.person) return errorResponse('NOT_FOUND', 'Peserta kajian tidak ditemukan.', 404, ctx.requestId);
+        return db.transaction(async (tx) => {
+          await tx.execute(
+            sql`SELECT p.id FROM persons p JOIN event_attendance a ON a.person_id = p.id WHERE a.id = ${attendanceId} AND a.event_id = ${eventId} FOR UPDATE OF p`,
+          );
+          const attendance = await tx.query.eventAttendance.findFirst({
+            where: and(
+              eq(eventAttendance.id, attendanceId),
+              eq(eventAttendance.eventId, eventId),
+            ),
+            with: { person: true },
+          });
+          if (!attendance?.person)
+            return errorResponse(
+              'NOT_FOUND',
+              'Peserta kajian tidak ditemukan.',
+              404,
+              ctx.requestId,
+            );
 
-      const phoneE164 = normalizeIndonesianPhone(body.phone);
-      if (!isValidE164(phoneE164)) return errorResponse('VALIDATION_ERROR', 'Nomor WhatsApp harus menggunakan format yang valid.', 400, ctx.requestId);
+          const phoneChanged =
+            body.phone !== (attendance.person.phoneE164 || '');
+          const phoneE164 = phoneChanged
+            ? normalizeIndonesianPhone(body.phone)
+            : attendance.person.phoneE164;
+          if (
+            phoneChanged &&
+            (!/^[+\d\s().-]+$/.test(body.phone) || !isValidE164(phoneE164))
+          )
+            return errorResponse(
+              'VALIDATION_ERROR',
+              'Nomor WhatsApp harus menggunakan format yang valid.',
+              400,
+              ctx.requestId,
+            );
 
-      const phoneOwner = await db.query.persons.findFirst({ where: eq(persons.phoneE164, phoneE164), columns: { id: true, fullName: true } });
-      if (phoneOwner && phoneOwner.id !== attendance.personId) {
-        const sameEvent = await db.query.eventAttendance.findFirst({
-          where: and(eq(eventAttendance.eventId, eventId), eq(eventAttendance.personId, phoneOwner.id)),
-          columns: { id: true },
+          if (phoneChanged && phoneE164) {
+            const phoneOwner = await tx.query.persons.findFirst({
+              where: eq(persons.phoneE164, phoneE164),
+              columns: { id: true },
+            });
+            if (phoneOwner && phoneOwner.id !== attendance.personId)
+              return errorResponse(
+                'CONFLICT',
+                'Nomor ini digunakan profil Jamaah lain. Tinjau melalui menu Jamaah sebelum mengubah kontak.',
+                409,
+                ctx.requestId,
+              );
+          }
+
+          const before = {
+            fullName: attendance.person.fullName,
+            phoneE164: attendance.person.phoneE164,
+            email: attendance.person.email,
+            cityRegency: attendance.person.cityRegency,
+            ticketCode: attendance.ticketCode,
+          };
+          const [updatedPerson] = await tx
+            .update(persons)
+            .set({
+              fullName: body.fullName,
+              ...(phoneChanged ? { phoneE164 } : {}),
+              email: body.email || null,
+              cityRegency: body.cityRegency || null,
+              updatedAt: new Date(),
+            })
+            .where(eq(persons.id, attendance.personId))
+            .returning();
+          if (!updatedPerson)
+            return errorResponse(
+              'INTERNAL_ERROR',
+              'Data peserta tidak berhasil diperbarui.',
+              500,
+              ctx.requestId,
+            );
+
+          await tx.insert(auditLogs).values({
+            actorUserId: ctx.user?.id,
+            action: 'edit_event_participant_contact',
+            entityType: 'event_attendance',
+            entityId: attendanceId,
+            beforeJson: before,
+            afterJson: {
+              fullName: updatedPerson.fullName,
+              phoneE164: updatedPerson.phoneE164,
+              email: updatedPerson.email,
+              cityRegency: updatedPerson.cityRegency,
+              ticketCode: attendance.ticketCode,
+              ticketPreserved: true,
+            },
+            reason:
+              'Perbaikan kontak peserta kajian tanpa mengganti tiket atau QR.',
+            requestId: ctx.requestId,
+          });
+
+          return successResponse(
+            {
+              message: 'Data peserta diperbarui. Kode tiket dan QR tetap sama.',
+              participant: {
+                id: attendance.id,
+                personId: attendance.personId,
+                personName: updatedPerson.fullName,
+                personPhone: updatedPerson.phoneE164,
+                personEmail: updatedPerson.email,
+                personCity: updatedPerson.cityRegency,
+                ticketCode: attendance.ticketCode,
+              },
+            },
+            { requestId: ctx.requestId },
+          );
         });
-        if (sameEvent) return errorResponse('CONFLICT', `Nomor ini sudah digunakan peserta lain pada kajian ini (${phoneOwner.fullName}).`, 409, ctx.requestId);
-      }
-
-      const before = { fullName: attendance.person.fullName, phoneE164: attendance.person.phoneE164, email: attendance.person.email, cityRegency: attendance.person.cityRegency, ticketCode: attendance.ticketCode };
-      const [updatedPerson] = await db.update(persons).set({
-        fullName: body.fullName,
-        phoneE164,
-        email: body.email || null,
-        cityRegency: body.cityRegency || null,
-        updatedAt: new Date(),
-      }).where(eq(persons.id, attendance.personId)).returning();
-      if (!updatedPerson) return errorResponse('INTERNAL_ERROR', 'Data peserta tidak berhasil diperbarui.', 500, ctx.requestId);
-
-      await logAuditEvent({
-        actorUserId: ctx.user?.id,
-        action: 'edit_event_participant_contact',
-        entityType: 'event_attendance',
-        entityId: attendanceId,
-        beforeJson: before,
-        afterJson: { fullName: updatedPerson.fullName, phoneE164: updatedPerson.phoneE164, email: updatedPerson.email, cityRegency: updatedPerson.cityRegency, ticketCode: attendance.ticketCode, ticketPreserved: true },
-        reason: 'Perbaikan kontak peserta kajian tanpa mengganti tiket atau QR.',
-        requestId: ctx.requestId,
-      });
-
-      return successResponse({
-        message: 'Data peserta diperbarui. Kode tiket dan QR tetap sama.',
-        participant: { id: attendance.id, personId: attendance.personId, personName: updatedPerson.fullName, personPhone: updatedPerson.phoneE164, personEmail: updatedPerson.email, personCity: updatedPerson.cityRegency, ticketCode: attendance.ticketCode },
-      }, { requestId: ctx.requestId });
-    }))
+      }),
+    ),
   );
 
   // 7d. POST /api/events/:id/attendances/:attendanceId/email-ticket (Resend current e-ticket after data correction)
@@ -970,33 +1804,72 @@ export function registerEventsRoutes(router: Router) {
       const eventId = ctx.params.id;
       const attendanceId = ctx.params.attendanceId;
       if (!eventId || !attendanceId) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID dan data peserta diperlukan.', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID dan data peserta diperlukan.',
+          400,
+          ctx.requestId,
+        );
       }
 
-      const event = await db.query.events.findFirst({ where: eq(events.id, eventId) });
-      if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan.', 404, ctx.requestId);
+      const event = await db.query.events.findFirst({
+        where: eq(events.id, eventId),
+      });
+      if (!event)
+        return errorResponse(
+          'NOT_FOUND',
+          'Kajian tidak ditemukan.',
+          404,
+          ctx.requestId,
+        );
 
       const attendance = await db.query.eventAttendance.findFirst({
-        where: and(eq(eventAttendance.id, attendanceId), eq(eventAttendance.eventId, eventId)),
+        where: and(
+          eq(eventAttendance.id, attendanceId),
+          eq(eventAttendance.eventId, eventId),
+        ),
         with: { person: true },
       });
-      if (!attendance) return errorResponse('NOT_FOUND', 'Data pendaftaran peserta tidak ditemukan.', 404, ctx.requestId);
+      if (!attendance)
+        return errorResponse(
+          'NOT_FOUND',
+          'Data pendaftaran peserta tidak ditemukan.',
+          404,
+          ctx.requestId,
+        );
       if (!attendance.person?.email) {
-        return errorResponse('VALIDATION_ERROR', 'Peserta ini belum memiliki alamat email. Perbarui data jamaah terlebih dahulu.', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Peserta ini belum memiliki alamat email. Perbarui data jamaah terlebih dahulu.',
+          400,
+          ctx.requestId,
+        );
       }
 
       const groupAttendances = attendance.registrationGroupId
         ? await db.query.eventAttendance.findMany({
             where: and(
               eq(eventAttendance.eventId, eventId),
-              eq(eventAttendance.registrationGroupId, attendance.registrationGroupId)
+              eq(
+                eventAttendance.registrationGroupId,
+                attendance.registrationGroupId,
+              ),
             ),
             with: { person: true },
           })
         : [attendance];
-      const delivery = await sendEventTicketEmail({ event, attendance, groupAttendances });
+      const delivery = await sendEventTicketEmail({
+        event,
+        attendance,
+        groupAttendances,
+      });
       if (!delivery.success) {
-        return errorResponse('INTERNAL_ERROR', delivery.error || 'E-tiket gagal dikirim.', 502, ctx.requestId);
+        return errorResponse(
+          'INTERNAL_ERROR',
+          delivery.error || 'E-tiket gagal dikirim.',
+          502,
+          ctx.requestId,
+        );
       }
 
       const previous = attendance.registrationData || {};
@@ -1019,16 +1892,23 @@ export function registerEventsRoutes(router: Router) {
         action: 'resend_event_ticket_email',
         entityType: 'event_attendance',
         entityId: attendance.id,
-        afterJson: { eventId, recipientEmail: attendance.person.email, ticketCode: attendance.ticketCode },
+        afterJson: {
+          eventId,
+          recipientEmail: attendance.person.email,
+          ticketCode: attendance.ticketCode,
+        },
         reason: 'Pengiriman ulang e-tiket kajian dengan detail terbaru',
         requestId: ctx.requestId,
       });
 
       return successResponse(
-        { message: `E-tiket terbaru telah dikirim ke ${attendance.person.email}.`, messageId: delivery.messageId || null },
-        { requestId: ctx.requestId }
+        {
+          message: `E-tiket terbaru telah dikirim ke ${attendance.person.email}.`,
+          messageId: delivery.messageId || null,
+        },
+        { requestId: ctx.requestId },
       );
-    })
+    }),
   );
 
   // 7e. POST /api/events/:id/email-reminder (Manual H-1 delivery, protected by the global daily broadcast limit)
@@ -1037,10 +1917,24 @@ export function registerEventsRoutes(router: Router) {
     requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
-      if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
+      if (!eventId)
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID diperlukan.',
+          400,
+          ctx.requestId,
+        );
 
-      const event = await db.query.events.findFirst({ where: eq(events.id, eventId) });
-      if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan.', 404, ctx.requestId);
+      const event = await db.query.events.findFirst({
+        where: eq(events.id, eventId),
+      });
+      if (!event)
+        return errorResponse(
+          'NOT_FOUND',
+          'Kajian tidak ditemukan.',
+          404,
+          ctx.requestId,
+        );
 
       const result = await dispatchEventReminders(db, event);
       await logAuditEvent({
@@ -1060,9 +1954,9 @@ export function registerEventsRoutes(router: Router) {
             ? `Pengiriman dihentikan karena batas broadcast harian. ${result.sent} email berhasil dikirim.`
             : `${result.sent} reminder berhasil dikirim.`,
         },
-        { requestId: ctx.requestId }
+        { requestId: ctx.requestId },
       );
-    })
+    }),
   );
 
   // 7f. POST /api/events/:id/email-broadcast (Admin-triggered announcement to this event's participant emails only)
@@ -1072,14 +1966,35 @@ export function registerEventsRoutes(router: Router) {
       validateBody(eventBroadcastEmailSchema, async (ctx, body) => {
         const db = getDb();
         const eventId = ctx.params.id;
-        if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
-        const event = await db.query.events.findFirst({ where: eq(events.id, eventId) });
-        if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan.', 404, ctx.requestId);
+        if (!eventId)
+          return errorResponse(
+            'VALIDATION_ERROR',
+            'Event ID diperlukan.',
+            400,
+            ctx.requestId,
+          );
+        const event = await db.query.events.findFirst({
+          where: eq(events.id, eventId),
+        });
+        if (!event)
+          return errorResponse(
+            'NOT_FOUND',
+            'Kajian tidak ditemukan.',
+            404,
+            ctx.requestId,
+          );
 
         // Admin starts the campaign explicitly. The first safe batch is sent now;
         // Netlify continues only this already-approved campaign in later batches.
-        const queued = await createQueuedEventBroadcast(db, event, { ...body, createdBy: ctx.user?.id });
-        const result = await processQueuedEventBroadcast(db, event, queued.campaignId);
+        const queued = await createQueuedEventBroadcast(db, event, {
+          ...body,
+          createdBy: ctx.user?.id,
+        });
+        const result = await processQueuedEventBroadcast(
+          db,
+          event,
+          queued.campaignId,
+        );
         await logAuditEvent({
           actorUserId: ctx.user?.id,
           action: 'send_event_email_broadcast',
@@ -1095,15 +2010,18 @@ export function registerEventsRoutes(router: Router) {
           requestId: ctx.requestId,
         });
 
-        return successResponse({
-          ...queued,
-          ...result,
-          message: result.quotaReached
-            ? `Antrian ${queued.targetCount} email dibuat. Batch awal mengirim ${result.sent}; sisanya menunggu kuota WIB berikutnya.`
-            : `Antrian ${queued.targetCount} email dibuat. Batch awal mengirim ${result.sent} email dan sisanya diproses bertahap.`,
-        }, { requestId: ctx.requestId });
-      })
-    )
+        return successResponse(
+          {
+            ...queued,
+            ...result,
+            message: result.quotaReached
+              ? `Antrian ${queued.targetCount} email dibuat. Batch awal mengirim ${result.sent}; sisanya menunggu kuota WIB berikutnya.`
+              : `Antrian ${queued.targetCount} email dibuat. Batch awal mengirim ${result.sent} email dan sisanya diproses bertahap.`,
+          },
+          { requestId: ctx.requestId },
+        );
+      }),
+    ),
   );
 
   // 7g. GET /api/events/:id/email-broadcasts (Persisted, provider-confirmed broadcast metrics)
@@ -1112,13 +2030,30 @@ export function registerEventsRoutes(router: Router) {
     requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
-      if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
-      const event = await db.query.events.findFirst({ where: eq(events.id, eventId), columns: { id: true } });
-      if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan.', 404, ctx.requestId);
+      if (!eventId)
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID diperlukan.',
+          400,
+          ctx.requestId,
+        );
+      const event = await db.query.events.findFirst({
+        where: eq(events.id, eventId),
+        columns: { id: true },
+      });
+      if (!event)
+        return errorResponse(
+          'NOT_FOUND',
+          'Kajian tidak ditemukan.',
+          404,
+          ctx.requestId,
+        );
 
-      const broadcasts = await listQueuedEventBroadcasts(db, eventId).catch(() => listEventBroadcastSummaries(db, eventId));
+      const broadcasts = await listQueuedEventBroadcasts(db, eventId).catch(
+        () => listEventBroadcastSummaries(db, eventId),
+      );
       return successResponse(broadcasts, { requestId: ctx.requestId });
-    })
+    }),
   );
 
   // Event-specific count for the current WIB day. This remains separate from
@@ -1128,26 +2063,59 @@ export function registerEventsRoutes(router: Router) {
     requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
-      if (!eventId) return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan.', 400, ctx.requestId);
-      const event = await db.query.events.findFirst({ where: eq(events.id, eventId), columns: { id: true } });
-      if (!event) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan.', 404, ctx.requestId);
+      if (!eventId)
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID diperlukan.',
+          400,
+          ctx.requestId,
+        );
+      const event = await db.query.events.findFirst({
+        where: eq(events.id, eventId),
+        columns: { id: true },
+      });
+      if (!event)
+        return errorResponse(
+          'NOT_FOUND',
+          'Kajian tidak ditemukan.',
+          404,
+          ctx.requestId,
+        );
 
-      return successResponse(await getEventBroadcastToday(db, eventId), { requestId: ctx.requestId });
-    })
+      return successResponse(await getEventBroadcastToday(db, eventId), {
+        requestId: ctx.requestId,
+      });
+    }),
   );
 
   router.get(
     '/api/events/:id/email-broadcast-templates',
-    requireEventAccess(async (ctx) => successResponse(await listEventEmailTemplates(getDb()), { requestId: ctx.requestId }))
+    requireEventAccess(async (ctx) =>
+      successResponse(await listEventEmailTemplates(getDb()), {
+        requestId: ctx.requestId,
+      }),
+    ),
   );
 
   router.post(
     '/api/events/:id/email-broadcast-templates',
-    requireEventAccess(validateBody(eventBroadcastTemplateSchema, async (ctx, body) => {
-      const template = await saveEventEmailTemplate(getDb(), { ...body, createdBy: ctx.user?.id });
-      await logAuditEvent({ actorUserId: ctx.user?.id, action: 'save_event_email_broadcast_template', entityType: 'event', entityId: ctx.params.id, afterJson: { templateId: template.id, name: template.name }, requestId: ctx.requestId });
-      return successResponse(template, { requestId: ctx.requestId }, 201);
-    }))
+    requireEventAccess(
+      validateBody(eventBroadcastTemplateSchema, async (ctx, body) => {
+        const template = await saveEventEmailTemplate(getDb(), {
+          ...body,
+          createdBy: ctx.user?.id,
+        });
+        await logAuditEvent({
+          actorUserId: ctx.user?.id,
+          action: 'save_event_email_broadcast_template',
+          entityType: 'event',
+          entityId: ctx.params.id!,
+          afterJson: { templateId: template.id, name: template.name },
+          requestId: ctx.requestId,
+        });
+        return successResponse(template, { requestId: ctx.requestId }, 201);
+      }),
+    ),
   );
 
   // 7d. POST /api/events/:id/attendances/bulk-checkin (Bulk Check-in / Uncheck-in)
@@ -1156,10 +2124,20 @@ export function registerEventsRoutes(router: Router) {
     requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params.id;
-      const { attendanceIds = [], status = 'attended' } = (ctx.body as any) || {};
+      const { attendanceIds = [], status = 'attended' } =
+        (ctx.body as any) || {};
 
-      if (!eventId || !Array.isArray(attendanceIds) || attendanceIds.length === 0) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID dan daftar Attendance ID diperlukan', 400, ctx.requestId);
+      if (
+        !eventId ||
+        !Array.isArray(attendanceIds) ||
+        attendanceIds.length === 0
+      ) {
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID dan daftar Attendance ID diperlukan',
+          400,
+          ctx.requestId,
+        );
       }
 
       const validStatus = status === 'attended' ? 'attended' : 'registered';
@@ -1174,8 +2152,19 @@ export function registerEventsRoutes(router: Router) {
           and(
             eq(eventAttendance.eventId, eventId),
             inArray(eventAttendance.id, attendanceIds),
-            validStatus === 'attended' ? notInArray(eventAttendance.paymentStatus, [...PENDING_PAYMENT_STATUSES]) : undefined
-          )
+            validStatus === 'attended'
+              ? and(
+                  notInArray(eventAttendance.paymentStatus, [
+                    ...PENDING_PAYMENT_STATUSES,
+                  ]),
+                  or(
+                    eq(eventAttendance.paymentStatus, 'verified'),
+                    sql`NOT EXISTS (SELECT 1 FROM events WHERE id = ${eventId} AND is_paid = true)`,
+                    sql`(${eventAttendance.paymentStatus} = 'free' AND ${eventAttendance.registrationData}->>'registrationChannel' IN ('staff_yayasan', 'staff_yayasan_family'))`,
+                  ),
+                )
+              : undefined,
+          ),
         )
         .returning();
 
@@ -1186,181 +2175,89 @@ export function registerEventsRoutes(router: Router) {
           skippedCount: attendanceIds.length - updated.length,
           attendances: updated,
         },
-        { requestId: ctx.requestId }
+        { requestId: ctx.requestId },
       );
-    })
+    }),
   );
 
-  // 7e-1. DELETE /api/events/:id/attendances/:attendanceId (Remove Single Registrant & Restore Quota)
   router.delete(
     '/api/events/:id/attendances/:attendanceId',
     requireEventAccess(async (ctx) => {
-      const db = getDb();
-      const eventId = ctx.params.id;
-      const attendanceId = ctx.params.attendanceId;
-      const deleteGroup = ctx.query.deleteGroup === 'true' || (ctx.body as any)?.deleteGroup === true;
-
-      if (!eventId || !attendanceId) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID dan Attendance ID diperlukan', 400, ctx.requestId);
-      }
-
-      const existing = await db.query.eventAttendance.findFirst({
-        where: and(
-          eq(eventAttendance.id, attendanceId),
-          eq(eventAttendance.eventId, eventId)
-        ),
-        with: {
-          person: true,
-        },
-      });
-
-      if (!existing) {
-        return errorResponse('NOT_FOUND', 'Data pendaftaran peserta tidak ditemukan', 404, ctx.requestId);
-      }
-
-      let deleted: any[] = [];
-      const hasGroup = Boolean(existing.registrationGroupId);
-
-      if (deleteGroup && existing.registrationGroupId) {
-        deleted = await db
-          .delete(eventAttendance)
-          .where(
-            and(
-              eq(eventAttendance.eventId, eventId),
-              eq(eventAttendance.registrationGroupId, existing.registrationGroupId)
-            )
-          )
-          .returning();
-      } else {
-        deleted = await db
-          .delete(eventAttendance)
-          .where(
-            and(
-              eq(eventAttendance.id, attendanceId),
-              eq(eventAttendance.eventId, eventId)
-            )
-          )
-          .returning();
-      }
-
+      if (
+        !z.string().uuid().safeParse(ctx.params.id).success ||
+        !z.string().uuid().safeParse(ctx.params.attendanceId).success
+      )
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'ID pendaftaran tidak valid.',
+          400,
+          ctx.requestId,
+        );
       try {
-        await logAuditEvent({
-          actorUserId: ctx.user?.id,
-          action: 'delete_event_attendance',
-          entityType: 'event_attendance',
-          entityId: attendanceId,
-          beforeJson: {
-            eventId,
-            personName: existing.person?.fullName,
-            ticketCode: existing.ticketCode,
-            registrationGroupId: existing.registrationGroupId,
-            deletedCount: deleted.length,
-            deleteGroupApplied: deleteGroup && hasGroup,
-          },
-          reason: 'Pembersihan data pendaftar/uji coba untuk mengembalikan kuota kajian',
-          requestId: ctx.requestId,
-        });
-      } catch (e) {
-        console.error('Gagal mencatat audit log delete_event_attendance:', e);
+        return successResponse(
+          await removeRegistrations(
+            getDb(),
+            ctx.params.id!,
+            [ctx.params.attendanceId!],
+            ctx.query.deleteGroup === 'true' ||
+              (ctx.body as any)?.deleteGroup === true,
+            ctx.user!.id,
+            ctx.requestId,
+          ),
+          { requestId: ctx.requestId },
+        );
+      } catch (error) {
+        if (error instanceof RegistrationError)
+          return errorResponse(
+            error.status === 404 ? 'NOT_FOUND' : 'CONFLICT',
+            error.message,
+            error.status,
+            ctx.requestId,
+          );
+        throw error;
       }
-
-      return successResponse(
-        {
-          message: `Berhasil menghapus ${deleted.length} pendaftaran peserta. Kuota kajian telah dikembalikan.`,
-          deletedCount: deleted.length,
-          freedQuota: deleted.length,
-          ticketCode: existing.ticketCode,
-          personName: existing.person?.fullName || 'Peserta',
-        },
-        { requestId: ctx.requestId }
-      );
-    })
+    }),
   );
 
-  // 7e-2. POST /api/events/:id/attendances/bulk-delete (Bulk Remove Attendances & Restore Quota)
   router.post(
     '/api/events/:id/attendances/bulk-delete',
     requireEventAccess(async (ctx) => {
-      const db = getDb();
-      const eventId = ctx.params.id;
-      const { attendanceIds = [], deleteAssociatedGroups = false } = (ctx.body as any) || {};
-
-      if (!eventId || !Array.isArray(attendanceIds) || attendanceIds.length === 0) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID dan daftar Attendance ID diperlukan', 400, ctx.requestId);
-      }
-
-      let targetIds = [...attendanceIds];
-
-      if (deleteAssociatedGroups) {
-        // Cari seluruh registrationGroupId dari attendanceIds yang dipilih
-        const selectedAtts = await db.query.eventAttendance.findMany({
-          where: and(
-            eq(eventAttendance.eventId, eventId),
-            inArray(eventAttendance.id, attendanceIds)
-          ),
-          columns: {
-            id: true,
-            registrationGroupId: true,
-          },
-        });
-
-        const groupIds = selectedAtts
-          .map((a) => a.registrationGroupId)
-          .filter((gid): gid is string => Boolean(gid));
-
-        if (groupIds.length > 0) {
-          const allGroupMembers = await db.query.eventAttendance.findMany({
-            where: and(
-              eq(eventAttendance.eventId, eventId),
-              inArray(eventAttendance.registrationGroupId, groupIds)
-            ),
-            columns: {
-              id: true,
-            },
-          });
-
-          const groupMemberIds = allGroupMembers.map((m) => m.id);
-          targetIds = Array.from(new Set([...targetIds, ...groupMemberIds]));
-        }
-      }
-
-      const deleted = await db
-        .delete(eventAttendance)
-        .where(
-          and(
-            eq(eventAttendance.eventId, eventId),
-            inArray(eventAttendance.id, targetIds)
-          )
-        )
-        .returning();
-
+      const parsed = z
+        .object({
+          attendanceIds: z.array(z.string().uuid()).min(1).max(10000),
+          deleteAssociatedGroups: z.boolean().default(false),
+        })
+        .safeParse(ctx.body);
+      if (!parsed.success)
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Pilih pendaftaran yang valid.',
+          400,
+          ctx.requestId,
+        );
       try {
-        await logAuditEvent({
-          actorUserId: ctx.user?.id,
-          action: 'bulk_delete_event_attendances',
-          entityType: 'event_attendance',
-          beforeJson: {
-            eventId,
-            deletedAttendanceIds: targetIds,
-            deletedCount: deleted.length,
-            deleteAssociatedGroups,
-          },
-          reason: 'Pembersihan massal pendaftar untuk mengembalikan kuota kajian',
-          requestId: ctx.requestId,
-        });
-      } catch (e) {
-        console.error('Gagal mencatat audit log bulk_delete_event_attendances:', e);
+        return successResponse(
+          await removeRegistrations(
+            getDb(),
+            ctx.params.id!,
+            parsed.data.attendanceIds,
+            parsed.data.deleteAssociatedGroups,
+            ctx.user!.id,
+            ctx.requestId,
+          ),
+          { requestId: ctx.requestId },
+        );
+      } catch (error) {
+        if (error instanceof RegistrationError)
+          return errorResponse(
+            error.status === 404 ? 'NOT_FOUND' : 'CONFLICT',
+            error.message,
+            error.status,
+            ctx.requestId,
+          );
+        throw error;
       }
-
-      return successResponse(
-        {
-          message: `Berhasil menghapus ${deleted.length} pendaftaran peserta. Kuota kajian telah dikembalikan.`,
-          deletedCount: deleted.length,
-          freedQuota: deleted.length,
-        },
-        { requestId: ctx.requestId }
-      );
-    })
+    }),
   );
 
   // 7f. POST /api/events/:id/attendances/scan (Fast Gate Scanner with Ticket / Phone / ID Verification)
@@ -1372,14 +2269,22 @@ export function registerEventsRoutes(router: Router) {
       const { ticketCode, phoneQuery, attendanceId } = (ctx.body as any) || {};
 
       if (!eventId) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID diperlukan',
+          400,
+          ctx.requestId,
+        );
       }
 
       let targetAttendance: any = null;
 
       if (attendanceId) {
         targetAttendance = await db.query.eventAttendance.findFirst({
-          where: and(eq(eventAttendance.id, attendanceId), eq(eventAttendance.eventId, eventId)),
+          where: and(
+            eq(eventAttendance.id, attendanceId),
+            eq(eventAttendance.eventId, eventId),
+          ),
           with: { person: true },
         });
       } else if (ticketCode) {
@@ -1391,8 +2296,8 @@ export function registerEventsRoutes(router: Router) {
             or(
               eq(eventAttendance.ticketCode, cleanCode),
               eq(eventAttendance.ticketCode, rawCode.toUpperCase()),
-              ilike(eventAttendance.ticketCode, `%${rawCode}%`)
-            )
+              ilike(eventAttendance.ticketCode, `%${rawCode}%`),
+            ),
           ),
           with: { person: true },
         });
@@ -1408,8 +2313,8 @@ export function registerEventsRoutes(router: Router) {
             or(
               eq(eventAttendance.ticketCode, cleanTicket),
               eq(eventAttendance.ticketCode, rawQuery.toUpperCase()),
-              ilike(eventAttendance.ticketCode, `%${rawQuery}%`)
-            )
+              ilike(eventAttendance.ticketCode, `%${rawQuery}%`),
+            ),
           ),
           with: { person: true },
         });
@@ -1420,7 +2325,7 @@ export function registerEventsRoutes(router: Router) {
             where: or(
               inArray(persons.phoneE164, [norm, `+${rawQuery}`, rawQuery]),
               ilike(persons.fullName, `%${rawQuery}%`),
-              ilike(persons.phoneE164, `%${rawQuery}%`)
+              ilike(persons.phoneE164, `%${rawQuery}%`),
             ),
             columns: { id: true },
             limit: 15,
@@ -1431,7 +2336,7 @@ export function registerEventsRoutes(router: Router) {
             targetAttendance = await db.query.eventAttendance.findFirst({
               where: and(
                 eq(eventAttendance.eventId, eventId),
-                inArray(eventAttendance.personId, personIds)
+                inArray(eventAttendance.personId, personIds),
               ),
               with: { person: true },
             });
@@ -1444,13 +2349,23 @@ export function registerEventsRoutes(router: Router) {
           'NOT_FOUND',
           'Tiket atau data jamaah tidak ditemukan untuk kajian ini.',
           404,
-          ctx.requestId
+          ctx.requestId,
         );
       }
 
       const alreadyCheckedIn = targetAttendance.status === 'attended';
-      const paymentError = paymentCheckInError(targetAttendance);
-      if (paymentError) return errorResponse('INVALID_STATE_TRANSITION', paymentError, 400, ctx.requestId);
+      const paymentError = await checkEventPayment(
+        db,
+        eventId,
+        targetAttendance,
+      );
+      if (paymentError)
+        return errorResponse(
+          'INVALID_STATE_TRANSITION',
+          paymentError,
+          400,
+          ctx.requestId,
+        );
       const previousCheckInAt = targetAttendance.checkInAt;
 
       // Update to attended if not already
@@ -1485,418 +2400,154 @@ export function registerEventsRoutes(router: Router) {
             registrationData: updatedAttendance.registrationData,
           },
         },
-        { requestId: ctx.requestId }
+        { requestId: ctx.requestId },
       );
-    })
+    }),
   );
 
-  // 8. POST /api/events/:id/participants/manual (Manually add participant by staff with invite support & wa.me)
+  // Staff and CSV channels use the same capacity/payment/identity transaction as public registration.
   router.post(
     '/api/events/:id/participants/manual',
     requireEventAccess(async (ctx) => {
-      const db = getDb();
-      const eventId = ctx.params.id;
-      const {
-        fullName,
-        phone,
-        gender,
-        cityRegency,
-        email,
-        age,
-        vehicleType,
-        vehiclePlateNumber,
-        isSpecialInvite = false,
-        inviteNotes,
-      } = (ctx.body as any) || {};
-
-      if (!eventId || !fullName || !phone) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID, nama lengkap, dan nomor telepon wajib diisi', 400, ctx.requestId);
-      }
-
-      const targetEvent = await db.query.events.findFirst({
-        where: eq(events.id, eventId),
-        with: {
-          attendances: {
-            with: {
-              person: {
-                columns: { id: true, gender: true },
-              },
-            },
-          },
-        },
-      });
-
-      if (!targetEvent) {
-        return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
-      }
-
-      await ensureEventRegistrationPhoneGuard(db).catch((error) => {
-        console.error('Event registration phone guard unavailable:', error);
-      });
-
-      const atts = targetEvent.attendances || [];
-      const regGender = gender || 'ikhwan';
-
-      if (isSpecialInvite) {
-        const currentInviteAtts = atts.filter(
-          (a) =>
-            (a.registrationData as any)?.isSpecialInvite === true ||
-            (a.registrationData as any)?.inviteSource === 'admin_invite' ||
-            (a.registrationData as any)?.inviteSource === 'admin_dashboard' ||
-            Boolean(a.referredByAttendanceId)
+      if (!z.string().uuid().safeParse(ctx.params.id).success)
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Event ID tidak valid.',
+          400,
+          ctx.requestId,
         );
-        const currentInviteIkhwan = currentInviteAtts.filter((a) => a.person?.gender === 'ikhwan').length;
-        const currentInviteAkhwat = currentInviteAtts.filter((a) => a.person?.gender === 'akhwat').length;
-
-        if (regGender === 'ikhwan' && targetEvent.quotaInviteIkhwan && currentInviteIkhwan >= targetEvent.quotaInviteIkhwan) {
-          return errorResponse('VALIDATION_ERROR', `Kuota jalur undangan khusus Ikhwan telah penuh (${currentInviteIkhwan}/${targetEvent.quotaInviteIkhwan}).`, 400, ctx.requestId);
-        }
-        if (regGender === 'akhwat' && targetEvent.quotaInviteAkhwat && currentInviteAkhwat >= targetEvent.quotaInviteAkhwat) {
-          return errorResponse('VALIDATION_ERROR', `Kuota jalur undangan khusus Akhwat telah penuh (${currentInviteAkhwat}/${targetEvent.quotaInviteAkhwat}).`, 400, ctx.requestId);
-        }
-        if (targetEvent.quotaInvite && currentInviteAtts.length >= targetEvent.quotaInvite) {
-          return errorResponse('VALIDATION_ERROR', `Kuota keseluruhan jalur undangan telah penuh (${currentInviteAtts.length}/${targetEvent.quotaInvite}).`, 400, ctx.requestId);
-        }
-      } else {
-        const currentRegAtts = atts.filter(
-          (a) =>
-            !(
-              (a.registrationData as any)?.isSpecialInvite === true ||
-              (a.registrationData as any)?.inviteSource === 'admin_invite' ||
-              (a.registrationData as any)?.inviteSource === 'admin_dashboard' ||
-              Boolean(a.referredByAttendanceId)
-            )
+      try {
+        const result = await registerStaffParticipant(
+          getDb(),
+          ctx.params.id!,
+          ctx.body,
+          ctx.user!,
+          ctx.requestId,
+          { source: 'manual_input' },
         );
-        const currentRegIkhwan = currentRegAtts.filter((a) => a.person?.gender === 'ikhwan').length;
-        const currentRegAkhwat = currentRegAtts.filter((a) => a.person?.gender === 'akhwat').length;
-
-        if (regGender === 'ikhwan' && targetEvent.quotaIkhwan && currentRegIkhwan >= targetEvent.quotaIkhwan) {
-          return errorResponse('VALIDATION_ERROR', `Kuota pendaftaran reguler khusus Ikhwan telah penuh (${currentRegIkhwan}/${targetEvent.quotaIkhwan}).`, 400, ctx.requestId);
-        }
-        if (regGender === 'akhwat' && targetEvent.quotaAkhwat && currentRegAkhwat >= targetEvent.quotaAkhwat) {
-          return errorResponse('VALIDATION_ERROR', `Kuota pendaftaran reguler khusus Akhwat telah penuh (${currentRegAkhwat}/${targetEvent.quotaAkhwat}).`, 400, ctx.requestId);
-        }
-        if (targetEvent.quota && currentRegAtts.length >= targetEvent.quota) {
-          return errorResponse('VALIDATION_ERROR', `Kuota pendaftaran reguler telah penuh (${currentRegAtts.length}/${targetEvent.quota}).`, 400, ctx.requestId);
-        }
-      }
-
-      const phoneNorm = normalizeIndonesianPhone(phone);
-      const existingPhoneRegistration = await findEventRegistrationByPhone(db, eventId, phoneNorm);
-      if (existingPhoneRegistration) {
-        return errorResponse('CONFLICT', `Nomor WhatsApp ini sudah memiliki tiket ${existingPhoneRegistration.ticketCode || 'peserta'} pada kajian ini.`, 409, ctx.requestId);
-      }
-
-      let person = await db.query.persons.findFirst({
-        where: eq(persons.phoneE164, phoneNorm),
-      });
-
-      if (!person) {
-        const [newPerson] = await db
-          .insert(persons)
-          .values({
-            fullName,
-            phoneE164: phoneNorm,
-            gender: regGender,
-            cityRegency: cityRegency || null,
-            email: email || null,
-            sourceCode: isSpecialInvite ? 'admin_dashboard_invite' : 'manual_staff_event',
-          })
-          .returning();
-        person = newPerson;
-      }
-
-      if (!person) {
-        return errorResponse('INTERNAL_ERROR', 'Gagal memproses data jamaah', 500, ctx.requestId);
-      }
-
-      const ticketCode = createMemorableTicketCode();
-
-      const insertQuery = db
-        .insert(eventAttendance)
-        .values({
-          eventId,
-          personId: person.id,
-          source: 'manual_input',
-          status: 'registered',
-          ticketCode,
-          age: age ? Number(age) : null,
-          vehicleType: vehicleType || 'none',
-          vehiclePlateNumber: vehiclePlateNumber || null,
-          registrationData: {
-            ...(isSpecialInvite
-              ? {
-                  isSpecialInvite: true,
-                  inviteSource: 'admin_dashboard',
-                  inviteNotes: inviteNotes || null,
-                }
-              : {}),
-            registeredByAdmin: ctx.user?.email || 'admin',
-            addedVia: 'admin_dashboard_manual',
+        const { attendance, person, event } = result;
+        const ticketUrl = `/peserta/${event.id}?ticket=${encodeURIComponent(attendance.ticketCode!)}`;
+        const fullTicketUrl = `${process.env.APP_URL || 'https://app.yts.web.id'}${ticketUrl}`;
+        const waText = `Assalamu'alaikum ${person.fullName}. Pendaftaran ${event.title} tercatat. Kode tiket: ${attendance.ticketCode}. ${event.isPaid ? 'Pembayaran perlu diverifikasi sebelum check-in. ' : ''}${fullTicketUrl}`;
+        return successResponse(
+          {
+            attendance,
+            person,
+            ticketCode: attendance.ticketCode,
+            ticketUrl,
+            fullTicketUrl,
+            waText,
+            waUrl: `https://wa.me/${person.phoneE164?.replace(/\D/g, '')}?text=${encodeURIComponent(waText)}`,
+            isSpecialInvite: Boolean((ctx.body as any)?.isSpecialInvite),
           },
-        });
-
-      const onConflict = typeof (insertQuery as any).onConflictDoNothing === 'function'
-        ? (insertQuery as any).onConflictDoNothing()
-        : insertQuery;
-
-      const [attendance] = await onConflict.returning();
-
-      const cleanPhone = phoneNorm.replace(/\+/g, '');
-      const eventTitle = targetEvent.title || 'Kajian Sunnah';
-      const speaker = targetEvent.speaker || 'Pemateri';
-      const startAtFormatted = targetEvent.startAt
-        ? new Date(targetEvent.startAt).toLocaleDateString('id-ID', {
-            weekday: 'long',
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-          })
-        : '';
-      const locationName = targetEvent.locationName || 'Masjid Tarbiyah Sunnah';
-      const ticketUrl = `/peserta/${eventId}?ticket=${encodeURIComponent(ticketCode)}`;
-      const fullTicketUrl = `${process.env.APP_URL || 'https://tarbiyahsunnah.or.id'}${ticketUrl}`;
-      const waText = `Bismillah, Assalamu'alaikum Warahmatullahi Wabarakatuh.\n\nKepada Yth. Bapak/Ibu/Asatidzah *${fullName}*,\n\nAhlan wa Sahlan. Pendaftaran antum/anda sebagai *${isSpecialInvite ? 'Tamu Undangan Khusus (VIP)' : 'Peserta'}* telah terkonfirmasi resmi:\n\n📖 *${eventTitle}*\n🎙️ Pemateri: *${speaker}*\n🗓️ Waktu: *${startAtFormatted}*\n📍 Tempat: *${locationName}*\n\n🎫 *KODE E-TIKET PRESENSI:* *${ticketCode}*\n\nSilakan buka tautan berikut untuk melihat E-Tiket & QR Code kehadiran Anda:\n👉 ${fullTicketUrl}\n\nTunjukkan QR Code tersebut kepada petugas di pintu gerbang kedatangan.\n\nJazakumullahu khairan wa barakallahu fiikum.\n— Panitia Yayasan Tarbiyah Sunnah`;
-      const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waText)}`;
-
-      return successResponse(
-        {
-          attendance,
-          person,
-          ticketCode,
-          ticketUrl,
-          fullTicketUrl,
-          waText,
-          waUrl,
-          isSpecialInvite: Boolean(isSpecialInvite),
-        },
-        { requestId: ctx.requestId },
-        201
-      );
-    })
+          { requestId: ctx.requestId },
+          201,
+        );
+      } catch (error) {
+        if (error instanceof RegistrationError)
+          return errorResponse(
+            error.status === 409
+              ? 'CONFLICT'
+              : error.status === 404
+                ? 'NOT_FOUND'
+                : 'VALIDATION_ERROR',
+            error.message,
+            error.status,
+            ctx.requestId,
+          );
+        if (isDuplicateEventPhoneError(error))
+          return errorResponse(
+            'CONFLICT',
+            'Nomor WhatsApp ini sudah terdaftar pada kajian ini.',
+            409,
+            ctx.requestId,
+          );
+        throw error;
+      }
+    }),
   );
 
-  // 9. POST /api/events/:id/import-participants (Bulk import participants with duplicate skip feature)
   router.post(
     '/api/events/:id/import-participants',
     requireEventAccess(async (ctx) => {
       const db = getDb();
-      const eventId = ctx.params.id;
       const body = (ctx.body as any) || {};
-      const { participants = [], skipDuplicates = true, updateExistingPerson = true } = body;
-
-      if (!eventId) {
-        return errorResponse('VALIDATION_ERROR', 'Event ID diperlukan', 400, ctx.requestId);
-      }
-
-      if (!Array.isArray(participants) || participants.length === 0) {
-        return errorResponse('VALIDATION_ERROR', 'Daftar peserta tidak boleh kosong', 400, ctx.requestId);
-      }
-
-      const eventItem = await db.query.events.findFirst({
-        where: eq(events.id, eventId),
-      });
-
-      if (!eventItem) {
-        return errorResponse('NOT_FOUND', 'Kajian / Event tidak ditemukan', 404, ctx.requestId);
-      }
-
-      await ensureEventRegistrationPhoneGuard(db).catch((error) => {
-        console.error('Event registration phone guard unavailable:', error);
-      });
-
-      // Fetch all existing attendances for this event to detect duplicates quickly
-      const existingAttendances = await db.query.eventAttendance.findMany({
-        where: eq(eventAttendance.eventId, eventId),
-        columns: {
-          id: true,
-          personId: true,
-          ticketCode: true,
-        },
-      });
-
-      const existingPersonIdMap = new Map<string, string>();
-      existingAttendances.forEach((att) => {
-        existingPersonIdMap.set(att.personId, att.id);
-      });
-
-      // Pre-fetch all existing persons matching normalized phones in this batch
-      const phoneNormMap = new Map<string, string>();
-      participants.forEach((p: any) => {
-        const raw = String(p.phone || '').trim();
-        if (raw) {
-          const norm = normalizeIndonesianPhone(raw);
-          if (norm) phoneNormMap.set(norm, norm);
-        }
-      });
-
-      const allPhoneNorms = Array.from(phoneNormMap.keys());
-      const existingPersonsList =
-        allPhoneNorms.length > 0
-          ? await db.query.persons.findMany({
-              where: inArray(persons.phoneE164, allPhoneNorms),
-            })
-          : [];
-
-      const personByPhoneMap = new Map<string, any>();
-      existingPersonsList.forEach((p) => {
-        if (p.phoneE164) {
-          personByPhoneMap.set(p.phoneE164, p);
-        }
-      });
-
-      let importedCount = 0;
-      let skippedCount = 0;
-      let updatedCount = 0;
-      const errors: Array<{ row: number; name: string; phone: string; reason: string }> = [];
-
-      for (let i = 0; i < participants.length; i++) {
-        const item = participants[i];
-        const rowNum = i + 1;
-        const fullName = String(item.fullName || '').trim();
-        const rawPhone = String(item.phone || '').trim();
-
-        if (!fullName || !rawPhone) {
-          errors.push({
-            row: rowNum,
-            name: fullName || '(Kosong)',
-            phone: rawPhone || '(Kosong)',
-            reason: 'Nama lengkap dan nomor telepon wajib diisi',
-          });
-          continue;
-        }
-
+      if (
+        !z.string().uuid().safeParse(ctx.params.id).success ||
+        !Array.isArray(body.participants) ||
+        !body.participants.length ||
+        body.participants.length > 100
+      )
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Pilih event dan kirim 1–100 peserta per batch.',
+          400,
+          ctx.requestId,
+        );
+      if (
+        !(await db.query.events.findFirst({
+          where: eq(events.id, ctx.params.id!),
+        }))
+      )
+        return errorResponse(
+          'NOT_FOUND',
+          'Kajian tidak ditemukan.',
+          404,
+          ctx.requestId,
+        );
+      let importedCount = 0,
+        skippedCount = 0;
+      const errors: Array<{
+        row: number;
+        name: string;
+        phone: string;
+        reason: string;
+      }> = [];
+      for (const [index, item] of body.participants.entries()) {
         try {
-          const phoneNorm = normalizeIndonesianPhone(rawPhone);
-          const existingPhoneRegistration = await findEventRegistrationByPhone(db, eventId, phoneNorm);
-          if (existingPhoneRegistration) {
+          await registerStaffParticipant(
+            db,
+            ctx.params.id!,
+            item,
+            ctx.user!,
+            ctx.requestId,
+            {
+              source: 'csv_import',
+              fillMissing: body.updateExistingPerson !== false,
+            },
+          );
+          importedCount++;
+        } catch (error) {
+          if (
+            (error instanceof RegistrationError &&
+              /sudah terdaftar/.test(error.message)) ||
+            isDuplicateEventPhoneError(error)
+          ) {
             skippedCount++;
             continue;
           }
-
-          // Find or create Person
-          let person = personByPhoneMap.get(phoneNorm);
-
-          if (!person) {
-            const [newPerson] = await db
-              .insert(persons)
-              .values({
-                fullName,
-                phoneE164: phoneNorm,
-                gender: item.gender === 'akhwat' ? 'akhwat' : 'ikhwan',
-                email: item.email ? String(item.email).trim().toLowerCase() : null,
-                province: item.province ? String(item.province).trim() : null,
-                cityRegency: item.city ? String(item.city).trim() : null,
-                district: item.district ? String(item.district).trim() : null,
-                sourceCode: 'csv_import',
-                engagementStatus: 'baru',
-                donorStage: 'new_lead',
-              })
-              .returning();
-            person = newPerson;
-            if (person && person.phoneE164) {
-              personByPhoneMap.set(person.phoneE164, person);
-            }
-          } else if (updateExistingPerson) {
-            // Update missing profile info if existing
-            const updates: Record<string, any> = {};
-            if (!person.cityRegency && item.city) updates.cityRegency = String(item.city).trim();
-            if (!person.province && item.province) updates.province = String(item.province).trim();
-            if (!person.district && item.district) updates.district = String(item.district).trim();
-            if (!person.email && item.email) updates.email = String(item.email).trim().toLowerCase();
-            if (!person.gender && item.gender) updates.gender = item.gender === 'akhwat' ? 'akhwat' : 'ikhwan';
-
-            if (Object.keys(updates).length > 0) {
-              await db.update(persons).set(updates).where(eq(persons.id, person.id));
-              Object.assign(person, updates);
-            }
-          }
-
-          if (!person) {
-            errors.push({
-              row: rowNum,
-              name: fullName,
-              phone: rawPhone,
-              reason: 'Gagal membuat profil jamaah di database',
-            });
-            continue;
-          }
-
-          // Check duplicate in event
-          const existingAttendanceId = existingPersonIdMap.get(person.id);
-
-          if (existingAttendanceId) {
-            if (skipDuplicates) {
-              skippedCount++;
-              continue;
-            } else {
-              // Update existing attendance
-              await db
-                .update(eventAttendance)
-                .set({
-                  status: item.status === 'attended' ? 'attended' : 'registered',
-                  ticketCode: item.ticketCode || undefined,
-                  vehicleType: item.vehicleType || 'none',
-                  vehiclePlateNumber: item.vehiclePlateNumber || null,
-                  registrationData: item.registrationData || null,
-                })
-                .where(eq(eventAttendance.id, existingAttendanceId));
-              updatedCount++;
-              continue;
-            }
-          }
-
-          // Generate ticket code if not provided
-          const ticketCode = item.ticketCode ? extractTicketCode(item.ticketCode) : createMemorableTicketCode();
-
-          await db.insert(eventAttendance).values({
-            eventId,
-            personId: person.id,
-            source: 'csv_import',
-            status: item.status === 'attended' ? 'attended' : 'registered',
-            ticketCode,
-            vehicleType: item.vehicleType || 'none',
-            vehiclePlateNumber: item.vehiclePlateNumber || null,
-            registrationData: item.registrationData || null,
-          });
-
-          // Auto-upgrade engagement status to active if joining events
-          if (person.engagementStatus === 'baru') {
-            await db
-              .update(persons)
-              .set({ engagementStatus: 'aktif', updatedAt: new Date() })
-              .where(eq(persons.id, person.id));
-            person.engagementStatus = 'aktif';
-          }
-
-          existingPersonIdMap.set(person.id, ticketCode);
-          importedCount++;
-        } catch (err: any) {
-          console.error(`[Import CSV Error Row ${rowNum}]:`, err);
           errors.push({
-            row: rowNum,
-            name: fullName,
-            phone: rawPhone,
-            reason: isDuplicateEventPhoneError(err)
-              ? 'Nomor WhatsApp ini sudah terdaftar pada kajian ini'
-              : err.message || 'Terjadi kesalahan sistem',
+            row: index + 1,
+            name: String(item?.fullName || ''),
+            phone: String(item?.phone || ''),
+            reason:
+              error instanceof RegistrationError
+                ? error.message
+                : 'Gagal menyimpan baris. Data baris ini dibatalkan; coba kembali.',
           });
         }
       }
-
       return successResponse(
         {
-          totalProcessed: participants.length,
+          totalProcessed: body.participants.length,
           importedCount,
           skippedCount,
-          updatedCount,
+          updatedCount: 0,
           errorCount: errors.length,
-          errors: errors.slice(0, 50), // Return sample of errors
+          errors,
         },
-        { requestId: ctx.requestId }
+        { requestId: ctx.requestId },
       );
-    })
+    }),
   );
 }
