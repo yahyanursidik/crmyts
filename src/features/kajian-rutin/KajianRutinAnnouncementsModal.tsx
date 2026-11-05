@@ -196,7 +196,7 @@ export function KajianRutinAnnouncementsModal({
                   className="flex items-center gap-2 rounded-xl bg-[#1b4332] px-4 py-2 text-xs font-bold text-white hover:bg-[#14352a] disabled:opacity-50"
                 >
                   {saving ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                  {editingId ? 'Simpan Perubahan' : 'Terbitkan Pengumuman'}
+                  {editingId ? 'Simpan Perubahan' : 'Simpan Pengumuman'}
                 </button>
               </div>
             </div>
