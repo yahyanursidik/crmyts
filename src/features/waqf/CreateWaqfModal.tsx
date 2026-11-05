@@ -9,6 +9,8 @@ import {
 import { apiClient } from '@/lib/apiClient';
 
 interface CreateWaqfModalProps {
+  initialPersonId?: string;
+  initialPersonName?: string;
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
@@ -26,6 +28,8 @@ const WAQF_TYPE_OPTIONS = [
 
 export const CreateWaqfModal: React.FC<CreateWaqfModalProps> = ({
   isOpen,
+  initialPersonId,
+  initialPersonName,
   onClose,
   onSuccess,
 }) => {
@@ -44,16 +48,16 @@ export const CreateWaqfModal: React.FC<CreateWaqfModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      setSelectedPersonId('');
-      setSelectedPersonName('');
-      setPersonSearch('');
+      setSelectedPersonId(initialPersonId || '');
+      setSelectedPersonName(initialPersonName || '');
+      setPersonSearch(initialPersonName || '');
       setPersonCandidates([]);
       setWaqfType('tanah');
       setEstimatedValueRupiah('');
       setNotesSummary('');
       setError(null);
     }
-  }, [isOpen]);
+  }, [isOpen, initialPersonId, initialPersonName]);
 
   // Autocomplete person search
   useEffect(() => {
@@ -163,6 +167,7 @@ export const CreateWaqfModal: React.FC<CreateWaqfModalProps> = ({
                 </div>
                 <button
                   type="button"
+                  hidden={Boolean(initialPersonId)}
                   onClick={() => { setSelectedPersonId(''); setSelectedPersonName(''); }}
                   className="text-xs text-surface-500 hover:text-red-600 font-medium underline"
                 >

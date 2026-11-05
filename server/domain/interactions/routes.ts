@@ -1,3 +1,4 @@
+import { interactionVisibility } from './visibility';
 import { z } from 'zod';
 import { Router } from '../../http/router';
 import { requireAuth, requirePermission, validateBody } from '../../http/middleware';
@@ -32,8 +33,6 @@ const createInteractionSchema = z.object({
   taskPriority: z.enum(['low', 'medium', 'high', 'urgent']).default('medium'),
 });
 
-let cachedInteractionsStats: { data: any; timestamp: number } | null = null;
-const STATS_CACHE_TTL_MS = 60_000;
 
 export function registerInteractionsRoutes(router: Router) {
   // GET /api/interactions
@@ -48,12 +47,13 @@ export function registerInteractionsRoutes(router: Router) {
 
       const search = ctx.query.search?.trim();
       const personId = ctx.query.personId?.trim();
+      if (personId && !z.string().uuid().safeParse(personId).success) return errorResponse('VALIDATION_ERROR', 'ID jamaah tidak valid.', 400, ctx.requestId);
       const channel = ctx.query.channel?.trim();
       const outcome = ctx.query.outcome?.trim();
       const sensitivityLevel = ctx.query.sensitivityLevel?.trim();
       const ownerUserId = ctx.query.ownerUserId?.trim();
 
-      const conditions = [];
+      const conditions = [interactionVisibility(ctx.user!.roles, ctx.user!.id)];
       if (search) {
         conditions.push(
           or(
@@ -109,36 +109,12 @@ export function registerInteractionsRoutes(router: Router) {
         },
       });
 
-      // Quick Stats with caching
-      let stats = {
-        totalAll: totalCount,
-        todayCount: 0,
-        needFollowUpCount: 0,
-        positiveOutcomeCount: 0,
-      };
-
-      const nowTime = Date.now();
-      if (cachedInteractionsStats && nowTime - cachedInteractionsStats.timestamp < STATS_CACHE_TTL_MS) {
-        stats = cachedInteractionsStats.data;
-      } else {
-        try {
-          const [statsRes] = await db
-            .select({
-              totalAll: sql<number>`(SELECT count(*)::int FROM "interactions")`,
-              todayCount: sql<number>`(SELECT count(*)::int FROM "interactions" WHERE "occurred_at" >= CURRENT_DATE)`,
-              needFollowUpCount: sql<number>`(SELECT count(*)::int FROM "interactions" WHERE "outcome" IN ('minta_dihubungi_kembali', 'perlu_eskalasi', 'tidak_merespons'))`,
-              positiveOutcomeCount: sql<number>`(SELECT count(*)::int FROM "interactions" WHERE "outcome" IN ('berminat', 'selesai'))`,
-            })
-            .from(sql`(SELECT 1) dummy`);
-
-          if (statsRes) {
-            stats = statsRes;
-            cachedInteractionsStats = { data: statsRes, timestamp: nowTime };
-          }
-        } catch (err) {
-          console.warn('[Interactions Stats Query Warn]:', err);
-        }
-      }
+      const [stats] = await db.select({
+        totalAll: sql<number>`count(*)::int`,
+        todayCount: sql<number>`count(*) filter(where ${interactions.occurredAt} >= date_trunc('day',now() AT TIME ZONE 'Asia/Jakarta') AT TIME ZONE 'Asia/Jakarta')::int`,
+        needFollowUpCount: sql<number>`count(*) filter(where ${interactions.outcome} in ('minta_dihubungi_kembali','perlu_eskalasi','tidak_merespons'))::int`,
+        positiveOutcomeCount: sql<number>`count(*) filter(where ${interactions.outcome} in ('berminat','selesai'))::int`,
+      }).from(interactions).where(and(interactionVisibility(ctx.user!.roles, ctx.user!.id), personId ? eq(interactions.personId, personId) : undefined));
 
       return successResponse(list, {
         requestId: ctx.requestId,
@@ -252,7 +228,7 @@ export function registerInteractionsRoutes(router: Router) {
       if (!id) return errorResponse('VALIDATION_ERROR', 'ID Interaksi diperlukan', 400, ctx.requestId);
 
       await db.delete(interactions).where(eq(interactions.id, id));
-      cachedInteractionsStats = null;
+
       return successResponse({ success: true }, { requestId: ctx.requestId });
     })
   );

@@ -24,7 +24,7 @@ describe('Server role and ownership isolation', () => {
   });
   it('scopes staff task lists to the owner even when another owner is requested', async () => {
     const router = new Router(); registerTasksRoutes(router);
-    const findMany = vi.fn().mockResolvedValue([]); vi.spyOn(client, 'getDb').mockReturnValue({ query: { tasks: { findMany } } } as any);
+    const findMany = vi.fn().mockResolvedValue([]); vi.spyOn(client, 'getDb').mockReturnValue({ query: { tasks: { findMany } }, select: vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([{ count: 0 }]) }) }) } as any);
     const result = await router.handle({ ...ctx(ROLES.CS_OFFICER, '/api/tasks'), query: { ownerUserId: '018f0000-0000-7000-8000-000000000002' } });
     expect(result.statusCode).toBe(200);
     const query = new PgDialect().sqlToQuery(findMany.mock.calls[0]![0].where);

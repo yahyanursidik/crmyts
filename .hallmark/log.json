@@ -52,5 +52,22 @@
       "restraint": 5,
       "variety": 4
     }
+  },
+  {
+    "date": "2026-11-05",
+    "macrostructure": "Workbench / people directory and profile",
+    "theme": "tarbiyah-official-logo",
+    "enrichment": "none",
+    "scope": "People / Jamaah",
+    "brief": "Direktori dan profil jamaah dengan presensi aktual, relasi lintas modul, arsip aman, catatan khusus serta impor CSV tervalidasi",
+    "visualVerification": "Staging browser: desktop and 320 / 375 / 414 / 768 px; document overflow absent, labels single-line, keyboard focus and Escape, create/edit/archive/restore, notes, linked forms and CSV import verified",
+    "critique": {
+      "philosophy": 4,
+      "hierarchy": 5,
+      "execution": 4,
+      "specificity": 5,
+      "restraint": 5,
+      "variety": 4
+    }
   }
 ]

@@ -1,3 +1,4 @@
+import { usePersonContext } from '@/lib/usePersonContext';
 import { useCreateIntent } from '@/lib/useCreateIntent';
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
@@ -92,6 +93,7 @@ function getInitials(name: string): string {
 }
 
 export const DonationsListPage: React.FC = () => {
+  const personContext = usePersonContext();
   const [pageParams] = useSearchParams();
   const listRequest = useRef(0);
   const [activeTab, setActiveTab] = useState<'donations' | 'donors'>(() => pageParams.get('tab') === 'donors' ? 'donors' : 'donations');
@@ -209,6 +211,7 @@ export const DonationsListPage: React.FC = () => {
       setDonationsError(null);
 
       const params = new URLSearchParams();
+      if (personContext.personId) params.append('personId', personContext.personId);
       params.append('page', pageToFetch.toString());
       params.append('pageSize', pagination.pageSize.toString());
       if (debouncedSearch.trim()) params.append('search', debouncedSearch.trim());
@@ -250,7 +253,7 @@ export const DonationsListPage: React.FC = () => {
 
   useEffect(() => {
     fetchDonations(1);
-  }, [debouncedSearch, statusFilter, monthFilter, paymentFilter, programFilter, pagination.pageSize]);
+  }, [debouncedSearch, statusFilter, monthFilter, paymentFilter, programFilter, pagination.pageSize, personContext.personId]);
 
   useEffect(() => {
     if (activeTab === 'donors') {
@@ -357,6 +360,7 @@ export const DonationsListPage: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto pb-16">
+      {personContext.personId && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-900"><span>{personContext.person ? `Jamaah: ${personContext.person.fullName}` : personContext.loading ? 'Memuat jamaah…' : 'Jamaah belum dapat dimuat.'}</span><div className="flex flex-wrap items-center gap-3">{personContext.canProfile&&personContext.person&&<Link className="whitespace-nowrap text-xs font-semibold underline" to={`/people/${personContext.personId}?tab=donations`}>Profil jamaah</Link>}<button type="button" className="whitespace-nowrap text-xs font-semibold underline" onClick={personContext.clear}>Tampilkan semua</button></div></div>}
       {/* 1. Header Page */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#1B4332]/12 pb-4">
         <div>
@@ -1105,7 +1109,9 @@ export const DonationsListPage: React.FC = () => {
 
       {/* Create Donation Modal */}
       <CreateDonationModal
-        isOpen={createModalOpen || createIntent.active}
+        initialPersonId={personContext.person?.id}
+        initialPersonName={personContext.person?.fullName}
+        isOpen={(createModalOpen || createIntent.active) && (!personContext.personId || Boolean(personContext.person))}
         onClose={() => closeCreateModal()}
         onSuccess={() => {
           fetchDonations(1);

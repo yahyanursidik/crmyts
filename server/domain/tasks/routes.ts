@@ -48,9 +48,10 @@ export function registerTasksRoutes(router: Router) {
 
       const viewAll = hasPermission(user.roles, PERMISSIONS.TASKS_VIEW_ALL);
       if (!viewAll && !hasPermission(user.roles, PERMISSIONS.TASKS_VIEW_OWN)) return errorResponse('FORBIDDEN', 'Izin melihat tugas diperlukan.', 403, ctx.requestId);
-      const statsKey = viewAll ? 'all' : user.id;
+      const statsKey = `${viewAll ? 'all' : user.id}:${ctx.query.personId || 'all-people'}`;
       const cachedTasksStats = taskStatsCache.get(statsKey);
-      const ownerFilter = viewAll ? sql`true` : sql`owner_user_id = ${user.id}`;
+      const ownerScope = viewAll ? sql`true` : sql`owner_user_id = ${user.id}`;
+      const ownerFilter = ctx.query.personId ? sql`${ownerScope} AND person_id = ${ctx.query.personId}::uuid` : ownerScope;
 
       const page = ctx.query.page ? Math.max(1, parseInt(ctx.query.page, 10)) : 1;
       const pageSize = ctx.query.pageSize ? Math.min(100, Math.max(1, parseInt(ctx.query.pageSize, 10))) : (ctx.query.page ? 15 : undefined);
@@ -64,6 +65,10 @@ export function registerTasksRoutes(router: Router) {
       const isOverdue = ctx.query.isOverdue === 'true';
 
       const conditions = [];
+      if (ctx.query.personId) {
+        if (!z.string().uuid().safeParse(ctx.query.personId).success) return errorResponse('VALIDATION_ERROR', 'ID jamaah tidak valid.', 400, ctx.requestId);
+        conditions.push(eq(tasks.personId, ctx.query.personId));
+      }
       if (!viewAll) conditions.push(eq(tasks.ownerUserId, user.id));
       if (search) {
         conditions.push(
@@ -85,6 +90,8 @@ export function registerTasksRoutes(router: Router) {
       }
 
       const combinedWhere = conditions.length > 0 ? and(...conditions) : undefined;
+      const [countRow] = await db.select({ count: sql<number>`count(*)::int` }).from(tasks).where(combinedWhere);
+      const totalCount = Number(countRow?.count || 0);
 
       const list = await db.query.tasks.findMany({
         where: combinedWhere,
@@ -210,8 +217,8 @@ export function registerTasksRoutes(router: Router) {
         pagination: {
           page,
           pageSize: pageSize || formatted.length,
-          totalCount: stats.totalAll || formatted.length,
-          totalPages: pageSize ? Math.ceil((stats.totalAll || formatted.length) / pageSize) : 1,
+          totalCount,
+          totalPages: pageSize ? Math.max(1, Math.ceil(totalCount / pageSize)) : 1,
         },
         stats,
       });

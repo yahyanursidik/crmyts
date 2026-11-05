@@ -53,6 +53,7 @@ describe('Integration: Person / Jamaah Lifecycle CRUD (CRM YTS)', () => {
       },
     };
 
+    Object.assign(mockDb, { transaction: vi.fn(async (fn: any) => fn(mockDb)), execute: vi.fn().mockResolvedValue({ rows: [] }) });
     vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
 
     const res = await router.handle({
@@ -120,6 +121,8 @@ describe('Integration: Person / Jamaah Lifecycle CRUD (CRM YTS)', () => {
       },
     };
 
+    Object.assign(mockDb, { transaction: vi.fn(async (fn: any) => fn(mockDb)), execute: vi.fn().mockResolvedValue({ rows: [] }) });
+    Object.assign(mockDb, { selectDistinctOn: mockDb.select });
     vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
 
     const res = await router.handle({

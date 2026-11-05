@@ -1,1124 +1,1043 @@
-import React, { useEffect, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router';
-import { apiClient } from '@/lib/apiClient';
-import { 
-  ArrowLeft, 
-  Phone, 
-  Mail, 
-  MapPin, 
-  MessageSquare, 
-  Edit3, 
-  Calendar, 
-  CheckSquare, 
-  Coins, 
-  Building2, 
-  ShieldAlert, 
-  Clock, 
-  CheckCircle2, 
-  Plus, 
-  Briefcase, 
-  GraduationCap,
+/* Hallmark · pre-emit critique: P4 H5 E4 S5 R5 V4 · Workbench · DESIGN.md */
+import { useLayoutEffect, useState } from 'react';
+import {
+  Link,
+  useNavigate,
+  useNavigationType,
+  useParams,
+  useSearchParams,
+} from 'react-router';
+import { useGetIdentity, usePermissions } from '@refinedev/core';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  Archive,
+  ArrowLeft,
+  ArrowRight,
   Award,
-  Sparkles,
-  FileText,
-  PhoneCall,
-  Trash2,
+  CalendarDays,
+  Check,
+  CheckSquare,
+  Edit3,
+  HeartHandshake,
+  History,
+  Landmark,
+  Loader2,
+  Mail,
+  MessageSquare,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  ShieldCheck,
 } from 'lucide-react';
-import { formatPhoneDisplay, getWhatsAppLink } from '@/lib/phone';
-import { LoadingState } from '@/components/common/LoadingState';
+import {
+  PERMISSIONS,
+  type PermissionCode,
+} from '@server/permissions/constants';
+import { apiClient } from '@/lib/apiClient';
+import type { UserIdentity } from '@/lib/authProvider';
+import { formatPhoneDisplay } from '@/lib/phone';
+import { eventPanelLink } from '@/features/dashboard/model';
+import { ECertificateModal } from '@/features/events/ECertificateModal';
 import { PersonFormModal } from './components/PersonFormModal';
 import { AddInteractionModal } from './components/AddInteractionModal';
-import { ECertificateModal } from '../events/ECertificateModal';
-import { ConfirmDialog } from '@/components/common/ConfirmDialog';
-import { usePermissions } from '@refinedev/core';
-import { PERMISSIONS, type PermissionCode } from '@server/permissions/constants';
-import { PermissionGate } from '@/components/common/PermissionGate';
+import { SensitiveNoteModal } from './components/SensitiveNoteModal';
+import { PeopleDialog } from './components/PeopleDialog';
+import {
+  CHANNEL_LABELS,
+  ENGAGEMENT_LABELS,
+  OPEN_TASK_STATUSES,
+  ROLE_LABELS,
+  STATUS_LABELS,
+  WAQF_LABELS,
+  formatDate,
+  formatMoney,
+  formatNumber,
+  initials,
+  peopleBackPath,
+  personModuleLink,
+  personWhatsApp,
+} from './model';
+import type { PersonDetailData } from './types';
+import './people.css';
 
-interface PersonDetailData {
-  id: string;
-  fullName: string;
-  phoneE164?: string | null;
-  email?: string | null;
-  gender?: 'ikhwan' | 'akhwat' | null;
-  province?: string | null;
-  cityRegency?: string | null;
-  district?: string | null;
-  occupation?: string | null;
-  educationLevel?: string | null;
-  sourceCode?: string | null;
-  engagementStatus: string;
-  preferredChannel: string;
-  createdAt: string;
-  owner?: { id: string; fullName: string; email?: string } | null;
-  roles: string[];
-  tags: Array<{ id: string; name: string; category: string }>;
-  attendances: Array<{
-    id: string;
-    status: string;
-    checkInAt: string;
-    event: {
-      id: string;
-      title: string;
-      category: string;
-      speaker: string;
-      deliveryMode: string;
-      startAt: string;
-      locationName?: string;
-    };
-  }>;
-  routineAttendance?: Array<{
-    id: string;
-    seriesTitle: string;
-    speaker: string | null;
-    sessionDate: string;
-    startAt: string;
-    checkInAt: string;
-    source: string;
-    status: string;
-  }>;
-  interactions: Array<{
-    id: string;
-    channel: string;
-    summary: string;
-    outcome?: string | null;
-    sensitivityLevel: string;
-    nextAction?: string | null;
-    occurredAt: string;
-    creator?: { id: string; fullName: string } | null;
-  }>;
-  tasks: Array<{
-    id: string;
-    title: string;
-    priority: string;
-    status: string;
-    dueAt: string;
-    assignee?: { id: string; fullName: string } | null;
-  }>;
-  donations: Array<{
-    id: string;
-    amountRupiah: number;
-    paymentMethod: string;
-    donationDate: string;
-    verificationStatus: string;
-    program?: { name: string } | null;
-    verifier?: { fullName: string } | null;
-  }>;
-  waqfCases: Array<{
-    id: string;
-    waqfType: string;
-    estimatedValueRupiah?: number | null;
-    currentStage: string;
-    openedAt: string;
-    notesSummary?: string | null;
-  }>;
-  sensitiveNotes: Array<{
-    id: string;
-    noteText: string;
-    sensitivityLevel: string;
-    reason: string;
-    createdAt: string;
-    creator?: { fullName: string } | null;
-  }>;
-  metrics: {
-    totalAttendances: number;
-    totalInteractions: number;
-    totalTasks: number;
-    pendingTasksCount: number;
-    totalDonationsCount: number;
-    verifiedTotalDonationsRupiah: number;
-    activeWaqfCasesCount: number;
-  };
-  timeline: Array<{
-    id: string;
-    type: 'attendance' | 'interaction' | 'task' | 'donation' | 'waqf' | 'sensitive_note';
-    date: string;
-    title: string;
-    description: string;
-    status?: string;
-    extra?: any;
-  }>;
-}
-
-const ENGAGEMENT_BADGES: Record<string, { label: string; bg: string; text: string; border: string }> = {
-  baru: { label: 'Baru Terdaftar', bg: 'bg-[#0F4C4A]/10', text: 'text-[#0F4C4A]', border: 'border-[#0F4C4A]/25' },
-  aktif: { label: 'Aktif', bg: 'bg-[#2F7D4F]/10', text: 'text-[#2F7D4F]', border: 'border-[#2F7D4F]/25' },
-  rutin: { label: 'Rutin Kajian', bg: 'bg-[#1B4332]/10', text: 'text-[#14352A]', border: 'border-[#1B4332]/25' },
-  sangat_aktif: { label: 'Sangat Aktif', bg: 'bg-[#B58B3C]/15', text: 'text-[#8E6B22]', border: 'border-[#B58B3C]/30' },
-  dorman: { label: 'Dorman (>60 hari)', bg: 'bg-[#F2EEE4]', text: 'text-[#6B7A72]', border: 'border-[#1B4332]/12' },
-  kembali_aktif: { label: 'Kembali Aktif', bg: 'bg-purple-50', text: 'text-purple-800', border: 'border-purple-200' },
-};
-
-function getInitials(name: string): string {
-  if (!name || typeof name !== 'string') return 'JM';
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return 'JM';
-  if (parts.length === 1) return (parts[0] || 'JM').substring(0, 2).toUpperCase();
-  const first = parts[0] || 'J';
-  const last = parts[parts.length - 1] || 'M';
-  return ((first[0] || 'J') + (last[0] || 'M')).toUpperCase();
-}
-
-export const PersonDetailPage: React.FC = () => {
-  const { data: permissions = [] } = usePermissions<PermissionCode[]>({});
-  const { id } = useParams<{ id: string }>();
-  const [data, setData] = useState<PersonDetailData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
+export const PersonDetailPage = () => {
+  const { id = '' } = useParams<{ id: string }>();
+  const navigationType = useNavigationType();
+  useLayoutEffect(() => {
+    if (navigationType === 'PUSH')
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [id, navigationType]);
+  const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'timeline' | 'events' | 'interactions' | 'tasks' | 'donations' | 'waqf' | 'sensitive'>('timeline');
-  const [timelineFilter, setTimelineFilter] = useState<'all' | 'attendance' | 'interaction' | 'donation' | 'waqf' | 'task'>('all');
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [interactionModalOpen, setInteractionModalOpen] = useState(false);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [deleteLoading, setDeleteLoading] = useState(false);
-  const [certModalData, setCertModalData] = useState<{
+  const queryClient = useQueryClient();
+  const { data: permissions = [] } = usePermissions<PermissionCode[]>({});
+  const { data: identity } = useGetIdentity<UserIdentity>();
+  const can = (permission: PermissionCode) => permissions.includes(permission);
+  const profile = useQuery({
+    queryKey: ['persons', 'profile', id],
+    queryFn: ({ signal }) =>
+      apiClient<PersonDetailData>(`/persons/${id}`, { signal }),
+    enabled: Boolean(id),
+    retry: false,
+  });
+  const data = profile.data?.data;
+  const back = peopleBackPath(params.get('back'));
+  const [edit, setEdit] = useState(false);
+  const [interaction, setInteraction] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [noteToArchive, setNoteToArchive] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [taskBusy, setTaskBusy] = useState('');
+  const [notice, setNotice] = useState('');
+  const [timelineFilter, setTimelineFilter] = useState('all');
+  const [certificate, setCertificate] = useState<{
     eventTitle: string;
     speaker: string;
     dateStr: string;
     ticketCode: string;
   } | null>(null);
-
-  const loadData = async () => {
-    if (!id) return;
-    try {
-      setLoading(true);
-      setError(null);
-      const res = await apiClient<PersonDetailData>(`/persons/${id}`);
-      setData(res.data);
-    } catch (err: any) {
-      setError(err.message || 'Gagal memuat profil jamaah');
-    } finally {
-      setLoading(false);
-    }
+  const refresh = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['persons'] });
   };
-
-  const handleDeletePerson = async () => {
-    if (!id) return;
+  const tabs = [
+    { key: 'timeline', label: 'Linimasa', allowed: true },
+    { key: 'events', label: 'Kehadiran', allowed: true },
+    {
+      key: 'interactions',
+      label: 'Interaksi',
+      allowed: can(PERMISSIONS.INTERACTIONS_VIEW),
+    },
+    {
+      key: 'tasks',
+      label: 'Tugas',
+      allowed:
+        can(PERMISSIONS.TASKS_VIEW_OWN) || can(PERMISSIONS.TASKS_VIEW_ALL),
+    },
+    {
+      key: 'donations',
+      label: 'Donasi',
+      allowed:
+        can(PERMISSIONS.DONATIONS_VIEW_DETAIL) ||
+        can(PERMISSIONS.DONATIONS_VIEW_UNVERIFIED),
+    },
+    { key: 'waqf', label: 'Wakaf', allowed: can(PERMISSIONS.WAQF_VIEW_DETAIL) },
+    {
+      key: 'sensitive',
+      label: 'Catatan khusus',
+      allowed:
+        can(PERMISSIONS.SENSITIVE_NOTES_VIEW) ||
+        can(PERMISSIONS.SENSITIVE_NOTES_CREATE),
+    },
+  ].filter((tab) => tab.allowed);
+  const activeTab = tabs.some((tab) => tab.key === params.get('tab'))
+    ? params.get('tab')!
+    : 'timeline';
+  const setTab = (tab: string) =>
+    setParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        next.set('tab', tab);
+        return next;
+      },
+      { replace: true },
+    );
+  const archive = async () => {
+    setBusy(true);
     try {
-      setDeleteLoading(true);
       await apiClient(`/persons/${id}`, { method: 'DELETE' });
-      navigate('/people');
-    } catch (err: any) {
-      alert(err.message || 'Gagal menghapus data jamaah');
+      await queryClient.invalidateQueries({ queryKey: ['persons'] });
+      navigate(back);
+    } catch (error) {
+      setNotice((error as Error).message);
     } finally {
-      setDeleteLoading(false);
+      setBusy(false);
     }
   };
-
-  useEffect(() => {
-    loadData();
-  }, [id]);
-
-  const handleTaskToggle = async (taskId: string, currentStatus: string) => {
-    const nextStatus = currentStatus === 'completed' ? 'pending' : 'completed';
+  const restore = async () => {
+    setBusy(true);
+    try {
+      await apiClient(`/persons/${id}/restore`, { method: 'POST' });
+      await refresh();
+    } catch (error) {
+      setNotice((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const archiveNote = async () => {
+    if (!noteToArchive) return;
+    setBusy(true);
+    try {
+      await apiClient(
+        `/persons/${id}/sensitive-notes/${noteToArchive}/archive`,
+        { method: 'POST' },
+      );
+      setNoteToArchive(null);
+      await refresh();
+    } catch (error) {
+      setNotice((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const toggleTask = async (taskId: string, status: string) => {
+    setTaskBusy(taskId);
     try {
       await apiClient(`/tasks/${taskId}/status`, {
         method: 'PATCH',
-        body: JSON.stringify({ status: nextStatus }),
+        body: JSON.stringify({
+          status: status === 'completed' ? 'pending' : 'completed',
+        }),
       });
-      loadData();
-    } catch (err: any) {
-      alert(err.message || 'Gagal mengubah status tugas');
+      await refresh();
+    } catch (error) {
+      setNotice((error as Error).message);
+    } finally {
+      setTaskBusy('');
     }
   };
-
-  if (loading) return <LoadingState message="Memuat profil 360° jamaah..." />;
-  if (error || !data) {
+  const badge = (status: string, label?: string) => (
+    <span className={`people-status ${status}`}>
+      {label || STATUS_LABELS[status] || status}
+    </span>
+  );
+  const empty = (text: string) => (
+    <div className="people-empty">
+      <History />
+      <p>{text}</p>
+    </div>
+  );
+  if (profile.isPending)
     return (
-      <div className="p-6 bg-[#FBF9F4] border border-rose-200 rounded-2xl text-rose-800 text-xs space-y-3 max-w-lg mx-auto my-12">
-        <p className="font-bold text-sm">Terjadi Kesalahan</p>
-        <p>{error || 'Data jamaah tidak ditemukan'}</p>
-        <Link to="/people" className="px-4 py-2 bg-[#1B4332] text-white rounded-lg inline-flex items-center gap-1 font-semibold">
-          <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Daftar Jamaah
+      <div className="people-panel people-empty" role="status">
+        <Loader2 className="animate-spin" />
+        Memuat profil jamaah…
+      </div>
+    );
+  if (!data)
+    return (
+      <div className="people-workspace">
+        <div className="people-notice is-error" role="alert">
+          {profile.error?.message || 'Jamaah tidak ditemukan.'}
+          <button
+            className="people-inline-link"
+            onClick={() => void profile.refetch()}
+          >
+            Coba lagi
+          </button>
+        </div>
+        <Link className="people-button" to={back}>
+          <ArrowLeft />
+          Kembali ke jamaah
         </Link>
       </div>
     );
-  }
-
-  const defaultBadge = { label: 'Baru Terdaftar', bg: 'bg-[#0F4C4A]/10', text: 'text-[#0F4C4A]', border: 'border-[#0F4C4A]/25' };
-  const badge = ENGAGEMENT_BADGES[data.engagementStatus] || defaultBadge;
-  const waLink = getWhatsAppLink(data.phoneE164, `Assalamu'alaikum Warahmatullahi Wabarakatuh, ${data.fullName}`);
-  const initials = getInitials(data.fullName);
-
+  const whatsapp = personWhatsApp(
+    data.phoneE164,
+    `Assalamu’alaikum, ${data.fullName}`,
+  );
+  const metricCards = [
+    {
+      label: 'Hadir kegiatan',
+      value: formatNumber(data.metrics.totalAttendances),
+      tab: 'events',
+      tone: 'blue',
+    },
+    {
+      label: 'Interaksi',
+      value: formatNumber(data.metrics.totalInteractions),
+      tab: 'interactions',
+      tone: 'forest',
+    },
+    {
+      label: 'Tugas terbuka',
+      value: formatNumber(data.metrics.pendingTasksCount),
+      tab: 'tasks',
+      tone: 'warm',
+    },
+    {
+      label: 'Donasi sah',
+      value: formatMoney(data.metrics.verifiedTotalDonationsRupiah),
+      tab: 'donations',
+      tone: 'gold',
+    },
+    {
+      label: 'Wakaf aktif',
+      value: formatNumber(data.metrics.activeWaqfCasesCount),
+      tab: 'waqf',
+      tone: 'forest',
+    },
+  ].filter((item) => tabs.some((tab) => tab.key === item.tab));
+  const sectionHeading = (title: string, action?: React.ReactNode) => (
+    <div className="person-section-heading">
+      <h2>{title}</h2>
+      {action}
+    </div>
+  );
+  const moduleLink = (
+    path: '/tasks' | '/donations' | '/waqf' | '/interactions',
+    label: string,
+  ) => (
+    <Link className="people-inline-link" to={personModuleLink(path, id)}>
+      {label}
+      <ArrowRight />
+    </Link>
+  );
+  const icons: Record<string, typeof History> = {
+    attendance: CalendarDays,
+    interaction: MessageSquare,
+    task: CheckSquare,
+    donation: HeartHandshake,
+    waqf: Landmark,
+    sensitive_note: ShieldCheck,
+  };
   return (
-    <div className="space-y-6 max-w-[1400px] mx-auto pb-16">
-      {/* 1. Back Link & Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#1B4332]/12 pb-4">
-        <Link
-          to="/people"
-          className="inline-flex items-center gap-1 text-xs font-semibold text-[#6B7A72] hover:text-[#14352A] transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Kembali ke Master Data Jamaah</span>
-        </Link>
-
-        <div className="flex items-center gap-2">
-          <PermissionGate permission={PERMISSIONS.INTERACTIONS_CREATE}><button
-            onClick={() => setInteractionModalOpen(true)}
-            className="px-3.5 py-2 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-semibold shadow-2xs transition-all flex items-center gap-1.5 active:scale-98"
-          >
-            <MessageSquare className="w-3.5 h-3.5 text-[#E0B970]" />
-            <span>Catat Sapaan</span>
-          </button></PermissionGate>
-
-          <PermissionGate permission={PERMISSIONS.PERSONS_EDIT}><button
-            onClick={() => setEditModalOpen(true)}
-            className="px-3.5 py-2 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#1C2321] rounded-xl text-xs font-semibold border border-[#1B4332]/12 transition-all flex items-center gap-1.5 active:scale-98"
-          >
-            <Edit3 className="w-3.5 h-3.5 text-[#6B7A72]" />
-            <span>Edit Profil</span>
-          </button></PermissionGate>
-
-          <PermissionGate permission={PERMISSIONS.PERSONS_DELETE}><button
-            type="button"
-            onClick={() => setIsDeleteDialogOpen(true)}
-            className="p-2 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-xl border border-rose-200 transition-all text-xs font-bold flex items-center gap-1 active:scale-98"
-            title="Hapus data jamaah"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Hapus</span>
-          </button></PermissionGate>
-        </div>
-      </div>
-
-      {/* 2. Profile Header Summary Card */}
-      <div className="bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/12 shadow-2xs p-6 space-y-6">
-        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
-          <div className="flex items-start gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-[#14352A] text-[#E0B970] border border-[#1B4332]/30 flex items-center justify-center text-lg font-bold font-mono shadow-xs shrink-0">
-              {initials}
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-bold text-[#1C2321] font-display">{data.fullName}</h1>
-                <span className={`inline-flex px-2.5 py-0.5 rounded text-[10px] font-mono font-bold uppercase border ${badge.bg} ${badge.text} ${badge.border}`}>
-                  {badge.label}
+    <div className="person-profile">
+      <Link to={back} className="people-inline-link mb-4">
+        <ArrowLeft />
+        Kembali ke jamaah
+      </Link>
+      <header className="people-heading">
+        <div className="person-heading-name">
+          <span className="people-avatar">{initials(data.fullName)}</span>
+          <div>
+            <h1>{data.fullName}</h1>
+            <div className="people-tags">
+              {badge(
+                data.engagementStatus,
+                ENGAGEMENT_LABELS[data.engagementStatus],
+              )}
+              {data.isActive === false && badge('waiting', 'Dalam arsip')}
+              {data.roles.map((role) => (
+                <span key={role} className="people-tag">
+                  {ROLE_LABELS[role] || role}
                 </span>
-                {data.gender === 'ikhwan' && (
-                  <span className="inline-flex px-2.5 py-0.5 rounded text-[10px] font-semibold bg-sky-50 text-sky-800 border border-sky-200">
-                    🕌 Ikhwan
-                  </span>
-                )}
-                {data.gender === 'akhwat' && (
-                  <span className="inline-flex px-2.5 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-800 border border-rose-200">
-                    🌸 Akhwat
-                  </span>
-                )}
-              </div>
-
-              {/* Roles Chips */}
-              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                {data.roles.map((r) => (
-                  <span
-                    key={r}
-                    className="inline-flex px-2 py-0.5 rounded text-[9.5px] font-mono font-semibold uppercase bg-[#F2EEE4] text-[#3D4A44] border border-[#1B4332]/10"
-                  >
-                    {r}
-                  </span>
-                ))}
-                {data.tags.map((t) => (
-                  <span
-                    key={t.id}
-                    className="inline-flex px-2 py-0.5 rounded text-[9.5px] font-mono font-semibold bg-[#B58B3C]/15 text-[#8E6B22] border border-[#B58B3C]/30"
-                  >
-                    #{t.name}
-                  </span>
-                ))}
-              </div>
-
-              {/* Contact & Domisili Details */}
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-[#6B7A72] pt-2">
-                {data.phoneE164 && (
-                  <div className="flex items-center gap-1.5">
-                    <Phone className="w-3.5 h-3.5 text-[#8A9690]" />
-                    <span className="font-mono text-[#1C2321]">{formatPhoneDisplay(data.phoneE164)}</span>
-                    {waLink && (
-                      <a
-                        href={waLink}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-0.5 text-[#2F7D4F] hover:bg-[#2F7D4F]/10 font-semibold ml-1 px-1.5 py-0.5 rounded text-[10px] border border-[#2F7D4F]/25 transition-colors"
-                      >
-                        <MessageSquare className="w-3 h-3" /> Chat WA
-                      </a>
-                    )}
-                  </div>
-                )}
-                {data.email && (
-                  <div className="flex items-center gap-1.5">
-                    <Mail className="w-3.5 h-3.5 text-[#8A9690]" />
-                    <span>{data.email}</span>
-                  </div>
-                )}
-                {(data.cityRegency || data.province) && (
-                  <div className="flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5 text-[#8A9690]" />
-                    <span>{[data.district, data.cityRegency, data.province].filter(Boolean).join(', ')}</span>
-                  </div>
-                )}
-                {data.occupation && (
-                  <div className="flex items-center gap-1.5">
-                    <Briefcase className="w-3.5 h-3.5 text-[#8A9690]" />
-                    <span>{data.occupation}</span>
-                  </div>
-                )}
-                {data.educationLevel && (
-                  <div className="flex items-center gap-1.5">
-                    <GraduationCap className="w-3.5 h-3.5 text-[#8A9690]" />
-                    <span>Pendidikan: {data.educationLevel}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Staf Pendamping (PIC) */}
-          <div className="p-3.5 bg-[#F2EEE4] border border-[#1B4332]/12 rounded-xl min-w-[220px] shrink-0">
-            <span className="text-[10px] font-mono font-bold text-[#14352A] uppercase tracking-wider block mb-1">
-              STAF PENDAMPING (PIC)
-            </span>
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-[#1B4332] text-white font-mono font-bold text-xs flex items-center justify-center">
-                {data.owner?.fullName?.charAt(0) || 'Y'}
-              </div>
-              <div>
-                <p className="text-xs font-bold text-[#1C2321] leading-tight">
-                  {data.owner?.fullName || 'Belum Ditugaskan'}
-                </p>
-                <p className="text-[10.5px] text-[#6B7A72] truncate max-w-[140px]">
-                  {data.owner?.email || 'Yayasan Tarbiyah Sunnah'}
-                </p>
-              </div>
+              ))}
             </div>
           </div>
         </div>
-
-        {/* 360 Metric Counter Strip (6 Alert Strips) */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-4 border-t border-[#1B4332]/8">
-          <div className="p-3 bg-white border border-[#1B4332]/10 rounded-xl border-l-[3px] border-l-[#1B4332] space-y-0.5">
-            <span className="text-[10px] font-mono font-semibold text-[#1B4332] uppercase tracking-wider block">HADIR KAJIAN</span>
-            <span className="text-xl font-bold text-[#1C2321] font-display">{data.metrics.totalAttendances}x</span>
-          </div>
-
-          <div className="p-3 bg-white border border-[#1B4332]/10 rounded-xl border-l-[3px] border-l-[#B58B3C] space-y-0.5">
-            <span className="text-[10px] font-mono font-semibold text-[#8E6B22] uppercase tracking-wider block">SAPAAN CS</span>
-            <span className="text-xl font-bold text-[#1C2321] font-display">{data.metrics.totalInteractions}</span>
-          </div>
-
-          <div className="p-3 bg-white border border-[#1B4332]/10 rounded-xl border-l-[3px] border-l-[#C77A16] space-y-0.5">
-            <span className="text-[10px] font-mono font-semibold text-[#C77A16] uppercase tracking-wider block">TUGAS AKTIF</span>
-            <span className="text-xl font-bold text-[#C77A16] font-display">{data.metrics.pendingTasksCount}</span>
-          </div>
-
-          <PermissionGate permission={[PERMISSIONS.DONATIONS_VIEW_DETAIL, PERMISSIONS.DONATIONS_VIEW_UNVERIFIED]}><div className="p-3 bg-white border border-[#1B4332]/10 rounded-xl border-l-[3px] border-l-[#2F7D4F] space-y-0.5">
-            <span className="text-[10px] font-mono font-semibold text-[#2F7D4F] uppercase tracking-wider block">DONASI SAH</span>
-            <span className="text-sm font-bold text-[#2F7D4F] font-mono block mt-1">
-              Rp {data.metrics.verifiedTotalDonationsRupiah.toLocaleString('id-ID')}
-            </span>
-          </div></PermissionGate>
-
-          <PermissionGate permission={PERMISSIONS.WAQF_VIEW_DETAIL}><div className="p-3 bg-white border border-[#1B4332]/10 rounded-xl border-l-[3px] border-l-[#0F4C4A] space-y-0.5">
-            <span className="text-[10px] font-mono font-semibold text-[#0F4C4A] uppercase tracking-wider block">KASUS WAKAF</span>
-            <span className="text-xl font-bold text-[#0F4C4A] font-display">{data.metrics.activeWaqfCasesCount}</span>
-          </div></PermissionGate>
-
-          <div className="p-3 bg-white border border-[#1B4332]/10 rounded-xl border-l-[3px] border-l-[#8A9690] space-y-0.5">
-            <span className="text-[10px] font-mono font-semibold text-[#6B7A72] uppercase tracking-wider block">TERDAFTAR</span>
-            <span className="text-xs font-mono font-semibold text-[#1C2321] block mt-1.5">
-              {new Date(data.createdAt).toLocaleDateString('id-ID', { month: 'short', year: 'numeric' })}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* 3. Tabs Navigation */}
-      <div className="flex items-center gap-1 bg-[#F2EEE4] p-1 rounded-xl border border-[#1B4332]/12 overflow-x-auto text-xs font-semibold">
-        {[
-          { key: 'timeline', label: 'Linimasa (Timeline)', count: data.timeline.length },
-          { key: 'events', label: 'Kajian & Hadir', count: data.attendances.length },
-          { key: 'interactions', label: 'Catatan Interaksi', count: data.interactions.length },
-          { key: 'tasks', label: 'Follow-Up & Tugas', count: data.tasks.length },
-          { key: 'donations', label: 'Riwayat Donasi', count: data.donations.length },
-          { key: 'waqf', label: 'Aset Wakaf', count: data.waqfCases.length },
-          { key: 'sensitive', label: 'Catatan Khusus', count: data.sensitiveNotes.length },
-        ].filter((tab) => tab.key === 'donations' ? permissions.includes(PERMISSIONS.DONATIONS_VIEW_DETAIL) || permissions.includes(PERMISSIONS.DONATIONS_VIEW_UNVERIFIED) : tab.key === 'waqf' ? permissions.includes(PERMISSIONS.WAQF_VIEW_DETAIL) : tab.key === 'sensitive' ? permissions.includes(PERMISSIONS.SENSITIVE_NOTES_VIEW) : tab.key === 'interactions' ? permissions.includes(PERMISSIONS.INTERACTIONS_VIEW) : tab.key === 'tasks' ? permissions.includes(PERMISSIONS.TASKS_VIEW_OWN) || permissions.includes(PERMISSIONS.TASKS_VIEW_ALL) : true).map((tab) => (
+        <div className="people-heading-actions">
           <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key as any)}
-            className={`px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 ${
-              activeTab === tab.key
-                ? 'bg-[#1B4332] text-white shadow-2xs font-bold'
-                : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-white/60'
-            }`}
+            className="people-icon-button"
+            disabled={profile.isFetching}
+            onClick={() => void profile.refetch()}
+            aria-label="Segarkan profil"
           >
-            <span>{tab.label}</span>
-            <span className={`px-1.5 py-0.2 rounded font-mono text-[10px] font-bold ${
-              activeTab === tab.key ? 'bg-white/20 text-white' : 'bg-[#1B4332]/10 text-[#14352A]'
-            }`}>
-              {tab.count}
+            <RefreshCw className={profile.isFetching ? 'animate-spin' : ''} />
+          </button>
+          {data.isActive !== false && can(PERMISSIONS.INTERACTIONS_CREATE) && (
+            <button
+              className="people-button is-primary"
+              onClick={() => setInteraction(true)}
+            >
+              <MessageSquare />
+              Catat interaksi
+            </button>
+          )}
+          {data.isActive !== false && can(PERMISSIONS.PERSONS_EDIT) && (
+            <button className="people-button" onClick={() => setEdit(true)}>
+              <Edit3 />
+              Edit profil
+            </button>
+          )}
+          {can(PERMISSIONS.PERSONS_DELETE) &&
+            (data.isActive === false ? (
+              <button
+                className="people-button"
+                disabled={busy}
+                onClick={() => void restore()}
+              >
+                <RotateCcw />
+                Pulihkan
+              </button>
+            ) : (
+              <button
+                className="people-icon-button"
+                onClick={() => setArchiveOpen(true)}
+                aria-label="Arsipkan jamaah"
+              >
+                <Archive />
+              </button>
+            ))}
+        </div>
+      </header>
+      {notice && (
+        <div className="people-notice is-error" role="alert">
+          {notice}
+          <button className="people-inline-link" onClick={() => setNotice('')}>
+            Tutup
+          </button>
+        </div>
+      )}
+      {profile.isError && (
+        <div className="people-notice" role="alert">
+          Pembaruan profil gagal. Data terakhir tetap ditampilkan.
+        </div>
+      )}
+      {data.isActive === false && (
+        <div className="people-notice">
+          Jamaah berada dalam arsip. Riwayat kegiatan dan layanan tetap
+          tersimpan.
+        </div>
+      )}
+      <div className="people-kpis">
+        {metricCards.map((item) => (
+          <button
+            key={item.tab}
+            className={`people-kpi people-tone-${item.tone}`}
+            onClick={() => setTab(item.tab)}
+          >
+            <span>
+              {item.label}
+              <ArrowRight />
             </span>
+            <strong
+              className={item.tab === 'donations' ? 'person-record-amount' : ''}
+            >
+              {item.value}
+            </strong>
           </button>
         ))}
       </div>
-
-      {/* Tab 1: Unified Timeline */}
-      {activeTab === 'timeline' && (() => {
-        const firstAttendance = data.attendances.length > 0
-          ? [...data.attendances].sort((a, b) => new Date(a.event.startAt).getTime() - new Date(b.event.startAt).getTime())[0]
-          : null;
-
-        const firstDonation = data.donations.length > 0
-          ? [...data.donations].sort((a, b) => new Date(a.donationDate).getTime() - new Date(b.donationDate).getTime())[0]
-          : null;
-
-        const latestInteraction = data.interactions.length > 0
-          ? [...data.interactions].sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())[0]
-          : null;
-
-        const firstWaqf = data.waqfCases.length > 0
-          ? [...data.waqfCases].sort((a, b) => new Date(a.openedAt).getTime() - new Date(b.openedAt).getTime())[0]
-          : null;
-
-        const latestReport = data.interactions.find(
-          (i) =>
-            i.channel === 'email' ||
-            i.summary.toLowerCase().includes('laporan') ||
-            (i.outcome && i.outcome.toLowerCase().includes('laporan'))
-        ) || null;
-
-        const filteredTimeline = data.timeline.filter((item) => {
-          if (timelineFilter === 'all') return true;
-          return item.type === timelineFilter;
-        });
-
-        return (
-          <div className="space-y-6">
-            {/* 1. Milestone Highlights Card */}
-            <div className="bg-[#FBF9F4] border border-[#1B4332]/12 rounded-2xl p-5 shadow-2xs space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-[#B58B3C]" />
-                  <h3 className="text-xs font-mono font-bold text-[#14352A] uppercase tracking-wider">
-                    Milestone &amp; Jejak Kunci Jamaah (360° View)
-                  </h3>
-                </div>
-                <span className="text-[10px] font-mono font-bold text-[#14352A] bg-[#1B4332]/10 px-2 py-0.5 rounded border border-[#1B4332]/20">
-                  Ringkasan Eksekutif
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
-                {/* Milestone 1: Hadir Kajian Pertama */}
-                <div className="p-3 bg-white rounded-xl border border-[#1B4332]/10 space-y-1">
-                  <div className="flex items-center gap-1.5 text-[#1B4332] font-bold text-[11px]">
-                    <Calendar className="w-3.5 h-3.5" />
-                    <span>Kajian Pertama</span>
-                  </div>
-                  {firstAttendance ? (
-                    <>
-                      <p className="font-bold text-[#1C2321] line-clamp-1">{firstAttendance.event.title}</p>
-                      <p className="text-[10px] font-mono text-[#6B7A72]">
-                        {new Date(firstAttendance.event.startAt).toLocaleDateString('id-ID', {
-                          day: 'numeric',
-                          month: 'short',
-                          year: 'numeric',
-                        })}
-                      </p>
-                    </>
-                  ) : (
-                    <p className="text-[11px] text-[#8A9690] italic">Belum ada riwayat</p>
-                  )}
-                </div>
-
-                {/* Milestone 2: Donasi Pertama */}
-                <div className="p-3 bg-white rounded-xl border border-[#1B4332]/10 space-y-1">
-                  <div className="flex items-center gap-1.5 text-[#2F7D4F] font-bold text-[11px]">
-                    <Coins className="w-3.5 h-3.5" />
-                    <span>Donasi Pertama</span>
-                  </div>
-                  {firstDonation ? (
-                    <>
-                      <p className="font-bold text-[#2F7D4F] font-mono">
-                        Rp {firstDonation.amountRupiah.toLocaleString('id-ID')}
-                      </p>
-                      <p className="text-[10px] font-mono text-[#6B7A72]">
-                        {new Date(firstDonation.donationDate).toLocaleDateString('id-ID', {
-                          day: 'numeric',
-                          month: 'short',
-                          year: 'numeric',
-                        })}
-                      </p>
-                    </>
-                  ) : (
-                    <p className="text-[11px] text-[#8A9690] italic">Belum ada donasi</p>
-                  )}
-                </div>
-
-                {/* Milestone 3: Sapaan CS & Respon Terakhir */}
-                <div className="p-3 bg-white rounded-xl border border-[#1B4332]/10 space-y-1">
-                  <div className="flex items-center gap-1.5 text-[#B58B3C] font-bold text-[11px]">
-                    <PhoneCall className="w-3.5 h-3.5" />
-                    <span>Sapaan CS Terakhir</span>
-                  </div>
-                  {latestInteraction ? (
-                    <>
-                      <p className="font-bold text-[#1C2321] line-clamp-1">{latestInteraction.summary}</p>
-                      <p className="text-[10px] text-[#14352A] font-medium line-clamp-1 bg-[#F2EEE4] px-1 py-0.5 rounded">
-                        Respon: {latestInteraction.outcome || 'Tercatat'}
-                      </p>
-                    </>
-                  ) : (
-                    <p className="text-[11px] text-[#8A9690] italic">Belum dihubungi CS</p>
-                  )}
-                </div>
-
-                {/* Milestone 4: Minat Wakaf */}
-                <div className="p-3 bg-white rounded-xl border border-[#1B4332]/10 space-y-1">
-                  <div className="flex items-center gap-1.5 text-[#0F4C4A] font-bold text-[11px]">
-                    <Building2 className="w-3.5 h-3.5" />
-                    <span>Minat / Akad Wakaf</span>
-                  </div>
-                  {firstWaqf ? (
-                    <>
-                      <p className="font-bold text-[#0F4C4A] capitalize">Wakaf {firstWaqf.waqfType}</p>
-                      <p className="text-[10px] font-mono text-[#6B7A72]">
-                        Tahap: {firstWaqf.currentStage}
-                      </p>
-                    </>
-                  ) : (
-                    <p className="text-[11px] text-[#8A9690] italic">Tidak ada kasus wakaf</p>
-                  )}
-                </div>
-
-                {/* Milestone 5: Laporan Terakhir */}
-                <div className="p-3 bg-white rounded-xl border border-[#1B4332]/10 space-y-1">
-                  <div className="flex items-center gap-1.5 text-[#6B7A72] font-bold text-[11px]">
-                    <FileText className="w-3.5 h-3.5" />
-                    <span>Laporan Terakhir</span>
-                  </div>
-                  {latestReport ? (
-                    <>
-                      <p className="font-bold text-[#1C2321] line-clamp-1">{latestReport.summary}</p>
-                      <p className="text-[10px] font-mono text-[#6B7A72]">
-                        {new Date(latestReport.occurredAt).toLocaleDateString('id-ID', {
-                          day: 'numeric',
-                          month: 'short',
-                        })}
-                      </p>
-                    </>
-                  ) : (
-                    <p className="text-[11px] text-[#8A9690] italic">Belum ada pengiriman</p>
-                  )}
-                </div>
-              </div>
+      <div className="person-layout">
+        <aside className="people-panel person-contact-panel">
+          <h2>Kontak & profil</h2>
+          <dl>
+            <div>
+              <dt>WhatsApp</dt>
+              <dd>
+                <span>{formatPhoneDisplay(data.phoneE164)}</span>
+              </dd>
             </div>
-
-            {/* 2. Unified Timeline Stream */}
-            <div className="bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/12 shadow-2xs p-6 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-[#1B4332]/8 gap-3">
-                <div>
-                  <h2 className="text-sm font-bold text-[#1C2321] font-display">Linimasa Lengkap Aktivitas Jamaah</h2>
-                  <span className="text-xs text-[#6B7A72]">Menampilkan {filteredTimeline.length} dari {data.timeline.length} jejak aktivitas</span>
-                </div>
-
-                {/* Filter Pills */}
-                <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
+            <div>
+              <dt>Email</dt>
+              <dd>
+                <span>{data.email || 'Belum diisi'}</span>
+              </dd>
+            </div>
+            <div>
+              <dt>Domisili</dt>
+              <dd>
+                <span>
+                  {[data.cityRegency, data.province]
+                    .filter(Boolean)
+                    .join(', ') || 'Belum diisi'}
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt>PIC staf</dt>
+              <dd>
+                <span>{data.owner?.fullName || 'Belum ada PIC'}</span>
+              </dd>
+            </div>
+            <div>
+              <dt>Terdaftar</dt>
+              <dd>{formatDate(data.createdAt)}</dd>
+            </div>
+            <div>
+              <dt>Tag</dt>
+              <dd className="people-tags">
+                {data.tags.length
+                  ? data.tags.map((tag) => (
+                      <span key={tag.id} className="people-tag">
+                        {tag.name}
+                      </span>
+                    ))
+                  : 'Belum ada tag'}
+              </dd>
+            </div>
+          </dl>
+          {whatsapp && (
+            <a
+              href={whatsapp}
+              target="_blank"
+              rel="noreferrer"
+              className="people-button"
+            >
+              <MessageSquare />
+              Buka WhatsApp
+            </a>
+          )}
+          {data.email && (
+            <a href={`mailto:${data.email}`} className="people-button">
+              <Mail />
+              Buka email
+            </a>
+          )}
+          <details className="people-form-details">
+            <summary>Profil lainnya</summary>
+            <dl>
+              <div>
+                <dt>Jenis kelamin</dt>
+                <dd>
+                  {data.gender === 'ikhwan'
+                    ? 'Ikhwan'
+                    : data.gender === 'akhwat'
+                      ? 'Akhwat'
+                      : 'Belum diisi'}
+                </dd>
+              </div>
+              <div>
+                <dt>Kecamatan</dt>
+                <dd>{data.district || 'Belum diisi'}</dd>
+              </div>
+              <div>
+                <dt>Pekerjaan</dt>
+                <dd>{data.occupation || 'Belum diisi'}</dd>
+              </div>
+              <div>
+                <dt>Pendidikan</dt>
+                <dd>{data.educationLevel || 'Belum diisi'}</dd>
+              </div>
+              <div>
+                <dt>Sumber kontak</dt>
+                <dd>{data.sourceCode || 'Belum diisi'}</dd>
+              </div>
+              <div>
+                <dt>Kanal pilihan</dt>
+                <dd>
+                  {CHANNEL_LABELS[data.preferredChannel] ||
+                    data.preferredChannel}
+                </dd>
+              </div>
+            </dl>
+          </details>
+          {data.isActive !== false && (
+            <div className="people-form-details">
+              <h2>Mulai tindak lanjut</h2>
+              {can(PERMISSIONS.TASKS_CREATE) && (
+                <Link
+                  className="people-button"
+                  to={personModuleLink('/tasks', id, true)}
+                >
+                  <CheckSquare />
+                  Buat tugas
+                </Link>
+              )}
+              {can(PERMISSIONS.DONATIONS_CREATE) && (
+                <Link
+                  className="people-button"
+                  to={personModuleLink('/donations', id, true)}
+                >
+                  <HeartHandshake />
+                  Catat donasi
+                </Link>
+              )}
+              {can(PERMISSIONS.WAQF_CREATE) && (
+                <Link
+                  className="people-button"
+                  to={personModuleLink('/waqf', id, true)}
+                >
+                  <Landmark />
+                  Kasus wakaf
+                </Link>
+              )}
+            </div>
+          )}
+        </aside>
+        <div className="person-content">
+          <nav className="person-tabs" aria-label="Bagian profil">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                aria-pressed={activeTab === tab.key}
+                onClick={() => setTab(tab.key)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+          <select
+            className="people-input person-tab-select"
+            aria-label="Bagian profil"
+            value={activeTab}
+            onChange={(event) => setTab(event.target.value)}
+          >
+            {tabs.map((tab) => (
+              <option key={tab.key} value={tab.key}>
+                {tab.label}
+              </option>
+            ))}
+          </select>
+          <section className="people-panel person-section">
+            {activeTab === 'timeline' && (
+              <>
+                {sectionHeading('Linimasa jamaah')}
+                <div className="person-filter-row">
                   {[
-                    { id: 'all', label: 'Semua' },
-                    { id: 'attendance', label: 'Kajian' },
-                    { id: 'interaction', label: 'Sapaan CS' },
-                    { id: 'donation', label: 'Donasi' },
-                    { id: 'waqf', label: 'Wakaf' },
-                    { id: 'task', label: 'Tugas' },
-                  ].map((f) => (
+                    { key: 'all', label: 'Semua' },
+                    ...tabs
+                      .filter(
+                        (tab) => !['timeline', 'sensitive'].includes(tab.key),
+                      )
+                      .map((tab) => ({
+                        key: (
+                          {
+                            events: 'attendance',
+                            interactions: 'interaction',
+                            tasks: 'task',
+                            donations: 'donation',
+                            waqf: 'waqf',
+                          } as Record<string, string>
+                        )[tab.key]!,
+                        label: tab.label,
+                      })),
+                  ].map((filter) => (
                     <button
-                      key={f.id}
-                      onClick={() => setTimelineFilter(f.id as any)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
-                        timelineFilter === f.id
-                          ? 'bg-[#1B4332] text-white shadow-2xs font-bold'
-                          : 'bg-[#F2EEE4] text-[#3D4A44] hover:bg-[#EAE4D6]'
-                      }`}
+                      key={filter.key}
+                      aria-pressed={timelineFilter === filter.key}
+                      onClick={() => setTimelineFilter(filter.key)}
                     >
-                      {f.label}
+                      {filter.label}
                     </button>
                   ))}
                 </div>
-              </div>
-
-              {filteredTimeline.length === 0 ? (
-                <p className="text-xs text-[#6B7A72] py-8 text-center">Tidak ada catatan pada filter aktivitas ini.</p>
-              ) : (
-                <div className="flow-root pt-2">
-                  <ul className="-mb-8">
-                    {filteredTimeline.map((item, idx) => {
-                      const isFirstDonation = item.type === 'donation' && firstDonation && item.id.includes(firstDonation.id);
-
-                      return (
-                        <li key={item.id}>
-                          <div className="relative pb-8">
-                            {idx !== filteredTimeline.length - 1 && (
-                              <span className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-[#1B4332]/12" aria-hidden="true" />
-                            )}
-                            <div className="relative flex space-x-3 items-start">
-                              <div className="w-8 h-8 rounded-xl bg-white border border-[#1B4332]/15 flex items-center justify-center shrink-0 shadow-2xs">
-                                {item.type === 'attendance' && <Calendar className="w-4 h-4 text-[#1B4332]" />}
-                                {item.type === 'interaction' && <MessageSquare className="w-4 h-4 text-[#B58B3C]" />}
-                                {item.type === 'donation' && <Coins className="w-4 h-4 text-[#2F7D4F]" />}
-                                {item.type === 'task' && <CheckSquare className="w-4 h-4 text-[#C77A16]" />}
-                                {item.type === 'waqf' && <Building2 className="w-4 h-4 text-[#0F4C4A]" />}
-                              </div>
-                              <div className="min-w-0 flex-1 pt-1 flex justify-between space-x-4">
-                                <div className="space-y-1">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <p className="text-xs font-bold text-[#1C2321]">{item.title}</p>
-                                    {isFirstDonation && (
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.2 rounded text-[9px] font-mono font-bold uppercase bg-[#2F7D4F]/10 text-[#2F7D4F] border border-[#2F7D4F]/25">
-                                        ⭐ Donasi Pertama
-                                      </span>
-                                    )}
-                                    {item.status && (
-                                      <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase bg-[#F2EEE4] text-[#3D4A44] border border-[#1B4332]/10">
-                                        {item.status}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <p className="text-xs text-[#6B7A72]">{item.description}</p>
-                                </div>
-                                <div className="text-right text-[11px] font-mono whitespace-nowrap text-[#8A9690] flex items-center gap-1 shrink-0">
-                                  <Clock className="w-3 h-3" />
-                                  {new Date(item.date).toLocaleDateString('id-ID', {
-                                    day: 'numeric',
-                                    month: 'short',
-                                    year: 'numeric',
-                                  })}
-                                </div>
+                {data.timeline.filter(
+                  (item) =>
+                    timelineFilter === 'all' || item.type === timelineFilter,
+                ).length ? (
+                  <div className="person-record-list">
+                    {data.timeline
+                      .filter(
+                        (item) =>
+                          timelineFilter === 'all' ||
+                          item.type === timelineFilter,
+                      )
+                      .map((item) => {
+                        const Icon = icons[item.type] || History;
+                        return (
+                          <article key={item.id} className="person-record">
+                            <span className="person-record-icon">
+                              <Icon />
+                            </span>
+                            <div>
+                              <h3>{item.title}</h3>
+                              <p>{item.description}</p>
+                              <div className="person-record-meta">
+                                <time>{formatDate(item.date, true)}</time>
+                                {item.status &&
+                                  badge(
+                                    item.status,
+                                    item.type === 'waqf'
+                                      ? WAQF_LABELS[item.status]
+                                      : STATUS_LABELS[item.status],
+                                  )}
                               </div>
                             </div>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Tab 2: Events / Kajian */}
-      {activeTab === 'events' && (
-        <div className="bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/12 shadow-2xs overflow-hidden">
-          <div className="px-6 py-4 border-b border-[#1B4332]/10 flex items-center justify-between bg-[#F2EEE4]">
-            <h2 className="text-xs font-mono font-bold text-[#14352A] uppercase tracking-wider">
-              Riwayat Kehadiran Kajian &amp; Presensi
-            </h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-[#1B4332]/10 bg-[#F2EEE4]/70 text-[#14352A] text-[10.5px] font-mono font-bold uppercase tracking-wider">
-                  <th className="py-3 px-4">Judul Kajian</th>
-                  <th className="py-3 px-4">Pemateri &amp; Kategori</th>
-                  <th className="py-3 px-4">Waktu Pelaksanaan</th>
-                  <th className="py-3 px-4">Status Presensi</th>
-                  <th className="py-3 px-4 text-right">E-Sertifikat</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#1B4332]/8 font-medium text-[#1C2321]">
-                {data.attendances.length === 0 && !(data.routineAttendance && data.routineAttendance.length > 0) ? (
-                  <tr>
-                    <td colSpan={5} className="py-8 text-center text-[#6B7A72]">
-                      Belum ada riwayat kehadiran kajian tercatat.
-                    </td>
-                  </tr>
-                ) : (
-                  <>
-                    {data.attendances.map((att) => (
-                    <tr key={att.id} className="hover:bg-[#F2EEE4]/50 transition-colors">
-                      <td className="py-3 px-4 font-bold text-[#1C2321]">
-                        <Link to="/events" className="hover:text-[#1B4332] hover:underline">
-                          {att.event.title}
-                        </Link>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="font-semibold text-[#14352A]">{att.event.speaker}</span>
-                        <span className="text-[11px] text-[#6B7A72] block">({att.event.category})</span>
-                      </td>
-                      <td className="py-3 px-4 font-mono text-[11px] text-[#6B7A72]">
-                        {new Date(att.event.startAt).toLocaleDateString('id-ID', {
-                          weekday: 'short',
-                          day: 'numeric',
-                          month: 'short',
-                          year: 'numeric',
-                        })}
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="inline-flex px-2 py-0.5 rounded text-[9.5px] font-mono font-bold bg-[#2F7D4F]/10 text-[#2F7D4F] border border-[#2F7D4F]/25 capitalize">
-                          Hadir ({att.event.deliveryMode})
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={() =>
-                            setCertModalData({
-                              eventTitle: att.event.title,
-                              speaker: att.event.speaker,
-                              dateStr: att.event.startAt,
-                              ticketCode: `YTS-${att.id.slice(0, 6).toUpperCase()}`,
-                            })
-                          }
-                          className="px-2.5 py-1 bg-[#B58B3C] hover:bg-[#A37B30] text-[#14352A] rounded-lg font-bold text-[10.5px] shadow-2xs transition-all inline-flex items-center gap-1 active:scale-98"
-                        >
-                          <Award className="w-3 h-3" />
-                          <span>Cetak Sertifikat</span>
-                        </button>
-                      </td>
-                    </tr>
-                    ))}
-
-                    {/* Kehadiran Kajian Rutin (absensi mandiri portal jamaah) */}
-                    {(data.routineAttendance || []).map((routine) => (
-                      <tr key={routine.id} className="hover:bg-[#F2EEE4]/50 transition-colors">
-                        <td className="py-3 px-4 font-bold text-[#1C2321]">
-                          {routine.seriesTitle}
-                          <span className="ml-2 rounded bg-[#1B4332]/10 px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider text-[#1B4332]">
-                            Kajian Rutin
-                          </span>
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="font-semibold text-[#14352A]">{routine.speaker || '—'}</span>
-                          <span className="text-[11px] text-[#6B7A72] block">(kajian rutin)</span>
-                        </td>
-                        <td className="py-3 px-4 font-mono text-[11px] text-[#6B7A72]">
-                          {new Date(routine.startAt).toLocaleDateString('id-ID', {
-                            weekday: 'short',
-                            day: 'numeric',
-                            month: 'short',
-                            year: 'numeric',
-                          })}
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="inline-flex px-2 py-0.5 rounded text-[9.5px] font-mono font-bold bg-[#2F7D4F]/10 text-[#2F7D4F] border border-[#2F7D4F]/25 capitalize">
-                            Hadir (absensi mandiri)
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right text-[#8A9690]">—</td>
-                      </tr>
-                    ))}
-                  </>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Tab 3: Interactions Log */}
-      {activeTab === 'interactions' && (
-        <div className="bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/12 shadow-2xs p-6 space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-[#1B4332]/8">
-            <h2 className="text-xs font-mono font-bold text-[#14352A] uppercase tracking-wider">
-              Catatan Sapaan &amp; Komunikasi CS
-            </h2>
-            <button
-              onClick={() => setInteractionModalOpen(true)}
-              className="px-3.5 py-1.5 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center gap-1 active:scale-98"
-            >
-              <Plus className="w-3.5 h-3.5 text-[#E0B970]" />
-              <span>Tambah Sapaan</span>
-            </button>
-          </div>
-
-          <div className="divide-y divide-[#1B4332]/8">
-            {data.interactions.length === 0 ? (
-              <p className="text-xs text-[#6B7A72] py-8 text-center">Belum ada catatan interaksi untuk jamaah ini.</p>
-            ) : (
-              data.interactions.map((int) => (
-                <div key={int.id} className="py-4 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded text-[9.5px] font-mono font-bold uppercase bg-[#1B4332]/10 text-[#14352A] border border-[#1B4332]/20">
-                        {int.channel}
-                      </span>
-                      <span className="text-xs font-bold text-[#1C2321]">{int.summary}</span>
-                    </div>
-                    <span className="text-[11px] font-mono text-[#8A9690]">
-                      {new Date(int.occurredAt).toLocaleDateString('id-ID', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
+                          </article>
+                        );
                       })}
-                    </span>
                   </div>
-                  {int.outcome && (
-                    <p className="text-xs text-[#3D4A44] bg-[#F2EEE4] p-2.5 rounded-xl border border-[#1B4332]/10">
-                      <strong className="text-[#1C2321]">Hasil:</strong> {int.outcome}
-                    </p>
-                  )}
-                  {int.nextAction && (
-                    <p className="text-xs text-[#8E6B22]">
-                      <strong>Next Action:</strong> {int.nextAction}
-                    </p>
-                  )}
-                  <p className="text-[10.5px] text-[#8A9690]">
-                    Dicatat oleh: {int.creator?.fullName || 'Staf YTS'}
-                  </p>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Tab 4: Tasks */}
-      {activeTab === 'tasks' && (
-        <div className="bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/12 shadow-2xs p-6 space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-[#1B4332]/8">
-            <h2 className="text-xs font-mono font-bold text-[#14352A] uppercase tracking-wider">
-              Tugas &amp; Tindak Lanjut Terjadwal
-            </h2>
-            <Link to="/tasks" className="text-xs text-[#1B4332] font-bold hover:underline flex items-center gap-1">
-              Buka Manajemen Tugas &rarr;
-            </Link>
-          </div>
-
-          <div className="divide-y divide-[#1B4332]/8">
-            {data.tasks.length === 0 ? (
-              <p className="text-xs text-[#6B7A72] py-8 text-center">Tidak ada tugas tindak lanjut untuk jamaah ini.</p>
-            ) : (
-              data.tasks.map((t) => (
-                <div key={t.id} className="py-3 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => handleTaskToggle(t.id, t.status)}
-                      className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-all ${
-                        t.status === 'completed'
-                          ? 'bg-[#2F7D4F] border-[#2F7D4F] text-white'
-                          : 'border-[#1B4332]/20 hover:border-[#1B4332]'
-                      }`}
-                    >
-                      {t.status === 'completed' && <CheckCircle2 className="w-3.5 h-3.5" />}
-                    </button>
-                    <div>
-                      <p className={`text-xs font-bold ${t.status === 'completed' ? 'line-through text-[#8A9690]' : 'text-[#1C2321]'}`}>
-                        {t.title}
-                      </p>
-                      <p className="text-[11px] text-[#6B7A72] mt-0.5">
-                        PIC: {t.assignee?.fullName || 'Staf'} • Jatuh Tempo:{' '}
-                        {new Date(t.dueAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
-                      </p>
-                    </div>
-                  </div>
-                  <span className="px-2 py-0.5 rounded text-[9.5px] font-mono font-bold uppercase bg-[#B58B3C]/15 text-[#8E6B22] border border-[#B58B3C]/30">
-                    {t.priority}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Tab 5: Donations */}
-      {activeTab === 'donations' && (
-        <div className="bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/12 shadow-2xs overflow-hidden">
-          <div className="px-6 py-4 border-b border-[#1B4332]/10 flex items-center justify-between bg-[#F2EEE4]">
-            <h2 className="text-xs font-mono font-bold text-[#14352A] uppercase tracking-wider">
-              Riwayat Kontribusi Infaq &amp; Donasi
-            </h2>
-            <div className="flex items-center gap-4">
-              <div className="text-xs font-semibold text-[#2F7D4F]">
-                Total Sah: <span className="font-mono font-bold">Rp {data.metrics.verifiedTotalDonationsRupiah.toLocaleString('id-ID')}</span>
-              </div>
-              <Link to="/donations" className="text-xs text-[#1B4332] font-bold hover:underline flex items-center gap-1">
-                Kelola Donasi &rarr;
-              </Link>
-            </div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-[#1B4332]/10 bg-[#F2EEE4]/70 text-[#14352A] text-[10.5px] font-mono font-bold uppercase tracking-wider">
-                  <th className="py-3 px-4">Tanggal</th>
-                  <th className="py-3 px-4">Program Infaq</th>
-                  <th className="py-3 px-4">Nominal</th>
-                  <th className="py-3 px-4">Metode</th>
-                  <th className="py-3 px-4">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#1B4332]/8 font-medium text-[#1C2321]">
-                {data.donations.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="py-8 text-center text-[#6B7A72]">
-                      Belum ada transaksi donasi yang tercatat.
-                    </td>
-                  </tr>
                 ) : (
-                  data.donations.map((d) => (
-                    <tr key={d.id} className="hover:bg-[#F2EEE4]/50">
-                      <td className="py-3 px-4 font-mono text-[11px] text-[#6B7A72]">
-                        {new Date(d.donationDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
-                      </td>
-                      <td className="py-3 px-4 font-bold text-[#1C2321]">{d.program?.name || 'Infaq Umum'}</td>
-                      <td className="py-3 px-4 font-mono font-bold text-[#2F7D4F]">
-                        Rp {d.amountRupiah.toLocaleString('id-ID')}
-                      </td>
-                      <td className="py-3 px-4 capitalize text-[#6B7A72]">{d.paymentMethod}</td>
-                      <td className="py-3 px-4">
-                        {d.verificationStatus === 'verified' ? (
-                          <span className="inline-flex px-2 py-0.5 rounded text-[9.5px] font-mono font-bold bg-[#2F7D4F]/10 text-[#2F7D4F] border border-[#2F7D4F]/25">
-                            Sah Terverifikasi
-                          </span>
-                        ) : (
-                          <span className="inline-flex px-2 py-0.5 rounded text-[9.5px] font-mono font-bold bg-[#B58B3C]/15 text-[#8E6B22] border border-[#B58B3C]/30">
-                            Review Finance
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
+                  empty('Belum ada aktivitas pada pilihan ini.')
                 )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Tab 6: Waqf */}
-      {activeTab === 'waqf' && (
-        <div className="bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/12 shadow-2xs p-6 space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-[#1B4332]/8">
-            <h2 className="text-xs font-mono font-bold text-[#14352A] uppercase tracking-wider">
-              Amanah Kasus Wakaf Aset
-            </h2>
-            <Link to="/waqf" className="text-xs text-[#0F4C4A] font-bold hover:underline flex items-center gap-1">
-              Buka Pipeline Wakaf &rarr;
-            </Link>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {data.waqfCases.length === 0 ? (
-              <p className="text-xs text-[#6B7A72] py-8 text-center col-span-2">Tidak ada kasus wakaf yang terkait dengan profil ini.</p>
-            ) : (
-              data.waqfCases.map((w) => (
-                <div key={w.id} className="p-4 rounded-xl border border-[#1B4332]/10 bg-white space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="px-2 py-0.5 rounded text-[9.5px] font-mono font-bold uppercase bg-[#0F4C4A]/10 text-[#0F4C4A] border border-[#0F4C4A]/25">
-                      Wakaf {w.waqfType}
-                    </span>
-                    <span className="text-xs font-bold text-[#14352A] capitalize bg-[#F2EEE4] px-2 py-0.5 rounded border border-[#1B4332]/10">
-                      Tahap: {w.currentStage}
-                    </span>
-                  </div>
-                  {w.estimatedValueRupiah && (
-                    <p className="text-xs text-[#6B7A72]">
-                      Estimasi Nilai: <strong className="text-[#1C2321] font-mono font-bold">Rp {w.estimatedValueRupiah.toLocaleString('id-ID')}</strong>
-                    </p>
-                  )}
-                  {w.notesSummary && <p className="text-xs text-[#6B7A72]">{w.notesSummary}</p>}
-                </div>
-              ))
+              </>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* Tab 7: Sensitive Notes */}
-      {activeTab === 'sensitive' && (
-        <div className="bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/12 shadow-2xs p-6 space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-[#1B4332]/8">
-            <div className="flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 text-rose-600" />
-              <h2 className="text-xs font-mono font-bold text-[#14352A] uppercase tracking-wider">
-                Catatan Khusus Terkendali (Sensitive Notes)
-              </h2>
-            </div>
-          </div>
-
-          <div className="p-3 bg-[#F2EEE4] border border-[#1B4332]/10 rounded-xl text-xs text-[#3D4A44]">
-            Catatan ini hanya dapat diakses oleh CRM Admin, Data Steward, dan Pimpinan Yayasan demi menjaga amanah privasi data jamaah.
-          </div>
-
-          <div className="divide-y divide-[#1B4332]/8">
-            {data.sensitiveNotes.length === 0 ? (
-              <p className="text-xs text-[#6B7A72] py-6 text-center">Tidak ada catatan sensitif pada profil ini.</p>
-            ) : (
-              data.sensitiveNotes.map((sn) => (
-                <div key={sn.id} className="py-3 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold uppercase bg-rose-50 text-rose-700 border border-rose-200">
-                      Tingkat: {sn.sensitivityLevel}
-                    </span>
-                    <span className="text-[11px] font-mono text-[#8A9690]">
-                      {new Date(sn.createdAt).toLocaleDateString('id-ID')}
-                    </span>
-                  </div>
-                  <p className="text-xs font-bold text-[#1C2321]">{sn.noteText}</p>
-                  <p className="text-[11px] text-[#6B7A72]">Alasan: {sn.reason} • Dicatat: {sn.creator?.fullName}</p>
+            {activeTab === 'events' && (
+              <>
+                {sectionHeading('Pendaftaran & kehadiran')}
+                <div className="person-record-list">
+                  {data.attendances.map((attendance) => (
+                    <article className="person-record" key={attendance.id}>
+                      <span className="person-record-icon">
+                        <CalendarDays />
+                      </span>
+                      <div>
+                        <h3>{attendance.event.title}</h3>
+                        <p>
+                          {formatDate(attendance.event.startAt, true)} ·{' '}
+                          {attendance.event.speaker}
+                        </p>
+                        <div className="person-record-meta">
+                          {badge(attendance.status)}
+                          {attendance.status === 'attended' && (
+                            <span>
+                              Presensi {formatDate(attendance.checkInAt, true)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="person-record-actions">
+                          {can(PERMISSIONS.EVENTS_VIEW) && (
+                            <Link
+                              className="people-inline-link"
+                              to={eventPanelLink(attendance.event.id)}
+                            >
+                              Buka event
+                              <ArrowRight />
+                            </Link>
+                          )}
+                          {attendance.status === 'attended' && (
+                            <button
+                              className="people-inline-link"
+                              onClick={() =>
+                                setCertificate({
+                                  eventTitle: attendance.event.title,
+                                  speaker: attendance.event.speaker,
+                                  dateStr: attendance.event.startAt,
+                                  ticketCode:
+                                    attendance.ticketCode || attendance.id,
+                                })
+                              }
+                            >
+                              <Award />
+                              Sertifikat
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                  {data.routineAttendance?.map((attendance) => (
+                    <article
+                      key={`r-${attendance.id}`}
+                      className="person-record"
+                    >
+                      <span className="person-record-icon">
+                        <CalendarDays />
+                      </span>
+                      <div>
+                        <h3>{attendance.seriesTitle}</h3>
+                        <p>
+                          {formatDate(attendance.startAt, true)} · Kajian rutin
+                        </p>
+                        <div className="person-record-meta">
+                          {badge(attendance.status)}
+                          {attendance.speaker && (
+                            <span>{attendance.speaker}</span>
+                          )}
+                        </div>
+                        {can(PERMISSIONS.EVENTS_VIEW) && (
+                          <div className="person-record-actions">
+                            <Link
+                              to="/kajian-rutin"
+                              className="people-inline-link"
+                            >
+                              Kelola kajian rutin
+                              <ArrowRight />
+                            </Link>
+                          </div>
+                        )}
+                      </div>
+                    </article>
+                  ))}
                 </div>
-              ))
+                {!data.attendances.length &&
+                  !data.routineAttendance?.length &&
+                  empty('Belum ada pendaftaran atau kehadiran.')}
+              </>
             )}
-          </div>
+            {activeTab === 'interactions' && (
+              <>
+                {sectionHeading(
+                  'Interaksi',
+                  moduleLink('/interactions', 'Semua interaksi'),
+                )}
+                {data.interactions.length ? (
+                  <div className="person-record-list">
+                    {data.interactions.map((item) => (
+                      <article key={item.id} className="person-record">
+                        <span className="person-record-icon">
+                          <MessageSquare />
+                        </span>
+                        <div>
+                          <h3>
+                            {CHANNEL_LABELS[item.channel] || item.channel}
+                          </h3>
+                          <p>{item.summary}</p>
+                          <div className="person-record-meta">
+                            <time>{formatDate(item.occurredAt, true)}</time>
+                            <span>{item.creator?.fullName}</span>
+                            {item.sensitivityLevel !== 'standard' &&
+                              badge('waiting', 'Terbatas')}
+                          </div>
+                          {item.outcome && (
+                            <p>{item.outcome.replaceAll('_', ' ')}</p>
+                          )}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  empty('Belum ada interaksi yang dapat ditampilkan.')
+                )}
+              </>
+            )}
+            {activeTab === 'tasks' && (
+              <>
+                {sectionHeading(
+                  'Tugas & tindak lanjut',
+                  moduleLink('/tasks', 'Semua tugas'),
+                )}
+                {data.tasks.length ? (
+                  <div className="person-record-list">
+                    {data.tasks.map((task) => (
+                      <article key={task.id} className="person-record">
+                        <span className="person-record-icon">
+                          <CheckSquare />
+                        </span>
+                        <div>
+                          <h3>{task.title}</h3>
+                          <p>
+                            {task.assignee?.fullName || 'Belum ada PIC'} ·{' '}
+                            {formatDate(task.dueAt, true)}
+                          </p>
+                          <div className="person-record-meta">
+                            {badge(task.status)}
+                            {OPEN_TASK_STATUSES.includes(task.status) &&
+                              Date.parse(task.dueAt) < Date.now() &&
+                              badge('waiting', 'Terlambat')}
+                          </div>
+                          {(can(PERMISSIONS.TASKS_UPDATE_OWN) ||
+                            can(PERMISSIONS.TASKS_MANAGE_OWN)) &&
+                            (can(PERMISSIONS.TASKS_VIEW_ALL) ||
+                              task.assignee?.id === identity?.id) &&
+                            task.status !== 'cancelled' && (
+                              <div className="person-record-actions">
+                                <button
+                                  className="people-button is-small"
+                                  disabled={taskBusy === task.id}
+                                  onClick={() =>
+                                    void toggleTask(task.id, task.status)
+                                  }
+                                >
+                                  {taskBusy === task.id ? (
+                                    <Loader2 className="animate-spin" />
+                                  ) : (
+                                    <Check />
+                                  )}
+                                  {task.status === 'completed'
+                                    ? 'Buka kembali'
+                                    : 'Tandai selesai'}
+                                </button>
+                              </div>
+                            )}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  empty('Belum ada tugas pada daftar ini.')
+                )}
+              </>
+            )}
+            {activeTab === 'donations' && (
+              <>
+                {sectionHeading(
+                  'Riwayat donasi',
+                  moduleLink('/donations', 'Semua donasi'),
+                )}
+                {data.donations.length ? (
+                  <div className="person-record-list">
+                    {data.donations.map((donation) => (
+                      <article key={donation.id} className="person-record">
+                        <span className="person-record-icon">
+                          <HeartHandshake />
+                        </span>
+                        <div>
+                          <h3 className="person-record-amount">
+                            {formatMoney(donation.amountRupiah)}
+                          </h3>
+                          <p>
+                            {donation.program?.name || 'Donasi umum'} ·{' '}
+                            {formatDate(donation.donationDate)}
+                          </p>
+                          <div className="person-record-meta">
+                            {badge(donation.verificationStatus)}
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  empty('Belum ada donasi yang dapat ditampilkan.')
+                )}
+              </>
+            )}
+            {activeTab === 'waqf' && (
+              <>
+                {sectionHeading(
+                  'Kasus wakaf',
+                  moduleLink('/waqf', 'Semua kasus'),
+                )}
+                {data.waqfCases.length ? (
+                  <div className="person-record-list">
+                    {data.waqfCases.map((item) => (
+                      <article key={item.id} className="person-record">
+                        <span className="person-record-icon">
+                          <Landmark />
+                        </span>
+                        <div>
+                          <h3>Wakaf {item.waqfType.replaceAll('_', ' ')}</h3>
+                          <p>{item.notesSummary}</p>
+                          <div className="person-record-meta">
+                            {badge(
+                              item.currentStage,
+                              WAQF_LABELS[item.currentStage],
+                            )}
+                            <span>{formatDate(item.openedAt)}</span>
+                          </div>
+                          {item.estimatedValueRupiah !== null &&
+                            item.estimatedValueRupiah !== undefined && (
+                              <p>{formatMoney(item.estimatedValueRupiah)}</p>
+                            )}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  empty('Belum ada kasus wakaf.')
+                )}
+              </>
+            )}
+            {activeTab === 'sensitive' && (
+              <>
+                {sectionHeading(
+                  'Catatan khusus',
+                  can(PERMISSIONS.SENSITIVE_NOTES_CREATE) && (
+                    <button
+                      className="people-button is-small"
+                      onClick={() => setNoteOpen(true)}
+                    >
+                      <Plus />
+                      Tambah catatan
+                    </button>
+                  ),
+                )}
+                {data.sensitiveNotes.length ? (
+                  <div className="person-record-list">
+                    {data.sensitiveNotes.map((note) => (
+                      <article key={note.id} className="person-record">
+                        <span className="person-record-icon">
+                          <ShieldCheck />
+                        </span>
+                        <div>
+                          <h3>
+                            {note.sensitivityLevel === 'restricted'
+                              ? 'Terbatas'
+                              : 'Catatan khusus'}
+                          </h3>
+                          <p>{note.noteText}</p>
+                          <p>Alasan: {note.reason}</p>
+                          <div className="person-record-meta">
+                            <span>{note.creator?.fullName}</span>
+                            <time>{formatDate(note.createdAt, true)}</time>
+                            {note.expiresAt && (
+                              <span>
+                                Berlaku sampai {formatDate(note.expiresAt)}
+                              </span>
+                            )}
+                          </div>
+                          {can(PERMISSIONS.SENSITIVE_NOTES_DELETE) && (
+                            <div className="person-record-actions">
+                              <button
+                                className="people-inline-link"
+                                onClick={() => setNoteToArchive(note.id)}
+                              >
+                                <Archive />
+                                Arsipkan catatan
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  empty('Belum ada catatan yang dapat ditampilkan.')
+                )}
+              </>
+            )}
+          </section>
         </div>
-      )}
-
-      {/* EDIT MODAL */}
+      </div>
       <PersonFormModal
-        isOpen={editModalOpen}
-        onClose={() => setEditModalOpen(false)}
-        onSuccess={loadData}
+        isOpen={edit}
         initialData={data}
+        onClose={() => setEdit(false)}
+        onSuccess={() => void refresh()}
       />
-
-      {/* ADD INTERACTION MODAL */}
       <AddInteractionModal
-        isOpen={interactionModalOpen}
-        onClose={() => setInteractionModalOpen(false)}
-        onSuccess={loadData}
-        personId={data.id}
+        isOpen={interaction}
+        personId={id}
         personName={data.fullName}
+        onClose={() => setInteraction(false)}
+        onSuccess={() => void refresh()}
       />
-
-      {/* E-CERTIFICATE MODAL */}
-      {certModalData && (
+      <SensitiveNoteModal
+        open={noteOpen}
+        personId={id}
+        onClose={() => setNoteOpen(false)}
+        onSuccess={() => void refresh()}
+      />
+      <PeopleDialog
+        open={archiveOpen}
+        title="Arsipkan jamaah?"
+        onClose={() => setArchiveOpen(false)}
+        busy={busy}
+      >
+        <div className="people-form-body">
+          <p className="text-sm">
+            Riwayat {data.fullName} tetap tersimpan. Profil dapat dipulihkan
+            dari daftar Arsip.
+          </p>
+        </div>
+        <footer className="people-form-footer">
+          <button
+            className="people-button"
+            disabled={busy}
+            onClick={() => setArchiveOpen(false)}
+          >
+            Batal
+          </button>
+          <button
+            className="people-button is-primary"
+            disabled={busy}
+            onClick={() => void archive()}
+          >
+            <Archive />
+            Arsipkan
+          </button>
+        </footer>
+      </PeopleDialog>
+      <PeopleDialog
+        open={Boolean(noteToArchive)}
+        title="Arsipkan catatan khusus?"
+        onClose={() => setNoteToArchive(null)}
+        busy={busy}
+      >
+        <div className="people-form-body">
+          <p className="text-sm">
+            Catatan tidak lagi ditampilkan pada profil. Jejak audit tetap
+            tersimpan.
+          </p>
+        </div>
+        <footer className="people-form-footer">
+          <button
+            className="people-button"
+            disabled={busy}
+            onClick={() => setNoteToArchive(null)}
+          >
+            Batal
+          </button>
+          <button
+            className="people-button is-primary"
+            disabled={busy}
+            onClick={() => void archiveNote()}
+          >
+            Arsipkan
+          </button>
+        </footer>
+      </PeopleDialog>
+      {certificate && (
         <ECertificateModal
-          isOpen={true}
-          onClose={() => setCertModalData(null)}
+          isOpen
+          onClose={() => setCertificate(null)}
           attendeeName={data.fullName}
-          eventTitle={certModalData.eventTitle}
-          speaker={certModalData.speaker}
-          dateStr={certModalData.dateStr}
-          ticketCode={certModalData.ticketCode}
+          {...certificate}
         />
       )}
-
-      {/* DELETE CONFIRMATION DIALOG */}
-      <ConfirmDialog
-        isOpen={isDeleteDialogOpen}
-        title="Hapus Data Jamaah"
-        message={
-          <div className="space-y-2 text-xs">
-            <p>
-              Apakah Anda yakin ingin menghapus data jamaah{' '}
-              <strong className="text-[#1C2321] font-bold">{data.fullName}</strong>{' '}
-              ({data.phoneE164 || data.email || 'Tanpa Kontak'})?
-            </p>
-            <p className="text-[11px] text-rose-800 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
-              ⚠️ Tindakan ini bersifat permanen. Seluruh riwayat presensi kajian, catatan interaksi, dan data terkait jamaah ini akan dihapus dari sistem.
-            </p>
-          </div>
-        }
-        confirmLabel="Ya, Hapus Permanen"
-        cancelLabel="Batal"
-        variant="danger"
-        loading={deleteLoading}
-        onConfirm={handleDeletePerson}
-        onClose={() => setIsDeleteDialogOpen(false)}
-      />
     </div>
   );
 };

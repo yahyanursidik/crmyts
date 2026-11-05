@@ -38,7 +38,7 @@ describe('Tasks & Visitation Assignment with WhatsApp Template (M07)', () => {
       id: `task-status-${index}`, title: 'Tindak lanjut', status, priority: 'medium',
       dueAt: new Date('2020-01-01T00:00:00Z'), description: '', person: null, owner: null,
     }));
-    vi.spyOn(client, 'getDb').mockReturnValue({ query: { tasks: { findMany: vi.fn().mockResolvedValue(items) } } } as any);
+    vi.spyOn(client, 'getDb').mockReturnValue({ query: { tasks: { findMany: vi.fn().mockResolvedValue(items) } }, select: vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([{ count: items.length }]) }) }) } as any);
     const res = await router.handle({ requestId: 'task-status-test', method: 'GET', path: '/api/tasks', headers: {}, query: {}, params: {}, body: {}, user: csUser });
     expect(res.statusCode).toBe(200);
     const data = JSON.parse(res.body).data;
@@ -47,6 +47,7 @@ describe('Tasks & Visitation Assignment with WhatsApp Template (M07)', () => {
 
   it('1. GET /api/tasks generates WhatsApp visitation message with required wording', async () => {
     const mockDb = {
+      select: vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([{ count: 1 }]) }) }),
       query: {
         tasks: {
           findMany: vi.fn().mockResolvedValue([
@@ -80,6 +81,7 @@ describe('Tasks & Visitation Assignment with WhatsApp Template (M07)', () => {
     expect(res.statusCode).toBe(200);
     const json = JSON.parse(res.body);
     expect(json.data.length).toBe(1);
+    expect(json.meta.pagination.totalCount).toBe(1);
     const task = json.data[0];
     
     expect(task.taskType).toBe('kunjungan');
