@@ -15,6 +15,7 @@ import {
   eventAttendance, 
   auditLogs,
   kajianRutinAttendance,
+  bazaarTenants,
 } from '../../db/schema';
 import { eq, and, isNull, desc, lte, sql } from 'drizzle-orm';
 import { PERMISSIONS } from '../../permissions/constants';
@@ -404,6 +405,7 @@ export function registerDataQualityRoutes(router: Router) {
       }
 
       // 1. Reassign all interactions
+      await tx.update(bazaarTenants).set({personId:primaryPersonId}).where(eq(bazaarTenants.personId,secondaryPersonId));
       await tx
         .update(interactions)
         .set({ personId: primaryPersonId })

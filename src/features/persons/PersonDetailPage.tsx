@@ -15,6 +15,7 @@ import {
   ArrowRight,
   Award,
   CalendarDays,
+  Users,
   Check,
   CheckSquare,
   Edit3,
@@ -103,6 +104,7 @@ export const PersonDetailPage = () => {
   const tabs = [
     { key: 'timeline', label: 'Linimasa', allowed: true },
     { key: 'events', label: 'Kehadiran', allowed: true },
+    { key: 'bazaar', label: 'Usaha & bazar', allowed: can(PERMISSIONS.EVENTS_VIEW) },
     {
       key: 'interactions',
       label: 'Interaksi',
@@ -570,7 +572,7 @@ export const PersonDetailPage = () => {
                     { key: 'all', label: 'Semua' },
                     ...tabs
                       .filter(
-                        (tab) => !['timeline', 'sensitive'].includes(tab.key),
+                        (tab) => !['timeline', 'sensitive', 'bazaar'].includes(tab.key),
                       )
                       .map((tab) => ({
                         key: (
@@ -728,6 +730,7 @@ export const PersonDetailPage = () => {
                   empty('Belum ada pendaftaran atau kehadiran.')}
               </>
             )}
+            {activeTab === 'bazaar' && <>{sectionHeading('Usaha & bazar')}{data.bazaarProfiles?.length?<div className="person-record-list">{data.bazaarProfiles.map(tenant=><article className="person-record" key={tenant.id}><span className="person-record-icon"><Users/></span><div><h3>{tenant.brandName}</h3><p>{tenant.applications.length} pendaftaran bazar</p><div className="person-record-actions"><Link className="people-inline-link" to={'/bazaar?tab=tenants&tenantId='+tenant.id}>Profil usaha<ArrowRight/></Link>{tenant.applications.map(app=><Link className="people-inline-link" key={app.id} to={'/bazaar?eventId='+app.bazaar?.eventId+'&panel=applications'}>{app.bazaar?.title||'Bazar'}{app.assignedBooth?' · '+app.assignedBooth.code:''}<ArrowRight/></Link>)}</div></div></article>)}</div>:empty('Belum ada usaha yang terhubung.')}</>}
             {activeTab === 'interactions' && (
               <>
                 {sectionHeading(

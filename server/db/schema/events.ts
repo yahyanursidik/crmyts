@@ -237,6 +237,7 @@ export const bazaarEvents = pgTable(
     defaultFeeRupiah: integer('default_fee_rupiah').default(0).notNull(),
     
     // Bank Payment Info
+    paymentEnabled: boolean('payment_enabled').default(false).notNull(),
     bankName: text('bank_name'),
     bankAccountNumber: text('bank_account_number'),
     bankAccountName: text('bank_account_name'),

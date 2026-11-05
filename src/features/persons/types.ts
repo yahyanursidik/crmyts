@@ -44,6 +44,7 @@ export interface PersonDetailData {
     source: string;
     status: string;
   }>;
+  bazaarProfiles?: Array<{id:string;brandName:string;businessCategory:string;applications:Array<{id:string;status:string;checkedInAt?:string|null;bazaar?:{eventId:string;title:string};assignedBooth?:{code:string}|null}>}>;
   interactions: Array<{
     id: string;
     channel: string;

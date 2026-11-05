@@ -1,6 +1,23 @@
 [
   {
     "date": "2026-11-05",
+    "macrostructure": "Workbench / event bazaar, tenant directory and import",
+    "theme": "tarbiyah-official-logo",
+    "enrichment": "none",
+    "scope": "Bazaar / tenant, booth, payment, operations and evaluation",
+    "brief": "Connected tenant and Jamaah profiles, private receipts, atomic booth allocation and concise mobile operations",
+    "visualVerification": "Staging desktop and 320 / 375 / 414 / 768 px without document horizontal overflow; nested Escape/focus, booth generation, settings without bank, WIB deadlines, tenant profile/Jamaah links, quoted CSV preview, private status and survey verified",
+    "critique": {
+      "philosophy": 4,
+      "hierarchy": 4,
+      "execution": 4,
+      "specificity": 5,
+      "restraint": 4,
+      "variety": 4
+    }
+  },
+  {
+    "date": "2026-11-05",
     "macrostructure": "Workbench / routine directory and session panels",
     "theme": "tarbiyah-official-logo",
     "enrichment": "none",

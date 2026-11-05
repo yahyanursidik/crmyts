@@ -24,6 +24,7 @@ import {
   kajianRutinAttendance,
   kajianRutinSessions,
   kajianRutinSeries,
+  bazaarTenants,
 } from '../../db/schema';
 import {
   eq,
@@ -574,6 +575,7 @@ export function registerPersonsRoutes(router: Router) {
         hasPermission(roles, PERMISSIONS.DONATIONS_VIEW_DETAIL) ||
         hasPermission(roles, PERMISSIONS.DONATIONS_VIEW_UNVERIFIED);
       const canWaqf = hasPermission(roles, PERMISSIONS.WAQF_VIEW_DETAIL);
+      const canBazaar = hasPermission(roles, PERMISSIONS.EVENTS_VIEW);
 
       const person = await db.query.persons.findFirst({
         where: eq(persons.id, personId),
@@ -881,9 +883,11 @@ export function registerPersonsRoutes(router: Router) {
         (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
       );
 
+      const bazaarProfiles = canBazaar ? await db.query.bazaarTenants.findMany({where:eq(bazaarTenants.personId,personId),columns:{id:true,brandName:true,businessCategory:true},with:{applications:{columns:{id:true,status:true,checkedInAt:true},with:{bazaar:{columns:{eventId:true,title:true}},assignedBooth:{columns:{code:true}}}}}}) : [];
       return successResponse(
         {
           ...person,
+          bazaarProfiles,
           roles: person.roles.map((r) => r.roleCode),
           tags: person.tags.map((t) => ({
             id: t.tag.id,

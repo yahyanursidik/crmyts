@@ -1,5 +1,8 @@
+import { bazaarPaymentConfirmed } from '@/lib/bazaarPolicy';
+import { saveBazaarReceipt, loadBazaarReceipt, readBazaarAccessToken, downloadBazaarReceipt, bazaarReceiptUrl } from '@/lib/bazaarAccess';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router';
+import '../bazaar/bazaar.css';
 import { apiClient } from '@/lib/apiClient';
 import {
   Store,
@@ -74,6 +77,7 @@ export interface PublicBazaarResponse {
     isOpen: boolean;
     rulesAndTerms?: string | null;
     defaultFeeRupiah: number;
+    paymentConfigured?: boolean;
     bankName?: string | null;
     bankAccountNumber?: string | null;
     bankAccountName?: string | null;
@@ -125,6 +129,7 @@ export interface ApplicationStatusData {
     id: string;
     title: string;
     defaultFeeRupiah: number;
+    paymentConfigured?: boolean;
     bankName?: string | null;
     bankAccountNumber?: string | null;
     bankAccountName?: string | null;
@@ -196,8 +201,8 @@ export const BazaarPortalPage: React.FC = () => {
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('ALL');
 
   // Self-Service Status Tracker State
-  const [statusSearchPhone, setStatusSearchPhone] = useState('');
-  const [statusSearchAppId, setStatusSearchAppId] = useState('');
+  const [statusSearchAppId, setStatusSearchAppId] = useState(()=>id?loadBazaarReceipt(id):'');
+  useEffect(()=>{setStatusSearchAppId(id?loadBazaarReceipt(id):'');},[id]);
   const [statusLoading, setStatusLoading] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [statusResult, setStatusResult] = useState<ApplicationStatusData | null>(null);
@@ -223,14 +228,13 @@ export const BazaarPortalPage: React.FC = () => {
 
   useEffect(() => {
     const tabParam = searchParams.get('tab');
-    if (tabParam === 'status') {
+    if (tabParam === 'status' || window.location.pathname.endsWith('/status')) {
       setActiveTab('status');
     } else {
       setActiveTab('form');
     }
     const phoneParam = searchParams.get('phone');
     if (phoneParam) {
-      setStatusSearchPhone(phoneParam);
     }
   }, [searchParams]);
 
@@ -274,8 +278,8 @@ export const BazaarPortalPage: React.FC = () => {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        showToast('Ukuran file bukti transfer maksimal 5MB');
+      if (file.size > 4 * 1024 * 1024) {
+        showToast('Ukuran file bukti transfer maksimal 4MB');
         return;
       }
       const reader = new FileReader();
@@ -290,8 +294,8 @@ export const BazaarPortalPage: React.FC = () => {
   const handleProofFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        showToast('Ukuran file bukti transfer maksimal 5MB');
+      if (file.size > 4 * 1024 * 1024) {
+        showToast('Ukuran file bukti transfer maksimal 4MB');
         return;
       }
       const reader = new FileReader();
@@ -363,6 +367,7 @@ export const BazaarPortalPage: React.FC = () => {
       });
 
       setRegisteredSuccess(res.data);
+      if(res.data?.accessToken&&id){saveBazaarReceipt(id,res.data.accessToken);if(res.data.eventId)saveBazaarReceipt(res.data.eventId,res.data.accessToken);setStatusSearchAppId(res.data.accessToken);}
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err: any) {
       showToast(err.message || 'Pendaftaran tenant gagal diproses.');
@@ -450,23 +455,12 @@ export const BazaarPortalPage: React.FC = () => {
   // Self-service Status Tracker
   const handleCheckStatus = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!statusSearchPhone && !statusSearchAppId) {
-      showToast('Masukkan Nomor WhatsApp PIC atau ID Pendaftaran.');
-      return;
-    }
-
+    const access=statusSearchAppId.trim() || (id?loadBazaarReceipt(id):'');
+    if(!readBazaarAccessToken(access)){setStatusError('Masukkan kode akses pribadi dari bukti pendaftaran. Jika hilang, hubungi panitia.');return;}
     try {
-      setStatusLoading(true);
-      setStatusError(null);
-      setStatusResult(null);
-
-      const params = new URLSearchParams();
-      if (statusSearchPhone) params.set('phone', statusSearchPhone);
-      if (statusSearchAppId) params.set('appId', statusSearchAppId);
-
-      const res = await apiClient<ApplicationStatusData>(
-        `/public/events/${id}/bazaar/check-status?${params.toString()}`
-      );
+      setStatusLoading(true);setStatusError(null);setStatusResult(null);
+      const res=await apiClient<ApplicationStatusData>(`/public/events/${id}/bazaar/check-status`,{headers:{Authorization:'Bearer '+access}});
+      if(id)saveBazaarReceipt(id,access);
       setStatusResult(res.data);
     } catch (err: any) {
       setStatusError(err.message || 'Pendaftaran tidak ditemukan. Pastikan data pencarian sesuai.');
@@ -486,6 +480,7 @@ export const BazaarPortalPage: React.FC = () => {
       setUploadingProof(true);
       const res = await apiClient<any>(`/public/events/${id}/bazaar/upload-proof`, {
         method: 'POST',
+        headers:{Authorization:'Bearer '+statusSearchAppId.trim()},
         body: JSON.stringify({
           applicationId: statusResult.application.id,
           phone: statusResult.tenant.picPhone,
@@ -698,9 +693,9 @@ export const BazaarPortalPage: React.FC = () => {
 
   const { event, bazaar } = data;
   const isExpired = bazaar.registrationDeadline && new Date() > new Date(bazaar.registrationDeadline);
-  const defaultBankAcc = bazaar.bankAccountNumber || '7770147608';
-  const defaultBankName = bazaar.bankName || 'Bank Syariah Indonesia (BSI)';
-  const defaultBankHolder = bazaar.bankAccountName || 'Tarbiyah Sunnah/ Bisnis';
+  const defaultBankAcc = bazaar.bankAccountNumber || '';
+  const defaultBankName = bazaar.bankName || '';
+  const defaultBankHolder = bazaar.bankAccountName || '';
 
   const totalBooths = bazaar.booths?.length || 0;
   const availableBoothsCount = bazaar.booths?.filter((b) => b.status === 'available').length || 0;
@@ -925,7 +920,8 @@ export const BazaarPortalPage: React.FC = () => {
                 </div>
 
                 <div className="p-4 bg-[#F2EEE4] rounded-2xl border border-[#1B4332]/10 max-w-md mx-auto text-left text-xs space-y-2.5">
-                  <div className="flex justify-between border-b border-[#1B4332]/8 pb-2">
+                  {registeredSuccess.accessToken&&<div className="rounded-xl border p-4 space-y-3"><p className="text-xs font-semibold">Simpan kode pribadi untuk memantau status, mengunggah pembayaran, dan mengisi survei.</p><div className="flex flex-wrap gap-2"><button type="button" className="bz-button bz-primary" onClick={()=>downloadBazaarReceipt(event.id,registeredSuccess.accessToken,registeredSuccess.tenant?.brandName||'Tenant')}>Unduh bukti & kode</button><a className="bz-button" href={bazaarReceiptUrl(event.id,registeredSuccess.accessToken)}>Buka status</a></div></div>}
+                <div className="flex justify-between border-b border-[#1B4332]/8 pb-2">
                     <span className="text-[#6B7A72]">ID Pendaftaran:</span>
                     <span className="font-mono font-bold text-[#14352A]">{registeredSuccess.application?.id}</span>
                   </div>
@@ -978,7 +974,7 @@ export const BazaarPortalPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      setStatusSearchPhone(formData.picPhone);
+
                       setActiveTab('status');
                       handleCheckStatus();
                     }}
@@ -1535,7 +1531,7 @@ export const BazaarPortalPage: React.FC = () => {
                       <div className="flex items-center justify-between">
                         <div>
                           <span className="text-[10px] font-mono font-bold text-[#6B7A72] uppercase block">
-                            Rekening Infaq Resmi
+                            {bazaar.paymentConfigured?'Rekening infaq':'Pembayaran belum dibuka'}
                           </span>
                           <span className="text-xs font-bold text-[#14352A] font-display">{defaultBankName}</span>
                         </div>
@@ -1547,13 +1543,13 @@ export const BazaarPortalPage: React.FC = () => {
                       <div className="flex items-center justify-between p-3 bg-[#FBF9F4] rounded-xl border border-[#1B4332]/10">
                         <div>
                           <div className="text-base sm:text-lg font-bold font-mono text-[#14352A] tracking-wider">
-                            {defaultBankAcc}
+                            {defaultBankAcc || 'Tunggu informasi panitia'}
                           </div>
                           <div className="text-[10.5px] text-[#6B7A72]">a.n. {defaultBankHolder}</div>
                         </div>
                         <button
                           type="button"
-                          onClick={() => handleCopyAccount(defaultBankAcc)}
+                          disabled={!bazaar.paymentConfigured} onClick={() => handleCopyAccount(defaultBankAcc)}
                           className="px-3 py-1.5 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs active:scale-95"
                         >
                           {copiedBank ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5 text-[#E0B970]" />}
@@ -1581,7 +1577,7 @@ export const BazaarPortalPage: React.FC = () => {
                         <input
                           type="file"
                           accept="image/*,.pdf"
-                          onChange={handleFileChange}
+                          disabled={!data?.bazaar.paymentConfigured} onChange={handleFileChange}
                           className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                         />
                         <Upload className="w-6 h-6 text-[#8A9690] mx-auto mb-1.5" />
@@ -1590,7 +1586,7 @@ export const BazaarPortalPage: React.FC = () => {
                             ? '✓ File Bukti Transfer Terpilih (Klik untuk ganti)'
                             : 'Klik untuk Pilih Foto / Screenshot Bukti Transfer'}
                         </span>
-                        <span className="text-[10.5px] text-[#6B7A72]">Format JPG, PNG, atau PDF (Maksimal 5MB)</span>
+                        <span className="text-[10.5px] text-[#6B7A72]">Format JPG, PNG, atau PDF (Maksimal 4MB)</span>
                       </div>
                     </div>
                   </div>
@@ -1691,36 +1687,14 @@ export const BazaarPortalPage: React.FC = () => {
                     Pengecekan Status Pendaftaran Tenant Mandiri
                   </h3>
                   <p className="text-[11px] text-[#6B7A72]">
-                    Masukkan Nomor WhatsApp PIC atau ID Pendaftaran untuk melacak kurasi &amp; nomor stand
+                    Gunakan kode pribadi dari bukti pendaftaran. Kode yang hilang dapat dibantu panitia.
                   </p>
                 </div>
               </div>
 
               <form onSubmit={handleCheckStatus} className="space-y-3 text-xs">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="font-semibold text-[#1C2321]">Nomor WhatsApp PIC:</label>
-                    <input
-                      type="tel"
-                      value={statusSearchPhone}
-                      onChange={(e) => setStatusSearchPhone(e.target.value)}
-                      placeholder="Contoh: 081234567890"
-                      className="w-full px-3.5 py-2.5 bg-[#F2EEE4] border border-[#1B4332]/14 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-[#1B4332]"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="font-semibold text-[#1C2321]">Atau ID Pendaftaran (Opsional):</label>
-                    <input
-                      type="text"
-                      value={statusSearchAppId}
-                      onChange={(e) => setStatusSearchAppId(e.target.value)}
-                      placeholder="UUID pendaftaran..."
-                      className="w-full px-3.5 py-2.5 bg-[#F2EEE4] border border-[#1B4332]/14 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-[#1B4332]"
-                    />
-                  </div>
-                </div>
-
+                <label className="block font-semibold" htmlFor="bazaar-access-code">Kode akses pribadi</label>
+                <textarea id="bazaar-access-code" value={statusSearchAppId} onChange={e=>{setStatusSearchAppId(e.target.value);setStatusResult(null);}} rows={3} className="w-full min-w-0 rounded-xl border p-3 font-mono text-xs" placeholder="Tempel kode dari bukti pendaftaran" autoComplete="off"/>
                 <button
                   type="submit"
                   disabled={statusLoading}
@@ -1785,19 +1759,19 @@ export const BazaarPortalPage: React.FC = () => {
                       {
                         key: 'under_review',
                         label: '2. Kurasi',
-                        active: ['under_review', 'accepted', 'payment_pending', 'payment_verification', 'payment_verified', 'booth_assigned', 'completed'].includes(
+                        active: ['under_review', 'accepted', 'payment_pending', 'payment_verification', 'payment_verified', 'booth_assigned', 'checked_in', 'completed'].includes(
                           statusResult.application?.status || ''
                         ),
                       },
                       {
                         key: 'payment_verified',
                         label: '3. Infaq Lunas',
-                        active: ['payment_verified', 'booth_assigned', 'completed'].includes(statusResult.application?.status || ''),
+                        active: bazaarPaymentConfirmed(statusResult.application),
                       },
                       {
                         key: 'booth_assigned',
                         label: '4. Stand Plot',
-                        active: ['booth_assigned', 'completed'].includes(statusResult.application?.status || ''),
+                        active: ['booth_assigned', 'checked_in', 'completed'].includes(statusResult.application?.status || ''),
                       },
                       {
                         key: 'completed',
@@ -1844,7 +1818,7 @@ export const BazaarPortalPage: React.FC = () => {
                         Ukuran: <strong>{statusResult.assignedBooth.size || '2x2 meter'}</strong>
                       </div>
                       <div>
-                        Infaq Stand: <strong>{formatRupiah(statusResult.assignedBooth.priceRupiah)}</strong>
+                        Infaq Stand: <strong>{formatRupiah(statusResult.application.infaqAmountRupiah)}</strong>
                       </div>
                     </div>
                   </div>
@@ -1870,22 +1844,23 @@ export const BazaarPortalPage: React.FC = () => {
                   </div>
                 )}
 
+                {['accepted','payment_pending','payment_verification'].includes(statusResult.application.status)&&statusResult.application.infaqAmountRupiah>0&&<div className="rounded-xl border p-4 text-xs space-y-2">{statusResult.bazaar.paymentConfigured?<><p className="font-semibold">{statusResult.bazaar.bankName} · {statusResult.bazaar.bankAccountName}</p><p className="font-mono">{statusResult.bazaar.bankAccountNumber}</p><button type="button" className="bz-button" onClick={()=>handleCopyAccount(statusResult.bazaar.bankAccountNumber||'')}>Salin rekening</button></>:<p>Pembayaran belum dibuka panitia. Pendaftaran Anda tetap tersimpan.</p>}</div>}
                 {/* Upload Bukti Bayar Susulan jika belum ada */}
-                {!statusResult.application?.paymentProofUrl && (
+                {statusResult.bazaar.paymentConfigured && ['accepted','payment_pending','payment_verification'].includes(statusResult.application.status) && statusResult.application.infaqAmountRupiah>0 && (
                   <div className="p-4 bg-[#F2EEE4] rounded-2xl border border-[#1B4332]/12 text-xs space-y-3">
                     <div className="flex items-center gap-2 font-bold text-[#14352A]">
                       <Upload className="w-4 h-4 text-[#1B4332]" />
                       <span>Unggah Bukti Transfer Infaq Susulan</span>
                     </div>
                     <p className="text-[11px] text-[#6B7A72]">
-                      Jika Anda baru saja mentransfer infaq ke rekening resmi BSI YTS, silakan lampirkan bukti pembayaran di bawah ini.
+                      Lampirkan bukti pembayaran sesuai tagihan yang disetujui panitia.
                     </p>
 
                     <div className="relative border-2 border-dashed border-[#1B4332]/20 hover:border-[#1B4332]/40 rounded-xl p-3 text-center bg-[#FBF9F4]">
                       <input
                         type="file"
                         accept="image/*,.pdf"
-                        onChange={handleProofFileChange}
+                        disabled={!statusResult?.bazaar.paymentConfigured} onChange={handleProofFileChange}
                         className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                       />
                       <span className="text-xs font-semibold text-[#14352A]">
@@ -1904,7 +1879,7 @@ export const BazaarPortalPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleUploadLateProof}
-                      disabled={!proofFile || uploadingProof}
+                      disabled={!proofFile || uploadingProof || !statusResult.bazaar.paymentConfigured}
                       className="w-full py-2.5 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 disabled:opacity-50"
                     >
                       {uploadingProof ? (
@@ -2042,7 +2017,7 @@ export const BazaarPortalPage: React.FC = () => {
 
               {/* Rekening & Panduan Hari H */}
               <div className="p-3 bg-amber-50/80 rounded-xl border border-amber-200/80 text-[10.5px] text-amber-900 leading-relaxed">
-                <strong>Catatan Panitia:</strong> Tunjukkan tanda terima digital ini kepada koordinator lapangan saat kedatangan (loading barang) pada hari pelaksanaan. Rekening resmi infaq BSI {defaultBankAcc} a.n. {defaultBankHolder}.
+                <strong>Catatan Panitia:</strong> Tunjukkan tanda terima digital ini kepada koordinator lapangan saat kedatangan (loading barang) pada hari pelaksanaan. Rekening resmi infaq BSI {defaultBankAcc || 'Tunggu informasi panitia'} a.n. {defaultBankHolder}.
               </div>
 
               <div className="text-center pt-2 text-[10px] text-[#6B7A72] border-t border-[#1B4332]/10">
