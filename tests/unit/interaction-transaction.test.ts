@@ -25,6 +25,9 @@ describe('Interaction Log & Atomic Task Transaction (M06 / Step 10)', () => {
     const insertedAuditLogs: any[] = [];
 
     const mockTx = {
+      execute: vi.fn().mockResolvedValue({rows:[]}),
+      query: {persons:{findFirst:vi.fn().mockResolvedValue({id:'018f0000-0000-0000-0000-000000000001',isActive:true})},appUsers:{findFirst:vi.fn().mockResolvedValue({isActive:true,userRoles:[{role:{code:ROLES.CS_OFFICER}}]})}},
+
       insert: vi.fn().mockImplementation((table) => {
         return {
           values: vi.fn().mockImplementation((data) => {
@@ -92,9 +95,12 @@ describe('Interaction Log & Atomic Task Transaction (M06 / Step 10)', () => {
     expect(insertedAuditLogs[0].action).toBe('create_sensitive_interaction');
   });
 
-  it('should NOT create audit log when sensitivity is standard', async () => {
+  it('should audit standard interactions without copying their content', async () => {
     const insertedAuditLogs: any[] = [];
     const mockTx = {
+      execute: vi.fn().mockResolvedValue({rows:[]}),
+      query: {persons:{findFirst:vi.fn().mockResolvedValue({id:'018f0000-0000-0000-0000-000000000001',isActive:true})},appUsers:{findFirst:vi.fn().mockResolvedValue({isActive:true,userRoles:[{role:{code:ROLES.CS_OFFICER}}]})}},
+
       insert: vi.fn().mockImplementation((table) => {
         return {
           values: vi.fn().mockImplementation((data) => {
@@ -130,6 +136,7 @@ describe('Interaction Log & Atomic Task Transaction (M06 / Step 10)', () => {
     });
 
     expect(res.statusCode).toBe(201);
-    expect(insertedAuditLogs.length).toBe(0); // No audit log for standard sensitivity
+    expect(insertedAuditLogs.length).toBe(1);
+    expect(insertedAuditLogs[0].afterJson.summary).toBeUndefined();
   });
 });

@@ -11,7 +11,7 @@ export function useEventDialog(open: boolean, onClose: () => void) {
     const previous = document.activeElement as HTMLElement | null;
     if (!openDialogs.length) {
       originalOverflow = document.body.style.overflow;
-      document.body.style.overflow = "hidden";
+      document.body.style.overflow = "clip";
     }
     openDialogs.push(node);
     const focusable = () =>

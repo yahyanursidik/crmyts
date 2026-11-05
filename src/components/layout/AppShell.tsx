@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Link, useLocation } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
+import {useQueryClient} from '@tanstack/react-query';
 import { useGetIdentity, useLogout, usePermissions } from '@refinedev/core';
 import { Calendar, CalendarClock, CheckSquare, ChevronRight, ExternalLink, FileBarChart2, HeartHandshake, History, IdCard, Inbox, Landmark, LayoutDashboard, LogOut, Menu, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Search, Send, Settings, ShieldCheck, Store, TrendingUp, X } from 'lucide-react';
 import type { UserIdentity } from '@/lib/authProvider';
@@ -15,6 +16,13 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = { Cal
 const GROUPS = ['Ringkasan', 'Jamaah & kegiatan', 'Donasi & wakaf', 'Pengelolaan'] as const;
 
 export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const navigate=useNavigate();
+  const queryClient=useQueryClient();
+  const interactionSaved=(result:any)=>{
+    if(!result?.interaction?.id)return;
+    void queryClient.invalidateQueries({queryKey:['persons','profile',result.interaction.personId]});
+    navigate('/interactions?interactionId='+result.interaction.id+'&personId='+result.interaction.personId);
+  };
   const [mobileOpen, setMobileOpen] = useState(false);
   const [interactionOpen, setInteractionOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -90,7 +98,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         <main id="workspace-main" className="workspace-main" tabIndex={-1}>{children}</main>
         <footer className="workspace-footer"><span>Yayasan Tarbiyah Sunnah</span><Link to="/ruang-jamaah">Saran & bantuan<ChevronRight /></Link></footer>
       </div>
-      {canInteract && interactionOpen && <QuickInteractionModal isOpen onClose={() => setInteractionOpen(false)} />}
+      {canInteract && interactionOpen && <QuickInteractionModal isOpen onClose={() => setInteractionOpen(false)} onSuccess={interactionSaved} />}
       <GlobalSearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>
   </InactivityAutoLogoutGuard>;

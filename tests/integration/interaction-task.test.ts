@@ -46,6 +46,9 @@ describe('Integration: Interaction Logging & Atomic Task Creation (CRM YTS)', ()
     };
 
     const mockTx = {
+      execute: vi.fn().mockResolvedValue({rows:[]}),
+      query: {persons:{findFirst:vi.fn().mockResolvedValue({id:'018f0000-0000-0000-0000-000000000001',isActive:true})},appUsers:{findFirst:vi.fn().mockResolvedValue({isActive:true,userRoles:[{role:{code:ROLES.CS_OFFICER}}]})}},
+
       insert: vi.fn().mockImplementation((table: any) => ({
         values: vi.fn().mockImplementation(() => ({
           returning: vi.fn().mockResolvedValue([table ? mockInteraction : mockTask]),
