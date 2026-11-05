@@ -468,6 +468,12 @@ describe("Bazaar shared policy and import parsing", () => {
     expect(
       readBazaarAccess({ authorization: "Bearer " + code + "a" }),
     ).toBeNull();
+    const [prefix, payload] = code.split(".");
+    expect(
+      readBazaarAccess({
+        authorization: `Bearer ${prefix}.${payload}.${"é".repeat(43)}`,
+      }),
+    ).toBeNull();
   });
   it("does not enable payments merely because legacy bank text exists", () => {
     expect(

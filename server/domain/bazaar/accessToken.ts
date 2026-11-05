@@ -20,7 +20,12 @@ export function readBazaarAccess(headers: Record<string, string | undefined>) {
     "",
   );
   const [prefix, payload, signature, ...extra] = token.split(".");
-  if (prefix !== "bazaar-access" || !payload || !signature || extra.length)
+  if (
+    prefix !== "bazaar-access" ||
+    !payload ||
+    !/^[A-Za-z0-9_-]{43}$/.test(signature || "") ||
+    extra.length
+  )
     return null;
   const expected = crypto
     .createHmac("sha256", getServerEnv().AUTH_SECRET)
