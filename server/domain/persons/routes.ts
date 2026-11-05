@@ -735,7 +735,7 @@ export function registerPersonsRoutes(router: Router) {
 
       // Match both verified portal email and the normalized contact used by staff.
       const routineRows =
-        person.email?.trim() || person.phoneE164?.trim()
+        person.id
           ? await db
               .selectDistinctOn([kajianRutinAttendance.sessionId], {
                 id: kajianRutinAttendance.id,
@@ -764,6 +764,8 @@ export function registerPersonsRoutes(router: Router) {
                   sql`${person.phoneE164}::text`,
                   sql`${kajianRutinAttendance.email}`,
                   sql`${kajianRutinAttendance.phone}`,
+                  sql`${person.id}::uuid`,
+                  sql`${kajianRutinAttendance.personId}`,
                 ),
               )
               .orderBy(

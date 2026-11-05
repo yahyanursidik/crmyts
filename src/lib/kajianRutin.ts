@@ -7,6 +7,9 @@ import { apiClient } from './apiClient';
  */
 
 export const KAJIAN_RUTIN_PORTAL_TOKEN_KEY = 'kajian_rutin_portal_token';
+export function escapeRoutinePrintText(value: string) {
+  return value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!);
+}
 
 /**
  * Baca profil langsung dari payload token portal (tanpa panggilan server)
@@ -84,6 +87,7 @@ export interface KajianRutinSession {
 
 export interface KajianRutinAttendanceRow {
   id: string;
+  personId?: string | null;
   fullName: string;
   email: string | null;
   phone: string | null;
@@ -154,6 +158,10 @@ export interface KajianRutinScanContext {
 }
 
 export interface PortalSessionItem {
+  targetAudience?: string;
+  quota?: number | null;
+  attendanceCount?: number;
+  isFull?: boolean;
   sessionId: string;
   sessionDate: string;
   startAt: string;
@@ -271,6 +279,9 @@ export function formatWibShortDate(iso: string): string {
 export function formatWibTime(iso: string): string {
   return `${timeFmt.format(new Date(iso))} WIB`;
 }
+export function formatRoutineTimeRange(start: string, end?: string | null): string {
+  return timeFmt.format(new Date(start)) + (end ? '–' + timeFmt.format(new Date(end)) : '') + ' WIB';
+}
 
 export function formatWibDateTime(iso: string): string {
   return `${dateFmt.format(new Date(iso))}, ${timeFmt.format(new Date(iso))} WIB`;
@@ -323,12 +334,16 @@ export async function uploadKajianRutinPoster(file: File): Promise<string> {
   return data.url;
 }
 
-export function describeJadwal(series: Pick<KajianRutinSeries, 'recurrence' | 'dayOfWeek' | 'startTime' | 'endTime'>): string {
+export function describeJadwal(series: Pick<KajianRutinSeries, 'recurrence' | 'dayOfWeek' | 'startTime' | 'endTime'> & { startDate?: string | null }): string {
   const parts: string[] = [RECURRENCE_LABELS[series.recurrence] || 'Terjadwal'];
+  if (series.recurrence === 'monthly' && series.startDate) {
+    const anchor = new Date(series.startDate + 'T00:00:00Z');
+    anchor.setUTCDate(anchor.getUTCDate() + ((series.dayOfWeek ?? anchor.getUTCDay()) - anchor.getUTCDay() + 7) % 7);
+    parts.push('pekan ke-' + Math.ceil(anchor.getUTCDate() / 7));
+  }
   if (series.dayOfWeek !== null && series.dayOfWeek !== undefined) {
     parts.push(WEEKDAY_NAMES[series.dayOfWeek] || '');
   }
-  parts.push(`${series.startTime} WIB`);
-  if (series.endTime) parts.push(`– ${series.endTime} WIB`);
+  parts.push(series.startTime + (series.endTime ? '–' + series.endTime : '') + ' WIB');
   return parts.filter(Boolean).join(' • ');
 }

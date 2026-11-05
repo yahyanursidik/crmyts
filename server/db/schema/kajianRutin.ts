@@ -1,5 +1,6 @@
 import { pgTable, uuid, text, timestamp, boolean, integer, date, uniqueIndex, index } from 'drizzle-orm/pg-core';
 import { appUsers } from './identity';
+import { persons } from './people';
 
 /**
  * Kajian Rutin — seri kajian yang berulang (mis. pekanan). Terpisah dari tabel
@@ -128,6 +129,7 @@ export const kajianRutinAttendance = pgTable(
       .references(() => kajianRutinSeries.id, { onDelete: 'cascade' })
       .notNull(),
     accountId: uuid('account_id').references(() => kajianRutinAccounts.id, { onDelete: 'set null' }),
+    personId: uuid('person_id').references(() => persons.id, { onDelete: 'set null' }),
     googleSub: text('google_sub').notNull(), // 'manual:<uuid>' untuk input manual panitia
     email: text('email'),
     fullName: text('full_name').notNull(),
@@ -141,6 +143,8 @@ export const kajianRutinAttendance = pgTable(
   },
   (t) => ({
     sessionSubUnique: uniqueIndex('idx_kajian_rutin_attendance_session_sub').on(t.sessionId, t.googleSub),
+    sessionPersonUnique: uniqueIndex('idx_kajian_rutin_attendance_session_person').on(t.sessionId, t.personId),
+    personIdx: index('idx_kajian_rutin_attendance_person').on(t.personId),
     sessionIdx: index('idx_kajian_rutin_attendance_session').on(t.sessionId),
     seriesIdx: index('idx_kajian_rutin_attendance_series').on(t.seriesId),
     checkInIdx: index('idx_kajian_rutin_attendance_check_in').on(t.checkInAt),

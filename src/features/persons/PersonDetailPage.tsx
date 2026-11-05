@@ -711,7 +711,7 @@ export const PersonDetailPage = () => {
                         {can(PERMISSIONS.EVENTS_VIEW) && (
                           <div className="person-record-actions">
                             <Link
-                              to="/kajian-rutin"
+                              to={'/kajian-rutin?seriesId=' + attendance.seriesId + '&sessionId=' + attendance.sessionId + '&panel=attendance&sessions=all'}
                               className="people-inline-link"
                             >
                               Kelola kajian rutin

@@ -8,6 +8,8 @@ import {
   type KajianRutinSession,
 } from '../../lib/kajianRutin';
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
+import { escapeRoutinePrintText } from '../../lib/kajianRutin';
+import { useEventDialog } from '../events/components/useEventDialog';
 
 /**
  * Modal QR absensi: menampilkan QR berisi tautan /peserta/kajian?sesi=..&t=..
@@ -30,6 +32,7 @@ export function KajianRutinQrModal({
   const [rotating, setRotating] = useState(false);
   const [confirmRotate, setConfirmRotate] = useState(false);
   const [error, setError] = useState('');
+  const dialogRef = useEventDialog(!!session, () => { if (!rotating) onClose(); });
 
   useEffect(() => {
     if (!session || !session.qrToken) {
@@ -38,6 +41,7 @@ export function KajianRutinQrModal({
       return;
     }
     let active = true;
+    setDataUrl(null); setError(''); setCopied(false);
     const link = buildKajianRutinQrUrl(session.id, session.qrToken);
     setUrl(link);
     renderQrDataUrl(link)
@@ -77,10 +81,11 @@ export function KajianRutinQrModal({
       setError('Popup diblokir browser. Izinkan popup atau gunakan Unduh PNG.');
       return;
     }
-    printWindow.document.write(`<!DOCTYPE html><html lang="id"><head><meta charset="utf-8"><title>QR Absensi ${seriesTitle}</title></head>
+    const safeTitle = escapeRoutinePrintText(seriesTitle);
+    printWindow.document.write(`<!DOCTYPE html><html lang="id"><head><meta charset="utf-8"><title>QR Absensi ${safeTitle}</title></head>
       <body style="font-family:system-ui,sans-serif;text-align:center;padding:32px;color:#1c321d">
         <p style="margin:0;font-size:12px;letter-spacing:3px;color:#b58b3c;font-weight:700">YAYASAN TARBIYAH SUNNAH</p>
-        <h1 style="margin:8px 0 2px;font-size:22px">${seriesTitle}</h1>
+        <h1 style="margin:8px 0 2px;font-size:22px">${safeTitle}</h1>
         <p style="margin:0 0 16px;color:#4b5a52;font-size:14px">Absensi ${formatWibDate(session.startAt)}</p>
         <img src="${dataUrl}" width="360" height="360" alt="QR Absensi" style="border:1px solid #e7e4d8;border-radius:16px;padding:12px" />
         <p style="margin:16px 0 0;color:#6b7a72;font-size:13px;max-width:380px;margin-inline:auto">
@@ -113,14 +118,14 @@ export function KajianRutinQrModal({
   };
 
   return (
-    <div className="fixed inset-0 z-70 flex items-start justify-center overflow-y-auto bg-[#0f3a2e]/60 p-4 backdrop-blur-xs sm:p-8" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="w-full max-w-md rounded-3xl border border-[#e7e4d8] bg-[#fbfaf6] shadow-2xl" role="dialog" aria-modal="true">
+    <div className="kr-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div ref={dialogRef} tabIndex={-1} className="kr-legacy-dialog w-full max-w-md rounded-3xl border border-[#e7e4d8] bg-[#fbfaf6] shadow-2xl" role="dialog" aria-label="QR presensi kajian" aria-modal="true">
         <div className="flex items-start justify-between border-b border-[#e7e4d8] px-6 py-4">
           <div>
             <h3 className="font-display text-base font-black text-[#1c321d]">QR Absensi Kajian</h3>
             <p className="text-[11px] text-[#8a9690]">{seriesTitle} • {formatWibDate(session.startAt)}</p>
           </div>
-          <button onClick={onClose} className="rounded-xl p-2 text-[#8a9690] hover:bg-[#f2eee4] hover:text-[#1c321d]">
+          <button aria-label="Tutup dialog" onClick={onClose} className="rounded-xl p-2 text-[#8a9690] hover:bg-[#f2eee4] hover:text-[#1c321d]">
             <X className="h-4 w-4" />
           </button>
         </div>

@@ -1,13 +1,16 @@
-import crypto from 'node:crypto';
 import { z } from 'zod';
-import { and, asc, desc, eq, gte, inArray, or, sql } from 'drizzle-orm';
-import { logAuditEvent } from '../../audit/service';
+import { and, asc, desc, eq, gte, lte, inArray, or, sql } from 'drizzle-orm';
+import { logAuditEvent, logExportEvent } from '../../audit/service';
+import { recordsToCsv } from '../../lib/csv';
+import { hasPermission } from '../../permissions/constants';
+import { addRoutineDays, planRoutineDates, routineDateTime, routineScheduleError } from './schedule';
+import { RoutineError, recordRoutinePresence, correctRoutinePresence, routineIdentitySql, routinePersonIdSql } from './attendance';
 import { verifyGoogleIdToken, isGoogleAuthConfigured } from '../../auth/google';
 import { getDb } from '../../db/client';
 import {
+  auditLogs,
   events,
   eventAttendance,
-  personRoles,
   persons,
   kajianRutinAnnouncements,
   kajianRutinAttendance,
@@ -21,7 +24,6 @@ import { errorResponse, successResponse, ErrorCode } from '../../http/response';
 import { Router } from '../../http/router';
 import { PERMISSIONS } from '../../permissions/constants';
 import { createJamaahPortalToken, generateQrToken, resolveJamaahSession } from './tokens';
-import { normalizePhoneE164 } from '../../lib/phone';
 import { paymentCheckInError } from '../events/paymentAccess';
 
 const RECURRENCES = ['weekly', 'biweekly', 'monthly'] as const;
@@ -96,9 +98,11 @@ const announcementUpdateSchema = announcementCreateSchema.partial()
   .refine((v) => Object.keys(v).length > 0, 'Tidak ada perubahan.');
 
 const manualAttendanceSchema = z.object({
+  personId: z.string().uuid().optional().nullable(),
   fullName: z.string().trim().min(2, 'Nama lengkap minimal 2 karakter').max(160),
   email: z.string().trim().email('Format email tidak valid').max(254).optional().nullable().or(z.literal('')),
   phone: z.string().trim().max(24).optional().nullable().or(z.literal('')),
+  gender: z.enum(['ikhwan', 'akhwat']).optional().nullable(),
   note: z.string().trim().max(300).optional().nullable().or(z.literal('')),
 });
 
@@ -231,6 +235,9 @@ async function ensureKajianRutinTables() {
       await db.execute(sql.raw('ALTER TABLE kajian_rutin_accounts ADD COLUMN IF NOT EXISTS gender text'));
       await db.execute(sql.raw('ALTER TABLE kajian_rutin_accounts ADD COLUMN IF NOT EXISTS province text'));
       await db.execute(sql.raw('ALTER TABLE kajian_rutin_accounts ADD COLUMN IF NOT EXISTS education_level text'));
+      await db.execute(sql.raw('ALTER TABLE kajian_rutin_attendance ADD COLUMN IF NOT EXISTS person_id uuid REFERENCES persons(id) ON DELETE SET NULL'));
+      await db.execute(sql.raw('CREATE UNIQUE INDEX IF NOT EXISTS idx_kajian_rutin_attendance_session_person ON kajian_rutin_attendance(session_id,person_id)'));
+      await db.execute(sql.raw('CREATE INDEX IF NOT EXISTS idx_kajian_rutin_attendance_person ON kajian_rutin_attendance(person_id)'));
     })().catch((error) => {
       setupPromise = null;
       throw error;
@@ -250,7 +257,9 @@ function firstRows(result: unknown): Array<Record<string, unknown>> {
 async function consumeRateLimit(key: string, maxHits: number, windowHours: number): Promise<boolean> {
   const result = await getDb().execute(sql`INSERT INTO kajian_rutin_rate_limits (key, hits, expires_at)
     VALUES (${key}, 1, now() + (${windowHours} * interval '1 hour'))
-    ON CONFLICT (key) DO UPDATE SET hits = kajian_rutin_rate_limits.hits + 1
+    ON CONFLICT (key) DO UPDATE SET
+      hits = CASE WHEN kajian_rutin_rate_limits.expires_at < now() THEN 1 ELSE kajian_rutin_rate_limits.hits + 1 END,
+      expires_at = CASE WHEN kajian_rutin_rate_limits.expires_at < now() THEN now() + (${windowHours} * interval '1 hour') ELSE kajian_rutin_rate_limits.expires_at END
     WHERE kajian_rutin_rate_limits.expires_at < now() OR kajian_rutin_rate_limits.hits < ${maxHits}
     RETURNING hits`);
   return firstRows(result).length > 0;
@@ -262,30 +271,11 @@ function clientIp(ctx: { headers: Record<string, string | undefined> }): string 
 
 /** Konversi tanggal kalender WIB (YYYY-MM-DD) + jam WIB (HH:mm) menjadi Date absolut. */
 export function computeWibDateTime(sessionDate: string, time: string): Date | null {
-  if (!DATE_PATTERN.test(sessionDate) || !TIME_PATTERN.test(time)) return null;
-  const date = new Date(`${sessionDate}T${time}:00+07:00`);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Date(date.getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10) === sessionDate ? date : null;
+  return routineDateTime(sessionDate, time);
 }
 
 function wibToday(): string {
   return new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
-
-function addDaysIso(dateIso: string, days: number): string {
-  const base = new Date(`${dateIso}T00:00:00Z`).getTime() + days * 86_400_000;
-  return new Date(base).toISOString().slice(0, 10);
-}
-
-function weekdayOfIso(dateIso: string): number {
-  // Tengah hari WIB (12:00 +07:00 = 05:00 UTC) tetap pada tanggal kalender yang sama.
-  return new Date(`${dateIso}T05:00:00Z`).getUTCDay();
-}
-
-function daysBetweenIso(fromIso: string, toIso: string): number {
-  return Math.round(
-    (new Date(`${toIso}T00:00:00Z`).getTime() - new Date(`${fromIso}T00:00:00Z`).getTime()) / 86_400_000
-  );
 }
 
 interface SeriesWindowConfig {
@@ -373,7 +363,7 @@ async function findExistingAttendance(sessionId: string, googleSub: string) {
   const [row] = await getDb()
     .select()
     .from(kajianRutinAttendance)
-    .where(and(eq(kajianRutinAttendance.sessionId, sessionId), eq(kajianRutinAttendance.googleSub, googleSub)))
+    .where(and(eq(kajianRutinAttendance.sessionId, sessionId), eq(kajianRutinAttendance.googleSub, googleSub), eq(kajianRutinAttendance.status, 'present')))
     .limit(1);
   return row ?? null;
 }
@@ -407,86 +397,19 @@ function daurahMatchCondition(personIds: string[], email: string) {
   return personIds.length ? or(inArray(eventAttendance.personId, personIds), emailMatch) : emailMatch;
 }
 
-/**
- * Sinkronkan peserta kajian rutin ke Direktori Jamaah: cocokkan lewat email;
- * bila belum ada, buat person baru minimal dengan profil portal jamaah.
- * Data jamaah yang sudah ada tidak pernah ditimpa — hanya kolom kosong yang diisi.
- */
-async function syncPersonFromJamaah(input: {
-  fullName: string;
-  email?: string | null;
-  phone?: string | null;
-  gender?: string | null;
-  cityRegency?: string | null;
-  province?: string | null;
-  educationLevel?: string | null;
-}): Promise<void> {
-  try {
-    const db = getDb();
-    const email = input.email?.trim().toLowerCase() || null;
-    const phone = normalizePhoneE164(input.phone);
-    if (!email && !phone) return;
-    const [existing] = await db
-      .select({ id: persons.id, email: persons.email, phoneE164: persons.phoneE164, cityRegency: persons.cityRegency, province: persons.province, gender: persons.gender, educationLevel: persons.educationLevel })
-      .from(persons)
-      .where(or(email ? sql`lower(${persons.email}) = ${email}` : undefined, phone ? eq(persons.phoneE164, phone) : undefined))
-      .limit(1);
-    if (existing) {
-      const patch: Record<string, unknown> = {};
-      if (!existing.email && email) patch.email = email;
-      if (!existing.phoneE164 && phone) patch.phoneE164 = phone;
-      if (!existing.cityRegency && input.cityRegency) patch.cityRegency = input.cityRegency;
-      if (!existing.province && input.province) patch.province = input.province;
-      if (!existing.gender && (input.gender === 'ikhwan' || input.gender === 'akhwat')) patch.gender = input.gender;
-      if (!existing.educationLevel && input.educationLevel) patch.educationLevel = input.educationLevel;
-      if (Object.keys(patch).length > 0) {
-        await db.update(persons).set({ ...patch, updatedAt: new Date() }).where(eq(persons.id, existing.id));
-      }
-      return;
-    }
-    const [created] = await db
-      .insert(persons)
-      .values({
-        fullName: input.fullName,
-        email,
-        phoneE164: phone,
-        gender: input.gender === 'ikhwan' || input.gender === 'akhwat' ? input.gender : null,
-        cityRegency: input.cityRegency || null,
-        province: input.province || null,
-        educationLevel: input.educationLevel || null,
-        sourceCode: 'kajian_rutin_portal',
-      })
-      .onConflictDoNothing()
-      .returning({ id: persons.id });
-    if (created) {
-      await db.insert(personRoles).values({ personId: created.id, roleCode: 'jamaah' }).onConflictDoNothing();
-    }
-  } catch (error) {
-    console.error('[Kajian Rutin Person Sync Error]:', error);
-  }
+function formatWibWindow(date: Date) {
+  return date.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ' WIB';
+}
+async function getAccountById(id: string) {
+  const [account] = await getDb().select().from(kajianRutinAccounts).where(eq(kajianRutinAccounts.id, id)).limit(1);
+  return account || null;
 }
 
-async function getAccountById(accountId: string) {
-  const [account] = await getDb()
-    .select()
-    .from(kajianRutinAccounts)
-    .where(eq(kajianRutinAccounts.id, accountId))
-    .limit(1);
-  return account ?? null;
-}
-
-const wibWindowFormatter = new Intl.DateTimeFormat('id-ID', {
-  timeZone: 'Asia/Jakarta',
-  weekday: 'long',
-  day: 'numeric',
-  month: 'long',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
-
-function formatWibWindow(date: Date): string {
-  return `${wibWindowFormatter.format(date)} WIB`;
+function myRoutineAttendance(session: { sub: string; email: string; accountId: string }) {
+  return and(eq(kajianRutinAttendance.status, 'present'), or(
+    eq(kajianRutinAttendance.googleSub, session.sub), eq(kajianRutinAttendance.accountId, session.accountId),
+    sql`${routinePersonIdSql}=(SELECT CASE WHEN count(*)=1 THEN min(p.id::text)::uuid END FROM persons p WHERE lower(btrim(p.email))=${session.email.trim().toLowerCase()})`,
+  ));
 }
 
 export function registerKajianRutinRoutes(router: Router) {
@@ -496,13 +419,12 @@ export function registerKajianRutinRoutes(router: Router) {
     await ensureKajianRutinTables();
     const db = getDb();
     const rows = await db.select().from(kajianRutinSeries).orderBy(desc(kajianRutinSeries.isActive), asc(kajianRutinSeries.title));
-    const todayWib = wibToday();
 
     const sessionStats = await db
       .select({
         seriesId: kajianRutinSessions.seriesId,
         total: sql<number>`cast(count(*) as int)`,
-        nextDate: sql<string | null>`min(case when ${kajianRutinSessions.sessionDate} >= ${todayWib}::date and ${kajianRutinSessions.status} = 'scheduled' then ${kajianRutinSessions.sessionDate} end)`,
+        nextDate: sql<string | null>`min(case when coalesce(${kajianRutinSessions.endAt},${kajianRutinSessions.startAt}+interval '2 hours') >= now() and ${kajianRutinSessions.status} = 'scheduled' then ${kajianRutinSessions.sessionDate} end)`,
       })
       .from(kajianRutinSessions)
       .groupBy(kajianRutinSessions.seriesId);
@@ -512,19 +434,20 @@ export function registerKajianRutinRoutes(router: Router) {
       .select({
         seriesId: kajianRutinAttendance.seriesId,
         total: sql<number>`cast(count(*) as int)`,
-        unique: sql<number>`cast(count(distinct case when ${kajianRutinAttendance.googleSub} not like 'manual:%' then ${kajianRutinAttendance.googleSub} end) as int)`,
+        unique: sql<number>`cast(count(distinct ${routineIdentitySql}) as int)`,
         lastCheckIn: sql<string | null>`max(${kajianRutinAttendance.checkInAt})`,
       })
       .from(kajianRutinAttendance)
+      .where(eq(kajianRutinAttendance.status, 'present'))
       .groupBy(kajianRutinAttendance.seriesId);
     const attendanceMap = new Map(attendanceStats.map((s) => [s.seriesId, s]));
 
     // Peserta unik lintas seluruh kajian rutin (absensi panitia manual tidak dihitung ganda).
     const [overall] = await db
       .select({
-        unique: sql<number>`cast(count(distinct case when ${kajianRutinAttendance.googleSub} not like 'manual:%' then ${kajianRutinAttendance.googleSub} end) as int)`,
+        unique: sql<number>`cast(count(distinct ${routineIdentitySql}) as int)`,
       })
-      .from(kajianRutinAttendance);
+      .from(kajianRutinAttendance).where(eq(kajianRutinAttendance.status, 'present'));
 
     const items = rows.map((row) => ({
       ...serializeSeries(row),
@@ -546,6 +469,8 @@ export function registerKajianRutinRoutes(router: Router) {
 
   router.post('/api/kajian-rutin/series', requirePermission(PERMISSIONS.EVENTS_MANAGE,
     validateBody(seriesCreateSchema, async (ctx, body) => {
+      const scheduleError = routineScheduleError(body.startTime || '07:00', body.endTime, body.startDate);
+      if (scheduleError) return errorResponse('VALIDATION_ERROR', scheduleError, 400, ctx.requestId);
       await ensureKajianRutinTables();
       const db = getDb();
       const [created] = await db.insert(kajianRutinSeries).values({
@@ -600,6 +525,10 @@ export function registerKajianRutinRoutes(router: Router) {
       const db = getDb();
       const [before] = await db.select().from(kajianRutinSeries).where(eq(kajianRutinSeries.id, ctx.params.id!)).limit(1);
       if (!before) return errorResponse('NOT_FOUND', 'Kajian rutin tidak ditemukan.', 404, ctx.requestId);
+      if (body.startTime !== undefined || body.endTime !== undefined || body.startDate !== undefined) {
+        const scheduleError = routineScheduleError(body.startTime ?? before.startTime, body.endTime === undefined ? before.endTime : body.endTime, body.startDate === undefined ? before.startDate : body.startDate);
+        if (scheduleError) return errorResponse('VALIDATION_ERROR', scheduleError, 400, ctx.requestId);
+      }
       const [updated] = await db.update(kajianRutinSeries).set({
         ...(body.title !== undefined ? { title: body.title } : {}),
         ...(body.description !== undefined ? { description: body.description || null } : {}),
@@ -636,11 +565,15 @@ export function registerKajianRutinRoutes(router: Router) {
     const db = getDb();
     const [before] = await db.select().from(kajianRutinSeries).where(eq(kajianRutinSeries.id, ctx.params.id!)).limit(1);
     if (!before) return errorResponse('NOT_FOUND', 'Kajian rutin tidak ditemukan.', 404, ctx.requestId);
-    await db.delete(kajianRutinSeries).where(eq(kajianRutinSeries.id, before.id));
-    try {
-      await logAuditEvent({ actorUserId: ctx.user!.id, action: 'kajian_rutin_series_delete', entityType: 'kajian_rutin_series',
-        entityId: before.id, beforeJson: { title: before.title }, requestId: ctx.requestId });
-    } catch (error) { console.error('[Kajian Rutin Audit Error]', error); }
+    const deleted = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT id FROM kajian_rutin_series WHERE id=${before.id} FOR UPDATE`);
+      const [session] = await tx.select({ id: kajianRutinSessions.id }).from(kajianRutinSessions).where(eq(kajianRutinSessions.seriesId, before.id)).limit(1);
+      if (session) return false;
+      await tx.delete(kajianRutinSeries).where(eq(kajianRutinSeries.id, before.id));
+      await tx.insert(auditLogs).values({ actorUserId: ctx.user!.id, action: 'kajian_rutin_series_delete', entityType: 'kajian_rutin_series', entityId: before.id, beforeJson: { title: before.title }, requestId: ctx.requestId });
+      return true;
+    });
+    if (!deleted) return errorResponse('CONFLICT', 'Seri memiliki sesi atau riwayat. Gunakan Arsipkan agar data tetap aman.', 409, ctx.requestId);
     return successResponse({ deleted: true }, { requestId: ctx.requestId }, 200, { 'Cache-Control': 'no-store' });
   }));
 
@@ -657,7 +590,7 @@ export function registerKajianRutinRoutes(router: Router) {
     const sessions = await db
       .select({
         session: kajianRutinSessions,
-        attendanceCount: sql<number>`cast(count(${kajianRutinAttendance.id}) as int)`,
+        attendanceCount: sql<number>`cast(count(${kajianRutinAttendance.id}) filter(where ${kajianRutinAttendance.status}='present') as int)`,
       })
       .from(kajianRutinSessions)
       .leftJoin(kajianRutinAttendance, eq(kajianRutinAttendance.sessionId, kajianRutinSessions.id))
@@ -686,24 +619,12 @@ export function registerKajianRutinRoutes(router: Router) {
       const [series] = await db.select().from(kajianRutinSeries).where(eq(kajianRutinSeries.id, ctx.params.id!)).limit(1);
       if (!series) return errorResponse('NOT_FOUND', 'Kajian rutin tidak ditemukan.', 404, ctx.requestId);
 
-      let sessionDate = body.sessionDate;
-      if (!sessionDate) {
-        // Tanpa tanggal eksplisit: pakai tanggal sesi berikutnya yang belum ada.
-        let cursor = addDaysIso(wibToday(), 1);
-        for (let i = 0; i < 60; i += 1) {
-          if (series.dayOfWeek === null || weekdayOfIso(cursor) === series.dayOfWeek) {
-            const [existing] = await db.select({ id: kajianRutinSessions.id })
-              .from(kajianRutinSessions)
-              .where(and(eq(kajianRutinSessions.seriesId, series.id), eq(kajianRutinSessions.sessionDate, cursor)))
-              .limit(1);
-            if (!existing) { sessionDate = cursor; break; }
-          }
-          cursor = addDaysIso(cursor, 1);
-        }
-        if (!sessionDate) {
-          return errorResponse('VALIDATION_ERROR', 'Tanggal sesi berikutnya tidak ditemukan. Isi tanggal secara manual.', 400, ctx.requestId);
-        }
-      }
+      if (!series.isActive) return errorResponse('CONFLICT', 'Pulihkan seri sebelum membuat sesi.', 409, ctx.requestId);
+      const existing = await db.select({ date: kajianRutinSessions.sessionDate }).from(kajianRutinSessions).where(eq(kajianRutinSessions.seriesId, series.id));
+      const sessionDate = body.sessionDate || planRoutineDates(series, existing.map(r => r.date), addRoutineDays(wibToday(), 1), 1)[0];
+      if (!sessionDate) return errorResponse('VALIDATION_ERROR', 'Tanggal sesi belum ditemukan. Isi tanggal secara manual.', 400, ctx.requestId);
+      const scheduleError = routineScheduleError(series.startTime, series.endTime, sessionDate);
+      if (scheduleError) return errorResponse('VALIDATION_ERROR', scheduleError, 400, ctx.requestId);
 
       const startAt = computeWibDateTime(sessionDate, series.startTime);
       if (!startAt) return errorResponse('VALIDATION_ERROR', 'Tanggal atau jam kajian tidak valid.', 400, ctx.requestId);
@@ -746,27 +667,11 @@ export function registerKajianRutinRoutes(router: Router) {
       const existingSet = new Set(existing.map((row) => row.sessionDate));
       const requestedCount = body.count ?? 4;
 
-      const anchor = existing[0]?.sessionDate ?? series.startDate ?? null;
-      const dayOfWeek = series.dayOfWeek ?? (existing.length ? weekdayOfIso(existing[existing.length - 1]!.sessionDate) : null);
-      if (dayOfWeek === null) {
-        return errorResponse('VALIDATION_ERROR', 'Atur hari kajian terlebih dahulu sebelum generate sesi otomatis.', 400, ctx.requestId);
-      }
-      const intervalWeeks = series.recurrence === 'weekly' ? 1 : series.recurrence === 'biweekly' ? 2 : 4;
-
-      const todayWib = wibToday();
-      // Mulai mencari dari tanggal mulai seri bila masih di masa depan.
-      let cursor = series.startDate && series.startDate > todayWib ? series.startDate : addDaysIso(todayWib, 1);
-      const planned: string[] = [];
-      for (let i = 0; i < 400 && planned.length < requestedCount; i += 1) {
-        if (weekdayOfIso(cursor) === dayOfWeek) {
-          const inCycle = anchor ? Math.floor(daysBetweenIso(anchor, cursor) / 7) % intervalWeeks === 0 : true;
-          if (inCycle && !existingSet.has(cursor)) planned.push(cursor);
-        }
-        cursor = addDaysIso(cursor, 1);
-      }
-      if (!planned.length) {
-        return errorResponse('VALIDATION_ERROR', 'Tidak menemukan tanggal baru dalam 40 hari ke depan. Coba tambah sesi manual.', 400, ctx.requestId);
-      }
+      if (!series.isActive) return errorResponse('CONFLICT', 'Pulihkan seri sebelum membuat sesi.', 409, ctx.requestId);
+      const scheduleError = routineScheduleError(series.startTime, series.endTime, series.startDate);
+      if (scheduleError) return errorResponse('VALIDATION_ERROR', scheduleError, 400, ctx.requestId);
+      const planned = planRoutineDates(series, [...existingSet], addRoutineDays(wibToday(), 1), requestedCount);
+      if (!planned.length) return errorResponse('VALIDATION_ERROR', 'Tanggal sesi belum ditemukan. Isi tanggal secara manual.', 400, ctx.requestId);
 
       const values = planned.map((sessionDate) => ({
         seriesId: series.id,
@@ -802,21 +707,22 @@ export function registerKajianRutinRoutes(router: Router) {
       const before = row.session;
       const series = row.series;
 
-      // Jadwal fleksibel: tanggal/jam/lokasi/pemateri boleh berbeda dari seri.
+      // Metadata/status edits preserve absolute times of already-created sessions.
+      const timeChanged = body.sessionDate !== undefined || body.startTime !== undefined || body.endTime !== undefined;
       const effectiveDate = body.sessionDate ?? before.sessionDate;
-      const effectiveStartTime = body.startTime !== undefined ? body.startTime : before.startTime;
-      const seriesStartTime = effectiveStartTime || series.startTime;
-      const startAt = computeWibDateTime(effectiveDate, seriesStartTime);
-      if (!startAt) return errorResponse('VALIDATION_ERROR', 'Tanggal atau jam kajian tidak valid.', 400, ctx.requestId);
-      const effectiveEndTime = body.endTime !== undefined ? body.endTime : before.endTime;
-      const endAt = effectiveEndTime ? computeWibDateTime(effectiveDate, effectiveEndTime) : null;
-
+      const wibTime = (date: Date) => new Date(+date + 25_200_000).toISOString().slice(11, 16);
+      const startTime = body.startTime === undefined ? wibTime(before.startAt) : body.startTime || series.startTime;
+      const endTime = body.endTime === undefined ? (before.endAt ? wibTime(before.endAt) : null) : body.endTime || series.endTime;
+      if (timeChanged) {
+        const scheduleError = routineScheduleError(startTime, endTime, effectiveDate);
+        if (scheduleError) return errorResponse('VALIDATION_ERROR', scheduleError, 400, ctx.requestId);
+        const [duplicate] = await db.select({ id: kajianRutinSessions.id }).from(kajianRutinSessions).where(and(eq(kajianRutinSessions.seriesId, series.id), eq(kajianRutinSessions.sessionDate, effectiveDate), sql`${kajianRutinSessions.id}<>${before.id}`)).limit(1);
+        if (duplicate) return errorResponse('CONFLICT', 'Sesi pada tanggal tersebut sudah ada.', 409, ctx.requestId);
+      }
       const [updated] = await db.update(kajianRutinSessions).set({
-        sessionDate: effectiveDate,
-        startAt,
-        endAt: endAt ?? null,
-        startTime: effectiveStartTime ?? null,
-        endTime: effectiveEndTime ?? null,
+        ...(timeChanged ? { sessionDate: effectiveDate, startAt: computeWibDateTime(effectiveDate, startTime)!, endAt: endTime ? computeWibDateTime(effectiveDate, endTime) : null } : {}),
+        ...(body.startTime !== undefined ? { startTime: body.startTime } : {}),
+        ...(body.endTime !== undefined ? { endTime: body.endTime } : {}),
         ...(body.locationName !== undefined ? { locationName: body.locationName || null } : {}),
         ...(body.speaker !== undefined ? { speaker: body.speaker || null } : {}),
         ...(body.topic !== undefined ? { topic: body.topic || null } : {}),
@@ -863,6 +769,7 @@ export function registerKajianRutinRoutes(router: Router) {
     const items = await getDb()
       .select({
         id: kajianRutinAttendance.id,
+        personId: routinePersonIdSql,
         fullName: kajianRutinAttendance.fullName,
         email: kajianRutinAttendance.email,
         phone: kajianRutinAttendance.phone,
@@ -877,14 +784,12 @@ export function registerKajianRutinRoutes(router: Router) {
     const window = computeCheckInWindow(row.series, row.session.startAt, row.session.endAt);
     return successResponse(
       {
-        session: serializeSession(row.session),
+        session: { ...serializeSession(row.session), ...(!hasPermission(ctx.user!.roles, PERMISSIONS.EVENTS_VIEW) ? { qrToken: undefined, notes: undefined } : {}) },
         series: serializeSeries(row.series),
-        items: items.map((item, idx) => ({
-          ...item,
-          checkInAt: item.checkInAt.toISOString(),
-          // 10 jamaah yang paling cepat mengisi absensi pada sesi ini.
-          earlyRank: idx < 10 ? idx + 1 : null,
-        })),
+        summaryOnly: !hasPermission(ctx.user!.roles, PERMISSIONS.ATTENDANCE_MANAGE),
+        presentCount: items.filter(item => item.status === 'present').length,
+        correctedCount: items.filter(item => item.status !== 'present').length,
+        items: hasPermission(ctx.user!.roles, PERMISSIONS.ATTENDANCE_MANAGE) ? (() => { let rank = 0; return items.map(item => ({ ...item, checkInAt: item.checkInAt.toISOString(), earlyRank: item.status === 'present' && ++rank <= 10 ? rank : null })); })() : [],
         checkInWindow: { openAt: window.openAt.toISOString(), closeAt: window.closeAt.toISOString() },
       },
       { requestId: ctx.requestId, total: items.length },
@@ -899,32 +804,14 @@ export function registerKajianRutinRoutes(router: Router) {
         return errorResponse('VALIDATION_ERROR', 'ID sesi tidak valid.', 400, ctx.requestId);
       }
       await ensureKajianRutinTables();
-      const row = await loadSessionWithSeries(ctx.params.id!);
-      if (!row) return errorResponse('NOT_FOUND', 'Sesi tidak ditemukan.', 404, ctx.requestId);
-      const db = getDb();
-      const [created] = await db.insert(kajianRutinAttendance).values({
-        sessionId: row.session.id,
-        seriesId: row.series.id,
-        googleSub: `manual:${crypto.randomUUID()}`,
-        email: body.email || null,
-        fullName: body.fullName,
-        phone: body.phone || null,
-        source: 'manual_input',
-        status: 'present',
-        note: body.note || null,
-      }).onConflictDoNothing().returning();
-      if (!created) return errorResponse('CONFLICT', 'Peserta tersebut sudah tercatat hadir pada sesi ini.', 409, ctx.requestId);
-      await syncPersonFromJamaah({ fullName: body.fullName, email: body.email, phone: body.phone });
       try {
-        await logAuditEvent({ actorUserId: ctx.user!.id, action: 'kajian_rutin_attendance_manual', entityType: 'kajian_rutin_attendance',
-          entityId: created.id, afterJson: { fullName: created.fullName, sessionId: row.session.id }, requestId: ctx.requestId });
-      } catch (error) { console.error('[Kajian Rutin Audit Error]', error); }
-      return successResponse(
-        { id: created.id, fullName: created.fullName, email: created.email, checkInAt: created.checkInAt.toISOString(), source: created.source },
-        { requestId: ctx.requestId },
-        201,
-        { 'Cache-Control': 'no-store' }
-      );
+        const result = await recordRoutinePresence({ ...body, sessionId: ctx.params.id!, source: 'manual_input', actorUserId: ctx.user!.id, requestId: ctx.requestId });
+        const created = result.attendance;
+        return successResponse({ ...created, checkInAt: created.checkInAt.toISOString() }, { requestId: ctx.requestId }, 201, { 'Cache-Control': 'no-store' });
+      } catch (error) {
+        if (error instanceof RoutineError) return errorResponse(error.status === 409 ? 'CONFLICT' : 'VALIDATION_ERROR', error.message, error.status, ctx.requestId);
+        throw error;
+      }
     })));
 
   /**
@@ -949,7 +836,7 @@ export function registerKajianRutinRoutes(router: Router) {
 
     const sessions = await db.select({ id: kajianRutinSessions.id })
       .from(kajianRutinSessions)
-      .where(and(eq(kajianRutinSessions.seriesId, series.id), gte(kajianRutinSessions.startAt, windowStart)));
+      .where(and(eq(kajianRutinSessions.seriesId, series.id), gte(kajianRutinSessions.startAt, windowStart), lte(kajianRutinSessions.startAt, new Date())));
     if (!sessions.length) {
       return successResponse({ items: [], sessionsCount: 0, days }, { requestId: ctx.requestId }, 200, { 'Cache-Control': 'no-store' });
     }
@@ -957,19 +844,23 @@ export function registerKajianRutinRoutes(router: Router) {
     const rows = await db
       .select({
         sessionId: kajianRutinAttendance.sessionId,
-        googleSub: kajianRutinAttendance.googleSub,
+        googleSub: routineIdentitySql,
         fullName: kajianRutinAttendance.fullName,
         email: kajianRutinAttendance.email,
         checkInAt: kajianRutinAttendance.checkInAt,
       })
       .from(kajianRutinAttendance)
-      .where(inArray(kajianRutinAttendance.sessionId, sessions.map((s) => s.id)))
+      .where(and(inArray(kajianRutinAttendance.sessionId, sessions.map((s) => s.id)), eq(kajianRutinAttendance.status, 'present')))
       .orderBy(asc(kajianRutinAttendance.checkInAt));
 
     // Peringkat kecepatan absen per sesi: 10 pertama dihitung "hadir lebih awal".
     const sessionCounter = new Map<string, number>();
     const aggregated = new Map<string, { fullName: string; email: string | null; attended: number; early: number; lastEarlyAt: Date | null }>();
+    const seen = new Set<string>();
     for (const row of rows) {
+      const key = `${row.sessionId}:${row.googleSub}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       const rank = (sessionCounter.get(row.sessionId) || 0) + 1;
       sessionCounter.set(row.sessionId, rank);
       const current = aggregated.get(row.googleSub) || {
@@ -1009,20 +900,39 @@ export function registerKajianRutinRoutes(router: Router) {
     );
   }));
 
-  router.delete('/api/kajian-rutin/attendance/:id', requirePermission(PERMISSIONS.ATTENDANCE_MANAGE, async (ctx) => {    if (!z.string().uuid().safeParse(ctx.params.id).success) {
-      return errorResponse('VALIDATION_ERROR', 'ID absensi tidak valid.', 400, ctx.requestId);
-    }
+  const correctionSchema = z.object({ status: z.enum(['present', 'voided']), reason: z.string().trim().min(3, 'Isi alasan koreksi.').max(300) });
+  router.patch('/api/kajian-rutin/attendance/:id', requirePermission(PERMISSIONS.ATTENDANCE_MANAGE, validateBody(correctionSchema, async (ctx, body) => {
+    if (!z.string().uuid().safeParse(ctx.params.id).success) return errorResponse('VALIDATION_ERROR', 'ID presensi tidak valid.', 400, ctx.requestId);
     await ensureKajianRutinTables();
-    const db = getDb();
-    const [before] = await db.select().from(kajianRutinAttendance).where(eq(kajianRutinAttendance.id, ctx.params.id!)).limit(1);
-    if (!before) return errorResponse('NOT_FOUND', 'Data absensi tidak ditemukan.', 404, ctx.requestId);
-    await db.delete(kajianRutinAttendance).where(eq(kajianRutinAttendance.id, before.id));
     try {
-      await logAuditEvent({ actorUserId: ctx.user!.id, action: 'kajian_rutin_attendance_delete', entityType: 'kajian_rutin_attendance',
-        entityId: before.id, beforeJson: { fullName: before.fullName, sessionId: before.sessionId }, requestId: ctx.requestId });
-    } catch (error) { console.error('[Kajian Rutin Audit Error]', error); }
-    return successResponse({ deleted: true }, { requestId: ctx.requestId }, 200, { 'Cache-Control': 'no-store' });
+      const result = await correctRoutinePresence(ctx.params.id!, body.status, ctx.user!.id, body.reason, ctx.requestId);
+      return successResponse({ id: result.id, status: result.status }, { requestId: ctx.requestId });
+    } catch (error) {
+      if (error instanceof RoutineError) return errorResponse('CONFLICT', error.message, error.status, ctx.requestId);
+      throw error;
+    }
+  })));
+  // Compatibility: old clients can correct, but never erase historical rows.
+  router.delete('/api/kajian-rutin/attendance/:id', requirePermission(PERMISSIONS.ATTENDANCE_MANAGE, async (ctx) => {
+    if (!z.string().uuid().safeParse(ctx.params.id).success) return errorResponse('VALIDATION_ERROR', 'ID presensi tidak valid.', 400, ctx.requestId);
+    await ensureKajianRutinTables();
+    try {
+      await correctRoutinePresence(ctx.params.id!, 'voided', ctx.user!.id, 'Koreksi dari klien lama', ctx.requestId);
+      return successResponse({ deleted: false, corrected: true }, { requestId: ctx.requestId });
+    } catch (error) {
+      if (error instanceof RoutineError) return errorResponse('CONFLICT', error.message, error.status, ctx.requestId);
+      throw error;
+    }
   }));
+  router.post('/api/kajian-rutin/sessions/:id/attendance/export', requirePermission(PERMISSIONS.ATTENDANCE_MANAGE, requirePermission(PERMISSIONS.DATA_EXPORT,
+    validateBody(z.object({ ids: z.array(z.string().uuid()).max(100000), reason: z.string().trim().min(3).max(300) }), async (ctx, body) => {
+      if (!z.string().uuid().safeParse(ctx.params.id).success) return errorResponse('VALIDATION_ERROR', 'ID sesi tidak valid.', 400, ctx.requestId);
+      await ensureKajianRutinTables();
+      const items = body.ids.length ? await getDb().select().from(kajianRutinAttendance).where(and(eq(kajianRutinAttendance.sessionId, ctx.params.id!), inArray(kajianRutinAttendance.id, body.ids))).orderBy(asc(kajianRutinAttendance.checkInAt)) : [];
+      await logExportEvent({ actorUserId: ctx.user!.id, exportType: 'kajian_rutin_attendance', rowCount: items.length, reason: body.reason, filterJson: { sessionId: ctx.params.id, ids: body.ids }, requestId: ctx.requestId });
+      const csv = recordsToCsv(items.map(item => ({ Nama: item.fullName, Email: item.email, WhatsApp: item.phone, Status: item.status, Waktu_WIB: item.checkInAt.toLocaleString('sv-SE', { timeZone: 'Asia/Jakarta' }), Sumber: item.source, Catatan: item.note })));
+      return successResponse({ csv, count: items.length }, { requestId: ctx.requestId });
+    }))));
 
   // ===================== ADMIN: MASTER PEMATERI / USTADZ =====================
 
@@ -1143,7 +1053,7 @@ export function registerKajianRutinRoutes(router: Router) {
     const db = getDb();
     const [before] = await db.select().from(kajianRutinAnnouncements).where(eq(kajianRutinAnnouncements.id, ctx.params.id!)).limit(1);
     if (!before) return errorResponse('NOT_FOUND', 'Pengumuman tidak ditemukan.', 404, ctx.requestId);
-    await db.delete(kajianRutinAnnouncements).where(eq(kajianRutinAnnouncements.id, before.id));
+    await db.update(kajianRutinAnnouncements).set({ isActive: false, updatedAt: new Date() }).where(eq(kajianRutinAnnouncements.id, before.id));
     try {
       await logAuditEvent({ actorUserId: ctx.user!.id, action: 'kajian_rutin_announcement_delete', entityType: 'kajian_rutin_announcement',
         entityId: before.id, beforeJson: { title: before.title }, requestId: ctx.requestId });
@@ -1348,8 +1258,10 @@ export function registerKajianRutinRoutes(router: Router) {
     const myAttendance = await db
       .select({ sessionId: kajianRutinAttendance.sessionId, checkInAt: kajianRutinAttendance.checkInAt })
       .from(kajianRutinAttendance)
-      .where(eq(kajianRutinAttendance.googleSub, session.sub));
+      .where(myRoutineAttendance(session));
     const attendanceMap = new Map(myAttendance.map((row) => [row.sessionId, row.checkInAt.toISOString()]));
+    const attendanceCounts = rows.length ? await db.select({ sessionId: kajianRutinAttendance.sessionId, count: sql<number>`count(*)::int` }).from(kajianRutinAttendance).where(and(inArray(kajianRutinAttendance.sessionId, rows.map(row => row.session.id)), eq(kajianRutinAttendance.status, 'present'))).groupBy(kajianRutinAttendance.sessionId) : [];
+    const counts = new Map(attendanceCounts.map(row => [row.sessionId, Number(row.count)]));
 
     const now = Date.now();
     const openNow: Array<Record<string, unknown>> = [];
@@ -1366,8 +1278,12 @@ export function registerKajianRutinRoutes(router: Router) {
         seriesTitle: series.title,
         speaker: sesi.speaker || series.speaker,
         locationName: sesi.locationName || series.locationName,
-        startTime: sesi.startTime || series.startTime,
-        endTime: sesi.endTime || series.endTime,
+        startTime: new Date(+sesi.startAt + 25_200_000).toISOString().slice(11,16),
+        endTime: sesi.endAt ? new Date(+sesi.endAt + 25_200_000).toISOString().slice(11,16) : null,
+        targetAudience: series.targetAudience,
+        quota: series.quota,
+        attendanceCount: counts.get(sesi.id) || 0,
+        isFull: !!series.quota && (counts.get(sesi.id) || 0) >= series.quota,
         posterUrl: series.posterUrl ?? null,
         windowOpenAt: window.openAt.toISOString(),
         windowCloseAt: window.closeAt.toISOString(),
@@ -1399,7 +1315,7 @@ export function registerKajianRutinRoutes(router: Router) {
       .from(kajianRutinAttendance)
       .innerJoin(kajianRutinSessions, eq(kajianRutinAttendance.sessionId, kajianRutinSessions.id))
       .innerJoin(kajianRutinSeries, eq(kajianRutinAttendance.seriesId, kajianRutinSeries.id))
-      .where(eq(kajianRutinAttendance.googleSub, session.sub))
+      .where(myRoutineAttendance(session))
       .orderBy(desc(kajianRutinAttendance.checkInAt))
       .limit(30);
     return successResponse(
@@ -1498,60 +1414,15 @@ export function registerKajianRutinRoutes(router: Router) {
         );
       }
 
-      const existing = await findExistingAttendance(sesi.id, session.sub);
-      if (existing) {
-        return successResponse(
-          { alreadyAbsen: true, attendance: { id: existing.id, checkInAt: existing.checkInAt.toISOString(), source: existing.source } },
-          { requestId: ctx.requestId },
-          200,
-          { 'Cache-Control': 'no-store' }
-        );
-      }
-
-      const db = getDb();
-      // Ambil profil terbaru dari database agar perubahan profil langsung terpakai.
       const account = await getAccountById(session.accountId);
-      const attendeeName = account?.fullName || session.name;
-      const [created] = await db.insert(kajianRutinAttendance).values({
-        sessionId: sesi.id,
-        seriesId: series.id,
-        accountId: session.accountId,
-        googleSub: session.sub,
-        email: session.email.toLowerCase(),
-        fullName: attendeeName,
-        source: body.token ? 'qr_self_scan' : 'portal_self_scan',
-        status: 'present',
-        note: body.deviceInfo || null,
-      }).onConflictDoNothing().returning();
-      if (!created) {
-        const again = await findExistingAttendance(sesi.id, session.sub);
-        return successResponse(
-          { alreadyAbsen: true, attendance: again ? { id: again.id, checkInAt: again.checkInAt.toISOString(), source: again.source } : null },
-          { requestId: ctx.requestId },
-          200,
-          { 'Cache-Control': 'no-store' }
-        );
+      if (!account || account.googleSub !== session.sub) return errorResponse('UNAUTHENTICATED', 'Silakan login ulang.', 401, ctx.requestId);
+      try {
+        const result = await recordRoutinePresence({ sessionId: sesi.id, accountId: account.id, googleSub: session.sub, fullName: account.fullName, email: account.email, phone: account.phone, gender: account.gender === 'ikhwan' || account.gender === 'akhwat' ? account.gender : null, source: body.token ? 'qr_self_scan' : 'portal_self_scan', token: body.token, note: body.deviceInfo, public: true, requestId: ctx.requestId });
+        return successResponse({ alreadyAbsen: result.alreadyAbsen, attendance: { id: result.attendance.id, checkInAt: result.attendance.checkInAt.toISOString(), source: result.attendance.source }, session: { id: sesi.id, sessionDate: sesi.sessionDate, startAt: sesi.startAt.toISOString(), topic: sesi.topic }, series: { id: series.id, title: series.title, speaker: series.speaker, locationName: series.locationName } }, { requestId: ctx.requestId }, result.alreadyAbsen ? 200 : 201, { 'Cache-Control': 'no-store' });
+      } catch (error) {
+        if (error instanceof RoutineError) return errorResponse('CONFLICT', error.message, error.status, ctx.requestId);
+        throw error;
       }
-      // Catat peserta ke Direktori Jamaah (cocok lewat email, buat baru bila belum ada).
-      await syncPersonFromJamaah({
-        fullName: attendeeName,
-        email: session.email.toLowerCase(),
-        gender: account?.gender ?? null,
-        cityRegency: account?.cityRegency ?? null,
-        province: account?.province ?? null,
-        educationLevel: account?.educationLevel ?? null,
-      });
-      return successResponse(
-        {
-          alreadyAbsen: false,
-          attendance: { id: created.id, checkInAt: created.checkInAt.toISOString(), source: created.source },
-          session: { id: sesi.id, sessionDate: sesi.sessionDate, startAt: sesi.startAt.toISOString(), topic: sesi.topic },
-          series: { id: series.id, title: series.title, speaker: series.speaker, locationName: series.locationName },
-        },
-        { requestId: ctx.requestId },
-        201,
-        { 'Cache-Control': 'no-store' }
-      );
     }));
 
   // ---- Portal daurah: daftar event + status tiket saya ----
@@ -1694,6 +1565,7 @@ export function registerKajianRutinRoutes(router: Router) {
           endAt: events.endAt,
           locationName: events.locationName,
           status: events.status,
+          isPaid: events.isPaid,
         })
         .from(events)
         .where(eq(events.id, body.eventId))
@@ -1732,7 +1604,7 @@ export function registerKajianRutinRoutes(router: Router) {
           ctx.requestId
         );
       }
-      const paymentError = paymentCheckInError(mine);
+      const paymentError = paymentCheckInError(mine, event.isPaid);
       if (paymentError) return errorResponse('INVALID_STATE_TRANSITION', paymentError, 400, ctx.requestId);
       if (mine.status === 'attended') {
         return successResponse(

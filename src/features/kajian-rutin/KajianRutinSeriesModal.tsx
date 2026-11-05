@@ -3,6 +3,7 @@ import { ImagePlus, LoaderCircle, Plus, Trash2, X } from 'lucide-react';
 import type { KajianRutinSeries, KajianRutinSpeaker } from '../../lib/kajianRutin';
 import { uploadKajianRutinPoster } from '../../lib/kajianRutin';
 import { WEEKDAY_NAMES } from '../../lib/kajianRutin';
+import { useEventDialog } from '../events/components/useEventDialog';
 
 interface SeriesFormValues {
   title: string;
@@ -93,6 +94,7 @@ export function KajianRutinSeriesModal({
   const [uploadingPoster, setUploadingPoster] = useState(false);
   const [posterError, setPosterError] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const dialogRef = useEventDialog(isOpen, () => { if (!saving && !uploadingPoster) onClose(); });
 
   useEffect(() => {
     if (isOpen) {
@@ -144,7 +146,7 @@ export function KajianRutinSeriesModal({
   };
 
   const handleSubmit = () => {
-    onSave({
+    const payload: Record<string, unknown> = {
       title: form.title.trim(),
       speaker: form.speaker.trim() || null,
       description: form.description.trim() || null,
@@ -161,27 +163,33 @@ export function KajianRutinSeriesModal({
       checkInOpenMinutes: Number(form.checkInOpenMinutes) || 240,
       checkInCloseMinutes: Number(form.checkInCloseMinutes) || 300,
       isActive: form.isActive,
-    });
+    };
+    if (series) {
+      const previous = toForm(series);
+      for (const key of Object.keys(payload)) if (form[key as keyof SeriesFormValues] === previous[key as keyof SeriesFormValues]) delete payload[key];
+    }
+    if (!Object.keys(payload).length) { onClose(); return; }
+    onSave(payload);
   };
 
   return (
     <div
-      className="fixed inset-0 z-70 flex items-start justify-center overflow-y-auto bg-[#0f3a2e]/60 p-4 backdrop-blur-xs sm:p-8"
+      className="kr-overlay"
       onClick={(e) => {
         if (e.target === e.currentTarget && !saving) onClose();
       }}
     >
-      <div className="w-full max-w-2xl rounded-3xl border border-[#e7e4d8] bg-[#fbfaf6] shadow-2xl" role="dialog" aria-modal="true">
+      <div ref={dialogRef} tabIndex={-1} className="kr-legacy-dialog w-full max-w-2xl rounded-3xl border border-[#e7e4d8] bg-[#fbfaf6] shadow-2xl" role="dialog" aria-label={series ? 'Ubah seri kajian' : 'Buat seri kajian'} aria-modal="true">
         <div className="flex items-center justify-between border-b border-[#e7e4d8] px-6 py-4">
           <div>
             <h3 className="font-display text-base font-black text-[#1c321d]">
               {series ? 'Ubah Kajian Rutin' : 'Kajian Rutin Baru'}
             </h3>
             <p className="text-[11px] text-[#8a9690]">
-              {series ? 'Perubahan berlaku untuk sesi berikutnya.' : 'Buat seri kajian yang berulang lalu terbitkan sesi & QR absensinya.'}
+              {series ? 'Pola baru berlaku untuk sesi yang dibuat berikutnya.' : 'Jadwalkan pertemuan dan presensi Jamaah.'}
             </p>
           </div>
-          <button onClick={onClose} disabled={saving} className="rounded-xl p-2 text-[#8a9690] transition-colors hover:bg-[#f2eee4] hover:text-[#1c321d]">
+          <button aria-label="Tutup dialog" onClick={onClose} disabled={saving} className="rounded-xl p-2 text-[#8a9690] transition-colors hover:bg-[#f2eee4] hover:text-[#1c321d]">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -275,17 +283,17 @@ export function KajianRutinSeriesModal({
             </div>
             <div>
               <label className={labelClass} htmlFor="kr-startdate">Tanggal Mulai</label>
-              <input id="kr-startdate" type="date" className={inputClass} value={form.startDate} onChange={(e) => set('startDate', e.target.value)} />
+              <input id="kr-startdate" type="date" className={inputClass} value={form.startDate} onInput={(e) => set('startDate', e.currentTarget.value)} onChange={(e) => set('startDate', e.target.value)} />
               <p className="mt-1 text-[10.5px] text-[#8a9690]">Sesi pertama otomatis terbit bila diisi.</p>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className={labelClass} htmlFor="kr-start">Jam Mulai</label>
-                <input id="kr-start" type="time" className={inputClass} value={form.startTime} onChange={(e) => set('startTime', e.target.value)} />
+                <input id="kr-start" type="time" className={inputClass} value={form.startTime} onInput={(e) => set('startTime', e.currentTarget.value)} onChange={(e) => set('startTime', e.target.value)} />
               </div>
               <div>
                 <label className={labelClass} htmlFor="kr-end">Jam Selesai</label>
-                <input id="kr-end" type="time" className={inputClass} value={form.endTime} onChange={(e) => set('endTime', e.target.value)} />
+                <input id="kr-end" type="time" className={inputClass} value={form.endTime} onInput={(e) => set('endTime', e.currentTarget.value)} onChange={(e) => set('endTime', e.target.value)} />
               </div>
             </div>
           </div>

@@ -13,9 +13,10 @@ import {
   donations, 
   waqfCases, 
   eventAttendance, 
-  auditLogs 
+  auditLogs,
+  kajianRutinAttendance,
 } from '../../db/schema';
-import { eq, and, isNull, desc, lte } from 'drizzle-orm';
+import { eq, and, isNull, desc, lte, sql } from 'drizzle-orm';
 import { PERMISSIONS } from '../../permissions/constants';
 import { normalizeIndonesianPhone, isValidE164 } from '../../lib/phone';
 
@@ -385,6 +386,23 @@ export function registerDataQualityRoutes(router: Router) {
         secondaryPerson: { id: secondary.id, fullName: secondary.fullName, phoneE164: secondary.phoneE164, email: secondary.email },
       };
 
+      // Retain every routine attendance row and original timestamp. When both
+      // profiles have a row in a session, the duplicate stays on the archived
+      // source profile as a reversible correction rather than being deleted.
+      const routineRows = await tx.query.kajianRutinAttendance.findMany({ where: eq(kajianRutinAttendance.personId, secondaryPersonId) });
+      const routineMerge: Array<{ id: string; retainedId?: string; sourcePersonId: string; targetPersonId: string }> = [];
+      for (const seriesId of [...new Set(routineRows.map(row => row.seriesId))].sort()) await tx.execute(sql`SELECT id FROM kajian_rutin_series WHERE id=${seriesId} FOR UPDATE`);
+      for (const row of routineRows) {
+        const existing = await tx.query.kajianRutinAttendance.findFirst({ where: and(eq(kajianRutinAttendance.personId, primaryPersonId), eq(kajianRutinAttendance.sessionId, row.sessionId)) });
+        if (!existing) await tx.update(kajianRutinAttendance).set({ personId: primaryPersonId }).where(eq(kajianRutinAttendance.id, row.id));
+        else if (existing.status !== 'present' && row.status === 'present') {
+          await tx.update(kajianRutinAttendance).set({ personId: null }).where(eq(kajianRutinAttendance.id, row.id));
+          await tx.update(kajianRutinAttendance).set({ personId: secondaryPersonId }).where(eq(kajianRutinAttendance.id, existing.id));
+          await tx.update(kajianRutinAttendance).set({ personId: primaryPersonId }).where(eq(kajianRutinAttendance.id, row.id));
+        } else if (row.status === 'present') await tx.update(kajianRutinAttendance).set({ status: 'voided' }).where(eq(kajianRutinAttendance.id, row.id));
+        routineMerge.push({ id: row.id, retainedId: existing?.id, sourcePersonId: secondaryPersonId, targetPersonId: primaryPersonId });
+      }
+
       // 1. Reassign all interactions
       await tx
         .update(interactions)
@@ -501,6 +519,7 @@ export function registerDataQualityRoutes(router: Router) {
         .where(eq(persons.id, secondaryPersonId));
 
       const afterJson = {
+        routineAttendance: routineMerge,
         mergedPrimaryId: primaryPersonId,
         deactivatedSecondaryId: secondaryPersonId,
         finalPrimaryState: {
