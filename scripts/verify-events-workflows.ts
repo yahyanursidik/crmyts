@@ -297,6 +297,67 @@ try {
       exported.csvContent.includes('Form: Catatan') &&
       !exported.csvContent.includes('Bukti URL'),
   );
+  const virtualPhone = manual.person.phoneE164 + '-fam-2';
+  await pool.query('UPDATE persons SET phone_e164=$1 WHERE id=$2', [
+    virtualPhone,
+    manual.person.id,
+  ]);
+  const edit = await api(
+    'edit nama keluarga menjaga nomor virtual',
+    'PATCH',
+    `/api/events/${paid.id}/attendances/${manual.attendance.id}`,
+    {
+      fullName: 'Peserta Keluarga Uji',
+      phone: virtualPhone,
+      email: manual.person.email || '',
+      cityRegency: '',
+    },
+  );
+  verify(
+    'nomor virtual dan tiket tetap utuh',
+    edit.participant.personPhone === virtualPhone &&
+      edit.participant.ticketCode === manual.ticketCode,
+  );
+  await api(
+    'edit kontak berhuruf ditolak',
+    'PATCH',
+    `/api/events/${paid.id}/attendances/${manual.attendance.id}`,
+    {
+      fullName: 'Peserta Keluarga Uji',
+      phone: 'abc123456789',
+      email: '',
+      cityRegency: '',
+    },
+    400,
+  );
+  const restored = await api(
+    'koreksi nomor keluarga secara eksplisit',
+    'PATCH',
+    `/api/events/${paid.id}/attendances/${manual.attendance.id}`,
+    {
+      fullName: manual.person.fullName,
+      phone: manual.person.phoneE164,
+      email: manual.person.email || '',
+      cityRegency: '',
+    },
+  );
+  verify(
+    'koreksi kontak menjaga identitas tiket',
+    restored.participant.ticketCode === manual.ticketCode &&
+      restored.participant.personPhone === manual.person.phoneE164,
+  );
+  await api(
+    'kontak tidak mengambil profil lain',
+    'PATCH',
+    `/api/events/${paid.id}/attendances/${manual.attendance.id}`,
+    {
+      fullName: 'Konflik Kontak Uji',
+      phone: importedPhone,
+      email: '',
+      cityRegency: '',
+    },
+    409,
+  );
   await pool.query(
     "UPDATE event_attendance SET payment_status='free' WHERE id=$1",
     [manual.attendance.id],

@@ -1682,111 +1682,116 @@ export function registerEventsRoutes(router: Router) {
             ctx.requestId,
           );
 
-        const attendance = await db.query.eventAttendance.findFirst({
-          where: and(
-            eq(eventAttendance.id, attendanceId),
-            eq(eventAttendance.eventId, eventId),
-          ),
-          with: { person: true },
-        });
-        if (!attendance?.person)
-          return errorResponse(
-            'NOT_FOUND',
-            'Peserta kajian tidak ditemukan.',
-            404,
-            ctx.requestId,
+        return db.transaction(async (tx) => {
+          await tx.execute(
+            sql`SELECT p.id FROM persons p JOIN event_attendance a ON a.person_id = p.id WHERE a.id = ${attendanceId} AND a.event_id = ${eventId} FOR UPDATE OF p`,
           );
-
-        const phoneE164 = normalizeIndonesianPhone(body.phone);
-        if (!isValidE164(phoneE164))
-          return errorResponse(
-            'VALIDATION_ERROR',
-            'Nomor WhatsApp harus menggunakan format yang valid.',
-            400,
-            ctx.requestId,
-          );
-
-        const phoneOwner = await db.query.persons.findFirst({
-          where: eq(persons.phoneE164, phoneE164),
-          columns: { id: true, fullName: true },
-        });
-        if (phoneOwner && phoneOwner.id !== attendance.personId) {
-          const sameEvent = await db.query.eventAttendance.findFirst({
+          const attendance = await tx.query.eventAttendance.findFirst({
             where: and(
+              eq(eventAttendance.id, attendanceId),
               eq(eventAttendance.eventId, eventId),
-              eq(eventAttendance.personId, phoneOwner.id),
             ),
-            columns: { id: true },
+            with: { person: true },
           });
-          if (sameEvent)
+          if (!attendance?.person)
             return errorResponse(
-              'CONFLICT',
-              `Nomor ini sudah digunakan peserta lain pada kajian ini (${phoneOwner.fullName}).`,
-              409,
+              'NOT_FOUND',
+              'Peserta kajian tidak ditemukan.',
+              404,
               ctx.requestId,
             );
-        }
 
-        const before = {
-          fullName: attendance.person.fullName,
-          phoneE164: attendance.person.phoneE164,
-          email: attendance.person.email,
-          cityRegency: attendance.person.cityRegency,
-          ticketCode: attendance.ticketCode,
-        };
-        const [updatedPerson] = await db
-          .update(persons)
-          .set({
-            fullName: body.fullName,
-            phoneE164,
-            email: body.email || null,
-            cityRegency: body.cityRegency || null,
-            updatedAt: new Date(),
-          })
-          .where(eq(persons.id, attendance.personId))
-          .returning();
-        if (!updatedPerson)
-          return errorResponse(
-            'INTERNAL_ERROR',
-            'Data peserta tidak berhasil diperbarui.',
-            500,
-            ctx.requestId,
-          );
+          const phoneChanged =
+            body.phone !== (attendance.person.phoneE164 || '');
+          const phoneE164 = phoneChanged
+            ? normalizeIndonesianPhone(body.phone)
+            : attendance.person.phoneE164;
+          if (
+            phoneChanged &&
+            (!/^[+\d\s().-]+$/.test(body.phone) || !isValidE164(phoneE164))
+          )
+            return errorResponse(
+              'VALIDATION_ERROR',
+              'Nomor WhatsApp harus menggunakan format yang valid.',
+              400,
+              ctx.requestId,
+            );
 
-        await logAuditEvent({
-          actorUserId: ctx.user?.id,
-          action: 'edit_event_participant_contact',
-          entityType: 'event_attendance',
-          entityId: attendanceId,
-          beforeJson: before,
-          afterJson: {
-            fullName: updatedPerson.fullName,
-            phoneE164: updatedPerson.phoneE164,
-            email: updatedPerson.email,
-            cityRegency: updatedPerson.cityRegency,
+          if (phoneChanged && phoneE164) {
+            const phoneOwner = await tx.query.persons.findFirst({
+              where: eq(persons.phoneE164, phoneE164),
+              columns: { id: true },
+            });
+            if (phoneOwner && phoneOwner.id !== attendance.personId)
+              return errorResponse(
+                'CONFLICT',
+                'Nomor ini digunakan profil Jamaah lain. Tinjau melalui menu Jamaah sebelum mengubah kontak.',
+                409,
+                ctx.requestId,
+              );
+          }
+
+          const before = {
+            fullName: attendance.person.fullName,
+            phoneE164: attendance.person.phoneE164,
+            email: attendance.person.email,
+            cityRegency: attendance.person.cityRegency,
             ticketCode: attendance.ticketCode,
-            ticketPreserved: true,
-          },
-          reason:
-            'Perbaikan kontak peserta kajian tanpa mengganti tiket atau QR.',
-          requestId: ctx.requestId,
-        });
+          };
+          const [updatedPerson] = await tx
+            .update(persons)
+            .set({
+              fullName: body.fullName,
+              ...(phoneChanged ? { phoneE164 } : {}),
+              email: body.email || null,
+              cityRegency: body.cityRegency || null,
+              updatedAt: new Date(),
+            })
+            .where(eq(persons.id, attendance.personId))
+            .returning();
+          if (!updatedPerson)
+            return errorResponse(
+              'INTERNAL_ERROR',
+              'Data peserta tidak berhasil diperbarui.',
+              500,
+              ctx.requestId,
+            );
 
-        return successResponse(
-          {
-            message: 'Data peserta diperbarui. Kode tiket dan QR tetap sama.',
-            participant: {
-              id: attendance.id,
-              personId: attendance.personId,
-              personName: updatedPerson.fullName,
-              personPhone: updatedPerson.phoneE164,
-              personEmail: updatedPerson.email,
-              personCity: updatedPerson.cityRegency,
+          await tx.insert(auditLogs).values({
+            actorUserId: ctx.user?.id,
+            action: 'edit_event_participant_contact',
+            entityType: 'event_attendance',
+            entityId: attendanceId,
+            beforeJson: before,
+            afterJson: {
+              fullName: updatedPerson.fullName,
+              phoneE164: updatedPerson.phoneE164,
+              email: updatedPerson.email,
+              cityRegency: updatedPerson.cityRegency,
               ticketCode: attendance.ticketCode,
+              ticketPreserved: true,
             },
-          },
-          { requestId: ctx.requestId },
-        );
+            reason:
+              'Perbaikan kontak peserta kajian tanpa mengganti tiket atau QR.',
+            requestId: ctx.requestId,
+          });
+
+          return successResponse(
+            {
+              message: 'Data peserta diperbarui. Kode tiket dan QR tetap sama.',
+              participant: {
+                id: attendance.id,
+                personId: attendance.personId,
+                personName: updatedPerson.fullName,
+                personPhone: updatedPerson.phoneE164,
+                personEmail: updatedPerson.email,
+                personCity: updatedPerson.cityRegency,
+                ticketCode: attendance.ticketCode,
+              },
+            },
+            { requestId: ctx.requestId },
+          );
+        });
       }),
     ),
   );
