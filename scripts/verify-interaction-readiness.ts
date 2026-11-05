@@ -206,7 +206,7 @@ try {
       allowed(P.TASKS_VIEW_OWN) || allowed(P.TASKS_VIEW_ALL) ? 200 : 403,
       token,
     );
-    if (tasks && !allowed(P.INTERACTIONS_VIEW))
+    if (Array.isArray(tasks?.data) && !allowed(P.INTERACTIONS_VIEW))
       verify(
         role,
         "tugas tidak membuka sumber di luar hak akses",
