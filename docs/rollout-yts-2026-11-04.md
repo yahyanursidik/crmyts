@@ -91,3 +91,6 @@ PR #27 menambahkan ringkasan operasional admin, agenda yang terhubung peserta/pe
 
 
 Pemeriksaan HTTPS preview menemukan timeout pada ringkasan broadcast kajian. Perbaikan mengganti pembacaan berulang dengan satu agregasi terbatas dan memisahkan status log H-8/H-1. Agregasi SQL staging selesai 53 ms, 10/10 pemeriksaan lulus dan seluruh fixture log di-rollback. Setelah perbaikan, 417 tes pada 71 berkas serta pemeriksaan tipe lulus. Tidak ada email/pesan yang dikirim.
+
+
+Sebelum penerapan dashboard, fingerprint produksi dibandingkan kembali dengan catatan sesudah migrasi 0013. Seluruh 48 tabel yang tidak memuat perubahan login/audit identik; tidak ada perbedaan data bisnis. Akun fixture tinjauan UI staging telah dinonaktifkan dan sesinya dicabut; server pratinjau lokal dihentikan setelah pemeriksaan browser.
