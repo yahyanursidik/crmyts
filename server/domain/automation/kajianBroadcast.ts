@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { z } from 'zod';
-import { and, eq, gte, inArray, sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { logAuditEvent } from '../../audit/service';
 import { getBroadcastDailyQuota, reserveBroadcastEmailSlot } from '../../email/broadcastQuota';
 import { renderEmailLayout, sendEmail } from '../../email/service';
@@ -17,6 +17,7 @@ import { requirePermission, validateBody } from '../../http/middleware';
 import { errorResponse, successResponse } from '../../http/response';
 import { Router } from '../../http/router';
 import { PERMISSIONS } from '../../permissions/constants';
+import { loadBroadcastOverview, overviewDeliveryState } from './kajianBroadcastOverview';
 
 /**
  * Broadcast email kajian terpadu: sumber /events (daurah) & /kajian-rutin.
@@ -314,73 +315,25 @@ export function registerKajianBroadcastRoutes(router: Router) {
     await ensureBroadcastTables();
     const db = getDb();
     const days = Math.min(30, Math.max(1, Number.parseInt(ctx.query.days || '10', 10) || 10));
-    const horizon = new Date(Date.now() + days * 86_400_000);
     const now = Date.now();
-
-    const eventRows = await db
-      .select({ id: events.id, title: events.title, speaker: events.speaker, startAt: events.startAt, locationName: events.locationName })
-      .from(events)
-      .where(and(inArray(events.status, ['scheduled', 'ongoing']), gte(events.startAt, new Date(now - 24 * 3_600_000))))
-      .orderBy(events.startAt)
-      .limit(20);
-    const rutinRows = await db
-      .select({
-        id: kajianRutinSessions.id,
-        startAt: kajianRutinSessions.startAt,
-        topic: kajianRutinSessions.topic,
-        seriesTitle: kajianRutinSeries.title,
-        speaker: sql<string | null>`coalesce(${kajianRutinSessions.speaker}, ${kajianRutinSeries.speaker})`,
-        locationName: sql<string | null>`coalesce(${kajianRutinSessions.locationName}, ${kajianRutinSeries.locationName})`,
-      })
-      .from(kajianRutinSessions)
-      .innerJoin(kajianRutinSeries, eq(kajianRutinSessions.seriesId, kajianRutinSeries.id))
-      .where(and(eq(kajianRutinSessions.status, 'scheduled'), eq(kajianRutinSeries.isActive, true), gte(kajianRutinSessions.startAt, new Date(now - 12 * 3_600_000))))
-      .orderBy(kajianRutinSessions.startAt)
-      .limit(20);
-
-    const targets: Array<{ source: 'event' | 'rutin'; targetId: string }> = [
-      ...eventRows.map((row) => ({ source: 'event' as const, targetId: row.id })),
-      ...rutinRows.map((row) => ({ source: 'rutin' as const, targetId: row.id })),
-    ];
-
-    const quota = await getBroadcastDailyQuota();
-    const items: Array<Record<string, unknown>> = [];
-    for (const target of targets) {
-      const loaded = await loadTarget(target.source, target.targetId);
-      if (!loaded || loaded.startAt.getTime() > horizon.getTime()) continue;
-      const reminderRecipients = await loadRecipients(loaded, 'reminder');
-      const postRecipients = await loadRecipients(loaded, 'post');
-      const sentReminder = await sentEmailsFor(loaded.source, loaded.targetId, 'reminder', 'reminder');
-      const sentPost = await sentEmailsFor(loaded.source, loaded.targetId, 'post', 'post');
-
-      const stages = ['h8', 'h1'].map((stage) => {
-        const dueAt = new Date(loaded.startAt.getTime() - STAGE_OFFSETS[stage]! * 60_000);
-        let status: string;
-        if (sentReminder.size > 0) status = 'sent';
-        else if (now >= dueAt.getTime() && now < loaded.startAt.getTime()) status = 'due';
-        else if (now >= loaded.startAt.getTime()) status = 'closed';
-        else status = 'not_due';
-        return { key: stage, label: stage === 'h8' ? 'H-8 Jam' : 'H-1 Jam', dueAt: dueAt.toISOString(), status, pending: Math.max(0, reminderRecipients.length - sentReminder.size) };
+    const [quota, targets] = await Promise.all([getBroadcastDailyQuota(), loadBroadcastOverview(db, now, days)]);
+    const items = targets.map((target) => {
+      const startAt = new Date(target.startAt).getTime();
+      const stages = (['h8', 'h1'] as const).map((stage) => {
+        const pending = stage === 'h8' ? target.h8Pending : target.h1Pending;
+        const dueAt = startAt - STAGE_OFFSETS[stage]! * 60_000;
+        return { key: stage, label: stage === 'h8' ? 'H-8 Jam' : 'H-1 Jam', dueAt: new Date(dueAt).toISOString(), status: overviewDeliveryState(target.reminderTotal, pending, now, dueAt, startAt), pending };
       });
-      const postPending = postRecipients.filter((r) => !sentPost.has(r.email)).length;
-      const postStatus = sentPost.size > 0 ? 'sent' : now >= loaded.startAt.getTime() ? 'due' : 'not_due';
-
-      items.push({
-        source: loaded.source,
-        targetId: loaded.targetId,
-        title: loaded.title,
-        speaker: loaded.speaker,
-        startAt: loaded.startAt.toISOString(),
-        locationName: loaded.locationName,
-        reminderTotal: reminderRecipients.length,
-        reminderPending: Math.max(0, reminderRecipients.length - sentReminder.size),
-        postTotal: postRecipients.length,
-        postPending,
-        stages,
-        post: { status: postStatus, pending: postPending },
-        recommendedBatch: Math.max(1, Math.min(Math.max(reminderRecipients.length - sentReminder.size, 1), quota.remainingToday || 1, SAFE_BATCH_CEILING)),
-      });
-    }
+      const reminderPending = Math.max(target.h8Pending, target.h1Pending);
+      return {
+        source: target.source, targetId: target.targetId, title: target.title,
+        speaker: target.speaker, startAt: new Date(startAt).toISOString(), locationName: target.locationName,
+        reminderTotal: target.reminderTotal, reminderPending,
+        postTotal: target.postTotal, postPending: target.postPending, stages,
+        post: { status: overviewDeliveryState(target.postTotal, target.postPending, now, startAt), pending: target.postPending },
+        recommendedBatch: Math.max(1, Math.min(Math.max(reminderPending, 1), quota.remainingToday || 1, SAFE_BATCH_CEILING)),
+      };
+    });
     return successResponse(
       { quota, items },
       { requestId: ctx.requestId, total: items.length },

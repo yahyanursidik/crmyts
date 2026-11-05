@@ -88,3 +88,6 @@ Pembaruan pembayaran diterbitkan melalui PR #26, commit `7150a64d15e76f418afc7ed
 ## Dashboard pengelola — 5 November 2026
 
 PR #27 menambahkan ringkasan operasional admin, agenda yang terhubung peserta/pengaturan event, enam pintasan formulir dan filter donasi bulanan WIB. Tidak ada migrasi skema baru. Pratinjau `https://deploy-preview-27--crmyts.netlify.app` memakai branch staging yang sama; URL preview diselaraskan sebelum build akhir. Build lokal, 415 tes, 493 pemeriksaan peran staging, 21 pemeriksaan SQL dashboard dan 133 UAT terhubung sudah lulus. Hasil tinjauan browser dan backlog EO tercatat pada audit.
+
+
+Pemeriksaan HTTPS preview menemukan timeout pada ringkasan broadcast kajian. Perbaikan mengganti pembacaan berulang dengan satu agregasi terbatas dan memisahkan status log H-8/H-1. Agregasi SQL staging selesai 53 ms, 10/10 pemeriksaan lulus dan seluruh fixture log di-rollback. Setelah perbaikan, 417 tes pada 71 berkas serta pemeriksaan tipe lulus. Tidak ada email/pesan yang dikirim.

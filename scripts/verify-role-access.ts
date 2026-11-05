@@ -30,8 +30,11 @@ async function request(role: string, feature: string, path: string, expected: nu
     const result = await fetch(new URL(path, baseUrl), { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
     return { statusCode: result.status, body: await result.text() };
   })() : await handler!({ path: url.pathname, httpMethod: method, headers, queryStringParameters: Object.fromEntries(url.searchParams), body: body === undefined ? null : JSON.stringify(body) });
-  const payload = JSON.parse(response.body || '{}');
-  const check: Check = { role, feature, expected, actual: response.statusCode, passed: response.statusCode === expected };
+  let payload: any;
+  let jsonResponse = true;
+  try { payload = JSON.parse(response.body || '{}'); }
+  catch { jsonResponse = false; payload = { error: { message: `Hosting mengembalikan respons non-JSON (HTTP ${response.statusCode}).` } }; }
+  const check: Check = { role, feature, expected, actual: response.statusCode, passed: response.statusCode === expected && jsonResponse };
   if (!check.passed) check.error = payload.error?.message || 'Status tidak sesuai';
   checks.push(check);
   if (!check.passed) console.log(JSON.stringify({ failure: check }));
@@ -108,7 +111,7 @@ try {
     await request(role, 'token dicabut', '/api/auth/me', 401, token);
     console.log(JSON.stringify({ role, passed: checks.filter((c) => c.role === role && c.passed).length, failed: checks.filter((c) => c.role === role && !c.passed).length }));
   };
-  const concurrency = baseUrl ? 3 : 1;
+  const concurrency = 1;
   for (let offset = 0; offset < vault.accounts.length; offset += concurrency) {
     await Promise.all(vault.accounts.slice(offset, offset + concurrency).map(verifyAccount));
   }
