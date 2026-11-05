@@ -16,6 +16,13 @@ export function getDbPool(): Pool {
   if (!pool) {
     const env = getServerEnv();
     pool = new Pool({ connectionString: env.DATABASE_URL });
+    // The pool removes a failed idle connection itself. Handle its notification
+    // so a dropped WebSocket cannot terminate a warm worker or expose the client.
+    pool.on('error', () => {
+      console.warn(
+        'Koneksi database idle terputus; pool akan membuka koneksi baru.',
+      );
+    });
   }
   return pool;
 }

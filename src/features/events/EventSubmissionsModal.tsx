@@ -1,4 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router';
+import { EventParticipantForm } from './components/EventParticipantForm';
+import { useEventDialog } from './components/useEventDialog';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Search,
@@ -25,7 +28,10 @@ import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { ECertificateModal } from './ECertificateModal';
 import { EventImportModal } from './components/EventImportModal';
 import { EventScannerModal } from './components/EventScannerModal';
-import { PaymentVerifyModal, ParticipantPaymentData } from './components/PaymentVerifyModal';
+import {
+  PaymentVerifyModal,
+  ParticipantPaymentData,
+} from './components/PaymentVerifyModal';
 
 interface ParticipantItem {
   id: string;
@@ -41,6 +47,7 @@ interface ParticipantItem {
   ticketCode?: string | null;
 
   // Payment tracking
+  paymentNeedsReview?: boolean;
   paymentStatus: string; // 'free' | 'pending_payment' | 'waiting_verification' | 'verified' | 'rejected'
   paymentProofUrl?: string | null;
   paymentAmountRupiah?: number | null;
@@ -108,6 +115,7 @@ interface EventDetailData {
   waitingVerificationCount?: number;
   verifiedPaymentCount?: number;
   pendingPaymentCount?: number;
+  paymentReviewCount?: number;
   specialInviteCount?: number;
   specialInviteIkhwanCount?: number;
   specialInviteAkhwatCount?: number;
@@ -188,6 +196,7 @@ interface EventSubmissionsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onRefreshList?: () => void;
+  workspaceNav?: React.ReactNode;
 }
 
 export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
@@ -195,13 +204,34 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   isOpen,
   onClose,
   onRefreshList,
+  workspaceNav,
 }) => {
+  const request = useRef(0);
+  const dialog = useEventDialog(isOpen, onClose);
+  const [page, setPage] = useState(1);
+  const [loadError, setLoadError] = useState('');
+  const [showAdd, setShowAdd] = useState(false);
   const [data, setData] = useState<EventDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'all' | 'attended' | 'registered' | 'waiting_verification' | 'ikhwan' | 'akhwat' | 'regular' | 'staff' | 'from_referral'>('all');
-  const [vehicleFilter, setVehicleFilter] = useState<'all' | 'car' | 'motorcycle' | 'none'>('all');
-  const [loyaltyFilter, setLoyaltyFilter] = useState<'all' | 'first_timer' | 'returning' | 'loyal' | 'istiqomah'>('all');
+  const [activeTab, setActiveTab] = useState<
+    | 'all'
+    | 'attended'
+    | 'registered'
+    | 'waiting_verification'
+    | 'ikhwan'
+    | 'akhwat'
+    | 'regular'
+    | 'staff'
+    | 'from_referral'
+    | 'payment_review'
+  >('all');
+  const [vehicleFilter, setVehicleFilter] = useState<
+    'all' | 'car' | 'motorcycle' | 'none'
+  >('all');
+  const [loyaltyFilter, setLoyaltyFilter] = useState<
+    'all' | 'first_timer' | 'returning' | 'loyal' | 'istiqomah'
+  >('all');
 
   // Selected for Bulk Actions
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -209,35 +239,56 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
 
   // Single Delete State
-  const [deletingAttendance, setDeletingAttendance] = useState<ParticipantItem | null>(null);
+  const [deletingAttendance, setDeletingAttendance] =
+    useState<ParticipantItem | null>(null);
   const [deleteGroupCheckbox, setDeleteGroupCheckbox] = useState(false);
   const [singleDeleteLoading, setSingleDeleteLoading] = useState(false);
 
   // Sub-modals
   const [showScannerModal, setShowScannerModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
-  const [selectedForCert, setSelectedForCert] = useState<ParticipantItem | null>(null);
-  const [selectedForPaymentVerify, setSelectedForPaymentVerify] = useState<ParticipantPaymentData | null>(null);
-  const [togglingAttendanceId, setTogglingAttendanceId] = useState<string | null>(null);
-  const [emailSendingAttendanceId, setEmailSendingAttendanceId] = useState<string | null>(null);
-  const [editingParticipant, setEditingParticipant] = useState<ParticipantItem | null>(null);
+  const [selectedForCert, setSelectedForCert] =
+    useState<ParticipantItem | null>(null);
+  const [selectedForPaymentVerify, setSelectedForPaymentVerify] =
+    useState<ParticipantPaymentData | null>(null);
+  const [togglingAttendanceId, setTogglingAttendanceId] = useState<
+    string | null
+  >(null);
+  const [emailSendingAttendanceId, setEmailSendingAttendanceId] = useState<
+    string | null
+  >(null);
+  const [editingParticipant, setEditingParticipant] =
+    useState<ParticipantItem | null>(null);
   const [participantEditSaving, setParticipantEditSaving] = useState(false);
-  const [participantEditForm, setParticipantEditForm] = useState({ fullName: '', phone: '', email: '', cityRegency: '' });
+  const [participantEditForm, setParticipantEditForm] = useState({
+    fullName: '',
+    phone: '',
+    email: '',
+    cityRegency: '',
+  });
   const [showBroadcastComposer, setShowBroadcastComposer] = useState(false);
   const [showBroadcastConfirm, setShowBroadcastConfirm] = useState(false);
   const [broadcastSubject, setBroadcastSubject] = useState('');
   const [broadcastMessage, setBroadcastMessage] = useState('');
   const [broadcastSending, setBroadcastSending] = useState(false);
-  const [broadcastHistory, setBroadcastHistory] = useState<EventBroadcastSummary[]>([]);
-  const [broadcastToday, setBroadcastToday] = useState<EventBroadcastToday | null>(null);
-  const [broadcastTemplates, setBroadcastTemplates] = useState<EventBroadcastTemplate[]>([]);
+  const [broadcastHistory, setBroadcastHistory] = useState<
+    EventBroadcastSummary[]
+  >([]);
+  const [broadcastToday, setBroadcastToday] =
+    useState<EventBroadcastToday | null>(null);
+  const [broadcastTemplates, setBroadcastTemplates] = useState<
+    EventBroadcastTemplate[]
+  >([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [templateName, setTemplateName] = useState('');
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [broadcastBatchSize, setBroadcastBatchSize] = useState(100);
 
   // Toast
-  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [toastMessage, setToastMessage] = useState<{
+    text: string;
+    type: 'success' | 'error';
+  } | null>(null);
 
   const showToast = (text: string, type: 'success' | 'error' = 'success') => {
     setToastMessage({ text, type });
@@ -245,50 +296,72 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   };
 
   const loadEventDetail = async () => {
+    const version = ++request.current;
+    setLoading(true);
+    setLoadError('');
     try {
-      setLoading(true);
       const res = await apiClient<EventDetailData>(`/events/${eventId}`);
-      if (res.data) {
-        setData(res.data);
-        setBroadcastSubject((current) => current || `Pembaruan informasi kajian: ${res.data.title}`);
-        setBroadcastMessage((current) => current || 'Bismillah, terdapat pembaruan informasi mengenai kajian. Mohon perhatikan jadwal dan lokasi terbaru pada email ini.');
-      }
-      try {
-        const broadcasts = await apiClient<EventBroadcastSummary[]>(`/events/${eventId}/email-broadcasts`);
-        setBroadcastHistory(broadcasts.data || []);
-      } catch (historyError) {
-        // Delivery analytics must not prevent the participant list from loading.
-        console.warn('Failed to load event broadcast history:', historyError);
-        setBroadcastHistory([]);
-      }
-      try {
-        const today = await apiClient<EventBroadcastToday>(`/events/${eventId}/email-broadcasts/today`);
+      if (version !== request.current) return;
+      if (!res.data) throw new Error('Data event tidak tersedia.');
+      setData(res.data);
+      setSelectedIds(
+        (current) =>
+          new Set(
+            [...current].filter((id) =>
+              res.data.participants.some((item) => item.id === id),
+            ),
+          ),
+      );
+      setBroadcastSubject(
+        (current) => current || `Pembaruan informasi kajian: ${res.data.title}`,
+      );
+      setBroadcastMessage(
+        (current) =>
+          current ||
+          'Bismillah, terdapat pembaruan informasi mengenai kajian. Mohon perhatikan jadwal dan lokasi terbaru pada email ini.',
+      );
+      // Delivery analytics load independently; a provider delay never holds the roster.
+      void Promise.all([
+        apiClient<EventBroadcastSummary[]>(
+          `/events/${eventId}/email-broadcasts`,
+        ).catch(() => ({ data: [] })),
+        apiClient<EventBroadcastToday>(
+          `/events/${eventId}/email-broadcasts/today`,
+        ).catch(() => ({ data: null })),
+        apiClient<EventBroadcastTemplate[]>(
+          `/events/${eventId}/email-broadcast-templates`,
+        ).catch(() => ({ data: [] })),
+      ]).then(([history, today, templates]) => {
+        if (version !== request.current) return;
+        setBroadcastHistory(history.data || []);
         setBroadcastToday(today.data || null);
-      } catch (todayError) {
-        console.warn('Failed to load event broadcast daily delivery:', todayError);
-        setBroadcastToday(null);
-      }
-      try {
-        const templates = await apiClient<EventBroadcastTemplate[]>(`/events/${eventId}/email-broadcast-templates`);
         setBroadcastTemplates(templates.data || []);
-      } catch (templateError) {
-        console.warn('Failed to load event broadcast templates:', templateError);
-        setBroadcastTemplates([]);
-      }
-    } catch (err: any) {
-      console.error('Failed to load event submissions:', err);
-      showToast('Gagal memuat data pendaftar', 'error');
+      });
+    } catch (error: any) {
+      if (version === request.current)
+        setLoadError(error.message || 'Gagal memuat peserta.');
     } finally {
-      setLoading(false);
+      if (version === request.current) setLoading(false);
     }
   };
-
   useEffect(() => {
-    if (isOpen && eventId) {
-      loadEventDetail();
-      setSelectedIds(new Set());
-    }
+    setData(null);
+    setSelectedIds(new Set());
+    setBroadcastSubject('');
+    setBroadcastMessage('');
+    setBroadcastHistory([]);
+    setBroadcastToday(null);
+    setBroadcastTemplates([]);
+    setPage(1);
+    if (isOpen && eventId) void loadEventDetail();
+    return () => {
+      request.current++;
+    };
   }, [isOpen, eventId]);
+  useEffect(() => {
+    setPage(1);
+    setSelectedIds(new Set());
+  }, [searchQuery, activeTab, vehicleFilter, loyaltyFilter]);
 
   if (!isOpen) return null;
 
@@ -296,14 +369,21 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   const handleToggleAttendance = async (attendanceId: string) => {
     try {
       setTogglingAttendanceId(attendanceId);
-      const res = await apiClient<{ status: string }>(`/events/${eventId}/toggle-attendance`, {
-        method: 'POST',
-        body: JSON.stringify({ attendanceId }),
-      });
+      const res = await apiClient<{ status: string }>(
+        `/events/${eventId}/toggle-attendance`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ attendanceId }),
+        },
+      );
 
       if (res.data) {
         const isNowAttended = res.data.status === 'attended';
-        showToast(isNowAttended ? 'Presensi berhasil dicatat (Hadir)!' : 'Status dikembalikan ke Terdaftar.');
+        showToast(
+          isNowAttended
+            ? 'Presensi berhasil dicatat (Hadir)!'
+            : 'Status dikembalikan ke Terdaftar.',
+        );
         await loadEventDetail();
         if (onRefreshList) onRefreshList();
       }
@@ -321,10 +401,16 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
     }
     try {
       setEmailSendingAttendanceId(participant.id);
-      const response = await apiClient<{ message: string }>(`/events/${eventId}/attendances/${participant.id}/email-ticket`, {
-        method: 'POST',
-      });
-      showToast(response.data?.message || `E-tiket terbaru dikirim ke ${participant.personEmail}.`);
+      const response = await apiClient<{ message: string }>(
+        `/events/${eventId}/attendances/${participant.id}/email-ticket`,
+        {
+          method: 'POST',
+        },
+      );
+      showToast(
+        response.data?.message ||
+          `E-tiket terbaru dikirim ke ${participant.personEmail}.`,
+      );
       await loadEventDetail();
     } catch (err: any) {
       showToast(err.message || 'E-tiket gagal dikirim.', 'error');
@@ -348,11 +434,17 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
     if (!editingParticipant) return;
     try {
       setParticipantEditSaving(true);
-      const response = await apiClient<{ message: string }>(`/events/${eventId}/attendances/${editingParticipant.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(participantEditForm),
-      });
-      showToast(response.data?.message || 'Data peserta diperbarui. Kode tiket dan QR tetap sama.');
+      const response = await apiClient<{ message: string }>(
+        `/events/${eventId}/attendances/${editingParticipant.id}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(participantEditForm),
+        },
+      );
+      showToast(
+        response.data?.message ||
+          'Data peserta diperbarui. Kode tiket dan QR tetap sama.',
+      );
       setEditingParticipant(null);
       await loadEventDetail();
     } catch (err: any) {
@@ -364,7 +456,10 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
 
   const handleOpenBroadcastComposer = () => {
     if (!data || (data.emailRecipientCount || 0) === 0) {
-      showToast('Belum ada peserta kajian ini yang memiliki alamat email.', 'error');
+      showToast(
+        'Belum ada peserta kajian ini yang memiliki alamat email.',
+        'error',
+      );
       return;
     }
     setShowBroadcastComposer(true);
@@ -372,7 +467,10 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
 
   const handleBroadcastSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (broadcastSubject.trim().length < 3 || broadcastMessage.trim().length < 3) {
+    if (
+      broadcastSubject.trim().length < 3 ||
+      broadcastMessage.trim().length < 3
+    ) {
       showToast('Subjek dan isi broadcast wajib diisi.', 'error');
       return;
     }
@@ -388,16 +486,30 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   };
 
   const handleSaveTemplate = async () => {
-    if (templateName.trim().length < 3 || broadcastSubject.trim().length < 3 || broadcastMessage.trim().length < 3) {
-      showToast('Isi nama, subjek, dan pesan sebelum menyimpan template.', 'error');
+    if (
+      templateName.trim().length < 3 ||
+      broadcastSubject.trim().length < 3 ||
+      broadcastMessage.trim().length < 3
+    ) {
+      showToast(
+        'Isi nama, subjek, dan pesan sebelum menyimpan template.',
+        'error',
+      );
       return;
     }
     try {
       setSavingTemplate(true);
-      const response = await apiClient<EventBroadcastTemplate>(`/events/${eventId}/email-broadcast-templates`, {
-        method: 'POST',
-        body: JSON.stringify({ name: templateName.trim(), subject: broadcastSubject.trim(), message: broadcastMessage.trim() }),
-      });
+      const response = await apiClient<EventBroadcastTemplate>(
+        `/events/${eventId}/email-broadcast-templates`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            name: templateName.trim(),
+            subject: broadcastSubject.trim(),
+            message: broadcastMessage.trim(),
+          }),
+        },
+      );
       if (response.data) {
         setBroadcastTemplates((items) => [response.data!, ...items]);
         setSelectedTemplateId(response.data.id);
@@ -414,10 +526,18 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   const handleSendBroadcast = async () => {
     try {
       setBroadcastSending(true);
-      const response = await apiClient<{ message: string }>(`/events/${eventId}/email-broadcast`, {
-        method: 'POST',
-        body: JSON.stringify({ subject: broadcastSubject.trim(), message: broadcastMessage.trim(), batchSize: broadcastBatchSize, templateId: selectedTemplateId || null }),
-      });
+      const response = await apiClient<{ message: string }>(
+        `/events/${eventId}/email-broadcast`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            subject: broadcastSubject.trim(),
+            message: broadcastMessage.trim(),
+            batchSize: broadcastBatchSize,
+            templateId: selectedTemplateId || null,
+          }),
+        },
+      );
       showToast(response.data?.message || 'Broadcast email berhasil dikirim.');
       setShowBroadcastConfirm(false);
       await loadEventDetail();
@@ -433,16 +553,22 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
     if (selectedIds.size === 0) return;
     try {
       setBulkActionLoading(true);
-      const res = await apiClient<{ message: string; updatedCount: number }>(`/events/${eventId}/attendances/bulk-checkin`, {
-        method: 'POST',
-        body: JSON.stringify({
-          attendanceIds: Array.from(selectedIds),
-          status: targetStatus,
-        }),
-      });
+      const res = await apiClient<{ message: string; updatedCount: number }>(
+        `/events/${eventId}/attendances/bulk-checkin`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            attendanceIds: Array.from(selectedIds),
+            status: targetStatus,
+          }),
+        },
+      );
 
       if (res.data) {
-        showToast(res.data.message || `Berhasil mengubah ${res.data.updatedCount} peserta.`);
+        showToast(
+          res.data.message ||
+            `Berhasil mengubah ${res.data.updatedCount} peserta.`,
+        );
         setSelectedIds(new Set());
         await loadEventDetail();
         if (onRefreshList) onRefreshList();
@@ -460,11 +586,17 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
     try {
       setSingleDeleteLoading(true);
       const url = `/events/${eventId}/attendances/${deletingAttendance.id}?deleteGroup=${deleteGroupCheckbox}`;
-      const res = await apiClient<{ message: string; deletedCount: number; freedQuota: number }>(url, {
+      const res = await apiClient<{
+        message: string;
+        deletedCount: number;
+        freedQuota: number;
+      }>(url, {
         method: 'DELETE',
       });
 
-      const message = res?.data?.message || 'Pendaftaran berhasil dihapus. Kuota kajian telah dikembalikan.';
+      const message =
+        res?.data?.message ||
+        'Pendaftaran berhasil dihapus. Kuota kajian telah dikembalikan.';
       showToast(message);
       if (selectedIds.has(deletingAttendance.id)) {
         const next = new Set(selectedIds);
@@ -488,14 +620,20 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
     if (selectedIds.size === 0) return;
     try {
       setBulkActionLoading(true);
-      const res = await apiClient<{ message: string; deletedCount: number; freedQuota?: number }>(`/events/${eventId}/attendances/bulk-delete`, {
+      const res = await apiClient<{
+        message: string;
+        deletedCount: number;
+        freedQuota?: number;
+      }>(`/events/${eventId}/attendances/bulk-delete`, {
         method: 'POST',
         body: JSON.stringify({
           attendanceIds: Array.from(selectedIds),
         }),
       });
 
-      const message = res?.data?.message || `Berhasil menghapus ${selectedIds.size} peserta. Kuota telah dikembalikan.`;
+      const message =
+        res?.data?.message ||
+        `Berhasil menghapus ${selectedIds.size} peserta. Kuota telah dikembalikan.`;
       showToast(message);
       setSelectedIds(new Set());
       setConfirmBulkDelete(false);
@@ -512,23 +650,55 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   // Copy Selected WhatsApp Numbers
   const handleCopySelectedWhatsApp = () => {
     if (!data || selectedIds.size === 0) return;
-    const selectedParticipants = data.participants.filter((p) => selectedIds.has(p.id));
+    const selectedParticipants = data.participants.filter((p) =>
+      selectedIds.has(p.id),
+    );
     const phones = selectedParticipants
       .map((p) => p.personPhone)
       .filter((phone) => phone && phone !== '-');
 
     if (phones.length === 0) {
-      showToast('Tidak ada nomor WhatsApp yang valid pada peserta terpilih.', 'error');
+      showToast(
+        'Tidak ada nomor WhatsApp yang valid pada peserta terpilih.',
+        'error',
+      );
       return;
     }
 
     navigator.clipboard.writeText(phones.join('\n'));
-    showToast(`Berhasil menyalin ${phones.length} nomor WhatsApp ke clipboard!`);
+    showToast(
+      `Berhasil menyalin ${phones.length} nomor WhatsApp ke clipboard!`,
+    );
   };
 
+  const hasHistory = (participant: ParticipantItem) =>
+    participant.status === 'attended' ||
+    Boolean(participant.checkInAt || participant.paymentProofUrl) ||
+    ['verified', 'waiting_verification', 'rejected'].includes(
+      participant.paymentStatus,
+    ) ||
+    Boolean(data?.isPaid && participant.paymentStatus === 'free');
+  const openPayment = (participant: ParticipantItem) => {
+    if (!data) return;
+    setSelectedForPaymentVerify({
+      ...participant,
+      eventTitle: data.title,
+      eventPriceRupiah: data.priceRupiah,
+      bankName: data.bankName,
+      bankAccountNumber: data.bankAccountNumber,
+      bankAccountName: data.bankAccountName,
+      groupMembersCount: participant.registrationGroupId
+        ? data.participants.filter(
+            (item) =>
+              item.registrationGroupId === participant.registrationGroupId,
+          ).length
+        : 1,
+    });
+  };
   // Filter participants logic
   const participants = data?.participants || [];
-  const customFields: Array<{ id: string; label: string }> = data?.formConfig?.customFields || [];
+  const customFields: Array<{ id: string; label: string }> =
+    data?.formConfig?.customFields || [];
 
   const filtered = participants.filter((p) => {
     const q = searchQuery.toLowerCase().trim();
@@ -546,40 +716,53 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
     let matchTab = true;
     if (activeTab === 'attended') matchTab = p.status === 'attended';
     else if (activeTab === 'registered') matchTab = p.status === 'registered';
-    else if (activeTab === 'waiting_verification') matchTab = p.paymentStatus === 'waiting_verification';
+    else if (activeTab === 'payment_review')
+      matchTab = Boolean(p.paymentNeedsReview);
+    else if (activeTab === 'waiting_verification')
+      matchTab = p.paymentStatus === 'waiting_verification';
     else if (activeTab === 'ikhwan') matchTab = p.personGender === 'ikhwan';
     else if (activeTab === 'akhwat') matchTab = p.personGender === 'akhwat';
-    else if (activeTab === 'regular') matchTab = !p.isSpecialInvite && !p.isStaffRegistration;
+    else if (activeTab === 'regular')
+      matchTab = !p.isSpecialInvite && !p.isStaffRegistration;
     else if (activeTab === 'staff') matchTab = Boolean(p.isStaffRegistration);
-    else if (activeTab === 'from_referral') matchTab = Boolean(p.isSpecialInvite || p.source === 'admin_invite' || p.referredByAttendanceId);
+    else if (activeTab === 'from_referral')
+      matchTab = Boolean(
+        p.isSpecialInvite ||
+          p.source === 'admin_invite' ||
+          p.referredByAttendanceId,
+      );
 
     const matchVehicle =
       vehicleFilter === 'all'
         ? true
         : vehicleFilter === 'car'
-        ? p.vehicleType === 'car'
-        : vehicleFilter === 'motorcycle'
-        ? p.vehicleType === 'motorcycle'
-        : p.vehicleType === 'none' || !p.vehicleType;
+          ? p.vehicleType === 'car'
+          : vehicleFilter === 'motorcycle'
+            ? p.vehicleType === 'motorcycle'
+            : p.vehicleType === 'none' || !p.vehicleType;
 
     const matchLoyalty =
       loyaltyFilter === 'all'
         ? true
         : loyaltyFilter === 'first_timer'
-        ? (p.currentKajianNumber || 1) === 1
-        : loyaltyFilter === 'returning'
-        ? (p.currentKajianNumber || 1) >= 2
-        : loyaltyFilter === 'loyal'
-        ? (p.currentKajianNumber || 1) >= 5
-        : loyaltyFilter === 'istiqomah'
-        ? (p.currentKajianNumber || 1) >= 10
-        : true;
+          ? (p.currentKajianNumber || 1) === 1
+          : loyaltyFilter === 'returning'
+            ? (p.currentKajianNumber || 1) >= 2
+            : loyaltyFilter === 'loyal'
+              ? (p.currentKajianNumber || 1) >= 5
+              : loyaltyFilter === 'istiqomah'
+                ? (p.currentKajianNumber || 1) >= 10
+                : true;
 
     return matchSearch && matchTab && matchVehicle && matchLoyalty;
   });
 
+  const pageCount = Math.max(1, Math.ceil(filtered.length / 25));
+  const currentPage = Math.min(page, pageCount);
+  const paged = filtered.slice((currentPage - 1) * 25, currentPage * 25);
   // Select all toggle
-  const allFilteredSelected = filtered.length > 0 && filtered.every((p) => selectedIds.has(p.id));
+  const allFilteredSelected =
+    filtered.length > 0 && filtered.every((p) => selectedIds.has(p.id));
   const handleToggleSelectAll = () => {
     if (allFilteredSelected) {
       const next = new Set(selectedIds);
@@ -603,84 +786,48 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
   };
 
   // Export to CSV
-  const handleExportCSV = () => {
-    if (!data || filtered.length === 0) return;
-
-    const headers = [
-      'No Tiket',
-      'Nama Jamaah',
-      'Gender',
-      'No. WhatsApp',
-      'Email',
-      'Kota / Domisili',
-      'Frekuensi Kehadiran Kajian',
-      'Status Loyalitas Majelis',
-      'Kajian Terakhir Dihadiri',
-      'Kode Undangan Milik Sendiri',
-      'Diundang Oleh (Nama)',
-      'Kode Pengundang',
-      'Jumlah Mengajak',
-      ...(data.isPaid ? ['Status Pembayaran', 'Nominal (Rp)', 'Bukti URL'] : []),
-      'Status Presensi',
-      'Kendaraan',
-      'No. Plat',
-      'Waktu Daftar / Hadir',
-      ...customFields.map((cf) => cf.label),
-    ];
-
-    const rows = filtered.map((p) => [
-      `"${p.ticketCode || '-'}"`,
-      `"${p.personName.replace(/"/g, '""')}"`,
-      `"${p.personGender === 'ikhwan' ? 'Ikhwan' : 'Akhwat'}"`,
-      `"${p.personPhone}"`,
-      `"${p.personEmail || '-'}"`,
-      `"${p.personCity || '-'}"`,
-      `"${(p.currentKajianNumber || 1) > 1 ? `Kehadiran ke-${p.currentKajianNumber}` : 'Kajian Perdana'}"`,
-      `"${p.loyaltyLabel || '🌱 Kajian Perdana'}"`,
-      `"${(p.lastAttendedTitle || '-').replace(/"/g, '""')}"`,
-      `"${p.referralCode || '-'}"`,
-      `"${(p.referrerName || '-').replace(/"/g, '""')}"`,
-      `"${p.referrerCode || '-'}"`,
-      `"${p.referralCount || 0}"`,
-      ...(data.isPaid
-        ? [
-            `"${
-              p.paymentStatus === 'verified'
-                ? 'Lunas'
-                : p.paymentStatus === 'waiting_verification'
-                ? 'Menunggu Verifikasi'
-                : p.paymentStatus === 'rejected'
-                ? 'Ditolak'
-                : 'Belum Bayar'
-            }"`,
-            `"${p.paymentAmountRupiah || data.priceRupiah || 0}"`,
-            `"${p.paymentProofUrl || '-'}"`,
-          ]
-        : []),
-      `"${p.status === 'attended' ? 'Hadir' : 'Terdaftar'}"`,
-      `"${p.vehicleType === 'car' ? 'Mobil' : p.vehicleType === 'motorcycle' ? 'Motor' : 'Tanpa Kendaraan'}"`,
-      `"${p.vehiclePlateNumber || '-'}"`,
-      `"${new Date(p.checkInAt).toLocaleString('id-ID')}"`,
-      ...customFields.map((cf) => {
-        const val = p.registrationData ? p.registrationData[cf.id] : '-';
-        return `"${String(val || '-').replace(/"/g, '""')}"`;
-      }),
-    ]);
-
-    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `Daftar_Peserta_${data.title.replace(/[^a-z0-9]/gi, '_')}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleExportCSV = async () => {
+    const targets = selectedIds.size
+      ? filtered.filter((item) => selectedIds.has(item.id))
+      : filtered;
+    if (!targets.length) {
+      showToast('Tidak ada peserta terpilih dalam filter ini.', 'error');
+      return;
+    }
+    try {
+      const response = await apiClient<{
+        csvContent: string;
+        filename: string;
+      }>(`/events/${eventId}/participants/export`, {
+        method: 'POST',
+        body: JSON.stringify({ attendanceIds: targets.map((item) => item.id) }),
+      });
+      const url = URL.createObjectURL(
+        new Blob([response.data.csvContent], {
+          type: 'text/csv;charset=utf-8;',
+        }),
+      );
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = response.data.filename;
+      link.click();
+      URL.revokeObjectURL(url);
+      showToast(`${targets.length} peserta diekspor.`);
+    } catch (error: any) {
+      showToast(error.message || 'Ekspor gagal.', 'error');
+    }
   };
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-surface-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+      <div
+        ref={dialog}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Peserta event"
+        tabIndex={-1}
+        className="event-roster event-legacy fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-surface-950/60 backdrop-blur-xs animate-in fade-in duration-150"
+      >
         <div className="bg-[#fbfaf6] rounded-3xl max-w-6xl w-full max-h-[94vh] flex flex-col shadow-2xl border border-cream-300 overflow-hidden relative">
           {/* 1. Modal Header */}
           <div className="p-4 sm:p-6 bg-white border-b border-cream-300 flex items-center justify-between gap-4">
@@ -692,16 +839,23 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                 {data?.isPaid && (
                   <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
                     <Receipt className="w-3 h-3 text-amber-700" />
-                    <span>Daurah Berbayar (Rp {(data.priceRupiah || 0).toLocaleString('id-ID')})</span>
+                    <span>
+                      Daurah Berbayar (Rp{' '}
+                      {(data.priceRupiah || 0).toLocaleString('id-ID')})
+                    </span>
                   </span>
                 )}
-                <span className="text-xs font-bold text-surface-500 hidden sm:inline">• {data?.category}</span>
+                <span className="text-xs font-bold text-surface-500 hidden sm:inline">
+                  • {data?.category}
+                </span>
               </div>
               <h2 className="text-base sm:text-xl font-black text-brand-950 font-display mt-1 line-clamp-1">
                 {data?.title || 'Memuat Data Majelis...'}
               </h2>
               <p className="text-xs text-surface-600 mt-0.5 hidden sm:block">
-                Pemateri: <strong className="text-brand-900">{data?.speaker}</strong> | Lokasi: {data?.locationName || 'Masjid Tarbiyah Sunnah Bandung'}
+                Pemateri:{' '}
+                <strong className="text-brand-900">{data?.speaker}</strong> |
+                Lokasi: {data?.locationName || 'Masjid Tarbiyah Sunnah Bandung'}
               </p>
             </div>
 
@@ -717,6 +871,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
               </button>
 
               <button
+                aria-label="Tutup peserta"
                 onClick={onClose}
                 className="p-2 text-surface-400 hover:text-surface-900 hover:bg-cream-100 rounded-xl transition-colors shrink-0"
               >
@@ -725,68 +880,149 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
             </div>
           </div>
 
+          {workspaceNav}
           {/* 2. Quick KPI Counters */}
           {data && (
             <div className="bg-cream-100/70 border-b border-cream-300">
               <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2.5 p-3 sm:p-4 text-center">
                 <div className="p-2.5 bg-white rounded-2xl border border-cream-300 shadow-2xs">
-                  <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">Total Terdaftar</span>
+                  <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">
+                    Total Terdaftar
+                  </span>
                   <span className="text-base sm:text-lg font-black text-brand-950 block mt-0.5 font-display">
-                    {data.totalParticipants} <span className="text-xs font-medium text-surface-500">Jamaah</span>
+                    {data.totalParticipants}{' '}
+                    <span className="text-xs font-medium text-surface-500">
+                      Jamaah
+                    </span>
                   </span>
                 </div>
 
                 <div className="p-2.5 bg-emerald-50 rounded-2xl border border-emerald-200 shadow-2xs">
                   <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block flex items-center justify-center gap-1">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Hadir (Presensi)
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Hadir
+                    (Presensi)
                   </span>
                   <span className="text-base sm:text-lg font-black text-emerald-950 block mt-0.5 font-display">
-                    {data.attendedCount} <span className="text-xs font-medium text-emerald-700">({data.totalParticipants > 0 ? Math.round((data.attendedCount / data.totalParticipants) * 100) : 0}%)</span>
+                    {data.attendedCount}{' '}
+                    <span className="text-xs font-medium text-emerald-700">
+                      (
+                      {data.totalParticipants > 0
+                        ? Math.round(
+                            (data.attendedCount / data.totalParticipants) * 100,
+                          )
+                        : 0}
+                      %)
+                    </span>
                   </span>
                 </div>
 
-                <button type="button" onClick={() => setActiveTab('regular')} title="Tampilkan peserta jalur reguler" className={`p-2.5 rounded-2xl border text-left shadow-2xs transition-colors ${activeTab === 'regular' ? 'border-teal-600 bg-teal-100 ring-2 ring-teal-500/25' : 'border-teal-200 bg-teal-50 hover:bg-teal-100'}`}>
-                  <span className="text-[10px] font-bold text-teal-800 uppercase tracking-wider block">Jalur Reguler</span>
-                  <span className="text-base sm:text-lg font-black text-teal-950 block mt-0.5 font-display">{data.regularCount ?? 0} <span className="text-xs font-medium text-teal-700">peserta</span></span>
-                  <span className="text-[10px] text-teal-700">Ikhwan {data.regularIkhwanCount ?? 0} · Akhwat {data.regularAkhwatCount ?? 0}</span>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('regular')}
+                  title="Tampilkan peserta jalur reguler"
+                  className={`p-2.5 rounded-2xl border text-left shadow-2xs transition-colors ${activeTab === 'regular' ? 'border-teal-600 bg-teal-100 ring-2 ring-teal-500/25' : 'border-teal-200 bg-teal-50 hover:bg-teal-100'}`}
+                >
+                  <span className="text-[10px] font-bold text-teal-800 uppercase tracking-wider block">
+                    Jalur Reguler
+                  </span>
+                  <span className="text-base sm:text-lg font-black text-teal-950 block mt-0.5 font-display">
+                    {data.regularCount ?? 0}{' '}
+                    <span className="text-xs font-medium text-teal-700">
+                      peserta
+                    </span>
+                  </span>
+                  <span className="text-[10px] text-teal-700">
+                    Ikhwan {data.regularIkhwanCount ?? 0} · Akhwat{' '}
+                    {data.regularAkhwatCount ?? 0}
+                  </span>
                 </button>
 
-                <button type="button" onClick={() => setActiveTab('from_referral')} title="Tampilkan peserta jalur undangan panitia" className={`p-2.5 rounded-2xl border text-left shadow-2xs transition-colors ${activeTab === 'from_referral' ? 'border-amber-600 bg-amber-100 ring-2 ring-amber-500/25' : 'border-amber-200 bg-amber-50 hover:bg-amber-100'}`}>
-                  <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Undangan Panitia</span>
-                  <span className="text-base sm:text-lg font-black text-amber-950 block mt-0.5 font-display">{data.specialInviteCount ?? 0} <span className="text-xs font-medium text-amber-700">peserta</span></span>
-                  <span className="text-[10px] text-amber-700">Ikhwan {data.specialInviteIkhwanCount ?? 0} · Akhwat {data.specialInviteAkhwatCount ?? 0}</span>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('from_referral')}
+                  title="Tampilkan peserta jalur undangan panitia"
+                  className={`p-2.5 rounded-2xl border text-left shadow-2xs transition-colors ${activeTab === 'from_referral' ? 'border-amber-600 bg-amber-100 ring-2 ring-amber-500/25' : 'border-amber-200 bg-amber-50 hover:bg-amber-100'}`}
+                >
+                  <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">
+                    Undangan Panitia
+                  </span>
+                  <span className="text-base sm:text-lg font-black text-amber-950 block mt-0.5 font-display">
+                    {data.specialInviteCount ?? 0}{' '}
+                    <span className="text-xs font-medium text-amber-700">
+                      peserta
+                    </span>
+                  </span>
+                  <span className="text-[10px] text-amber-700">
+                    Ikhwan {data.specialInviteIkhwanCount ?? 0} · Akhwat{' '}
+                    {data.specialInviteAkhwatCount ?? 0}
+                  </span>
                 </button>
 
-                <button type="button" onClick={() => setActiveTab('staff')} title="Tampilkan peserta staff yayasan dan keluarganya" className={`p-2.5 rounded-2xl border text-left shadow-2xs transition-colors ${activeTab === 'staff' ? 'border-indigo-600 bg-indigo-100 ring-2 ring-indigo-500/25' : 'border-indigo-200 bg-indigo-50 hover:bg-indigo-100'}`}>
-                  <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider block">Staff Yayasan</span>
-                  <span className="text-base sm:text-lg font-black text-indigo-950 block mt-0.5 font-display">{data.staffCount ?? 0} <span className="text-xs font-medium text-indigo-700">peserta</span></span>
-                  <span className="text-[10px] text-indigo-700">Ikhwan {data.staffIkhwanCount ?? 0} · Akhwat {data.staffAkhwatCount ?? 0}</span>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('staff')}
+                  title="Tampilkan peserta staff yayasan dan keluarganya"
+                  className={`p-2.5 rounded-2xl border text-left shadow-2xs transition-colors ${activeTab === 'staff' ? 'border-indigo-600 bg-indigo-100 ring-2 ring-indigo-500/25' : 'border-indigo-200 bg-indigo-50 hover:bg-indigo-100'}`}
+                >
+                  <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider block">
+                    Staff Yayasan
+                  </span>
+                  <span className="text-base sm:text-lg font-black text-indigo-950 block mt-0.5 font-display">
+                    {data.staffCount ?? 0}{' '}
+                    <span className="text-xs font-medium text-indigo-700">
+                      peserta
+                    </span>
+                  </span>
+                  <span className="text-[10px] text-indigo-700">
+                    Ikhwan {data.staffIkhwanCount ?? 0} · Akhwat{' '}
+                    {data.staffAkhwatCount ?? 0}
+                  </span>
                 </button>
 
                 {/* Loyalty KPI Ratio */}
                 <div className="p-2.5 bg-sky-50 rounded-2xl border border-sky-200 shadow-2xs">
-                  <span className="text-[10px] font-bold text-sky-800 uppercase tracking-wider block">🌱 Jamaah Baru</span>
+                  <span className="text-[10px] font-bold text-sky-800 uppercase tracking-wider block">
+                    🌱 Jamaah Baru
+                  </span>
                   <span className="text-base sm:text-lg font-black text-sky-950 block mt-0.5 font-display">
-                    {data.firstTimerCount ?? data.participants.filter(p => (p.currentKajianNumber || 1) === 1).length} <span className="text-xs font-medium text-sky-700">Kajian ke-1</span>
+                    {data.firstTimerCount ??
+                      data.participants.filter(
+                        (p) => (p.currentKajianNumber || 1) === 1,
+                      ).length}{' '}
+                    <span className="text-xs font-medium text-sky-700">
+                      Kajian ke-1
+                    </span>
                   </span>
                 </div>
 
                 <div className="p-2.5 bg-amber-50 rounded-2xl border border-amber-200 shadow-2xs">
-                  <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">⭐ Jamaah Kembali</span>
+                  <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">
+                    ⭐ Jamaah Kembali
+                  </span>
                   <span className="text-base sm:text-lg font-black text-amber-950 block mt-0.5 font-display">
-                    {data.returningCount ?? data.participants.filter(p => (p.currentKajianNumber || 1) >= 2).length} <span className="text-xs font-medium text-amber-700">(≥2x Hadir)</span>
+                    {data.returningCount ??
+                      data.participants.filter(
+                        (p) => (p.currentKajianNumber || 1) >= 2,
+                      ).length}{' '}
+                    <span className="text-xs font-medium text-amber-700">
+                      (≥2x Hadir)
+                    </span>
                   </span>
                 </div>
 
                 <div className="p-2.5 bg-white rounded-2xl border border-cream-300 shadow-2xs">
-                  <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">Ikhwan / Akhwat</span>
+                  <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">
+                    Ikhwan / Akhwat
+                  </span>
                   <span className="text-base sm:text-lg font-black text-surface-800 block mt-0.5 font-display">
                     {data.ikhwanCount} / {data.akhwatCount}
                   </span>
                 </div>
 
                 <div className="p-2.5 bg-white rounded-2xl border border-cream-300 shadow-2xs">
-                  <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">Parkir Kendaraan</span>
+                  <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider block">
+                    Parkir Kendaraan
+                  </span>
                   <span className="text-base sm:text-lg font-black text-surface-800 block mt-0.5 font-display">
                     🚗 {data.carsCount} | 🛵 {data.motorcyclesCount}
                   </span>
@@ -795,8 +1031,30 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
             </div>
           )}
 
+          {Boolean(data?.paymentReviewCount) && (
+            <div className="event-notice event-payment-review">
+              <span>
+                <strong>
+                  {data?.paymentReviewCount} pendaftaran perlu ditinjau.
+                </strong>{' '}
+                Status lama belum menjelaskan pembayaran.
+              </span>
+              <button
+                className="event-button"
+                onClick={() =>
+                  setActiveTab(
+                    activeTab === 'payment_review' ? 'all' : 'payment_review',
+                  )
+                }
+              >
+                {activeTab === 'payment_review'
+                  ? 'Semua peserta'
+                  : 'Tinjau data'}
+              </button>
+            </div>
+          )}
           {/* 3. Toolbar Filters, Tabs & Action Buttons */}
-          <div className="p-3 sm:p-4 bg-white border-b border-cream-300 space-y-3">
+          <div className="event-roster-toolbar p-3 sm:p-4 bg-white border-b border-cream-300 space-y-3">
             {/* Upper row: Search & Action buttons */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
               {/* Search Bar */}
@@ -804,13 +1062,21 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                 <Search className="w-4 h-4 text-surface-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Cari nama jamaah, no WA, tiket, plat kendaraan, domisili..."
+                  aria-label="Cari peserta"
+                  placeholder="Nama, WA, atau tiket…"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 text-xs font-medium border border-cream-300 rounded-xl focus:ring-2 focus:ring-brand-700 bg-cream-50/50"
                 />
               </div>
 
+              <button
+                className="event-button primary"
+                disabled={!data || loading}
+                onClick={() => setShowAdd(true)}
+              >
+                Tambah peserta
+              </button>
               {/* Action Buttons: Import, Export, Refresh */}
               <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
                 <button
@@ -827,7 +1093,14 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                   className="py-2 px-3.5 bg-brand-800 hover:bg-brand-900 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 shrink-0 active:scale-95"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  <span>Ekspor CSV ({filtered.length})</span>
+                  <span>
+                    Ekspor CSV (
+                    {selectedIds.size
+                      ? filtered.filter((item) => selectedIds.has(item.id))
+                          .length
+                      : filtered.length}
+                    )
+                  </span>
                 </button>
 
                 <button
@@ -838,7 +1111,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                   title="Kirim broadcast email hanya kepada peserta kajian ini yang memiliki email"
                 >
                   <Mail className="w-3.5 h-3.5" />
-                  <span>BC Email & Riwayat ({data?.emailRecipientCount || 0})</span>
+                  <span>Email ({data?.emailRecipientCount || 0})</span>
                 </button>
 
                 <button
@@ -847,7 +1120,9 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                   title="Segarkan Data"
                   className="p-2 bg-cream-100 hover:bg-cream-200 text-surface-700 rounded-xl border border-cream-300 transition-all shrink-0"
                 >
-                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                  <RefreshCw
+                    className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`}
+                  />
                 </button>
               </div>
             </div>
@@ -888,7 +1163,12 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                   }`}
                 >
                   <Clock className="w-3 h-3" />
-                  <span>Belum Hadir ({(data?.totalParticipants || 0) - (data?.attendedCount || 0)})</span>
+                  <span>
+                    Belum Hadir (
+                    {(data?.totalParticipants || 0) -
+                      (data?.attendedCount || 0)}
+                    )
+                  </span>
                 </button>
 
                 {data?.isPaid && (
@@ -901,7 +1181,9 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                     }`}
                   >
                     <Receipt className="w-3 h-3" />
-                    <span>Verifikasi Slip ({data.waitingVerificationCount || 0})</span>
+                    <span>
+                      Verifikasi Slip ({data.waitingVerificationCount || 0})
+                    </span>
                   </button>
                 )}
 
@@ -935,53 +1217,93 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                       : 'text-amber-900 hover:bg-amber-100/70'
                   }`}
                 >
-                  <span>✨ Undangan Panitia ({data?.specialInviteCount || data?.referralSignups || 0})</span>
+                  <span>
+                    ✨ Undangan Panitia (
+                    {data?.specialInviteCount || data?.referralSignups || 0})
+                  </span>
                 </button>
               </div>
 
               {/* Filter Selectors: Riwayat Kajian & Parkir */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {/* Loyalty Filter Selector */}
-                <select
-                  value={loyaltyFilter}
-                  onChange={(e: any) => setLoyaltyFilter(e.target.value)}
-                  className="py-1.5 px-3 border border-cream-300 rounded-xl text-xs font-bold bg-white text-surface-700 focus:ring-2 focus:ring-brand-700"
-                  title="Filter berdasarkan frekuensi kehadiran kajian"
-                >
-                  <option value="all">Semua Riwayat (Baru & Lama)</option>
-                  <option value="first_timer">🌱 Jamaah Baru (Kajian ke-1)</option>
-                  <option value="returning">🔷 Pernah Hadir (≥2x)</option>
-                  <option value="loyal">⭐ Jamaah Setia (≥5x)</option>
-                  <option value="istiqomah">👑 Istiqomah (≥10x)</option>
-                </select>
+              <details className="event-advanced-filter">
+                <summary>Filter tambahan</summary>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <select
+                    aria-label="Jalur pendaftaran"
+                    value={
+                      ['regular', 'staff', 'from_referral'].includes(activeTab)
+                        ? activeTab
+                        : 'all'
+                    }
+                    onChange={(event) =>
+                      setActiveTab(event.target.value as typeof activeTab)
+                    }
+                  >
+                    <option value="all">Semua jalur</option>
+                    <option value="regular">Reguler</option>
+                    <option value="staff">Staf yayasan</option>
+                    <option value="from_referral">Undangan</option>
+                  </select>
+                  {/* Loyalty Filter Selector */}
+                  <select
+                    aria-label="Riwayat kehadiran"
+                    value={loyaltyFilter}
+                    onChange={(e: any) => setLoyaltyFilter(e.target.value)}
+                    className="py-1.5 px-3 border border-cream-300 rounded-xl text-xs font-bold bg-white text-surface-700 focus:ring-2 focus:ring-brand-700"
+                    title="Filter berdasarkan frekuensi kehadiran kajian"
+                  >
+                    <option value="all">Semua Riwayat (Baru & Lama)</option>
+                    <option value="first_timer">
+                      🌱 Jamaah Baru (Kajian ke-1)
+                    </option>
+                    <option value="returning">🔷 Pernah Hadir (≥2x)</option>
+                    <option value="loyal">⭐ Jamaah Setia (≥5x)</option>
+                    <option value="istiqomah">👑 Istiqomah (≥10x)</option>
+                  </select>
 
-                {/* Vehicle Filter Selector */}
-                <select
-                  value={vehicleFilter}
-                  onChange={(e: any) => setVehicleFilter(e.target.value)}
-                  className="py-1.5 px-3 border border-cream-300 rounded-xl text-xs font-bold bg-white text-surface-700 focus:ring-2 focus:ring-brand-700"
-                >
-                  <option value="all">Semua Parkir</option>
-                  <option value="car">🚗 Mobil Saja</option>
-                  <option value="motorcycle">🛵 Motor Saja</option>
-                  <option value="none">Tanpa Kendaraan</option>
-                </select>
-              </div>
+                  {/* Vehicle Filter Selector */}
+                  <select
+                    aria-label="Kendaraan peserta"
+                    value={vehicleFilter}
+                    onChange={(e: any) => setVehicleFilter(e.target.value)}
+                    className="py-1.5 px-3 border border-cream-300 rounded-xl text-xs font-bold bg-white text-surface-700 focus:ring-2 focus:ring-brand-700"
+                  >
+                    <option value="all">Semua Parkir</option>
+                    <option value="car">🚗 Mobil Saja</option>
+                    <option value="motorcycle">🛵 Motor Saja</option>
+                    <option value="none">Tanpa Kendaraan</option>
+                  </select>
+                </div>
+              </details>
             </div>
           </div>
 
           {/* 4. Submissions List: Desktop Table + Mobile Cards */}
           <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3">
-            {loading ? (
+            {loadError ? (
+              <div className="event-empty" role="alert">
+                <h3>Peserta belum dapat dimuat</h3>
+                <p>{loadError}</p>
+                <button
+                  className="event-button"
+                  onClick={() => void loadEventDetail()}
+                >
+                  Coba lagi
+                </button>
+              </div>
+            ) : loading ? (
               <LoadingState message="Memuat daftar peserta & data presensi..." />
             ) : filtered.length === 0 ? (
               <div className="text-center py-16 bg-white rounded-3xl border border-cream-300 p-8 space-y-3">
                 <div className="w-14 h-14 bg-cream-100 rounded-2xl flex items-center justify-center mx-auto text-surface-400">
                   <Search className="w-7 h-7" />
                 </div>
-                <h3 className="text-sm font-bold text-surface-800">Tidak ada peserta yang cocok dengan filter</h3>
+                <h3 className="text-sm font-bold text-surface-800">
+                  Tidak ada peserta yang cocok dengan filter
+                </h3>
                 <p className="text-xs text-surface-500 max-w-sm mx-auto">
-                  Coba ubah kata kunci pencarian, tab status, atau filter kendaraan di bagian atas.
+                  Coba ubah kata kunci pencarian, tab status, atau filter
+                  kendaraan di bagian atas.
                 </p>
               </div>
             ) : (
@@ -1001,19 +1323,26 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                         </th>
                         <th className="py-3 px-3">Tiket & Jamaah</th>
                         <th className="py-3 px-3">Kontak & Kota</th>
-                        {data?.isPaid && <th className="py-3 px-3">Status Pembayaran</th>}
+                        {data?.isPaid && (
+                          <th className="py-3 px-3">Status Pembayaran</th>
+                        )}
                         <th className="py-3 px-3">Logistik Parkir</th>
                         {customFields.map((cf) => (
-                          <th key={cf.id} className="py-3 px-3 text-surface-700">
+                          <th
+                            key={cf.id}
+                            className="py-3 px-3 text-surface-700"
+                          >
                             {cf.label}
                           </th>
                         ))}
-                        <th className="py-3 px-3 text-center">Status Presensi</th>
+                        <th className="py-3 px-3 text-center">
+                          Status Presensi
+                        </th>
                         <th className="py-3 px-4 text-right">Aksi Panitia</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-cream-200 font-medium text-surface-800">
-                      {filtered.map((p) => {
+                      {paged.map((p) => {
                         const isAttended = p.status === 'attended';
                         const isSelected = selectedIds.has(p.id);
 
@@ -1042,38 +1371,64 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                                 </span>
                                 <div>
                                   <div className="flex items-center gap-1.5 flex-wrap">
-                                    <p className="font-bold text-brand-950 text-xs">{p.personName}</p>
+                                    <Link
+                                      className="event-person-link font-bold text-brand-950 text-xs"
+                                      to={`/people?personId=${p.personId}`}
+                                    >
+                                      {p.personName}
+                                    </Link>
                                     {(p.duplicatePhoneCount || 0) > 1 && (
-                                      <span title="Ada lebih dari satu tiket dengan nomor WhatsApp fisik yang sama. Periksa dan hapus tiket duplikat bila diperlukan." className="text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-rose-100 text-rose-900 border border-rose-200">Nomor sama ({p.duplicatePhoneCount})</span>
+                                      <span
+                                        title="Ada lebih dari satu tiket dengan nomor WhatsApp fisik yang sama. Periksa dan hapus tiket duplikat bila diperlukan."
+                                        className="text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-rose-100 text-rose-900 border border-rose-200"
+                                      >
+                                        Nomor sama ({p.duplicatePhoneCount})
+                                      </span>
                                     )}
                                     {p.familyRelationship && (
                                       <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200">
-                                        {p.familyRelationship} {p.age ? `(${p.age} thn)` : ''}
+                                        {p.familyRelationship}{' '}
+                                        {p.age ? `(${p.age} thn)` : ''}
                                       </span>
                                     )}
                                   </div>
                                   <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
                                     <span
                                       className={`text-[10px] font-bold ${
-                                        p.personGender === 'ikhwan' ? 'text-sky-700' : 'text-rose-700'
+                                        p.personGender === 'ikhwan'
+                                          ? 'text-sky-700'
+                                          : 'text-rose-700'
                                       }`}
                                     >
-                                      {p.personGender === 'ikhwan' ? '🕌 Ikhwan' : '🌸 Akhwat'}
+                                      {p.personGender === 'ikhwan'
+                                        ? '🕌 Ikhwan'
+                                        : '🌸 Akhwat'}
                                     </span>
                                     {(p.currentKajianNumber || 1) > 1 ? (
                                       <span
                                         className="text-[9px] font-bold text-amber-900 bg-amber-50 border border-amber-300 px-1.5 py-0.2 rounded inline-flex items-center gap-1"
-                                        title={p.lastAttendedTitle ? `Kajian terakhir dihadiri: ${p.lastAttendedTitle}` : undefined}
+                                        title={
+                                          p.lastAttendedTitle
+                                            ? `Kajian terakhir dihadiri: ${p.lastAttendedTitle}`
+                                            : undefined
+                                        }
                                       >
-                                        <span>⭐ Kehadiran ke-{p.currentKajianNumber}</span>
-                                        <span className="text-amber-700">({p.loyaltyLabel || 'Jamaah Rutin'})</span>
+                                        <span>
+                                          ⭐ Kehadiran ke-
+                                          {p.currentKajianNumber}
+                                        </span>
+                                        <span className="text-amber-700">
+                                          ({p.loyaltyLabel || 'Jamaah Rutin'})
+                                        </span>
                                       </span>
                                     ) : (
                                       <span className="text-[9px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 px-1.5 py-0.2 rounded inline-flex items-center gap-1">
                                         🌱 Kajian ke-1 (Baru)
                                       </span>
                                     )}
-                                    {(p.isSpecialInvite || p.source === 'admin_invite' || p.referredByAttendanceId) && (
+                                    {(p.isSpecialInvite ||
+                                      p.source === 'admin_invite' ||
+                                      p.referredByAttendanceId) && (
                                       <span className="text-[9px] font-bold text-emerald-900 bg-emerald-50 border border-emerald-300 px-1.5 py-0.2 rounded">
                                         ✨ Undangan Panitia
                                       </span>
@@ -1085,8 +1440,12 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
 
                             {/* Kontak & Kota */}
                             <td className="py-3 px-3">
-                              <p className="font-mono text-[11px] text-surface-800 font-bold">{p.personPhone}</p>
-                              <p className="text-[10px] text-surface-500">{p.personCity || 'Kota Bandung'}</p>
+                              <p className="font-mono text-[11px] text-surface-800 font-bold">
+                                {p.personPhone}
+                              </p>
+                              <p className="text-[10px] text-surface-500">
+                                {p.personCity || '—'}
+                              </p>
                             </td>
 
                             {/* Status Pembayaran (Khusus Berbayar) */}
@@ -1104,41 +1463,58 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                                         ticketCode: p.ticketCode,
                                         paymentStatus: p.paymentStatus,
                                         paymentProofUrl: p.paymentProofUrl,
-                                        paymentAmountRupiah: p.paymentAmountRupiah || data.priceRupiah,
+                                        paymentAmountRupiah:
+                                          p.paymentAmountRupiah ||
+                                          data.priceRupiah,
                                         paymentVerifiedAt: p.paymentVerifiedAt,
-                                        paymentRejectionReason: p.paymentRejectionReason,
+                                        paymentRejectionReason:
+                                          p.paymentRejectionReason,
                                         eventTitle: data.title,
                                         eventPriceRupiah: data.priceRupiah,
                                         bankName: data.bankName,
-                                        bankAccountNumber: data.bankAccountNumber,
+                                        bankAccountNumber:
+                                          data.bankAccountNumber,
                                         bankAccountName: data.bankAccountName,
-                                        registrationGroupId: p.registrationGroupId,
-                                        familyRelationship: p.familyRelationship,
+                                        registrationGroupId:
+                                          p.registrationGroupId,
+                                        familyRelationship:
+                                          p.familyRelationship,
                                         age: p.age,
                                         groupMembersCount: p.registrationGroupId
-                                          ? participants.filter((x) => x.registrationGroupId === p.registrationGroupId).length
+                                          ? participants.filter(
+                                              (x) =>
+                                                x.registrationGroupId ===
+                                                p.registrationGroupId,
+                                            ).length
                                           : 1,
                                       })
                                     }
                                     className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all active:scale-95 shadow-2xs ${
                                       p.paymentStatus === 'verified'
                                         ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-                                        : p.paymentStatus === 'waiting_verification'
-                                        ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100 animate-pulse'
-                                        : p.paymentStatus === 'rejected'
-                                        ? 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100'
-                                        : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
+                                        : p.paymentStatus ===
+                                            'waiting_verification'
+                                          ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100 animate-pulse'
+                                          : p.paymentStatus === 'rejected'
+                                            ? 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100'
+                                            : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
                                     }`}
                                   >
                                     <Receipt className="w-3 h-3" />
                                     <span>
-                                      {p.paymentStatus === 'verified'
-                                        ? '✓ Lunas'
-                                        : p.paymentStatus === 'waiting_verification'
-                                        ? '🔎 Periksa Bukti'
-                                        : p.paymentStatus === 'rejected'
-                                        ? '✕ Ditolak'
-                                        : 'Belum Bayar'}
+                                      {p.paymentNeedsReview
+                                        ? 'Perlu ditinjau'
+                                        : p.isStaffRegistration &&
+                                            p.paymentStatus === 'free'
+                                          ? 'Bebas biaya staf'
+                                          : p.paymentStatus === 'verified'
+                                            ? '✓ Lunas'
+                                            : p.paymentStatus ===
+                                                'waiting_verification'
+                                              ? '🔎 Periksa Bukti'
+                                              : p.paymentStatus === 'rejected'
+                                                ? '✕ Ditolak'
+                                                : 'Belum Bayar'}
                                     </span>
                                   </button>
                                   {p.paymentProofUrl && (
@@ -1155,24 +1531,44 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                               {p.vehicleType === 'car' ? (
                                 <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-900 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200">
                                   <Car className="w-3 h-3 text-amber-700" />
-                                  <span>Mobil {p.vehiclePlateNumber ? `(${p.vehiclePlateNumber})` : ''}</span>
+                                  <span>
+                                    Mobil{' '}
+                                    {p.vehiclePlateNumber
+                                      ? `(${p.vehiclePlateNumber})`
+                                      : ''}
+                                  </span>
                                 </span>
                               ) : p.vehicleType === 'motorcycle' ? (
                                 <span className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-900 bg-teal-50 px-2 py-0.5 rounded-lg border border-teal-200">
                                   <Bike className="w-3 h-3 text-teal-700" />
-                                  <span>Motor {p.vehiclePlateNumber ? `(${p.vehiclePlateNumber})` : ''}</span>
+                                  <span>
+                                    Motor{' '}
+                                    {p.vehiclePlateNumber
+                                      ? `(${p.vehiclePlateNumber})`
+                                      : ''}
+                                  </span>
                                 </span>
                               ) : (
-                                <span className="text-[10px] text-surface-400">Tanpa Parkir</span>
+                                <span className="text-[10px] text-surface-400">
+                                  Tanpa Parkir
+                                </span>
                               )}
                             </td>
 
                             {/* Custom Fields */}
                             {customFields.map((cf) => {
-                              const val = p.registrationData ? p.registrationData[cf.id] : null;
+                              const val = p.registrationData
+                                ? p.registrationData[cf.id]
+                                : null;
                               return (
                                 <td key={cf.id} className="py-3 px-3 text-xs">
-                                  {val ? <span className="font-semibold text-brand-900">{String(val)}</span> : <span className="text-surface-400">-</span>}
+                                  {val ? (
+                                    <span className="font-semibold text-brand-900">
+                                      {String(val)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-surface-400">-</span>
+                                  )}
                                 </td>
                               );
                             })}
@@ -1197,7 +1593,9 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                                 ) : (
                                   <Clock className="w-3 h-3" />
                                 )}
-                                <span>{isAttended ? 'Hadir' : 'Terdaftar'}</span>
+                                <span>
+                                  {isAttended ? 'Hadir' : 'Terdaftar'}
+                                </span>
                               </button>
                             </td>
 
@@ -1205,6 +1603,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                             <td className="py-3 px-4 text-right">
                               <div className="flex items-center justify-end gap-1.5">
                                 <button
+                                  disabled={p.status !== 'attended'}
                                   onClick={() => setSelectedForCert(p)}
                                   className="px-2.5 py-1 bg-gold-400 hover:bg-gold-500 text-gold-950 rounded-lg font-bold text-[11px] shadow-2xs transition-all flex items-center gap-1 active:scale-95"
                                   title="Cetak E-Sertifikat Daurah"
@@ -1223,14 +1622,26 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => handleResendTicketEmail(p)}
-                                  disabled={!p.personEmail || emailSendingAttendanceId === p.id}
+                                  disabled={
+                                    !p.personEmail ||
+                                    emailSendingAttendanceId === p.id
+                                  }
                                   className="p-1.5 text-sky-600 hover:text-sky-800 hover:bg-sky-50 rounded-lg border border-transparent hover:border-sky-200 transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
-                                  title={p.personEmail ? `Kirim ulang e-tiket terbaru ke ${p.personEmail}` : 'Peserta belum memiliki alamat email'}
+                                  title={
+                                    p.personEmail
+                                      ? `Kirim ulang e-tiket terbaru ke ${p.personEmail}`
+                                      : 'Peserta belum memiliki alamat email'
+                                  }
                                 >
-                                  {emailSendingAttendanceId === p.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
+                                  {emailSendingAttendanceId === p.id ? (
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Mail className="w-3.5 h-3.5" />
+                                  )}
                                 </button>
                                 <button
                                   type="button"
+                                  disabled={hasHistory(p)}
                                   onClick={() => {
                                     setDeletingAttendance(p);
                                     setDeleteGroupCheckbox(false);
@@ -1251,7 +1662,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
 
                 {/* Mobile Card List View (Optimized for panitia smartphone) */}
                 <div className="md:hidden space-y-2.5">
-                  {filtered.map((p) => {
+                  {paged.map((p) => {
                     const isAttended = p.status === 'attended';
                     const isSelected = selectedIds.has(p.id);
 
@@ -1259,7 +1670,9 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                       <div
                         key={p.id}
                         className={`p-3.5 bg-white rounded-2xl border shadow-2xs space-y-2.5 transition-all ${
-                          isSelected ? 'border-brand-600 bg-brand-50/20 ring-1 ring-brand-600' : 'border-cream-300'
+                          isSelected
+                            ? 'border-brand-600 bg-brand-50/20 ring-1 ring-brand-600'
+                            : 'border-cream-300'
                         }`}
                       >
                         <div className="flex items-start justify-between gap-2">
@@ -1272,9 +1685,19 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                             />
                             <div>
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                <h4 className="font-bold text-brand-950 text-sm">{p.personName}</h4>
+                                <Link
+                                  className="event-person-link font-bold text-brand-950 text-sm"
+                                  to={`/people?personId=${p.personId}`}
+                                >
+                                  {p.personName}
+                                </Link>
                                 {(p.duplicatePhoneCount || 0) > 1 && (
-                                  <span title="Ada lebih dari satu tiket dengan nomor WhatsApp fisik yang sama. Periksa dan hapus tiket duplikat bila diperlukan." className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-rose-100 text-rose-900 border border-rose-200">Nomor sama ({p.duplicatePhoneCount})</span>
+                                  <span
+                                    title="Ada lebih dari satu tiket dengan nomor WhatsApp fisik yang sama. Periksa dan hapus tiket duplikat bila diperlukan."
+                                    className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-rose-100 text-rose-900 border border-rose-200"
+                                  >
+                                    Nomor sama ({p.duplicatePhoneCount})
+                                  </span>
                                 )}
                                 <span
                                   className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
@@ -1283,11 +1706,13 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                                       : 'bg-rose-100 text-rose-900'
                                   }`}
                                 >
-                                  {p.personGender === 'ikhwan' ? '🕌 Ikhwan' : '🌸 Akhwat'}
+                                  {p.personGender === 'ikhwan'
+                                    ? '🕌 Ikhwan'
+                                    : '🌸 Akhwat'}
                                 </span>
                               </div>
                               <p className="font-mono text-xs font-semibold text-surface-700 mt-0.5">
-                                {p.personPhone} • {p.personCity || 'Bandung'}
+                                {p.personPhone} • {p.personCity || '—'}
                               </p>
                               <span className="font-mono text-[10px] font-bold text-brand-900 block mt-0.5">
                                 Tiket: {p.ticketCode || '-'}
@@ -1296,17 +1721,27 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                                 {(p.currentKajianNumber || 1) > 1 ? (
                                   <span
                                     className="text-[9px] font-bold text-amber-900 bg-amber-50 border border-amber-300 px-1.5 py-0.2 rounded inline-flex items-center gap-1"
-                                    title={p.lastAttendedTitle ? `Kajian terakhir: ${p.lastAttendedTitle}` : undefined}
+                                    title={
+                                      p.lastAttendedTitle
+                                        ? `Kajian terakhir: ${p.lastAttendedTitle}`
+                                        : undefined
+                                    }
                                   >
-                                    <span>⭐ Kehadiran ke-{p.currentKajianNumber}</span>
-                                    <span className="text-amber-700">({p.loyaltyLabel || 'Jamaah Rutin'})</span>
+                                    <span>
+                                      ⭐ Kehadiran ke-{p.currentKajianNumber}
+                                    </span>
+                                    <span className="text-amber-700">
+                                      ({p.loyaltyLabel || 'Jamaah Rutin'})
+                                    </span>
                                   </span>
                                 ) : (
                                   <span className="text-[9px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 px-1.5 py-0.2 rounded inline-flex items-center gap-1">
                                     🌱 Kajian ke-1 (Baru)
                                   </span>
                                 )}
-                                {(p.isSpecialInvite || p.source === 'admin_invite' || p.referredByAttendanceId) && (
+                                {(p.isSpecialInvite ||
+                                  p.source === 'admin_invite' ||
+                                  p.referredByAttendanceId) && (
                                   <span className="text-[9px] font-bold text-emerald-900 bg-emerald-50 border border-emerald-300 px-1.5 py-0.2 rounded">
                                     ✨ Undangan Panitia
                                   </span>
@@ -1337,25 +1772,52 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                           </button>
                         </div>
 
+                        {data?.isPaid && (
+                          <button
+                            className="event-button"
+                            onClick={() => openPayment(p)}
+                          >
+                            <Receipt size={14} />
+                            {p.paymentNeedsReview
+                              ? 'Perlu ditinjau'
+                              : p.paymentStatus === 'verified'
+                                ? 'Lunas'
+                                : p.isStaffRegistration &&
+                                    p.paymentStatus === 'free'
+                                  ? 'Bebas biaya staf'
+                                  : 'Pembayaran'}
+                          </button>
+                        )}
                         {/* Card Meta & Badges */}
                         <div className="flex items-center justify-between pt-2 border-t border-cream-200 text-xs flex-wrap gap-2">
                           <div className="flex items-center gap-2">
                             {p.vehicleType === 'car' && (
                               <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
                                 <Car className="w-3 h-3 text-amber-700" />
-                                <span>Mobil {p.vehiclePlateNumber ? `(${p.vehiclePlateNumber})` : ''}</span>
+                                <span>
+                                  Mobil{' '}
+                                  {p.vehiclePlateNumber
+                                    ? `(${p.vehiclePlateNumber})`
+                                    : ''}
+                                </span>
                               </span>
                             )}
                             {p.vehicleType === 'motorcycle' && (
                               <span className="inline-flex items-center gap-1 text-[10px] font-bold text-teal-900 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
                                 <Bike className="w-3 h-3 text-teal-700" />
-                                <span>Motor {p.vehiclePlateNumber ? `(${p.vehiclePlateNumber})` : ''}</span>
+                                <span>
+                                  Motor{' '}
+                                  {p.vehiclePlateNumber
+                                    ? `(${p.vehiclePlateNumber})`
+                                    : ''}
+                                </span>
                               </span>
                             )}
                           </div>
 
                           <div className="flex items-center gap-1.5 ml-auto">
                             <button
+                              disabled={p.status !== 'attended'}
                               onClick={() => setSelectedForCert(p)}
                               className="px-2 py-1 bg-gold-100 hover:bg-gold-200 text-gold-900 border border-gold-300 rounded-lg text-[10px] font-bold flex items-center gap-1"
                             >
@@ -1374,15 +1836,27 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                             <button
                               type="button"
                               onClick={() => handleResendTicketEmail(p)}
-                              disabled={!p.personEmail || emailSendingAttendanceId === p.id}
+                              disabled={
+                                !p.personEmail ||
+                                emailSendingAttendanceId === p.id
+                              }
                               className="px-2 py-1 text-sky-700 hover:text-sky-900 hover:bg-sky-50 border border-sky-200 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all disabled:cursor-not-allowed disabled:opacity-35"
-                              title={p.personEmail ? `Kirim ulang e-tiket terbaru ke ${p.personEmail}` : 'Peserta belum memiliki alamat email'}
+                              title={
+                                p.personEmail
+                                  ? `Kirim ulang e-tiket terbaru ke ${p.personEmail}`
+                                  : 'Peserta belum memiliki alamat email'
+                              }
                             >
-                              {emailSendingAttendanceId === p.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Mail className="w-3 h-3" />}
+                              {emailSendingAttendanceId === p.id ? (
+                                <RefreshCw className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Mail className="w-3 h-3" />
+                              )}
                               <span>Email</span>
                             </button>
                             <button
                               type="button"
+                              disabled={hasHistory(p)}
                               onClick={() => {
                                 setDeletingAttendance(p);
                                 setDeleteGroupCheckbox(false);
@@ -1410,7 +1884,9 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                 <span className="px-2.5 py-1 bg-brand-800 text-gold-300 rounded-lg text-xs font-black font-mono">
                   {selectedIds.size}
                 </span>
-                <span className="text-xs font-bold text-slate-200">Peserta Terpilih</span>
+                <span className="text-xs font-bold text-slate-200">
+                  Peserta Terpilih
+                </span>
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
@@ -1447,7 +1923,12 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
                 {/* Bulk Delete */}
                 <button
                   onClick={() => setConfirmBulkDelete(true)}
-                  disabled={bulkActionLoading}
+                  disabled={
+                    bulkActionLoading ||
+                    participants.some(
+                      (item) => selectedIds.has(item.id) && hasHistory(item),
+                    )
+                  }
                   className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 active:scale-95 shadow-sm"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -1465,11 +1946,35 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
             </div>
           )}
 
+          <div className="event-pagination">
+            <span>Pilih semua mencakup {filtered.length} hasil filter.</span>
+            <div>
+              <button
+                className="event-button"
+                disabled={currentPage <= 1}
+                onClick={() => setPage(currentPage - 1)}
+              >
+                Sebelumnya
+              </button>
+              <span>
+                {currentPage}/{pageCount}
+              </span>
+              <button
+                className="event-button"
+                disabled={currentPage >= pageCount}
+                onClick={() => setPage(currentPage + 1)}
+              >
+                Berikutnya
+              </button>
+            </div>
+          </div>
           {/* 6. Footer Information */}
           {selectedIds.size === 0 && (
             <div className="p-3 sm:p-4 bg-white border-t border-cream-300 flex items-center justify-between text-xs text-surface-600">
               <span>
-                Menampilkan <strong>{filtered.length}</strong> dari <strong>{participants.length}</strong> pendaftar.
+                Menampilkan <strong>{paged.length}</strong> dari{' '}
+                <strong>{filtered.length}</strong> hasil ({participants.length}{' '}
+                peserta).
               </span>
               <button
                 onClick={onClose}
@@ -1482,167 +1987,515 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
         </div>
       </div>
 
+      {showAdd && data && (
+        <EventParticipantForm
+          eventId={eventId}
+          isPaid={data.isPaid}
+          onClose={() => setShowAdd(false)}
+          onSaved={() => {
+            setShowAdd(false);
+            showToast('Peserta ditambahkan.');
+            void loadEventDetail();
+            onRefreshList?.();
+          }}
+        />
+      )}
       {editingParticipant && (
         <div className="fixed inset-0 z-70 bg-surface-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <form onSubmit={handleSaveParticipantEdit} className="bg-[#fbfaf6] rounded-2xl max-w-md w-full p-5 shadow-2xl border border-cream-300 space-y-4">
+          <form
+            onSubmit={handleSaveParticipantEdit}
+            className="bg-[#fbfaf6] rounded-2xl max-w-md w-full p-5 shadow-2xl border border-cream-300 space-y-4"
+          >
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-full bg-cream-100 text-brand-900 border border-cream-300"><Pencil className="w-3 h-3" /> Edit Peserta Kajian</div>
-                <h3 className="mt-2 text-base font-black text-brand-950">Perbarui Data Kontak</h3>
+                <div className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-full bg-cream-100 text-brand-900 border border-cream-300">
+                  <Pencil className="w-3 h-3" /> Edit Peserta Kajian
+                </div>
+                <h3 className="mt-2 text-base font-black text-brand-950">
+                  Perbarui Data Kontak
+                </h3>
               </div>
-              <button type="button" onClick={() => setEditingParticipant(null)} disabled={participantEditSaving} className="p-1.5 text-surface-400 hover:text-surface-700 rounded-lg"><X className="w-4 h-4" /></button>
+              <button
+                type="button"
+                onClick={() => setEditingParticipant(null)}
+                disabled={participantEditSaving}
+                className="p-1.5 text-surface-400 hover:text-surface-700 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
-              Kode tiket <strong>{editingParticipant.ticketCode || '-'}</strong> dan QR peserta tidak akan diganti. Presensi, kuota, pembayaran, dan jalur pendaftaran juga tetap.
+              Kode tiket <strong>{editingParticipant.ticketCode || '-'}</strong>{' '}
+              dan QR peserta tidak akan diganti. Presensi, kuota, pembayaran,
+              dan jalur pendaftaran juga tetap.
             </div>
-            <label className="block"><span className="block text-xs font-bold text-surface-800 mb-1.5">Nama Lengkap</span><input required value={participantEditForm.fullName} onChange={(event) => setParticipantEditForm((form) => ({ ...form, fullName: event.target.value }))} maxLength={160} className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-brand-700 focus:outline-none" /></label>
-            <label className="block"><span className="block text-xs font-bold text-surface-800 mb-1.5">Nomor WhatsApp</span><input required inputMode="tel" value={participantEditForm.phone} onChange={(event) => setParticipantEditForm((form) => ({ ...form, phone: event.target.value }))} maxLength={24} className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-brand-700 focus:outline-none" /></label>
-            <label className="block"><span className="block text-xs font-bold text-surface-800 mb-1.5">Email</span><input type="email" value={participantEditForm.email} onChange={(event) => setParticipantEditForm((form) => ({ ...form, email: event.target.value }))} maxLength={254} className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-brand-700 focus:outline-none" /></label>
-            <label className="block"><span className="block text-xs font-bold text-surface-800 mb-1.5">Kota / Domisili</span><input value={participantEditForm.cityRegency} onChange={(event) => setParticipantEditForm((form) => ({ ...form, cityRegency: event.target.value }))} maxLength={120} className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-brand-700 focus:outline-none" /></label>
-            <p className="text-[11px] leading-relaxed text-surface-500">Data kontak ini adalah profil master jamaah dan dapat dipakai pada riwayat kajian lain. Nomor yang telah dipakai peserta lain di kajian ini akan ditolak untuk mencegah data ganda.</p>
-            <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={() => setEditingParticipant(null)} disabled={participantEditSaving} className="px-4 py-2.5 rounded-xl border border-cream-300 bg-white text-surface-700 text-xs font-bold">Batal</button><button type="submit" disabled={participantEditSaving} className="px-4 py-2.5 rounded-xl bg-brand-800 hover:bg-brand-900 text-white text-xs font-bold inline-flex items-center gap-2 disabled:opacity-50">{participantEditSaving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Pencil className="w-3.5 h-3.5" />} Simpan Perubahan</button></div>
+            <label className="block">
+              <span className="block text-xs font-bold text-surface-800 mb-1.5">
+                Nama Lengkap
+              </span>
+              <input
+                required
+                value={participantEditForm.fullName}
+                onChange={(event) =>
+                  setParticipantEditForm((form) => ({
+                    ...form,
+                    fullName: event.target.value,
+                  }))
+                }
+                maxLength={160}
+                className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-brand-700 focus:outline-none"
+              />
+            </label>
+            <label className="block">
+              <span className="block text-xs font-bold text-surface-800 mb-1.5">
+                Nomor WhatsApp
+              </span>
+              <input
+                required
+                inputMode="tel"
+                value={participantEditForm.phone}
+                onChange={(event) =>
+                  setParticipantEditForm((form) => ({
+                    ...form,
+                    phone: event.target.value,
+                  }))
+                }
+                maxLength={24}
+                className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-brand-700 focus:outline-none"
+              />
+            </label>
+            <label className="block">
+              <span className="block text-xs font-bold text-surface-800 mb-1.5">
+                Email
+              </span>
+              <input
+                type="email"
+                value={participantEditForm.email}
+                onChange={(event) =>
+                  setParticipantEditForm((form) => ({
+                    ...form,
+                    email: event.target.value,
+                  }))
+                }
+                maxLength={254}
+                className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-brand-700 focus:outline-none"
+              />
+            </label>
+            <label className="block">
+              <span className="block text-xs font-bold text-surface-800 mb-1.5">
+                Kota / Domisili
+              </span>
+              <input
+                value={participantEditForm.cityRegency}
+                onChange={(event) =>
+                  setParticipantEditForm((form) => ({
+                    ...form,
+                    cityRegency: event.target.value,
+                  }))
+                }
+                maxLength={120}
+                className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-brand-700 focus:outline-none"
+              />
+            </label>
+            <p className="text-[11px] leading-relaxed text-surface-500">
+              Data kontak ini adalah profil master jamaah dan dapat dipakai pada
+              riwayat kajian lain. Nomor yang telah dipakai peserta lain di
+              kajian ini akan ditolak untuk mencegah data ganda.
+            </p>
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setEditingParticipant(null)}
+                disabled={participantEditSaving}
+                className="px-4 py-2.5 rounded-xl border border-cream-300 bg-white text-surface-700 text-xs font-bold"
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                disabled={participantEditSaving}
+                className="px-4 py-2.5 rounded-xl bg-brand-800 hover:bg-brand-900 text-white text-xs font-bold inline-flex items-center gap-2 disabled:opacity-50"
+              >
+                {participantEditSaving ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Pencil className="w-3.5 h-3.5" />
+                )}{' '}
+                Simpan Perubahan
+              </button>
+            </div>
           </form>
         </div>
       )}
 
       {showBroadcastComposer && data && (
         <div className="fixed inset-0 z-70 bg-surface-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <form onSubmit={handleBroadcastSubmit} className="bg-[#fbfaf6] rounded-2xl max-w-lg w-full max-h-[calc(100vh-2rem)] overflow-y-auto p-5 shadow-2xl border border-cream-300 space-y-4">
+          <form
+            onSubmit={handleBroadcastSubmit}
+            className="bg-[#fbfaf6] rounded-2xl max-w-lg w-full max-h-[calc(100vh-2rem)] overflow-y-auto p-5 shadow-2xl border border-cream-300 space-y-4"
+          >
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-full bg-sky-100 text-sky-900 border border-sky-200">
                   <Mail className="w-3 h-3" /> BC Email & Riwayat Kajian
                 </div>
-                <h3 className="mt-2 text-base font-black text-brand-950">Kirim Informasi ke Peserta</h3>
+                <h3 className="mt-2 text-base font-black text-brand-950">
+                  Kirim Informasi ke Peserta
+                </h3>
               </div>
-              <button type="button" onClick={() => setShowBroadcastComposer(false)} disabled={broadcastSending} className="p-1.5 text-surface-400 hover:text-surface-700 rounded-lg">
+              <button
+                type="button"
+                onClick={() => setShowBroadcastComposer(false)}
+                disabled={broadcastSending}
+                className="p-1.5 text-surface-400 hover:text-surface-700 rounded-lg"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
               <div className="p-3 bg-white border border-cream-200 rounded-xl">
-                <span className="text-[10px] uppercase font-bold text-surface-400 block">Penerima</span>
-                <span className="text-sm font-black text-brand-950">{data.emailRecipientCount || 0} email unik</span>
+                <span className="text-[10px] uppercase font-bold text-surface-400 block">
+                  Penerima
+                </span>
+                <span className="text-sm font-black text-brand-950">
+                  {data.emailRecipientCount || 0} email unik
+                </span>
               </div>
               <div className="p-3 bg-white border border-cream-200 rounded-xl">
-                <span className="text-[10px] uppercase font-bold text-surface-400 block">Sisa Kuota Global</span>
-                <span className="text-sm font-black text-brand-950">{data.emailBroadcastQuota?.remainingToday ?? '-'} / {data.emailBroadcastQuota?.dailyLimit ?? '-'}</span>
+                <span className="text-[10px] uppercase font-bold text-surface-400 block">
+                  Sisa Kuota Global
+                </span>
+                <span className="text-sm font-black text-brand-950">
+                  {data.emailBroadcastQuota?.remainingToday ?? '-'} /{' '}
+                  {data.emailBroadcastQuota?.dailyLimit ?? '-'}
+                </span>
               </div>
             </div>
 
-            <section className="border border-sky-200 bg-sky-50/60 rounded-xl p-3 space-y-2.5" aria-label="Status broadcast kajian hari ini">
+            <section
+              className="border border-sky-200 bg-sky-50/60 rounded-xl p-3 space-y-2.5"
+              aria-label="Status broadcast kajian hari ini"
+            >
               <div className="flex items-baseline justify-between gap-3">
-                <h4 className="text-xs font-black text-sky-950">BC Kajian Hari Ini</h4>
-                <span className="text-[10px] text-sky-800">Tanggal dan batas mengikuti WIB</span>
+                <h4 className="text-xs font-black text-sky-950">
+                  BC Kajian Hari Ini
+                </h4>
+                <span className="text-[10px] text-sky-800">
+                  Tanggal dan batas mengikuti WIB
+                </span>
               </div>
               <div className="grid grid-cols-2 gap-2 text-[11px]">
-                <div className="rounded-lg border border-sky-100 bg-white px-2.5 py-2"><span className="block text-surface-500">Terkirim ke peserta</span><strong className="text-base text-sky-950">{broadcastToday?.sentToday ?? 0}</strong></div>
-                <div className="rounded-lg border border-sky-100 bg-white px-2.5 py-2"><span className="block text-surface-500">Menunggu dari kajian ini</span><strong className="text-base text-amber-800">{broadcastToday?.queuedForEvent ?? 0}</strong></div>
-                <div className="rounded-lg border border-sky-100 bg-white px-2.5 py-2"><span className="block text-surface-500">Percobaan pengiriman</span><strong className="text-base text-brand-950">{broadcastToday?.attemptedToday ?? 0}</strong></div>
-                <div className="rounded-lg border border-sky-100 bg-white px-2.5 py-2"><span className="block text-surface-500">Gagal / bounce hari ini</span><strong className="text-base text-rose-700">{broadcastToday?.failedToday ?? 0}</strong></div>
+                <div className="rounded-lg border border-sky-100 bg-white px-2.5 py-2">
+                  <span className="block text-surface-500">
+                    Terkirim ke peserta
+                  </span>
+                  <strong className="text-base text-sky-950">
+                    {broadcastToday?.sentToday ?? 0}
+                  </strong>
+                </div>
+                <div className="rounded-lg border border-sky-100 bg-white px-2.5 py-2">
+                  <span className="block text-surface-500">
+                    Menunggu dari kajian ini
+                  </span>
+                  <strong className="text-base text-amber-800">
+                    {broadcastToday?.queuedForEvent ?? 0}
+                  </strong>
+                </div>
+                <div className="rounded-lg border border-sky-100 bg-white px-2.5 py-2">
+                  <span className="block text-surface-500">
+                    Percobaan pengiriman
+                  </span>
+                  <strong className="text-base text-brand-950">
+                    {broadcastToday?.attemptedToday ?? 0}
+                  </strong>
+                </div>
+                <div className="rounded-lg border border-sky-100 bg-white px-2.5 py-2">
+                  <span className="block text-surface-500">
+                    Gagal / bounce hari ini
+                  </span>
+                  <strong className="text-base text-rose-700">
+                    {broadcastToday?.failedToday ?? 0}
+                  </strong>
+                </div>
               </div>
               {broadcastToday?.sentRecipients.length ? (
                 <details className="rounded-lg border border-sky-100 bg-white px-2.5 py-2 text-[11px]">
-                  <summary className="cursor-pointer font-bold text-sky-900">Lihat email yang terkirim hari ini ({broadcastToday.sentRecipients.length}{broadcastToday.sentRecipients.length === 40 ? '+' : ''})</summary>
+                  <summary className="cursor-pointer font-bold text-sky-900">
+                    Lihat email yang terkirim hari ini (
+                    {broadcastToday.sentRecipients.length}
+                    {broadcastToday.sentRecipients.length === 40 ? '+' : ''})
+                  </summary>
                   <div className="mt-2 max-h-36 overflow-y-auto divide-y divide-sky-100">
                     {broadcastToday.sentRecipients.map((recipient, index) => (
-                      <div key={`${recipient.email}-${recipient.sentAt}-${index}`} className="py-1.5">
-                        <p className="font-semibold text-surface-800 break-all">{recipient.recipientName} - {recipient.email}</p>
-                        <p className="text-[10px] text-surface-500">{new Date(recipient.sentAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' })} WIB</p>
+                      <div
+                        key={`${recipient.email}-${recipient.sentAt}-${index}`}
+                        className="py-1.5"
+                      >
+                        <p className="font-semibold text-surface-800 break-all">
+                          {recipient.recipientName} - {recipient.email}
+                        </p>
+                        <p className="text-[10px] text-surface-500">
+                          {new Date(recipient.sentAt).toLocaleTimeString(
+                            'id-ID',
+                            {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              timeZone: 'Asia/Jakarta',
+                            },
+                          )}{' '}
+                          WIB
+                        </p>
                       </div>
                     ))}
                   </div>
                 </details>
-              ) : <p className="text-[11px] text-sky-800">Belum ada email BC kajian ini yang tercatat terkirim hari ini.</p>}
-              <p className="text-[10px] leading-relaxed text-surface-500">Sisa kuota di atas adalah kapasitas seluruh sistem email hari ini. Angka terkirim di bagian ini hanya untuk BC peserta kajian yang sedang dibuka.</p>
+              ) : (
+                <p className="text-[11px] text-sky-800">
+                  Belum ada email BC kajian ini yang tercatat terkirim hari ini.
+                </p>
+              )}
+              <p className="text-[10px] leading-relaxed text-surface-500">
+                Sisa kuota di atas adalah kapasitas seluruh sistem email hari
+                ini. Angka terkirim di bagian ini hanya untuk BC peserta kajian
+                yang sedang dibuka.
+              </p>
             </section>
 
             <section className="border border-cream-200 bg-white rounded-xl p-3 space-y-2.5">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-xs font-black text-brand-950">Template Pesan</span>
-                <span className="text-[10px] text-surface-500">Simpan dan gunakan kembali</span>
+                <span className="text-xs font-black text-brand-950">
+                  Template Pesan
+                </span>
+                <span className="text-[10px] text-surface-500">
+                  Simpan dan gunakan kembali
+                </span>
               </div>
-              <select value={selectedTemplateId} onChange={(event) => handleSelectTemplate(event.target.value)} className="w-full px-3 py-2 border border-cream-300 rounded-lg text-xs font-medium bg-white">
+              <select
+                value={selectedTemplateId}
+                onChange={(event) => handleSelectTemplate(event.target.value)}
+                className="w-full px-3 py-2 border border-cream-300 rounded-lg text-xs font-medium bg-white"
+              >
                 <option value="">Tulis pesan baru atau pilih template</option>
-                {broadcastTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+                {broadcastTemplates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
               </select>
               <div className="flex gap-2">
-                <input value={templateName} onChange={(event) => setTemplateName(event.target.value)} maxLength={100} placeholder="Nama template, mis. Koreksi waktu kajian" className="min-w-0 flex-1 px-3 py-2 border border-cream-300 rounded-lg text-xs bg-white" />
-                <button type="button" onClick={handleSaveTemplate} disabled={savingTemplate} className="px-3 py-2 rounded-lg border border-sky-200 bg-sky-50 text-sky-800 text-xs font-bold disabled:opacity-50">
+                <input
+                  value={templateName}
+                  onChange={(event) => setTemplateName(event.target.value)}
+                  maxLength={100}
+                  placeholder="Nama template, mis. Koreksi waktu kajian"
+                  className="min-w-0 flex-1 px-3 py-2 border border-cream-300 rounded-lg text-xs bg-white"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveTemplate}
+                  disabled={savingTemplate}
+                  className="px-3 py-2 rounded-lg border border-sky-200 bg-sky-50 text-sky-800 text-xs font-bold disabled:opacity-50"
+                >
                   {savingTemplate ? 'Menyimpan...' : 'Simpan'}
                 </button>
               </div>
             </section>
 
-            <section className="border border-cream-200 bg-white rounded-xl p-3 space-y-2.5" aria-label="Riwayat status broadcast email">
+            <section
+              className="border border-cream-200 bg-white rounded-xl p-3 space-y-2.5"
+              aria-label="Riwayat status broadcast email"
+            >
               <div className="flex items-baseline justify-between gap-3">
-                <h4 className="text-xs font-black text-brand-950">Riwayat BC</h4>
-                <span className="text-[10px] font-medium text-surface-500">Maks. 10 pengiriman terakhir</span>
+                <h4 className="text-xs font-black text-brand-950">
+                  Riwayat BC
+                </h4>
+                <span className="text-[10px] font-medium text-surface-500">
+                  Maks. 10 pengiriman terakhir
+                </span>
               </div>
               {broadcastHistory.length > 0 ? (
                 <div className="space-y-2">
                   {broadcastHistory.slice(0, 3).map((broadcast) => (
-                    <div key={broadcast.id} className="border border-cream-200 rounded-lg p-2.5 space-y-2">
+                    <div
+                      key={broadcast.id}
+                      className="border border-cream-200 rounded-lg p-2.5 space-y-2"
+                    >
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-[11px] font-bold text-surface-800 leading-snug line-clamp-2">{broadcast.subject}</p>
+                        <p className="text-[11px] font-bold text-surface-800 leading-snug line-clamp-2">
+                          {broadcast.subject}
+                        </p>
                         <div className="shrink-0 text-right">
-                          <time className="block text-[10px] text-surface-500" dateTime={broadcast.createdAt}>{new Date(broadcast.createdAt).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Jakarta' })}</time>
-                          {broadcast.status && <span className="text-[10px] font-bold text-sky-800 capitalize">{broadcast.status === 'running' ? 'Berjalan' : broadcast.status === 'queued' ? 'Menunggu' : broadcast.status === 'completed' ? 'Selesai' : broadcast.status}</span>}
+                          <time
+                            className="block text-[10px] text-surface-500"
+                            dateTime={broadcast.createdAt}
+                          >
+                            {new Date(broadcast.createdAt).toLocaleString(
+                              'id-ID',
+                              {
+                                dateStyle: 'short',
+                                timeStyle: 'short',
+                                timeZone: 'Asia/Jakarta',
+                              },
+                            )}
+                          </time>
+                          {broadcast.status && (
+                            <span className="text-[10px] font-bold text-sky-800 capitalize">
+                              {broadcast.status === 'running'
+                                ? 'Berjalan'
+                                : broadcast.status === 'queued'
+                                  ? 'Menunggu'
+                                  : broadcast.status === 'completed'
+                                    ? 'Selesai'
+                                    : broadcast.status}
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
-                        <span className="text-surface-600">Target <strong className="text-brand-950">{broadcast.intendedRecipients}</strong></span>
-                        <span className="text-surface-600">Diproses <strong className="text-brand-950">{broadcast.attemptedCount}</strong></span>
-                        <span className="text-emerald-700">Diterima provider <strong>{broadcast.providerAcceptedCount}</strong></span>
-                        <span className="text-sky-700">Dibuka <strong>{broadcast.openedCount}</strong></span>
-                        <span className="text-sky-700">Tautan diklik <strong>{broadcast.clickedCount}</strong></span>
-                        <span className="text-rose-700">Gagal / bounce <strong>{broadcast.failedCount}</strong></span>
-                        <span className="text-amber-800">Belum diproses <strong>{broadcast.unattemptedCount}</strong></span>
-                        {(broadcast.duplicateSkippedCount || 0) > 0 && <span className="text-surface-500">Duplikat dilewati <strong>{broadcast.duplicateSkippedCount}</strong></span>}
-                        <span className="text-amber-800">Tanpa laporan gagal <strong>{broadcast.noNegativeSignalCount}</strong></span>
-                        <span className="text-surface-500">Unsubscribe <strong>{broadcast.unsubscribedCount}</strong></span>
+                        <span className="text-surface-600">
+                          Target{' '}
+                          <strong className="text-brand-950">
+                            {broadcast.intendedRecipients}
+                          </strong>
+                        </span>
+                        <span className="text-surface-600">
+                          Diproses{' '}
+                          <strong className="text-brand-950">
+                            {broadcast.attemptedCount}
+                          </strong>
+                        </span>
+                        <span className="text-emerald-700">
+                          Diterima provider{' '}
+                          <strong>{broadcast.providerAcceptedCount}</strong>
+                        </span>
+                        <span className="text-sky-700">
+                          Dibuka <strong>{broadcast.openedCount}</strong>
+                        </span>
+                        <span className="text-sky-700">
+                          Tautan diklik{' '}
+                          <strong>{broadcast.clickedCount}</strong>
+                        </span>
+                        <span className="text-rose-700">
+                          Gagal / bounce{' '}
+                          <strong>{broadcast.failedCount}</strong>
+                        </span>
+                        <span className="text-amber-800">
+                          Belum diproses{' '}
+                          <strong>{broadcast.unattemptedCount}</strong>
+                        </span>
+                        {(broadcast.duplicateSkippedCount || 0) > 0 && (
+                          <span className="text-surface-500">
+                            Duplikat dilewati{' '}
+                            <strong>{broadcast.duplicateSkippedCount}</strong>
+                          </span>
+                        )}
+                        <span className="text-amber-800">
+                          Tanpa laporan gagal{' '}
+                          <strong>{broadcast.noNegativeSignalCount}</strong>
+                        </span>
+                        <span className="text-surface-500">
+                          Unsubscribe{' '}
+                          <strong>{broadcast.unsubscribedCount}</strong>
+                        </span>
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
                 <p className="text-[11px] leading-relaxed text-surface-500">
-                  Belum ada BC yang tercatat. Setelah pengiriman pertama, target, proses, penerimaan provider, buka, klik, gagal/bounce, unsubscribe, dan sisa akibat kuota akan tampil di sini.
+                  Belum ada BC yang tercatat. Setelah pengiriman pertama,
+                  target, proses, penerimaan provider, buka, klik, gagal/bounce,
+                  unsubscribe, dan sisa akibat kuota akan tampil di sini.
                 </p>
               )}
               <p className="text-[10px] leading-relaxed text-surface-500">
-                “Diterima provider” berarti Mailketing menerima pengiriman. Status buka, bounce, dan unsubscribe diperbarui dari webhook Mailketing; email tidak dapat memastikan pesan benar-benar dibaca di kotak masuk.
+                “Diterima provider” berarti Mailketing menerima pengiriman.
+                Status buka, bounce, dan unsubscribe diperbarui dari webhook
+                Mailketing; email tidak dapat memastikan pesan benar-benar
+                dibaca di kotak masuk.
               </p>
             </section>
 
-            <section className="border border-sky-200 bg-sky-50/60 rounded-xl p-3" aria-label="Detail kajian yang akan dilampirkan pada email">
-              <span className="block text-[10px] uppercase font-black tracking-wider text-sky-800">Detail otomatis di setiap email</span>
-              <p className="mt-1 text-xs font-bold text-sky-950">{data.title}</p>
-              <p className="mt-0.5 text-[11px] text-sky-800">Waktu: {formatEventDateTimeWib(data.startAt)}</p>
-              <p className="mt-0.5 text-[11px] text-sky-800">Lokasi: {data.locationName || 'Masjid Tarbiyah Sunnah'}</p>
+            <section
+              className="border border-sky-200 bg-sky-50/60 rounded-xl p-3"
+              aria-label="Detail kajian yang akan dilampirkan pada email"
+            >
+              <span className="block text-[10px] uppercase font-black tracking-wider text-sky-800">
+                Detail otomatis di setiap email
+              </span>
+              <p className="mt-1 text-xs font-bold text-sky-950">
+                {data.title}
+              </p>
+              <p className="mt-0.5 text-[11px] text-sky-800">
+                Waktu: {formatEventDateTimeWib(data.startAt)}
+              </p>
+              <p className="mt-0.5 text-[11px] text-sky-800">
+                Lokasi: {data.locationName || 'Masjid Tarbiyah Sunnah'}
+              </p>
             </section>
 
             <label className="block">
-              <span className="block text-xs font-bold text-surface-800 mb-1.5">Subjek Email</span>
-              <input value={broadcastSubject} onChange={(e) => setBroadcastSubject(e.target.value)} maxLength={160} required className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-sky-600 focus:outline-none" />
+              <span className="block text-xs font-bold text-surface-800 mb-1.5">
+                Subjek Email
+              </span>
+              <input
+                value={broadcastSubject}
+                onChange={(e) => setBroadcastSubject(e.target.value)}
+                maxLength={160}
+                required
+                className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-sky-600 focus:outline-none"
+              />
             </label>
             <label className="block">
-              <span className="block text-xs font-bold text-surface-800 mb-1.5">Isi Pesan</span>
-              <textarea value={broadcastMessage} onChange={(e) => setBroadcastMessage(e.target.value)} maxLength={5000} required rows={6} className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-sky-600 focus:outline-none resize-y" />
+              <span className="block text-xs font-bold text-surface-800 mb-1.5">
+                Isi Pesan
+              </span>
+              <textarea
+                value={broadcastMessage}
+                onChange={(e) => setBroadcastMessage(e.target.value)}
+                maxLength={5000}
+                required
+                rows={6}
+                className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-sky-600 focus:outline-none resize-y"
+              />
             </label>
             <label className="block">
-              <span className="block text-xs font-bold text-surface-800 mb-1.5">Ukuran Batch</span>
-              <select value={broadcastBatchSize} onChange={(event) => setBroadcastBatchSize(Number(event.target.value))} className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white">
+              <span className="block text-xs font-bold text-surface-800 mb-1.5">
+                Ukuran Batch
+              </span>
+              <select
+                value={broadcastBatchSize}
+                onChange={(event) =>
+                  setBroadcastBatchSize(Number(event.target.value))
+                }
+                className="w-full px-3 py-2.5 border border-cream-300 rounded-xl text-sm bg-white"
+              >
                 <option value={25}>25 email per proses</option>
                 <option value={50}>50 email per proses</option>
                 <option value={100}>100 email per proses (disarankan)</option>
               </select>
             </label>
-            <p className="text-[11px] text-surface-500 leading-relaxed">Admin memulai kampanye ini sekali. Sistem melanjutkan batch antrian setiap 15 menit hanya untuk kampanye ini, tetap maksimal 400 email per hari WIB. Email ganda dalam satu kampanye dan isi yang sama dalam 24 jam akan dilewati.</p>
+            <p className="text-[11px] text-surface-500 leading-relaxed">
+              Admin memulai kampanye ini sekali. Sistem melanjutkan batch
+              antrian setiap 15 menit hanya untuk kampanye ini, tetap maksimal
+              400 email per hari WIB. Email ganda dalam satu kampanye dan isi
+              yang sama dalam 24 jam akan dilewati.
+            </p>
             <div className="flex justify-end gap-2 pt-1">
-              <button type="button" onClick={() => setShowBroadcastComposer(false)} className="px-4 py-2.5 rounded-xl border border-cream-300 bg-white text-surface-700 text-xs font-bold">Batal</button>
-              <button type="submit" className="px-4 py-2.5 rounded-xl bg-sky-700 hover:bg-sky-800 text-white text-xs font-bold inline-flex items-center gap-2"><Mail className="w-3.5 h-3.5" /> Lanjutkan</button>
+              <button
+                type="button"
+                onClick={() => setShowBroadcastComposer(false)}
+                className="px-4 py-2.5 rounded-xl border border-cream-300 bg-white text-surface-700 text-xs font-bold"
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2.5 rounded-xl bg-sky-700 hover:bg-sky-800 text-white text-xs font-bold inline-flex items-center gap-2"
+              >
+                <Mail className="w-3.5 h-3.5" /> Lanjutkan
+              </button>
             </div>
           </form>
         </div>
@@ -1652,13 +2505,30 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
         <ConfirmDialog
           isOpen={true}
           title="Kirim Broadcast Email?"
-          message={<div className="space-y-2"><p>Kampanye akan dibuat untuk maksimal <strong>{data.emailRecipientCount || 0}</strong> email unik peserta kajian ini. Batch awal memproses hingga <strong>{broadcastBatchSize}</strong> email.</p><p className="text-[11px] text-amber-800">Setelah Anda mulai, batch berikutnya diteruskan dari antrian setiap 15 menit, maksimal 400 email per hari WIB. Email yang sama tidak akan dikirim dua kali dalam kampanye ini; isi yang sama juga dilewati selama 24 jam.</p></div>}
+          message={
+            <div className="space-y-2">
+              <p>
+                Kampanye akan dibuat untuk maksimal{' '}
+                <strong>{data.emailRecipientCount || 0}</strong> email unik
+                peserta kajian ini. Batch awal memproses hingga{' '}
+                <strong>{broadcastBatchSize}</strong> email.
+              </p>
+              <p className="text-[11px] text-amber-800">
+                Setelah Anda mulai, batch berikutnya diteruskan dari antrian
+                setiap 15 menit, maksimal 400 email per hari WIB. Email yang
+                sama tidak akan dikirim dua kali dalam kampanye ini; isi yang
+                sama juga dilewati selama 24 jam.
+              </p>
+            </div>
+          }
           confirmLabel="Mulai Antrian BC"
           cancelLabel="Kembali"
           variant="warning"
           loading={broadcastSending}
           onConfirm={handleSendBroadcast}
-          onClose={() => { if (!broadcastSending) setShowBroadcastConfirm(false); }}
+          onClose={() => {
+            if (!broadcastSending) setShowBroadcastConfirm(false);
+          }}
         />
       )}
 
@@ -1689,7 +2559,7 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
           eventTitle={data.title}
           speaker={data.speaker}
           dateStr={data.startAt}
-          ticketCode={selectedForCert.ticketCode || 'YTS-SERTIFIKAT'}
+          ticketCode={selectedForCert.ticketCode || selectedForCert.id}
         />
       )}
 
@@ -1730,43 +2600,65 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
             <div className="space-y-3 text-left">
               <p className="text-xs text-slate-600 leading-relaxed">
                 Apakah Anda yakin ingin menghapus pendaftaran atas nama{' '}
-                <strong className="text-slate-900 font-bold">{deletingAttendance.personName}</strong>{' '}
-                (Tiket: <span className="font-mono font-bold text-teal-800">{deletingAttendance.ticketCode || '-'}</span>)?
+                <strong className="text-slate-900 font-bold">
+                  {deletingAttendance.personName}
+                </strong>{' '}
+                (Tiket:{' '}
+                <span className="font-mono font-bold text-teal-800">
+                  {deletingAttendance.ticketCode || '-'}
+                </span>
+                )?
               </p>
 
               <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-[11px] font-semibold flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>Kuota kajian akan otomatis bertambah kembali setelah pendaftar dihapus.</span>
+                <span>
+                  Kuota kajian akan otomatis bertambah kembali setelah pendaftar
+                  dihapus.
+                </span>
               </div>
 
-              {deletingAttendance.registrationGroupId && (() => {
-                const groupCount = (data?.participants || []).filter(
-                  (m) => m.registrationGroupId === deletingAttendance.registrationGroupId
-                ).length;
+              {deletingAttendance.registrationGroupId &&
+                (() => {
+                  const groupCount = (data?.participants || []).filter(
+                    (m) =>
+                      m.registrationGroupId ===
+                      deletingAttendance.registrationGroupId,
+                  ).length;
 
-                if (groupCount > 1) {
-                  return (
-                    <label className="flex items-start gap-2.5 p-2.5 bg-amber-50 border border-amber-200 rounded-xl cursor-pointer hover:bg-amber-100/60 transition-colors">
-                      <input
-                        type="checkbox"
-                        checked={deleteGroupCheckbox}
-                        onChange={(e) => setDeleteGroupCheckbox(e.target.checked)}
-                        className="rounded text-rose-600 focus:ring-rose-500 w-4 h-4 mt-0.5"
-                      />
-                      <div className="text-[11px] text-amber-950">
-                        <span className="font-bold block">Pendaftaran Rombongan / Keluarga</span>
-                        <span className="text-amber-800">
-                          Hapus seluruh anggota rombongan ini sekaligus (<strong>{groupCount} orang</strong>) untuk mengembalikan seluruh kuota rombongan.
-                        </span>
-                      </div>
-                    </label>
-                  );
-                }
-                return null;
-              })()}
+                  if (groupCount > 1) {
+                    return (
+                      <label className="flex items-start gap-2.5 p-2.5 bg-amber-50 border border-amber-200 rounded-xl cursor-pointer hover:bg-amber-100/60 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={deleteGroupCheckbox}
+                          onChange={(e) =>
+                            setDeleteGroupCheckbox(e.target.checked)
+                          }
+                          className="rounded text-rose-600 focus:ring-rose-500 w-4 h-4 mt-0.5"
+                        />
+                        <div className="text-[11px] text-amber-950">
+                          <span className="font-bold block">
+                            Pendaftaran Rombongan / Keluarga
+                          </span>
+                          <span className="text-amber-800">
+                            Hapus seluruh anggota rombongan ini sekaligus (
+                            <strong>{groupCount} orang</strong>) untuk
+                            mengembalikan seluruh kuota rombongan.
+                          </span>
+                        </div>
+                      </label>
+                    );
+                  }
+                  return null;
+                })()}
             </div>
           }
-          confirmLabel={deleteGroupCheckbox ? 'Ya, Hapus Seluruh Rombongan' : 'Ya, Hapus Pendaftar'}
+          confirmLabel={
+            deleteGroupCheckbox
+              ? 'Ya, Hapus Seluruh Rombongan'
+              : 'Ya, Hapus Pendaftar'
+          }
           cancelLabel="Batal"
           variant="danger"
           loading={singleDeleteLoading}
@@ -1787,11 +2679,18 @@ export const EventSubmissionsModal: React.FC<EventSubmissionsModalProps> = ({
         message={
           <div className="space-y-2.5 text-left">
             <p className="text-xs text-slate-600 leading-relaxed">
-              Apakah Anda yakin ingin menghapus <strong className="text-slate-900 font-bold">{selectedIds.size}</strong> pendaftaran peserta terpilih?
+              Apakah Anda yakin ingin menghapus{' '}
+              <strong className="text-slate-900 font-bold">
+                {selectedIds.size}
+              </strong>{' '}
+              pendaftaran peserta terpilih?
             </p>
             <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-[11px] font-semibold flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>Kuota kajian akan otomatis bertambah kembali sebanyak {selectedIds.size} kuota.</span>
+              <span>
+                Kuota kajian akan otomatis bertambah kembali sebanyak{' '}
+                {selectedIds.size} kuota.
+              </span>
             </div>
           </div>
         }

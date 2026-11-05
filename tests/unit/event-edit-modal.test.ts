@@ -1,3 +1,4 @@
+import { eventDb } from '../helpers/eventDb';
 import { describe, it, expect, vi } from 'vitest';
 import { Router } from '../../server/http/router';
 import { registerEventsRoutes } from '../../server/domain/events/routes';
@@ -93,7 +94,7 @@ describe('Event Edit Feature (PUT /api/events/:id & GET /api/events/:id)', () =>
       }),
     };
 
-    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+    vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
     const updateBody = {
       title: 'Kajian Akbar Kitab Tauhid Bab 1 (Telah Direvisi)',
@@ -174,7 +175,7 @@ describe('Event Edit Feature (PUT /api/events/:id & GET /api/events/:id)', () =>
       },
     };
 
-    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+    vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
     const res = await router.handle({
       path: '/api/events/non-existent-id',

@@ -1,3 +1,4 @@
+import { eventDb } from '../helpers/eventDb';
 import { beforeAll, afterAll } from 'vitest';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Router } from '../../server/http/router';
@@ -99,7 +100,7 @@ describe('Event Minimum Age (minAge) Feature', () => {
         })),
       };
 
-      vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+      vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
       const res = await router.handle({
         path: '/api/events',
@@ -129,7 +130,7 @@ describe('Event Minimum Age (minAge) Feature', () => {
       const mockDb = {
         query: {
           events: {
-            findFirst: vi.fn().mockResolvedValue({ id: '018f0000-0000-0000-0000-000000000099', title: 'Daurah' }),
+            findFirst: vi.fn().mockResolvedValue({ id: '018f0000-0000-0000-0000-000000000099', title: 'Daurah', startAt: new Date('2026-12-01T00:00:00Z') }),
           },
         },
         update: vi.fn().mockImplementation(() => ({
@@ -144,7 +145,7 @@ describe('Event Minimum Age (minAge) Feature', () => {
         })),
       };
 
-      vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+      vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
       const res = await router.handle({
         path: '/api/events/018f0000-0000-0000-0000-000000000099',
@@ -167,7 +168,7 @@ describe('Event Minimum Age (minAge) Feature', () => {
   describe('Public Registration minAge Enforcement', () => {
     it('rejects registration when primary registrant age is missing on event with minAge', async () => {
       const mockDb = setupMockDb(baseEvent);
-      vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+      vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
       const res = await router.handle({
         path: '/api/public/register-event',
@@ -193,7 +194,7 @@ describe('Event Minimum Age (minAge) Feature', () => {
 
     it('rejects registration when primary registrant age is below minAge', async () => {
       const mockDb = setupMockDb(baseEvent);
-      vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+      vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
       const res = await router.handle({
         path: '/api/public/register-event',
@@ -220,7 +221,7 @@ describe('Event Minimum Age (minAge) Feature', () => {
 
     it('rejects registration when a companion age is below minAge', async () => {
       const mockDb = setupMockDb(baseEvent);
-      vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+      vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
       const res = await router.handle({
         path: '/api/public/register-event',
@@ -255,7 +256,7 @@ describe('Event Minimum Age (minAge) Feature', () => {
 
     it('rejects registration when companion age is missing on event with minAge', async () => {
       const mockDb = setupMockDb(baseEvent);
-      vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+      vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
       const res = await router.handle({
         path: '/api/public/register-event',
@@ -289,7 +290,7 @@ describe('Event Minimum Age (minAge) Feature', () => {
     it('succeeds and saves age when primary participant and companions meet minAge', async () => {
       const insertedAttendances: any[] = [];
       const mockDb = setupMockDb(baseEvent, insertedAttendances);
-      vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+      vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
       const res = await router.handle({
         path: '/api/public/register-event',
@@ -333,7 +334,7 @@ describe('Event Minimum Age (minAge) Feature', () => {
 
       const insertedAttendances: any[] = [];
       const mockDb = setupMockDb(openAgeEvent, insertedAttendances);
-      vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
+      vi.spyOn(client, 'getDb').mockReturnValue(eventDb(mockDb) as any);
 
       const res = await router.handle({
         path: '/api/public/register-event',

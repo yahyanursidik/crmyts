@@ -1,3 +1,4 @@
+import { withEventRegistrationLock } from '../events/registrationLock';
 import { getFoundation } from '../settings/foundation';
 import { getServerEnv } from '../../config/env';
 import { z } from 'zod';
@@ -25,7 +26,7 @@ import { and, eq, sql, or, inArray, desc, asc, ilike, isNull, isNotNull, gte } f
 import { normalizeIndonesianPhone } from '../../lib/phone';
 import { buildParticipantPortalPath, extractTicketCode } from '../../../src/lib/participantTicket';
 import { isEventPast } from '../../../src/lib/eventUtils';
-import { createMemorableTicketCode } from '../events/participantCodes';
+import { createAvailableTicketCode } from '../events/availableTicket';
 import {
   hasValidStaffRegistrationToken,
   hasValidSecretToken,
@@ -48,7 +49,7 @@ import {
   sendWaqfInquiryConfirmationEmail,
 } from '../../email/service';
 import { formatEventDateTimeWib, getEventEmailSettings } from '../events/emailNotifications';
-import { ensureEventRegistrationPhoneGuard, findEventRegistrationByPhone } from '../events/registrationPhoneGuard';
+import { findEventRegistrationByPhone } from '../events/registrationPhoneGuard';
 import { ensureS3StorageUrl, uploadPublicProofFile } from '../../storage/providers/s3';
 
 const optionalEmailSchema = z
@@ -143,47 +144,6 @@ const publicUploadSchema = z.object({
   mimeType: z.string().optional().default('image/jpeg'),
   folder: z.enum(['bazaar-proofs', 'event-proofs', 'donation-proofs', 'public-proofs']).default('public-proofs'),
 });
-
-type AppDatabase = ReturnType<typeof getDb>;
-type AppTransaction = Parameters<AppDatabase['transaction']>[0] extends (tx: infer Transaction) => Promise<unknown>
-  ? Transaction
-  : never;
-type RegistrationDatabase = AppDatabase | AppTransaction;
-
-/**
- * Serializes registrations for one event. Quota checks and inserts must share a
- * transaction; otherwise simultaneous submissions can both consume the last slot.
- *
- * A row lock is deliberately used instead of a PostgreSQL advisory lock. The
- * serverless database driver can leave an advisory lock waiting beyond the
- * function lifetime, which makes an otherwise valid registration time out.
- */
-async function withEventRegistrationLock<T>(
-  db: AppDatabase,
-  eventId: string,
-  operation: (tx: RegistrationDatabase) => Promise<T>
-): Promise<T> {
-  // This is intentionally best-effort during rollout. The per-event transaction
-  // below still protects public registrations if a legacy database user has not
-  // yet been granted permission to install the database guard.
-  await ensureEventRegistrationPhoneGuard(db).catch((error) => {
-    console.error('Event registration phone guard unavailable:', error);
-  });
-  const databaseWithOptionalTransaction = db as unknown as {
-    transaction?: (callback: (tx: AppTransaction) => Promise<T>) => Promise<T>;
-  };
-
-  // Unit tests use intentionally small database doubles. Production always takes
-  // the transactional branch below.
-  if (!databaseWithOptionalTransaction.transaction) return operation(db);
-
-  return databaseWithOptionalTransaction.transaction(async (tx) => {
-    // Keep a busy registration bounded while preserving atomic quota validation.
-    await tx.execute(sql`SET LOCAL lock_timeout = '4s'`);
-    await tx.execute(sql`SELECT id FROM events WHERE id = ${eventId} FOR UPDATE`);
-    return operation(tx);
-  });
-}
 
 function gateAccessTokenFromRequest(ctx: { headers: Record<string, string | undefined>; query: Record<string, string | undefined> }): string | null {
   const value = ctx.headers['x-gate-access'] || ctx.headers['X-Gate-Access'] || ctx.query.access;
@@ -982,7 +942,7 @@ export function registerPublicPortalRoutes(router: Router) {
         return errorResponse('CONFLICT', 'Nomor WhatsApp ini sudah terdaftar pada kajian ini.', 409, ctx.requestId);
       }
 
-      const ticketCode = createMemorableTicketCode();
+      const ticketCode = await createAvailableTicketCode(db, targetEvent.id);
       const registrationGroupId = additionalList.length > 0 ? `STAFF-${randomBytes(6).toString('hex').toUpperCase()}` : null;
       await db.insert(eventAttendance).values({
         eventId: targetEvent.id,
@@ -1010,7 +970,7 @@ export function registerPublicPortalRoutes(router: Router) {
       ];
 
       for (const [familyIndex, member] of additionalList.entries()) {
-        const familyTicketCode = createMemorableTicketCode();
+        const familyTicketCode = await createAvailableTicketCode(db, targetEvent.id);
         const virtualPhone = `${phoneNorm}-staff-family-${familyIndex + 1}`;
         let familyPerson = await db.query.persons.findFirst({
           where: sql`${persons.fullName} = ${member.fullName} AND (${persons.phoneE164} = ${virtualPhone} OR ${persons.phoneE164} = ${phoneNorm})`,
@@ -1457,7 +1417,7 @@ export function registerPublicPortalRoutes(router: Router) {
       const datePart = new Date(targetEvent.startAt).toISOString().slice(2, 10).replace(/-/g, '');
       const groupPart = Math.random().toString(36).substring(2, 6).toUpperCase();
       const registrationGroupId = isGroup ? `GRP-${datePart}-${groupPart}` : null;
-      const ticketCode = existingAttendance?.ticketCode || createMemorableTicketCode();
+      const ticketCode = existingAttendance?.ticketCode || await createAvailableTicketCode(db, targetEvent.id);
       const attendanceSource = 'form_registration';
 
       // Determine payment status
@@ -1554,7 +1514,7 @@ export function registerPublicPortalRoutes(router: Router) {
       for (const member of additionalList) {
         memberIdx++;
         const memberPhoneVirtual = `${phoneNorm}-fam-${memberIdx}`;
-        const memberTicketCode = createMemorableTicketCode();
+        const memberTicketCode = await createAvailableTicketCode(db, targetEvent.id);
 
         let memberPerson = await db.query.persons.findFirst({
           where: sql`${persons.fullName} = ${member.fullName} AND (${persons.phoneE164} = ${memberPhoneVirtual} OR ${persons.phoneE164} = ${phoneNorm})`,
@@ -2559,7 +2519,7 @@ export function registerPublicPortalRoutes(router: Router) {
       // ID cannot be used as a participant lookup endpoint.
       const gateEvent = await db.query.events.findFirst({
         where: eq(events.id, eventId),
-        columns: { id: true, formConfig: true },
+        columns: { id: true, formConfig: true, isPaid: true },
       });
       if (!gateEvent) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
       const gateAccessError = requireGateAccess(ctx, gateEvent);
@@ -2644,7 +2604,7 @@ export function registerPublicPortalRoutes(router: Router) {
       }
 
       const alreadyCheckedIn = targetAttendance.status === 'attended';
-      const paymentError = paymentCheckInError(targetAttendance);
+      const paymentError = paymentCheckInError(targetAttendance, gateEvent.isPaid);
       if (paymentError) return errorResponse('INVALID_STATE_TRANSITION', paymentError, 400, ctx.requestId);
       const previousCheckInAt = targetAttendance.checkInAt ? new Date(targetAttendance.checkInAt).toISOString() : null;
 
@@ -2754,7 +2714,7 @@ export function registerPublicPortalRoutes(router: Router) {
 
       const gateEvent = await db.query.events.findFirst({
         where: eq(events.id, eventId),
-        columns: { id: true, formConfig: true },
+        columns: { id: true, formConfig: true, isPaid: true },
       });
       if (!gateEvent) return errorResponse('NOT_FOUND', 'Kajian tidak ditemukan', 404, ctx.requestId);
       const gateAccessError = requireGateAccess(ctx, gateEvent);
@@ -2770,7 +2730,7 @@ export function registerPublicPortalRoutes(router: Router) {
       }
 
       const nextStatus = targetStatus || (target.status === 'attended' ? 'registered' : 'attended');
-      const paymentError = nextStatus === 'attended' ? paymentCheckInError(target) : null;
+      const paymentError = nextStatus === 'attended' ? paymentCheckInError(target, gateEvent.isPaid) : null;
       if (paymentError) return errorResponse('INVALID_STATE_TRANSITION', paymentError, 400, ctx.requestId);
       const nextCheckInAt = nextStatus === 'attended' ? new Date() : sql`NULL`;
 

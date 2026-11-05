@@ -1,3 +1,7 @@
+import { registrationIsOpen } from './utils/eventPresentation';
+import { isEventPast } from '@/lib/eventUtils';
+import { useEventDialog } from './components/useEventDialog';
+import { diffEventConfig } from './utils/eventPresentation';
 import React, { useState, useEffect } from 'react';
 import {
   X,
@@ -126,7 +130,7 @@ interface EventDetail {
   showGoogleMaps?: boolean;
   meetingUrl?: string | null;
   status: string;
-  
+
   // Paid Event & Banking
   isPaid?: boolean;
   priceRupiah?: number | null;
@@ -149,12 +153,12 @@ interface EventDetail {
   isRegistrationOpen: boolean;
   isStaffRegistrationOpen?: boolean;
   staffRegistrationToken?: string | null;
-  
+
   carParkingQuota?: number | null;
   motorcycleParkingQuota?: number | null;
   venueRules?: string[] | null;
   customVenueRules?: string | null;
-  
+
   formConfig?: EventFormConfig | null;
   participants: ParticipantItem[];
   totalParticipants: number;
@@ -187,22 +191,52 @@ interface EventManageModalProps {
   eventId: string;
   onClose: () => void;
   onEventUpdated: () => void;
+  onOpenParticipants?: () => void;
+  workspaceNav?: React.ReactNode;
 }
 
 const VENUE_RULES_PRESETS = [
-  { id: 'no_toddlers', label: '🚫 Dilarang Membawa Balita / Anak di Bawah 6 Tahun', desc: 'Demi kekhusyukan kajian dan keterbatasan area majelis' },
-  { id: 'modest_dress', label: '✨ Wajib Berpakaian Syar\'i & Rapi', desc: 'Gamis/Jubah gelap longgar untuk akhwat, pakaian sopan menutup aurat untuk ikhwan' },
-  { id: 'bring_kitab', label: '📖 Wajib Membawa Kitab / Buku Catatan', desc: 'Membawa mushaf/kitab panduan materi kajian' },
-  { id: 'bring_prayer_mat', label: '🕌 Membawa Sajadah & Mukena Sendiri', desc: 'Menjaga kebersihan dan higienitas masjid' },
-  { id: 'silent_phone', label: '📴 Mode Senyap / Dilarang Merekam Tanpa Izin', desc: 'Nonaktifkan suara ponsel selama majelis berlangsung' },
-  { id: 'stay_overnight', label: '🌙 Diizinkan Menginap / I\'tikaf 10 Malam Terakhir', desc: 'Khusus program 10 hari terakhir Ramadan dengan registrasi i\'tikaf' },
-  { id: 'no_street_parking', label: '🚗 Dilarang Parkir di Bahu Jalan Warga', desc: 'Wajib parkir di kantong parkir resmi yang disediakan panitia' },
+  {
+    id: 'no_toddlers',
+    label: '🚫 Dilarang Membawa Balita / Anak di Bawah 6 Tahun',
+    desc: 'Demi kekhusyukan kajian dan keterbatasan area majelis',
+  },
+  {
+    id: 'modest_dress',
+    label: "✨ Wajib Berpakaian Syar'i & Rapi",
+    desc: 'Gamis/Jubah gelap longgar untuk akhwat, pakaian sopan menutup aurat untuk ikhwan',
+  },
+  {
+    id: 'bring_kitab',
+    label: '📖 Wajib Membawa Kitab / Buku Catatan',
+    desc: 'Membawa mushaf/kitab panduan materi kajian',
+  },
+  {
+    id: 'bring_prayer_mat',
+    label: '🕌 Membawa Sajadah & Mukena Sendiri',
+    desc: 'Menjaga kebersihan dan higienitas masjid',
+  },
+  {
+    id: 'silent_phone',
+    label: '📴 Mode Senyap / Dilarang Merekam Tanpa Izin',
+    desc: 'Nonaktifkan suara ponsel selama majelis berlangsung',
+  },
+  {
+    id: 'stay_overnight',
+    label: "🌙 Diizinkan Menginap / I'tikaf 10 Malam Terakhir",
+    desc: "Khusus program 10 hari terakhir Ramadan dengan registrasi i'tikaf",
+  },
+  {
+    id: 'no_street_parking',
+    label: '🚗 Dilarang Parkir di Bahu Jalan Warga',
+    desc: 'Wajib parkir di kantong parkir resmi yang disediakan panitia',
+  },
 ];
 
 export const DEFAULT_ADAB_RULES = [
-  'Niat yang ikhlas semata-mata mengharap ridha Allah Subhanahu wa Ta\'ala.',
+  "Niat yang ikhlas semata-mata mengharap ridha Allah Subhanahu wa Ta'ala.",
   'Hadir tepat waktu sebelum kajian / adzan dimulai dan tidak terlambat.',
-  'Berpakaian syar\'i, sopan, longgar, dan menutup aurat secara sempurna (ikhwan rapi sopan, akhwat berhijab syar\'i & longgar).',
+  "Berpakaian syar'i, sopan, longgar, dan menutup aurat secara sempurna (ikhwan rapi sopan, akhwat berhijab syar'i & longgar).",
   'Pemisahan area ikhwan dan akhwat terjaga dengan tertib, rapi, dan beradab.',
   'Menonaktifkan / menyenyapkan (silent mode) nada dering ponsel selama kajian berlangsung.',
   'Menjaga adab penuntut ilmu: fokus menyimak materi, mencatat faedah ilmu, dan tidak berbicara saat asatidzah menyampaikan materi.',
@@ -213,7 +247,7 @@ export const DEFAULT_ADAB_RULES = [
 
 export const DEFAULT_PARTICIPANT_REQUIREMENTS = [
   'Wajib memiliki kode e-tiket pendaftaran resmi dari sistem CRM YTS.',
-  'Membawa mushaf Al-Qur\'an / kitab rujukan dan buku catatan faedah kajian.',
+  "Membawa mushaf Al-Qur'an / kitab rujukan dan buku catatan faedah kajian.",
   'Bagi yang membawa balita / anak-anak, wajib mendampingi di area keluarga/nursery demi menjaga kekhusyukan majelis.',
   'Melakukan registrasi ulang / check-in di meja panitia minimal 15 menit sebelum acara dimulai.',
   'Bersedia mematuhi seluruh arahan panitia, laskar keamanan, dan amil yayasan.',
@@ -257,10 +291,14 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   eventId,
   onClose,
   onEventUpdated,
+  onOpenParticipants,
+  workspaceNav,
 }) => {
   const [eventData, setEventData] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'participants' | 'settings' | 'form_builder' | 'rules' | 'email'>('participants');
+  const [activeTab, setActiveTab] = useState<
+    'participants' | 'settings' | 'form_builder' | 'rules' | 'email'
+  >(onOpenParticipants ? 'settings' : 'participants');
   const [saving, setSaving] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedStaffLink, setCopiedStaffLink] = useState(false);
@@ -287,7 +325,9 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   const [quotaStaffAkhwat, setQuotaStaffAkhwat] = useState<number | ''>('');
   const [isStaffRegistrationOpen, setIsStaffRegistrationOpen] = useState(false);
   const [carParkingQuota, setCarParkingQuota] = useState<number | ''>('');
-  const [motorcycleParkingQuota, setMotorcycleParkingQuota] = useState<number | ''>('');
+  const [motorcycleParkingQuota, setMotorcycleParkingQuota] = useState<
+    number | ''
+  >('');
   const [venueRules, setVenueRules] = useState<string[]>([]);
   const [customVenueRules, setCustomVenueRules] = useState('');
   const [locationName, setLocationName] = useState('');
@@ -299,17 +339,23 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   // Paid Event & Banking Details State
   const [isPaid, setIsPaid] = useState<boolean>(false);
   const [priceRupiah, setPriceRupiah] = useState<number | ''>('');
-  const [bankName, setBankName] = useState<string>('Bank Syariah Indonesia (BSI)');
-  const [bankAccountNumber, setBankAccountNumber] = useState<string>('7123456789');
-  const [bankAccountName, setBankAccountName] = useState<string>('Yayasan Tarbiyah Sunnah');
-  const [paymentInstructions, setPaymentInstructions] = useState<string>('Silakan transfer sesuai nominal. Unggah struk transfer saat pendaftaran atau konfirmasikan ke admin panitia.');
+  const [bankName, setBankName] = useState<string>(
+    'Bank Syariah Indonesia (BSI)',
+  );
+  const [bankAccountNumber, setBankAccountNumber] = useState<string>('');
+  const [bankAccountName, setBankAccountName] = useState<string>(
+    'Yayasan Tarbiyah Sunnah',
+  );
+  const [paymentInstructions, setPaymentInstructions] = useState<string>('');
 
   // Form Builder State
-  const [formConfig, setFormConfig] = useState<EventFormConfig>(DEFAULT_FORM_CONFIG);
+  const [formConfig, setFormConfig] =
+    useState<EventFormConfig>(DEFAULT_FORM_CONFIG);
 
   // New Custom Field Builder Form
   const [newFieldLabel, setNewFieldLabel] = useState('');
-  const [newFieldType, setNewFieldType] = useState<EventFormField['type']>('text');
+  const [newFieldType, setNewFieldType] =
+    useState<EventFormField['type']>('text');
   const [newFieldRequired, setNewFieldRequired] = useState(true);
   const [newFieldPlaceholder, setNewFieldPlaceholder] = useState('');
   const [newFieldOptionsRaw, setNewFieldOptionsRaw] = useState('');
@@ -322,13 +368,19 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   const [manualAge, setManualAge] = useState<number | ''>('');
   const [manualName, setManualName] = useState('');
   const [manualPhone, setManualPhone] = useState('');
-  const [manualGender, setManualGender] = useState<'ikhwan' | 'akhwat'>('ikhwan');
+  const [manualGender, setManualGender] = useState<'ikhwan' | 'akhwat'>(
+    'ikhwan',
+  );
   const [manualCity, setManualCity] = useState('');
   const [manualEmail, setManualEmail] = useState('');
-  const [manualVehicleType, setManualVehicleType] = useState<'none' | 'motorcycle' | 'car'>('none');
+  const [manualVehicleType, setManualVehicleType] = useState<
+    'none' | 'motorcycle' | 'car'
+  >('none');
   const [manualVehiclePlate, setManualVehiclePlate] = useState('');
   const [manualSubmitting, setManualSubmitting] = useState(false);
-  const [emailSendingAttendanceId, setEmailSendingAttendanceId] = useState<string | null>(null);
+  const [emailSendingAttendanceId, setEmailSendingAttendanceId] = useState<
+    string | null
+  >(null);
   const [sendingReminder, setSendingReminder] = useState(false);
   const [showReminderConfirm, setShowReminderConfirm] = useState(false);
 
@@ -352,17 +404,28 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
 
   // Participant Filter & Search
   const [participantSearch, setParticipantSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'attended' | 'registered' | 'from_referral'>('all');
-  const [genderFilter, setGenderFilter] = useState<'all' | 'ikhwan' | 'akhwat'>('all');
-  const [vehicleFilter, setVehicleFilter] = useState<'all' | 'car' | 'motorcycle' | 'none'>('all');
+  const [statusFilter, setStatusFilter] = useState<
+    'all' | 'attended' | 'registered' | 'from_referral'
+  >('all');
+  const [genderFilter, setGenderFilter] = useState<'all' | 'ikhwan' | 'akhwat'>(
+    'all',
+  );
+  const [vehicleFilter, setVehicleFilter] = useState<
+    'all' | 'car' | 'motorcycle' | 'none'
+  >('all');
 
   // Participant Deletion State
-  const [deletingParticipant, setDeletingParticipant] = useState<ParticipantItem | null>(null);
+  const [deletingParticipant, setDeletingParticipant] =
+    useState<ParticipantItem | null>(null);
   const [deleteGroupCheckbox, setDeleteGroupCheckbox] = useState(false);
-  const [deleteParticipantLoading, setDeleteParticipantLoading] = useState(false);
+  const [deleteParticipantLoading, setDeleteParticipantLoading] =
+    useState(false);
 
   // Friendly Toast & Alert Dialog States
-  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [toastMessage, setToastMessage] = useState<{
+    text: string;
+    type: 'success' | 'error';
+  } | null>(null);
   const [alertDialog, setAlertDialog] = useState<{
     title: string;
     message: string;
@@ -377,11 +440,19 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   const loadEventDetail = async () => {
     try {
       setLoading(true);
-      const res = await apiClient<EventDetail>(`/events/${eventId}`);
+      const res = await apiClient<EventDetail>(
+        onOpenParticipants
+          ? `/events/${eventId}/settings`
+          : `/events/${eventId}`,
+      );
       setEventData(res.data);
 
       setTargetAudience(res.data.targetAudience || 'umum');
-      setMinAge(res.data.minAge !== null && res.data.minAge !== undefined ? res.data.minAge : '');
+      setMinAge(
+        res.data.minAge !== null && res.data.minAge !== undefined
+          ? res.data.minAge
+          : '',
+      );
       setQuota(res.data.quota || '');
       setQuotaIkhwan(res.data.quotaIkhwan || '');
       setQuotaAkhwat(res.data.quotaAkhwat || '');
@@ -404,13 +475,10 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
 
       setIsPaid(res.data.isPaid || false);
       setPriceRupiah(res.data.priceRupiah || '');
-      setBankName(res.data.bankName || 'Bank Syariah Indonesia (BSI)');
-      setBankAccountNumber(res.data.bankAccountNumber || '7123456789');
-      setBankAccountName(res.data.bankAccountName || 'Yayasan Tarbiyah Sunnah');
-      setPaymentInstructions(
-        res.data.paymentInstructions ||
-          'Silakan transfer sesuai nominal. Unggah struk transfer saat pendaftaran atau konfirmasikan ke admin panitia.'
-      );
+      setBankName(res.data.bankName || '');
+      setBankAccountNumber(res.data.bankAccountNumber || '');
+      setBankAccountName(res.data.bankAccountName || '');
+      setPaymentInstructions(res.data.paymentInstructions || '');
 
       const savedFormConfig = res.data.formConfig || {};
       setFormConfig({
@@ -420,19 +488,22 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
         whatsappGroupIkhwanUrl: savedFormConfig.whatsappGroupIkhwanUrl || '',
         whatsappGroupAkhwatUrl: savedFormConfig.whatsappGroupAkhwatUrl || '',
         adabRules:
-          Array.isArray(savedFormConfig.adabRules) && savedFormConfig.adabRules.length > 0
+          Array.isArray(savedFormConfig.adabRules) &&
+          savedFormConfig.adabRules.length > 0
             ? savedFormConfig.adabRules
             : DEFAULT_ADAB_RULES,
         venueRulesText:
           savedFormConfig.venueRulesText !== undefined
             ? savedFormConfig.venueRulesText
-            : (res.data.customVenueRules || ''),
+            : res.data.customVenueRules || '',
         participantRequirements:
-          Array.isArray(savedFormConfig.participantRequirements) && savedFormConfig.participantRequirements.length > 0
+          Array.isArray(savedFormConfig.participantRequirements) &&
+          savedFormConfig.participantRequirements.length > 0
             ? savedFormConfig.participantRequirements
             : DEFAULT_PARTICIPANT_REQUIREMENTS,
         requireRulesAgreement: savedFormConfig.requireRulesAgreement !== false,
-        rulesModalDetail: savedFormConfig.rulesModalDetail || DEFAULT_RULES_MODAL_DETAIL,
+        rulesModalDetail:
+          savedFormConfig.rulesModalDetail || DEFAULT_RULES_MODAL_DETAIL,
       });
     } catch (err: any) {
       setAlertDialog({
@@ -459,7 +530,9 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
 
   const handleCopyStaffLink = () => {
     if (!eventData?.staffRegistrationToken) return;
-    navigator.clipboard.writeText(`${window.location.origin}/kajian/${eventId}/staff/${eventData.staffRegistrationToken}`);
+    navigator.clipboard.writeText(
+      `${window.location.origin}/kajian/${eventId}/staff/${eventData.staffRegistrationToken}`,
+    );
     setCopiedStaffLink(true);
     showToast('Tautan pendaftaran staff berhasil disalin.');
     setTimeout(() => setCopiedStaffLink(false), 2500);
@@ -468,9 +541,21 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   const handleRotateStaffLink = async () => {
     try {
       setRotatingStaffLink(true);
-      const res = await apiClient<{ staffRegistrationToken: string }>(`/events/${eventId}/staff-registration-token`, { method: 'POST' });
-      setEventData((current) => current ? { ...current, staffRegistrationToken: res.data.staffRegistrationToken } : current);
-      showToast('Tautan staff baru dibuat. Tautan sebelumnya tidak lagi berlaku.');
+      const res = await apiClient<{ staffRegistrationToken: string }>(
+        `/events/${eventId}/staff-registration-token`,
+        { method: 'POST' },
+      );
+      setEventData((current) =>
+        current
+          ? {
+              ...current,
+              staffRegistrationToken: res.data.staffRegistrationToken,
+            }
+          : current,
+      );
+      showToast(
+        'Tautan staff baru dibuat. Tautan sebelumnya tidak lagi berlaku.',
+      );
     } catch (err: any) {
       showToast(err.message || 'Gagal membuat tautan staff baru.', 'error');
     } finally {
@@ -488,7 +573,11 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
         body: JSON.stringify({ isRegistrationOpen: nextState }),
       });
       setEventData({ ...eventData, isRegistrationOpen: nextState });
-      showToast(nextState ? 'Pendaftaran online telah DIBUKA' : 'Pendaftaran online telah DITUTUP');
+      showToast(
+        nextState
+          ? 'Pendaftaran online telah DIBUKA'
+          : 'Pendaftaran online telah DITUTUP',
+      );
       onEventUpdated();
     } catch (err: any) {
       setAlertDialog({
@@ -514,14 +603,20 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           quotaIkhwan: quotaIkhwan ? Number(quotaIkhwan) : null,
           quotaAkhwat: quotaAkhwat ? Number(quotaAkhwat) : null,
           quotaInvite: quotaInvite ? Number(quotaInvite) : null,
-          quotaInviteIkhwan: quotaInviteIkhwan ? Number(quotaInviteIkhwan) : null,
-          quotaInviteAkhwat: quotaInviteAkhwat ? Number(quotaInviteAkhwat) : null,
+          quotaInviteIkhwan: quotaInviteIkhwan
+            ? Number(quotaInviteIkhwan)
+            : null,
+          quotaInviteAkhwat: quotaInviteAkhwat
+            ? Number(quotaInviteAkhwat)
+            : null,
           quotaStaff: quotaStaff ? Number(quotaStaff) : null,
           quotaStaffIkhwan: quotaStaffIkhwan ? Number(quotaStaffIkhwan) : null,
           quotaStaffAkhwat: quotaStaffAkhwat ? Number(quotaStaffAkhwat) : null,
           isStaffRegistrationOpen,
           carParkingQuota: carParkingQuota ? Number(carParkingQuota) : null,
-          motorcycleParkingQuota: motorcycleParkingQuota ? Number(motorcycleParkingQuota) : null,
+          motorcycleParkingQuota: motorcycleParkingQuota
+            ? Number(motorcycleParkingQuota)
+            : null,
           venueRules,
           customVenueRules: customVenueRules || null,
           locationName: locationName.trim() || null,
@@ -531,14 +626,16 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           showGoogleMaps,
           isPaid,
           priceRupiah: isPaid && priceRupiah ? Number(priceRupiah) : 0,
-          bankName: isPaid ? bankName : null,
-          bankAccountNumber: isPaid ? bankAccountNumber : null,
-          bankAccountName: isPaid ? bankAccountName : null,
-          paymentInstructions: isPaid ? paymentInstructions : null,
-          formConfig,
+          bankName: bankName || null,
+          bankAccountNumber: bankAccountNumber || null,
+          bankAccountName: bankAccountName || null,
+          paymentInstructions: paymentInstructions || null,
+          formConfig: diffEventConfig(eventData?.formConfig, formConfig),
         }),
       });
-      showToast('Pengaturan lokasi, Google Maps, biaya, kuota, segmen, parkir & aturan berhasil disimpan!');
+      showToast(
+        'Pengaturan lokasi, Google Maps, biaya, kuota, segmen, parkir & aturan berhasil disimpan!',
+      );
       loadEventDetail();
       onEventUpdated();
     } catch (err: any) {
@@ -581,7 +678,10 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
     if (!newRequirement.trim()) return;
     setFormConfig((prev) => ({
       ...prev,
-      participantRequirements: [...(prev.participantRequirements || []), newRequirement.trim()],
+      participantRequirements: [
+        ...(prev.participantRequirements || []),
+        newRequirement.trim(),
+      ],
     }));
     setNewRequirement('');
     showToast('Poin syarat kajian ditambahkan');
@@ -590,7 +690,9 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   const handleRemoveRequirement = (idx: number) => {
     setFormConfig((prev) => ({
       ...prev,
-      participantRequirements: (prev.participantRequirements || []).filter((_, i) => i !== idx),
+      participantRequirements: (prev.participantRequirements || []).filter(
+        (_, i) => i !== idx,
+      ),
     }));
   };
 
@@ -610,7 +712,9 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       rulesModalDetail: DEFAULT_RULES_MODAL_DETAIL,
       requireRulesAgreement: true,
     }));
-    showToast('Tata tertib & syarat berhasil dikembalikan ke standar preset YTS');
+    showToast(
+      'Tata tertib & syarat berhasil dikembalikan ke standar preset YTS',
+    );
   };
 
   const handleApplyYtsVenuePreset = () => {
@@ -652,8 +756,12 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
     if (!newFieldLabel.trim()) return;
 
     const options =
-      ['select', 'radio', 'checkbox'].includes(newFieldType) && newFieldOptionsRaw.trim()
-        ? newFieldOptionsRaw.split(',').map((s) => s.trim()).filter(Boolean)
+      ['select', 'radio', 'checkbox'].includes(newFieldType) &&
+      newFieldOptionsRaw.trim()
+        ? newFieldOptionsRaw
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
         : undefined;
 
     const newField: EventFormField = {
@@ -703,11 +811,18 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
     try {
       setDeleteParticipantLoading(true);
       const url = `/events/${eventId}/attendances/${deletingParticipant.id}?deleteGroup=${deleteGroupCheckbox}`;
-      const res = await apiClient<{ message: string; deletedCount: number; freedQuota: number }>(url, {
+      const res = await apiClient<{
+        message: string;
+        deletedCount: number;
+        freedQuota: number;
+      }>(url, {
         method: 'DELETE',
       });
 
-      showToast(res.data?.message || 'Pendaftaran berhasil dihapus. Kuota kajian telah dikembalikan.');
+      showToast(
+        res.data?.message ||
+          'Pendaftaran berhasil dihapus. Kuota kajian telah dikembalikan.',
+      );
       setDeletingParticipant(null);
       setDeleteGroupCheckbox(false);
       await loadEventDetail();
@@ -729,12 +844,18 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
         method: 'POST',
         body: JSON.stringify({ ticketCode: ticketInput.trim() }),
       });
-      showToast(`✓ Check-in Sukses untuk Tiket ${ticketInput.toUpperCase()}!`, 'success');
+      showToast(
+        `✓ Check-in Sukses untuk Tiket ${ticketInput.toUpperCase()}!`,
+        'success',
+      );
       setTicketInput('');
       loadEventDetail();
       onEventUpdated();
     } catch (err: any) {
-      showToast(`❌ ${err.message || 'Tiket tidak ditemukan / tidak valid'}`, 'error');
+      showToast(
+        `❌ ${err.message || 'Tiket tidak ditemukan / tidak valid'}`,
+        'error',
+      );
     }
   };
 
@@ -744,21 +865,24 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
 
     try {
       setManualSubmitting(true);
-      const res = await apiClient<any>(`/events/${eventId}/participants/manual`, {
-        method: 'POST',
-        body: JSON.stringify({
-          fullName: manualName.trim(),
-          phone: manualPhone.trim(),
-          gender: manualGender,
-          cityRegency: manualCity.trim() || null,
-          email: manualEmail.trim() || null,
-          age: manualAge !== '' ? Number(manualAge) : null,
-          vehicleType: manualVehicleType,
-          vehiclePlateNumber: manualVehiclePlate.trim() || null,
-          isSpecialInvite: manualIsInvite,
-          inviteNotes: manualInviteNotes.trim() || null,
-        }),
-      });
+      const res = await apiClient<any>(
+        `/events/${eventId}/participants/manual`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            fullName: manualName.trim(),
+            phone: manualPhone.trim(),
+            gender: manualGender,
+            cityRegency: manualCity.trim() || null,
+            email: manualEmail.trim() || null,
+            age: manualAge !== '' ? Number(manualAge) : null,
+            vehicleType: manualVehicleType,
+            vehiclePlateNumber: manualVehiclePlate.trim() || null,
+            isSpecialInvite: manualIsInvite,
+            inviteNotes: manualInviteNotes.trim() || null,
+          }),
+        },
+      );
 
       setShowAddParticipant(false);
       const savedName = manualName.trim();
@@ -783,8 +907,12 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           personName: res.data.person?.fullName || savedName,
           phone: res.data.person?.phoneE164 || savedPhone,
           ticketCode: res.data.ticketCode,
-          ticketUrl: res.data.ticketUrl || `/peserta/${eventId}?ticket=${encodeURIComponent(res.data.ticketCode)}`,
-          fullTicketUrl: res.data.fullTicketUrl || `${window.location.origin}/peserta/${eventId}?ticket=${encodeURIComponent(res.data.ticketCode)}`,
+          ticketUrl:
+            res.data.ticketUrl ||
+            `/peserta/${eventId}?ticket=${encodeURIComponent(res.data.ticketCode)}`,
+          fullTicketUrl:
+            res.data.fullTicketUrl ||
+            `${window.location.origin}/peserta/${eventId}?ticket=${encodeURIComponent(res.data.ticketCode)}`,
           waUrl: res.data.waUrl,
           waText: res.data.waText,
           isSpecialInvite: Boolean(res.data.isSpecialInvite ?? savedIsInvite),
@@ -806,7 +934,9 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   };
 
   const handleSendWhatsAppTicket = (p: ParticipantItem) => {
-    const cleanPhone = (p.personPhone || '').replace(/\D/g, '').replace(/^0/, '62');
+    const cleanPhone = (p.personPhone || '')
+      .replace(/\D/g, '')
+      .replace(/^0/, '62');
     const startAtFormatted = eventData?.startAt
       ? new Date(eventData.startAt).toLocaleDateString('id-ID', {
           weekday: 'long',
@@ -820,7 +950,11 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       : '';
     const ticketUrl = `/peserta/${eventId}?ticket=${encodeURIComponent(p.ticketCode || '')}`;
     const fullTicketUrl = `${window.location.origin}${ticketUrl}`;
-    const isInvite = Boolean(p.isSpecialInvite || p.source === 'admin_invite' || p.referredByAttendanceId);
+    const isInvite = Boolean(
+      p.isSpecialInvite ||
+        p.source === 'admin_invite' ||
+        p.referredByAttendanceId,
+    );
     const waText = `Bismillah, Assalamu'alaikum Warahmatullahi Wabarakatuh.\n\nKepada Yth. Bapak/Ibu/Asatidzah *${p.personName}*,\n\nAhlan wa Sahlan. Pendaftaran antum/anda sebagai *${isInvite ? 'Tamu Undangan Khusus (VIP)' : 'Peserta'}* telah terkonfirmasi resmi:\n\n📖 *${eventData?.title || 'Kajian Sunnah'}*\n🎙️ Pemateri: *${eventData?.speaker || 'Pemateri'}*\n🗓️ Waktu: *${startAtFormatted}*\n📍 Tempat: *${eventData?.locationName || 'Masjid Tarbiyah Sunnah'}*\n\n🎫 *KODE E-TIKET PRESENSI:* *${p.ticketCode || '-'}*\n\nSilakan buka tautan berikut untuk melihat E-Tiket & QR Code kehadiran Anda:\n👉 ${fullTicketUrl}\n\nTunjukkan QR Code tersebut kepada petugas di pintu gerbang kedatangan.\n\nJazakumullahu khairan wa barakallahu fiikum.\n— Panitia Yayasan Tarbiyah Sunnah`;
     const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waText)}`;
 
@@ -844,10 +978,16 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
     }
     try {
       setEmailSendingAttendanceId(participant.id);
-      const response = await apiClient<{ message: string }>(`/events/${eventId}/attendances/${participant.id}/email-ticket`, {
-        method: 'POST',
-      });
-      showToast(response.data?.message || `E-tiket terbaru dikirim ke ${participant.personEmail}.`);
+      const response = await apiClient<{ message: string }>(
+        `/events/${eventId}/attendances/${participant.id}/email-ticket`,
+        {
+          method: 'POST',
+        },
+      );
+      showToast(
+        response.data?.message ||
+          `E-tiket terbaru dikirim ke ${participant.personEmail}.`,
+      );
       await loadEventDetail();
     } catch (err: any) {
       showToast(err.message || 'E-tiket gagal dikirim.', 'error');
@@ -859,11 +999,16 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
   const handleSendReminder = async () => {
     try {
       setSendingReminder(true);
-      const response = await apiClient<{ message: string; sent: number; failed: number; quotaReached: boolean }>(
-        `/events/${eventId}/email-reminder`,
-        { method: 'POST' }
+      const response = await apiClient<{
+        message: string;
+        sent: number;
+        failed: number;
+        quotaReached: boolean;
+      }>(`/events/${eventId}/email-reminder`, { method: 'POST' });
+      showToast(
+        response.data?.message ||
+          `${response.data?.sent || 0} reminder berhasil dikirim.`,
       );
-      showToast(response.data?.message || `${response.data?.sent || 0} reminder berhasil dikirim.`);
       setShowReminderConfirm(false);
       await loadEventDetail();
     } catch (err: any) {
@@ -911,11 +1056,16 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       `"${p.registrationData ? JSON.stringify(p.registrationData).replace(/"/g, '""') : '-'}"`,
     ]);
 
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+    const csvContent =
+      'data:text/csv;charset=utf-8,' +
+      [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Peserta_${eventData.title.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute(
+      'download',
+      `Peserta_${eventData.title.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`,
+    );
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -926,25 +1076,56 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
       participantSearch.trim() === '' ||
       p.personName.toLowerCase().includes(participantSearch.toLowerCase()) ||
       p.personPhone.includes(participantSearch) ||
-      (p.personEmail && p.personEmail.toLowerCase().includes(participantSearch.toLowerCase())) ||
-      (p.ticketCode && p.ticketCode.toLowerCase().includes(participantSearch.toLowerCase())) ||
-      (p.referrerName && p.referrerName.toLowerCase().includes(participantSearch.toLowerCase())) ||
-      (p.referrerCode && p.referrerCode.toLowerCase().includes(participantSearch.toLowerCase())) ||
-      (p.referralCode && p.referralCode.toLowerCase().includes(participantSearch.toLowerCase())) ||
-      (p.vehiclePlateNumber && p.vehiclePlateNumber.toLowerCase().includes(participantSearch.toLowerCase()));
+      (p.personEmail &&
+        p.personEmail
+          .toLowerCase()
+          .includes(participantSearch.toLowerCase())) ||
+      (p.ticketCode &&
+        p.ticketCode.toLowerCase().includes(participantSearch.toLowerCase())) ||
+      (p.referrerName &&
+        p.referrerName
+          .toLowerCase()
+          .includes(participantSearch.toLowerCase())) ||
+      (p.referrerCode &&
+        p.referrerCode
+          .toLowerCase()
+          .includes(participantSearch.toLowerCase())) ||
+      (p.referralCode &&
+        p.referralCode
+          .toLowerCase()
+          .includes(participantSearch.toLowerCase())) ||
+      (p.vehiclePlateNumber &&
+        p.vehiclePlateNumber
+          .toLowerCase()
+          .includes(participantSearch.toLowerCase()));
 
     const matchStatus =
       statusFilter === 'all'
         ? true
         : statusFilter === 'from_referral'
-        ? Boolean(p.isSpecialInvite || p.source === 'admin_invite' || p.referredByAttendanceId || p.referrerCode)
-        : p.status === statusFilter;
-    const matchGender = genderFilter === 'all' || p.personGender === genderFilter;
-    const matchVehicle = vehicleFilter === 'all' || (p.vehicleType || 'none') === vehicleFilter;
+          ? Boolean(
+              p.isSpecialInvite ||
+                p.source === 'admin_invite' ||
+                p.referredByAttendanceId ||
+                p.referrerCode,
+            )
+          : p.status === statusFilter;
+    const matchGender =
+      genderFilter === 'all' || p.personGender === genderFilter;
+    const matchVehicle =
+      vehicleFilter === 'all' || (p.vehicleType || 'none') === vehicleFilter;
 
     return matchSearch && matchStatus && matchGender && matchVehicle;
   });
 
+  const dialog = useEventDialog(
+    !loading && Boolean(eventData || alertDialog),
+    onClose,
+  );
+
+  const effectiveRegistrationOpen = eventData
+    ? registrationIsOpen(eventData)
+    : false;
   if (loading && !eventData) {
     return (
       <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -955,1292 +1136,1657 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
     );
   }
 
-  if (!eventData) return null;
+  if (!eventData)
+    return (
+      <div
+        ref={dialog}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Pengaturan event"
+        tabIndex={-1}
+        className="event-overlay"
+      >
+        <div className="event-form-sheet">
+          <div className="event-empty" role="alert">
+            <h2>Pengaturan belum dapat dimuat</h2>
+            <p>{alertDialog?.message || 'Event tidak tersedia.'}</p>
+            <div className="event-heading-actions">
+              <button
+                className="event-button"
+                onClick={() => {
+                  setAlertDialog(null);
+                  void loadEventDetail();
+                }}
+              >
+                Coba lagi
+              </button>
+              <button className="event-button" onClick={onClose}>
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
 
   return (
     <>
-      <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      <div
+        ref={dialog}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Pengaturan event"
+        tabIndex={-1}
+        className="event-settings event-legacy fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto"
+      >
         <div className="bg-white rounded-3xl max-w-5xl w-full my-auto shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
-        {/* Header Modal */}
-        <div className="p-6 border-b border-slate-200 flex items-start justify-between bg-gradient-to-r from-teal-900 to-emerald-950 text-white shrink-0">
-          <div className="space-y-1 max-w-2xl">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-teal-800/90 text-teal-200 border border-teal-700">
-                {eventData.category}
-              </span>
-
-              {eventData.targetAudience === 'akhwat_only' && (
-                <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-rose-900/80 text-rose-200 border border-rose-700">
-                  🌸 Khusus Akhwat Saja
+          {/* Header Modal */}
+          <div className="p-6 border-b border-slate-200 flex items-start justify-between bg-gradient-to-r from-teal-900 to-emerald-950 text-white shrink-0">
+            <div className="space-y-1 max-w-2xl">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-teal-800/90 text-teal-200 border border-teal-700">
+                  {eventData.category}
                 </span>
-              )}
-              {eventData.targetAudience === 'ikhwan_only' && (
-                <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-sky-900/80 text-sky-200 border border-sky-700">
-                  🕌 Khusus Ikhwan Saja
-                </span>
-              )}
-              {eventData.targetAudience === 'anak' && (
-                <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-amber-900/80 text-amber-200 border border-amber-700">
-                  🌱 Kajian Anak & Santri
-                </span>
-              )}
-              {eventData.targetAudience === 'itikaf_ramadan' && (
-                <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-purple-900/80 text-purple-200 border border-purple-700">
-                  🌙 10 Hari Terakhir Ramadan
-                </span>
-              )}
-              {eventData.targetAudience === 'umum' && (
-                <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-emerald-800/80 text-emerald-200 border border-emerald-700">
-                  🌐 Tabligh Akbar (Umum)
-                </span>
-              )}
 
-              <button
-                onClick={handleToggleRegistration}
-                className={`text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full flex items-center gap-1 transition-all ${
-                  eventData.isRegistrationOpen
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30'
-                    : 'bg-red-500/20 text-red-300 border border-red-500/40 hover:bg-red-500/30'
-                }`}
-              >
-                {eventData.isRegistrationOpen ? <ToggleRight className="w-3.5 h-3.5 text-emerald-400" /> : <ToggleLeft className="w-3.5 h-3.5 text-red-400" />}
-                {eventData.isRegistrationOpen ? 'Pendaftaran Buka' : 'Pendaftaran Tutup'}
-              </button>
-            </div>
-
-            <h2 className="text-xl sm:text-2xl font-black tracking-tight">{eventData.title}</h2>
-            <p className="text-xs text-teal-200/90 flex items-center gap-2">
-              <span>Pemateri: <b>{eventData.speaker}</b></span>
-              <span>•</span>
-              <span>Lokasi: <b>{eventData.locationName || 'Masjid Tarbiyah Sunnah'}</b></span>
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowEditModal(true)}
-              className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-bold transition-all flex items-center gap-1.5 border border-amber-500/40 cursor-pointer shadow-2xs"
-              title="Edit Data Lengkap Kajian (Judul, Pemateri, Jadwal, Lokasi, Kuota, dll)"
-            >
-              <Pencil className="w-3.5 h-3.5 text-amber-300" />
-              <span>Edit Data Kajian</span>
-            </button>
-            <button
-              onClick={handleCopyPublicLink}
-              className="px-3 py-1.5 rounded-xl bg-teal-800/80 hover:bg-teal-700 text-teal-100 text-xs font-bold transition-all flex items-center gap-1.5 border border-teal-700"
-            >
-              {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copiedLink ? 'Tersalin!' : 'Salin Link Formulir'}</span>
-            </button>
-            <button
-              onClick={onClose}
-              className="p-2 rounded-xl text-teal-200 hover:text-white hover:bg-teal-800/50 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Tab Navigation */}
-        <div className="bg-slate-100 border-b border-slate-200 px-6 flex items-center gap-2 shrink-0 overflow-x-auto">
-          <button
-            onClick={() => setActiveTab('participants')}
-            className={`py-3.5 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
-              activeTab === 'participants'
-                ? 'border-teal-800 text-teal-900 bg-white shadow-2xs'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Ticket className="w-4 h-4" />
-            <span>Daftar Peserta & Presensi</span>
-            <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] bg-teal-100 text-teal-800 font-extrabold">
-              {eventData.totalParticipants}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('settings')}
-            className={`py-3.5 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
-              activeTab === 'settings'
-                ? 'border-teal-800 text-teal-900 bg-white shadow-2xs'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Settings className="w-4 h-4" />
-            <span>Segmen, Kuota & Aturan Lokasi</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('form_builder')}
-            className={`py-3.5 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
-              activeTab === 'form_builder'
-                ? 'border-teal-800 text-teal-900 bg-white shadow-2xs'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>Form Builder Pendaftaran</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('email')}
-            className={`py-3.5 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
-              activeTab === 'email'
-                ? 'border-teal-800 text-teal-900 bg-white shadow-2xs'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Send className="w-4 h-4 text-sky-700" />
-            <span>Email Kajian</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('rules')}
-            className={`py-3.5 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
-              activeTab === 'rules'
-                ? 'border-teal-800 text-teal-900 bg-white shadow-2xs'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <ScrollText className="w-4 h-4 text-amber-600" />
-            <span>Tata Tertib & Syarat Kajian</span>
-          </button>
-        </div>
-
-        {/* Modal Body */}
-        <div className="p-6 overflow-y-auto flex-1 space-y-6 bg-slate-50/50">
-          {/* TAB 1: DAFTAR PESERTA & PRESENSI */}
-          {activeTab === 'participants' && (
-            <div className="space-y-6">
-              {/* Top Bar: Live KPI Quotas & Capacity */}
-              <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
-                <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] font-bold uppercase text-slate-400 block">Total Hadir</span>
-                  <div className="flex items-baseline gap-1 mt-1">
-                    <span className="text-xl font-black text-emerald-800">{eventData.attendedCount}</span>
-                    <span className="text-xs text-slate-400 font-semibold">/ {eventData.totalParticipants} Terdaftar</span>
-                  </div>
-                </div>
-
-                <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] font-bold uppercase text-teal-800 block">🕌 Reguler Ikhwan</span>
-                  <div className="flex items-baseline gap-1 mt-1">
-                    <span className="text-xl font-black text-teal-950">{eventData.regularIkhwanCount ?? eventData.ikhwanCount ?? 0}</span>
-                    <span className="text-xs text-slate-400 font-semibold">
-                      {eventData.quotaIkhwan ? `/ ${eventData.quotaIkhwan} max` : 'terdaftar'}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] font-bold uppercase text-rose-800 block">🌸 Reguler Akhwat</span>
-                  <div className="flex items-baseline gap-1 mt-1">
-                    <span className="text-xl font-black text-rose-950">{eventData.regularAkhwatCount ?? eventData.akhwatCount ?? 0}</span>
-                    <span className="text-xs text-slate-400 font-semibold">
-                      {eventData.quotaAkhwat ? `/ ${eventData.quotaAkhwat} max` : 'terdaftar'}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="p-3.5 bg-white rounded-2xl border border-emerald-200 bg-emerald-50/50 shadow-2xs">
-                  <span className="text-[10px] font-bold uppercase text-emerald-900 block flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-amber-500" /> Undangan (VIP)
+                {eventData.targetAudience === 'akhwat_only' && (
+                  <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-rose-900/80 text-rose-200 border border-rose-700">
+                    🌸 Khusus Akhwat Saja
                   </span>
-                  <div className="flex items-baseline gap-1 mt-1">
-                    <span className="text-xl font-black text-emerald-950">{eventData.specialInviteCount || eventData.referralSignups || 0}</span>
-                    <span className="text-xs text-emerald-700 font-semibold">
-                      {eventData.quotaInvite ? `/ ${eventData.quotaInvite} max` : 'tamu'}
-                    </span>
-                  </div>
-                  {(eventData.quotaInviteIkhwan || eventData.quotaInviteAkhwat) && (
-                    <span className="text-[9.5px] text-emerald-700 block font-medium mt-0.5">
-                      I: {eventData.specialInviteIkhwanCount || 0}/{eventData.quotaInviteIkhwan || '∞'} | A: {eventData.specialInviteAkhwatCount || 0}/{eventData.quotaInviteAkhwat || '∞'}
-                    </span>
-                  )}
-                </div>
-
-                <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] font-bold uppercase text-indigo-800 block flex items-center gap-1">
-                    <Car className="w-3 h-3 text-indigo-600" /> Parkir Mobil
-                  </span>
-                  <div className="flex items-baseline gap-1 mt-1">
-                    <span className="text-xl font-black text-indigo-950">{eventData.carsCount || 0}</span>
-                    <span className="text-xs text-slate-400 font-semibold">
-                      {eventData.carParkingQuota ? `/ ${eventData.carParkingQuota} slot` : 'mobil'}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] font-bold uppercase text-amber-800 block flex items-center gap-1">
-                    <Bike className="w-3 h-3 text-amber-600" /> Parkir Motor
-                  </span>
-                  <div className="flex items-baseline gap-1 mt-1">
-                    <span className="text-xl font-black text-amber-950">{eventData.motorcyclesCount || 0}</span>
-                    <span className="text-xs text-slate-400 font-semibold">
-                      {eventData.motorcycleParkingQuota ? `/ ${eventData.motorcycleParkingQuota} slot` : 'motor'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Admin Special Invitation Panel */}
-              <div className="p-4 bg-gradient-to-r from-emerald-950 to-slate-900 text-white rounded-2xl border border-emerald-700/60 shadow-md space-y-3">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-                  <div>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-900 text-emerald-300 border border-emerald-600">
-                      Khusus Panitia / Tamu VIP
-                    </span>
-                    <h4 className="text-sm font-bold text-slate-100 mt-1 flex items-center gap-1.5">
-                      <span>🎟️ Tautan Khusus Jalur Undangan Resmi</span>
-                    </h4>
-                    <p className="text-xs text-slate-300 leading-relaxed">
-                      Sistem menggunakan <b>Tautan Khusus</b>. Formulir umum jamaah <b>tidak menampilkan</b> kotak input kode undangan agar jamaah biasa tidak bingung. Cukup bagikan Tautan Khusus ini kepada tamu VIP / undangan agar jalur khusus otomatis terverifikasi dan terkunci.
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2 font-mono text-xs bg-black/40 px-3 py-1.5 rounded-xl border border-emerald-500/30">
-                    <span className="text-slate-400">Kode:</span>
-                    <span className="font-black text-emerald-400">{eventData.adminInviteCode || `UNDANGAN-${eventData.id.slice(0, 6).toUpperCase()}`}</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-slate-800/80">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setManualIsInvite(true);
-                      setShowAddParticipant(true);
-                    }}
-                    className="px-3.5 py-1.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-amber-950 text-xs font-black rounded-xl transition-all flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-amber-950" />
-                    <span>+ Input Tamu Undangan (VIP)</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const code = eventData.adminInviteCode || `UNDANGAN-${eventData.id.slice(0, 6).toUpperCase()}`;
-                      const url = `${window.location.origin}/kajian/${eventData.id}?invite=${code}`;
-                      navigator.clipboard.writeText(url);
-                      showToast('Tautan pendaftaran khusus kajian (/kajian/:id?invite=...) berhasil disalin!');
-                    }}
-                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>Salin Tautan Khusus Kajian</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const code = eventData.adminInviteCode || `UNDANGAN-${eventData.id.slice(0, 6).toUpperCase()}`;
-                      const url = `${window.location.origin}/events?event=${eventData.id}&invite=${code}`;
-                      navigator.clipboard.writeText(url);
-                      showToast('Tautan khusus katalog portal (/events?invite=...) disalin!');
-                    }}
-                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-                  >
-                    <Copy className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Salin Tautan Portal</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const code = eventData.adminInviteCode || `UNDANGAN-${eventData.id.slice(0, 6).toUpperCase()}`;
-                      const url = `${window.location.origin}/kajian/${eventData.id}?invite=${code}`;
-                      const waText = `Assalamu'alaikum Warahmatullahi Wabarakatuh.\n\nYth. Bapak/Ibu/Asatidzah Undangan Khusus,\nPanitia Yayasan Tarbiyah Sunnah mengundang antum untuk menghadiri:\n📌 *${eventData.title}*\n🎙️ Bersama: ${eventData.speaker}\n🗓️ Waktu: ${new Date(eventData.startAt).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}\n📍 Lokasi: ${eventData.locationName || 'Masjid Tarbiyah Sunnah'}\n\nKonfirmasi kehadiran melalui tautan undangan resmi panitia:\n🔗 ${url}\n(Jalur khusus undangan akan otomatis terverifikasi tanpa perlu mengetik kode manual)\n\nJazakumullahu khairan wa barakallahu fiikum.\n- Panitia Yayasan Tarbiyah Sunnah`;
-                      navigator.clipboard.writeText(waText);
-                      showToast('Format pesan WhatsApp resmi panitia berhasil disalin!');
-                    }}
-                    className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5" />
-                    <span>Salin Format Undangan WhatsApp</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Fast Scanner / Ticket Check-In Form */}
-              <div className="p-4 bg-teal-900 text-white rounded-2xl shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div className="space-y-0.5">
-                  <h4 className="text-sm font-bold flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Scanner & Presensi Cepat di Lokasi
-                  </h4>
-                  <p className="text-xs text-teal-200">
-                    Ketik 4-digit nomor tiket (misal: `1048` atau `YTS-1048`) atau scan QR tiket jamaah untuk langsung check-in.
-                  </p>
-                </div>
-
-                <form onSubmit={handleCheckInByTicket} className="flex items-center gap-2 w-full sm:w-auto">
-                  <input
-                    type="text"
-                    placeholder="Contoh: 1048 atau YTS-1048"
-                    value={ticketInput}
-                    onChange={(e) => setTicketInput(e.target.value)}
-                    className="px-3.5 py-2 rounded-xl bg-teal-950/80 border border-teal-700 text-xs text-white placeholder:text-teal-400/80 focus:ring-2 focus:ring-emerald-400 focus:outline-none uppercase font-mono w-full sm:w-56"
-                  />
-                  <button
-                    type="submit"
-                    className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-emerald-950 font-bold text-xs rounded-xl shadow-xs shrink-0 active:scale-95"
-                  >
-                    Check-in
-                  </button>
-                </form>
-              </div>
-
-              {/* Search, Filters, Add Participant & Export */}
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-slate-200">
-                <div className="flex items-center gap-2 flex-1 flex-wrap">
-                  <input
-                    type="text"
-                    placeholder="Cari nama, WA, plat nomor, atau tiket..."
-                    value={participantSearch}
-                    onChange={(e) => setParticipantSearch(e.target.value)}
-                    className="px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none min-w-[200px]"
-                  />
-
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value as any)}
-                    className="px-2.5 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none bg-white font-semibold text-slate-700"
-                  >
-                    <option value="all">Semua Status</option>
-                    <option value="attended">Hadir (Checked-In)</option>
-                    <option value="registered">Terdaftar (Belum Hadir)</option>
-                    <option value="from_referral">✨ Undangan Panitia</option>
-                  </select>
-
-                  <select
-                    value={genderFilter}
-                    onChange={(e) => setGenderFilter(e.target.value as any)}
-                    className="px-2.5 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none bg-white font-semibold text-slate-700"
-                  >
-                    <option value="all">Semua Jamaah</option>
-                    <option value="ikhwan">Ikhwan Saja</option>
-                    <option value="akhwat">Akhwat Saja</option>
-                  </select>
-
-                  <select
-                    value={vehicleFilter}
-                    onChange={(e) => setVehicleFilter(e.target.value as any)}
-                    className="px-2.5 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none bg-white font-semibold text-slate-700"
-                  >
-                    <option value="all">Semua Kendaraan</option>
-                    <option value="car">🚗 Mobil</option>
-                    <option value="motorcycle">🏍️ Motor</option>
-                    <option value="none">🚶 Tanpa Kendaraan</option>
-                  </select>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setShowImportModal(true)}
-                    className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-300 shadow-2xs transition-all active:scale-95"
-                    title="Impor Data Peserta dari File CSV dengan Pratinjau & Skip Duplikat"
-                  >
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-teal-800" />
-                    <span>📥 Impor CSV</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setManualIsInvite(true);
-                      setShowAddParticipant(true);
-                    }}
-                    className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
-                    title="Tambah Peserta Tamu Undangan Khusus (VIP) langsung dari dashboard"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-amber-200" />
-                    <span>✨ Tambah Undangan (VIP)</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setManualIsInvite(false);
-                      setShowAddParticipant(true);
-                    }}
-                    className="px-3.5 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs active:scale-95"
-                  >
-                    <PlusCircle className="w-3.5 h-3.5" />
-                    <span>+ Tambah Manual</span>
-                  </button>
-
-                  <button
-                    onClick={handleExportCSV}
-                    className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-300 transition-all active:scale-95"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Ekspor CSV</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Participants Roster Table */}
-              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs text-slate-600">
-                    <thead className="bg-slate-100/80 text-slate-700 font-bold border-b border-slate-200">
-                      <tr>
-                        <th className="p-3.5">Nama Jamaah & Kontak</th>
-                        <th className="p-3.5">Kategori</th>
-                        <th className="p-3.5">Kode Tiket</th>
-                        <th className="p-3.5">Kendaraan & Parkir</th>
-                        <th className="p-3.5">Jawaban Kustom</th>
-                        <th className="p-3.5 text-center">Status & Aksi</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {filteredParticipants.length > 0 ? (
-                        filteredParticipants.map((p) => (
-                          <tr key={p.id} className="hover:bg-slate-50/80 transition-colors">
-                            <td className="p-3.5">
-                              <span className="font-bold text-slate-900 block">{p.personName}</span>
-                              <span className="text-[11px] text-slate-500 font-mono block">{p.personPhone}</span>
-                              {p.personEmail && (
-                                <span className="text-[10px] text-teal-700 font-medium block truncate max-w-[180px]" title={p.personEmail}>
-                                  ✉ {p.personEmail}
-                                </span>
-                              )}
-                              {p.personCity && <span className="text-[10px] text-slate-400 block">{p.personCity}</span>}
-                            </td>
-                            <td className="p-3.5">
-                              <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                  p.personGender === 'ikhwan'
-                                    ? 'bg-teal-50 text-teal-800 border border-teal-200'
-                                    : 'bg-rose-50 text-rose-800 border border-rose-200'
-                                }`}
-                              >
-                                {p.personGender === 'ikhwan' ? 'Ikhwan' : 'Akhwat'}
-                              </span>
-                            </td>
-                            <td className="p-3.5 font-mono text-[11px] font-semibold text-slate-700">
-                              <span className="block">{p.ticketCode || '-'}</span>
-                              {(p.isSpecialInvite || p.source === 'admin_invite' || p.referredByAttendanceId) && (
-                                <span className="mt-1 inline-block rounded bg-emerald-50 border border-emerald-300 px-1.5 py-0.5 text-[9px] font-sans font-bold text-emerald-800">
-                                  ✨ Undangan Panitia
-                                </span>
-                              )}
-                              {p.isStaffRegistration && (
-                                <span className="mt-1 ml-1 inline-block rounded bg-indigo-50 border border-indigo-300 px-1.5 py-0.5 text-[9px] font-sans font-bold text-indigo-800">
-                                  {p.isStaffFamilyRegistration ? 'Keluarga Staff' : 'Staff Yayasan'}
-                                </span>
-                              )}
-                            </td>
-                            <td className="p-3.5">
-                              {p.vehicleType === 'car' && (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-900 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-lg">
-                                  <Car className="w-3 h-3 text-indigo-600" /> Mobil: {p.vehiclePlateNumber || 'Slot OK'}
-                                </span>
-                              )}
-                              {p.vehicleType === 'motorcycle' && (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-900 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg">
-                                  <Bike className="w-3 h-3 text-amber-600" /> Motor: {p.vehiclePlateNumber || 'Slot OK'}
-                                </span>
-                              )}
-                              {(!p.vehicleType || p.vehicleType === 'none') && (
-                                <span className="text-[11px] text-slate-400">Tanpa Kendaraan</span>
-                              )}
-                            </td>
-                            <td className="p-3.5">
-                              {p.registrationData && Object.keys(p.registrationData).length > 0 ? (
-                                <div className="space-y-1 max-w-xs text-[11px]">
-                                  {Object.entries(p.registrationData).map(([key, val]) => (
-                                    <div key={key} className="bg-slate-50 p-1 rounded border border-slate-200">
-                                      <span className="text-slate-500 font-semibold">{key}: </span>
-                                      <span className="text-slate-800">{Array.isArray(val) ? val.join(', ') : String(val)}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <span className="text-slate-400 text-[10px]">-</span>
-                              )}
-                            </td>
-                            <td className="p-3.5 text-center">
-                              <div className="flex items-center justify-center gap-1.5">
-                                <button
-                                  onClick={() => handleToggleAttendance(p.id)}
-                                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all shadow-2xs ${
-                                    p.status === 'attended'
-                                      ? 'bg-emerald-100 text-emerald-900 border border-emerald-300 hover:bg-emerald-200'
-                                      : 'bg-slate-100 text-slate-700 border border-slate-300 hover:bg-teal-50 hover:text-teal-900'
-                                  }`}
-                                >
-                                  {p.status === 'attended' ? '✓ Hadir' : 'Tandai Hadir'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleSendWhatsAppTicket(p)}
-                                  className="p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg border border-transparent hover:border-emerald-200 transition-all active:scale-95"
-                                  title="Kirim / Bagikan Tiket & QR Code via WhatsApp (wa.me)"
-                                >
-                                  <Send className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleResendTicketEmail(p)}
-                                  disabled={!p.personEmail || emailSendingAttendanceId === p.id}
-                                  className="p-1.5 text-sky-600 hover:text-sky-800 hover:bg-sky-50 rounded-lg border border-transparent hover:border-sky-200 transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
-                                  title={p.personEmail ? `Kirim ulang e-tiket terbaru ke ${p.personEmail}` : 'Peserta belum memiliki alamat email'}
-                                >
-                                  {emailSendingAttendanceId === p.id ? <RotateCcw className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setDeletingParticipant(p);
-                                    setDeleteGroupCheckbox(false);
-                                  }}
-                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-transparent hover:border-rose-200 transition-all active:scale-95"
-                                  title="Hapus pendaftar kajian (mengembalikan kuota)"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={6} className="p-8 text-center text-slate-400">
-                            Belum ada peserta yang cocok dengan kriteria pencarian / filter.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 2: PENGATURAN SEGMEN, KUOTA, FASILITAS & ATURAN LOKASI */}
-          {activeTab === 'settings' && (
-            <form onSubmit={handleSaveSettings} className="space-y-6">
-              {/* 1. Location & Google Maps */}
-              <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
-                <div className="flex items-start gap-2">
-                  <MapPin className="w-4 h-4 text-rose-700 mt-0.5 shrink-0" />
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-900">1. Lokasi &amp; Google Maps</h4>
-                    <p className="text-xs text-slate-500">Atur detail lokasi yang tampil pada halaman pendaftaran publik dan tombol navigasi jamaah.</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Nama Tempat / Venue</label>
-                    <input
-                      type="text"
-                      placeholder="Contoh: Masjid Tarbiyah Sunnah Bandung"
-                      value={locationName}
-                      onChange={(e) => setLocationName(e.target.value)}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Tautan Google Maps (Opsional)</label>
-                    <input
-                      type="url"
-                      placeholder="https://maps.app.goo.gl/..."
-                      value={googleMapsUrl}
-                      onChange={(e) => setGoogleMapsUrl(e.target.value)}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Alamat Lengkap Lokasi</label>
-                  <textarea
-                    rows={2}
-                    placeholder="Contoh: Jl. Jurang No. 64, Pasteur, Kec. Sukajadi, Kota Bandung"
-                    value={locationAddress}
-                    onChange={(e) => setLocationAddress(e.target.value)}
-                    className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none resize-y"
-                  />
-                  <p className="mt-1 text-[10px] text-slate-400">Jika tidak mengisi tautan Google Maps, sistem membuat navigasi otomatis dari alamat ini atau nama venue.</p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Petunjuk Kedatangan (Opsional)</label>
-                  <textarea
-                    rows={2}
-                    placeholder="Contoh: Gunakan pintu gerbang utama. Parkir motor berada di sisi timur dan akan diarahkan petugas."
-                    value={locationDirections}
-                    onChange={(e) => setLocationDirections(e.target.value)}
-                    className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none resize-y"
-                  />
-                </div>
-
-                <label className="p-3 bg-teal-50 border border-teal-200 rounded-xl flex items-center justify-between gap-3 cursor-pointer">
-                  <div>
-                    <span className="text-xs font-bold text-teal-950 block">Tampilkan Google Maps untuk jamaah</span>
-                    <span className="text-[11px] text-teal-800">Peta hanya ditampilkan pada kajian offline atau hybrid.</span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={showGoogleMaps}
-                    onChange={(e) => setShowGoogleMaps(e.target.checked)}
-                    className="h-4 w-4 rounded text-teal-700 focus:ring-teal-500"
-                  />
-                </label>
-              </div>
-
-              {/* 1. Target Audience Segmentation */}
-              <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
-                <div>
-                  <h4 className="text-sm font-bold text-slate-900">2. Segmentasi & Target Jamaah Majelis</h4>
-                  <p className="text-xs text-slate-500">
-                    Pilih target audiens. Sistem akan membatasi formulir pendaftaran sesuai kategori ini.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <label
-                    className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
-                      targetAudience === 'umum'
-                        ? 'border-teal-700 bg-teal-50 ring-2 ring-teal-500/20 shadow-2xs'
-                        : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="targetAudience"
-                      value="umum"
-                      checked={targetAudience === 'umum'}
-                      onChange={(e) => setTargetAudience(e.target.value)}
-                      className="sr-only"
-                    />
-                    <div className="space-y-1">
-                      <span className="font-bold text-xs text-slate-900 block flex items-center gap-1.5">
-                        🌐 Tabligh Akbar (Umum)
-                      </span>
-                      <p className="text-[11px] text-slate-500">Terbuka untuk Jamaah Ikhwan & Akhwat sekaligus.</p>
-                    </div>
-                  </label>
-
-                  <label
-                    className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
-                      targetAudience === 'akhwat_only'
-                        ? 'border-rose-700 bg-rose-50 ring-2 ring-rose-500/20 shadow-2xs'
-                        : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="targetAudience"
-                      value="akhwat_only"
-                      checked={targetAudience === 'akhwat_only'}
-                      onChange={(e) => setTargetAudience(e.target.value)}
-                      className="sr-only"
-                    />
-                    <div className="space-y-1">
-                      <span className="font-bold text-xs text-rose-950 block flex items-center gap-1.5">
-                        🌸 Khusus Akhwat Saja
-                      </span>
-                      <p className="text-[11px] text-slate-500">Hanya menerima pendaftaran jamaah wanita/akhwat.</p>
-                    </div>
-                  </label>
-
-                  <label
-                    className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
-                      targetAudience === 'ikhwan_only'
-                        ? 'border-sky-700 bg-sky-50 ring-2 ring-sky-500/20 shadow-2xs'
-                        : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="targetAudience"
-                      value="ikhwan_only"
-                      checked={targetAudience === 'ikhwan_only'}
-                      onChange={(e) => setTargetAudience(e.target.value)}
-                      className="sr-only"
-                    />
-                    <div className="space-y-1">
-                      <span className="font-bold text-xs text-sky-950 block flex items-center gap-1.5">
-                        🕌 Khusus Ikhwan Saja
-                      </span>
-                      <p className="text-[11px] text-slate-500">Hanya menerima pendaftaran jamaah laki-laki/ikhwan.</p>
-                    </div>
-                  </label>
-
-                  <label
-                    className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
-                      targetAudience === 'anak'
-                        ? 'border-amber-700 bg-amber-50 ring-2 ring-amber-500/20 shadow-2xs'
-                        : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="targetAudience"
-                      value="anak"
-                      checked={targetAudience === 'anak'}
-                      onChange={(e) => setTargetAudience(e.target.value)}
-                      className="sr-only"
-                    />
-                    <div className="space-y-1">
-                      <span className="font-bold text-xs text-amber-950 block flex items-center gap-1.5">
-                        🌱 Kajian Anak & Santri Cilik
-                      </span>
-                      <p className="text-[11px] text-slate-500">Program pendidikan akidah/adab untuk usia anak-anak.</p>
-                    </div>
-                  </label>
-
-                  <label
-                    className={`p-3.5 rounded-2xl border cursor-pointer transition-all sm:col-span-2 ${
-                      targetAudience === 'itikaf_ramadan'
-                        ? 'border-purple-700 bg-purple-50 ring-2 ring-purple-500/20 shadow-2xs'
-                        : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="targetAudience"
-                      value="itikaf_ramadan"
-                      checked={targetAudience === 'itikaf_ramadan'}
-                      onChange={(e) => setTargetAudience(e.target.value)}
-                      className="sr-only"
-                    />
-                    <div className="space-y-1">
-                      <span className="font-bold text-xs text-purple-950 block flex items-center gap-1.5">
-                        🌙 Program 10 Hari Terakhir Ramadan (I'tikaf & Qiyamul Lail)
-                      </span>
-                      <p className="text-[11px] text-slate-500">
-                        Pengelolaan pendaftaran i'tikaf menginap, pembagian sahur/iftar, dan aturan khusus masjid.
-                      </p>
-                    </div>
-                  </label>
-                </div>
-
-                {/* Batasan Usia Minimal Peserta */}
-                <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/60 p-3.5 rounded-xl border">
-                  <div>
-                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                      <span>⏳ Batasan Usia Minimal Peserta (Opsional)</span>
-                      {minAge && Number(minAge) > 0 ? (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-bold border border-amber-300">
-                          Aktif (Min. {minAge} Tahun)
-                        </span>
-                      ) : (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
-                          Bebas Usia
-                        </span>
-                      )}
-                    </label>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      Contoh: Isi <strong>15</strong> jika pendaftar dan rombongan minimal berusia 15 tahun. Kosongkan jika majelis ini bebas untuk segala rentang usia.
-                    </p>
-                  </div>
-                  <div className="w-full sm:w-48 shrink-0">
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min="1"
-                        max="120"
-                        placeholder="Bebas usia"
-                        value={minAge}
-                        onChange={(e) => setMinAge(e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value) || 0))}
-                        className="w-full pl-3 pr-14 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono font-bold focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                      />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
-                        Tahun
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 2. Biaya & Rekening Pembayaran Daurah / Kajian */}
-              <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                      <CreditCard className="w-4 h-4 text-amber-700" />
-                      <span>3. Tipe Kegiatan & Biaya Pendaftaran / Daurah</span>
-                    </h4>
-                    <p className="text-xs text-slate-500">
-                      Tentukan apakah kegiatan gratis (infaq sukarela) atau berbayar dengan instruksi rekening bank.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-bold ${isPaid ? 'text-amber-800' : 'text-slate-500'}`}>
-                      {isPaid ? 'Berbayar (Paid)' : 'Gratis (Free)'}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setIsPaid(!isPaid)}
-                      className={`p-1 rounded-xl transition-all ${
-                        isPaid ? 'bg-amber-600 text-white' : 'bg-slate-200 text-slate-600'
-                      }`}
-                    >
-                      {isPaid ? <ToggleRight className="w-6 h-6" /> : <ToggleLeft className="w-6 h-6" />}
-                    </button>
-                  </div>
-                </div>
-
-                {isPaid && (
-                  <div className="p-4 bg-amber-50/50 rounded-2xl border border-amber-200/80 space-y-4 animate-in fade-in duration-200">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-800 mb-1">
-                          Nominal Biaya / Harga Tiket (Rp) *
-                        </label>
-                        <div className="relative">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500">
-                            Rp
-                          </span>
-                          <input
-                            type="number"
-                            placeholder="Misal: 50000"
-                            value={priceRupiah}
-                            onChange={(e) => setPriceRupiah(e.target.value === '' ? '' : Number(e.target.value))}
-                            required={isPaid}
-                            className="w-full pl-9 pr-3 py-2.5 bg-white border border-amber-300 rounded-xl text-xs font-mono font-bold focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-bold text-slate-800 mb-1">
-                          Nama Bank Tujuan Transfer *
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="Misal: Bank Syariah Indonesia (BSI)"
-                          value={bankName}
-                          onChange={(e) => setBankName(e.target.value)}
-                          required={isPaid}
-                          className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-800 mb-1">
-                          Nomor Rekening Bank *
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="Misal: 7123456789"
-                          value={bankAccountNumber}
-                          onChange={(e) => setBankAccountNumber(e.target.value)}
-                          required={isPaid}
-                          className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-xs font-mono font-bold focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-bold text-slate-800 mb-1">
-                          Atas Nama (Pemilik Rekening) *
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="Misal: Yayasan Tarbiyah Sunnah"
-                          value={bankAccountName}
-                          onChange={(e) => setBankAccountName(e.target.value)}
-                          required={isPaid}
-                          className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-800 mb-1">
-                        Catatan & Instruksi Pembayaran untuk Jamaah
-                      </label>
-                      <textarea
-                        rows={2}
-                        value={paymentInstructions}
-                        onChange={(e) => setPaymentInstructions(e.target.value)}
-                        placeholder="Contoh: Silakan transfer sesuai nominal. Unggah foto bukti transfer saat mendaftar. Tiket otomatis aktif setelah diverifikasi panitia."
-                        className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                      />
-                    </div>
-                  </div>
                 )}
-              </div>
+                {eventData.targetAudience === 'ikhwan_only' && (
+                  <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-sky-900/80 text-sky-200 border border-sky-700">
+                    🕌 Khusus Ikhwan Saja
+                  </span>
+                )}
+                {eventData.targetAudience === 'anak' && (
+                  <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-amber-900/80 text-amber-200 border border-amber-700">
+                    🌱 Kajian Anak & Santri
+                  </span>
+                )}
+                {eventData.targetAudience === 'itikaf_ramadan' && (
+                  <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-purple-900/80 text-purple-200 border border-purple-700">
+                    🌙 10 Hari Terakhir Ramadan
+                  </span>
+                )}
+                {eventData.targetAudience === 'umum' && (
+                  <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-emerald-800/80 text-emerald-200 border border-emerald-700">
+                    🌐 Umum (Ikhwan & Akhwat)
+                  </span>
+                )}
 
-              {/* 3. Quota Management */}
-              <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
-                <div>
-                  <h4 className="text-sm font-bold text-slate-900">3. Batas Kuota Peserta (Kapasitas Majelis)</h4>
-                  <p className="text-xs text-slate-500">
-                    Kosongkan jika tidak ada batas kuota. Pendaftaran otomatis terkunci saat kuota masing-masing jalur tercapai.
-                  </p>
-                </div>
-
-                {/* 3A: Kuota Jalur Reguler */}
-                <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                      🏛️ 3A. Kuota Jalur Reguler (Jamaah Umum)
-                    </span>
-                    <span className="text-[10px] uppercase font-extrabold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
-                      Jalur Reguler
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Total Kuota Reguler</label>
-                      <input
-                        type="number"
-                        placeholder="Misal: 250"
-                        value={quota}
-                        onChange={(e) => setQuota(e.target.value === '' ? '' : Number(e.target.value))}
-                        className="w-full p-2.5 border border-slate-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-teal-800 mb-1">Reguler Ikhwan</label>
-                      <input
-                        type="number"
-                        placeholder="Misal: 100"
-                        value={quotaIkhwan}
-                        onChange={(e) => setQuotaIkhwan(e.target.value === '' ? '' : Number(e.target.value))}
-                        className="w-full p-2.5 border border-slate-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-rose-800 mb-1">Reguler Akhwat</label>
-                      <input
-                        type="number"
-                        placeholder="Misal: 150"
-                        value={quotaAkhwat}
-                        onChange={(e) => setQuotaAkhwat(e.target.value === '' ? '' : Number(e.target.value))}
-                        className="w-full p-2.5 border border-slate-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3B: Kuota Jalur Khusus Undangan (VIP) */}
-                <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-200 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-amber-500" /> 3B. Kuota Jalur Undangan Khusus (VIP / Tamu)
-                    </span>
-                    <span className="text-[10px] uppercase font-extrabold px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900">
-                      Jalur VIP
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-emerald-700">
-                    Batas kuota terpisah untuk pendaftar tamu undangan khusus panitia (baik via link undangan ber-token maupun input manual admin).
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-emerald-950 mb-1">Total Kuota Undangan</label>
-                      <input
-                        type="number"
-                        min="0"
-                        placeholder="Misal: 50"
-                        value={quotaInvite}
-                        onChange={(e) => setQuotaInvite(e.target.value === '' ? '' : Number(e.target.value))}
-                        className="w-full p-2.5 border border-emerald-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-teal-800 mb-1">Undangan Ikhwan</label>
-                      <input
-                        type="number"
-                        min="0"
-                        placeholder="Misal: 25"
-                        value={quotaInviteIkhwan}
-                        onChange={(e) => setQuotaInviteIkhwan(e.target.value === '' ? '' : Number(e.target.value))}
-                        className="w-full p-2.5 border border-emerald-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-rose-800 mb-1">Undangan Akhwat</label>
-                      <input
-                        type="number"
-                        min="0"
-                        placeholder="Misal: 25"
-                        value={quotaInviteAkhwat}
-                        onChange={(e) => setQuotaInviteAkhwat(e.target.value === '' ? '' : Number(e.target.value))}
-                        className="w-full p-2.5 border border-emerald-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-4 bg-indigo-50/60 rounded-2xl border border-indigo-200 space-y-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <span className="text-xs font-bold text-indigo-950 flex items-center gap-1.5"><BriefcaseBusiness className="w-3.5 h-3.5 text-indigo-700" /> 3C. Jalur Staff Yayasan</span>
-                      <p className="mt-1 text-[11px] text-indigo-800">Kuota ini terpisah dari reguler dan undangan. Form staff hanya bisa diakses lewat tautan rahasia di bawah.</p>
-                    </div>
-                    <label className="inline-flex items-center gap-2 text-xs font-bold text-indigo-950"><input type="checkbox" checked={isStaffRegistrationOpen} onChange={(e) => setIsStaffRegistrationOpen(e.target.checked)} className="h-4 w-4 accent-indigo-700" /> Pendaftaran staff dibuka</label>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <label className="block text-xs font-bold text-indigo-950">Total kuota staff<input type="number" min="0" value={quotaStaff} onChange={(e) => setQuotaStaff(e.target.value === '' ? '' : Number(e.target.value))} placeholder="Misal: 30" className="mt-1 w-full p-2.5 border border-indigo-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" /></label>
-                    <label className="block text-xs font-bold text-indigo-950">Staff Ikhwan<input type="number" min="0" value={quotaStaffIkhwan} onChange={(e) => setQuotaStaffIkhwan(e.target.value === '' ? '' : Number(e.target.value))} placeholder="Misal: 15" className="mt-1 w-full p-2.5 border border-indigo-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" /></label>
-                    <label className="block text-xs font-bold text-indigo-950">Staff Akhwat<input type="number" min="0" value={quotaStaffAkhwat} onChange={(e) => setQuotaStaffAkhwat(e.target.value === '' ? '' : Number(e.target.value))} placeholder="Misal: 15" className="mt-1 w-full p-2.5 border border-indigo-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" /></label>
-                  </div>
-                  <div className="grid gap-3 rounded-xl border border-indigo-200 bg-white/70 p-3 sm:grid-cols-[1fr_10rem] sm:items-end">
-                    <label className="inline-flex items-start gap-2 text-xs font-bold text-indigo-950"><input type="checkbox" checked={formConfig.allowStaffFamilyRegistration === true} onChange={(e) => setFormConfig((current) => ({ ...current, allowStaffFamilyRegistration: e.target.checked }))} className="mt-0.5 h-4 w-4 accent-indigo-700" /><span>Izinkan staff menambahkan keluarga<br /><span className="font-normal text-indigo-700">Setiap anggota memperoleh QR dan e-tiket sendiri.</span></span></label>
-                    <label className="block text-xs font-bold text-indigo-950">Maks. keluarga tambahan<input type="number" min="1" max="20" disabled={formConfig.allowStaffFamilyRegistration !== true} value={formConfig.maxStaffFamilyParticipants ?? 4} onChange={(e) => setFormConfig((current) => ({ ...current, maxStaffFamilyParticipants: Math.min(20, Math.max(1, Number(e.target.value) || 1)) }))} className="mt-1 w-full rounded-lg border border-indigo-300 bg-white p-2 text-xs disabled:cursor-not-allowed disabled:bg-slate-100" /></label>
-                  </div>
-                  <div className="flex flex-col gap-2 border-t border-indigo-200 pt-3 sm:flex-row sm:items-center sm:justify-between">
-                    <span className="text-[11px] text-indigo-800">Terdaftar: {eventData.staffCount || 0}{eventData.quotaStaff ? ` / ${eventData.quotaStaff}` : ''}</span>
-                    <div className="flex gap-2"><button type="button" onClick={handleCopyStaffLink} disabled={!eventData.staffRegistrationToken} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-300 bg-white px-3 py-2 text-xs font-bold text-indigo-800 disabled:opacity-50"><Copy className="w-3.5 h-3.5" />{copiedStaffLink ? 'Tersalin' : 'Salin tautan staff'}</button><button type="button" onClick={handleRotateStaffLink} disabled={rotatingStaffLink} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><RotateCcw className="w-3.5 h-3.5" />{rotatingStaffLink ? 'Membuat...' : 'Ganti tautan'}</button></div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 3. Parking & Logistics Quotas */}
-              <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
-                <div>
-                  <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    <Car className="w-4 h-4 text-indigo-700" /> 4. Batasan Fasilitas Parkir Kendaraan
-                  </h4>
-                  <p className="text-xs text-slate-500">
-                    Tentukan kapasitas slot parkir di lokasi kajian untuk menghindari kemacetan dan keterbatasan area.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-indigo-900 mb-1 flex items-center gap-1">
-                      <Car className="w-3.5 h-3.5 text-indigo-600" /> Kuota Slot Parkir Mobil
-                    </label>
-                    <input
-                      type="number"
-                      placeholder="Misal: 25 Mobil"
-                      value={carParkingQuota}
-                      onChange={(e) => setCarParkingQuota(e.target.value === '' ? '' : Number(e.target.value))}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                    />
-                    <span className="text-[10px] text-slate-400 block mt-1">
-                      Bila penuh, jamaah dihimbau menggunakan motor/transportasi umum.
-                    </span>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-amber-900 mb-1 flex items-center gap-1">
-                      <Bike className="w-3.5 h-3.5 text-amber-600" /> Kuota Slot Parkir Sepeda Motor
-                    </label>
-                    <input
-                      type="number"
-                      placeholder="Misal: 150 Motor"
-                      value={motorcycleParkingQuota}
-                      onChange={(e) => setMotorcycleParkingQuota(e.target.value === '' ? '' : Number(e.target.value))}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* 4. Venue Rules & Restrictions */}
-              <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
-                <div>
-                  <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    <ShieldAlert className="w-4 h-4 text-emerald-700" /> 5. Tata Tertib & Aturan Khusus Lokasi Majelis
-                  </h4>
-                  <p className="text-xs text-slate-500">
-                    Pilih aturan yang wajib disetujui jamaah saat mendaftar online.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {VENUE_RULES_PRESETS.map((rule) => {
-                    const isChecked = venueRules.includes(rule.id);
-                    return (
-                      <label
-                        key={rule.id}
-                        className={`p-3 rounded-xl border cursor-pointer flex items-start gap-2.5 transition-all ${
-                          isChecked ? 'bg-teal-50/80 border-teal-600 ring-1 ring-teal-500/20' : 'border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setVenueRules([...venueRules, rule.id]);
-                            } else {
-                              setVenueRules(venueRules.filter((r) => r !== rule.id));
-                            }
-                          }}
-                          className="mt-0.5 rounded text-teal-700 focus:ring-teal-500"
-                        />
-                        <div>
-                          <span className="text-xs font-bold text-slate-900 block">{rule.label}</span>
-                          <span className="text-[11px] text-slate-500 block leading-tight">{rule.desc}</span>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Catatan Aturan Tambahan (Kustom)
-                  </label>
-                  <textarea
-                    rows={2}
-                    placeholder="Contoh: Dilarang membawa makanan beraroma tajam ke dalam ruang utama..."
-                    value={customVenueRules}
-                    onChange={(e) => setCustomVenueRules(e.target.value)}
-                    className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-2">
                 <button
-                  type="submit"
-                  disabled={saving}
-                  className="px-6 py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50"
+                  disabled={isEventPast(eventData)}
+                  title={
+                    isEventPast(eventData)
+                      ? 'Ubah jadwal/status sebelum membuka pendaftaran'
+                      : 'Buka atau tutup pendaftaran'
+                  }
+                  onClick={handleToggleRegistration}
+                  className={`text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full flex items-center gap-1 transition-all ${
+                    eventData.isRegistrationOpen
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30'
+                      : 'bg-red-500/20 text-red-300 border border-red-500/40 hover:bg-red-500/30'
+                  }`}
                 >
-                  {saving ? 'Menyimpan...' : 'Simpan Seluruh Pengaturan Kajian'}
+                  {effectiveRegistrationOpen ? (
+                    <ToggleRight className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <ToggleLeft className="w-3.5 h-3.5 text-red-400" />
+                  )}
+                  {effectiveRegistrationOpen
+                    ? 'Pendaftaran Buka'
+                    : 'Pendaftaran Tutup'}
                 </button>
               </div>
-            </form>
-          )}
 
-          {/* TAB 3: FORM BUILDER PENDAFTARAN */}
-          {activeTab === 'form_builder' && (
-            <div className="space-y-6">
-              {/* Standar Biodata Fields Toggles */}
-              <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-900">Field Biodata Standar</h4>
-                    <p className="text-xs text-slate-500">
-                      Nama Lengkap dan Nomor WhatsApp wajib aktif secara default.
-                    </p>
-                  </div>
-                  <span className="text-[10px] font-bold text-teal-800 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200">
-                    Auto Synchronized
-                  </span>
-                </div>
+              <h2 className="text-xl sm:text-2xl font-black tracking-tight">
+                {eventData.title}
+              </h2>
+              <p className="text-xs text-teal-200/90 flex items-center gap-2">
+                <span>
+                  Pemateri: <b>{eventData.speaker}</b>
+                </span>
+                <span>•</span>
+                <span>
+                  Lokasi:{' '}
+                  <b>{eventData.locationName || 'Masjid Tarbiyah Sunnah'}</b>
+                </span>
+              </p>
+            </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
-                    <div>
-                      <span className="text-xs font-bold text-slate-800 block">Pilihan Kategori Ikhwan / Akhwat</span>
-                      <span className="text-[11px] text-slate-500">Memisahkan data jamaah laki-laki & wanita</span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowEditModal(true)}
+                className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-bold transition-all flex items-center gap-1.5 border border-amber-500/40 cursor-pointer shadow-2xs"
+                title="Edit Data Lengkap Kajian (Judul, Pemateri, Jadwal, Lokasi, Kuota, dll)"
+              >
+                <Pencil className="w-3.5 h-3.5 text-amber-300" />
+                <span>Edit Data Kajian</span>
+              </button>
+              <button
+                aria-label="Salin tautan formulir"
+                title="Salin tautan formulir"
+                onClick={handleCopyPublicLink}
+                className="px-3 py-1.5 rounded-xl bg-teal-800/80 hover:bg-teal-700 text-teal-100 text-xs font-bold transition-all flex items-center gap-1.5 border border-teal-700"
+              >
+                {copiedLink ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
+                <span>{copiedLink ? 'Tersalin!' : 'Salin Link Formulir'}</span>
+              </button>
+              <button
+                aria-label="Tutup pengaturan"
+                onClick={onClose}
+                className="p-2 rounded-xl text-teal-200 hover:text-white hover:bg-teal-800/50 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {workspaceNav}
+          {/* Tab Navigation */}
+          <div className="bg-slate-100 border-b border-slate-200 px-6 flex items-center gap-2 shrink-0 overflow-x-auto">
+            <button
+              onClick={() =>
+                onOpenParticipants
+                  ? onOpenParticipants()
+                  : setActiveTab('participants')
+              }
+              className={`py-3.5 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+                activeTab === 'participants'
+                  ? 'border-teal-800 text-teal-900 bg-white shadow-2xs'
+                  : 'border-transparent text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Ticket className="w-4 h-4" />
+              <span>Peserta</span>
+              <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] bg-teal-100 text-teal-800 font-extrabold">
+                {eventData.totalParticipants}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`py-3.5 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+                activeTab === 'settings'
+                  ? 'border-teal-800 text-teal-900 bg-white shadow-2xs'
+                  : 'border-transparent text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Settings className="w-4 h-4" />
+              <span>Kuota & lokasi</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('form_builder')}
+              className={`py-3.5 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+                activeTab === 'form_builder'
+                  ? 'border-teal-800 text-teal-900 bg-white shadow-2xs'
+                  : 'border-transparent text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>Formulir</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('email')}
+              className={`py-3.5 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+                activeTab === 'email'
+                  ? 'border-teal-800 text-teal-900 bg-white shadow-2xs'
+                  : 'border-transparent text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Send className="w-4 h-4 text-sky-700" />
+              <span>Email Kajian</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('rules')}
+              className={`py-3.5 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+                activeTab === 'rules'
+                  ? 'border-teal-800 text-teal-900 bg-white shadow-2xs'
+                  : 'border-transparent text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <ScrollText className="w-4 h-4 text-amber-600" />
+              <span>Tata Tertib & Syarat Kajian</span>
+            </button>
+          </div>
+
+          {/* Modal Body */}
+          <div className="p-6 overflow-y-auto flex-1 space-y-6 bg-slate-50/50">
+            {/* TAB 1: DAFTAR PESERTA & PRESENSI */}
+            {activeTab === 'participants' && (
+              <div className="space-y-6">
+                {/* Top Bar: Live KPI Quotas & Capacity */}
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+                  <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                      Total Hadir
+                    </span>
+                    <div className="flex items-baseline gap-1 mt-1">
+                      <span className="text-xl font-black text-emerald-800">
+                        {eventData.attendedCount}
+                      </span>
+                      <span className="text-xs text-slate-400 font-semibold">
+                        / {eventData.totalParticipants} Terdaftar
+                      </span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setFormConfig({ ...formConfig, requireGender: !formConfig.requireGender })}
-                      className="text-teal-800"
-                    >
-                      {formConfig.requireGender !== false ? (
-                        <ToggleRight className="w-7 h-7 text-teal-700" />
-                      ) : (
-                        <ToggleLeft className="w-7 h-7 text-slate-400" />
-                      )}
-                    </button>
                   </div>
 
-                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
-                    <div>
-                      <span className="text-xs font-bold text-slate-800 block">Pendaftaran Kendaraan & Parkir</span>
-                      <span className="text-[11px] text-slate-500">Pilihan Mobil/Motor + Input Plat Nomor</span>
+                  <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase text-teal-800 block">
+                      🕌 Reguler Ikhwan
+                    </span>
+                    <div className="flex items-baseline gap-1 mt-1">
+                      <span className="text-xl font-black text-teal-950">
+                        {eventData.regularIkhwanCount ??
+                          eventData.ikhwanCount ??
+                          0}
+                      </span>
+                      <span className="text-xs text-slate-400 font-semibold">
+                        {eventData.quotaIkhwan
+                          ? `/ ${eventData.quotaIkhwan} max`
+                          : 'terdaftar'}
+                      </span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setFormConfig({ ...formConfig, collectVehicle: !formConfig.collectVehicle })}
-                      className="text-teal-800"
-                    >
-                      {formConfig.collectVehicle !== false ? (
-                        <ToggleRight className="w-7 h-7 text-teal-700" />
-                      ) : (
-                        <ToggleLeft className="w-7 h-7 text-slate-400" />
-                      )}
-                    </button>
                   </div>
 
-                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
-                    <div>
-                      <span className="text-xs font-bold text-slate-800 block">Kota / Domisili Jamaah</span>
-                      <span className="text-[11px] text-slate-500">Mengetahui asal daerah jamaah</span>
+                  <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase text-rose-800 block">
+                      🌸 Reguler Akhwat
+                    </span>
+                    <div className="flex items-baseline gap-1 mt-1">
+                      <span className="text-xl font-black text-rose-950">
+                        {eventData.regularAkhwatCount ??
+                          eventData.akhwatCount ??
+                          0}
+                      </span>
+                      <span className="text-xs text-slate-400 font-semibold">
+                        {eventData.quotaAkhwat
+                          ? `/ ${eventData.quotaAkhwat} max`
+                          : 'terdaftar'}
+                      </span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setFormConfig({ ...formConfig, collectCity: !formConfig.collectCity })}
-                      className="text-teal-800"
-                    >
-                      {formConfig.collectCity !== false ? (
-                        <ToggleRight className="w-7 h-7 text-teal-700" />
-                      ) : (
-                        <ToggleLeft className="w-7 h-7 text-slate-400" />
-                      )}
-                    </button>
                   </div>
 
-                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-xs font-bold text-slate-800 block">Alamat Email Jamaah</span>
-                        <span className="text-[11px] text-slate-500">Kirim otomatis E-Tiket kajian &amp; materi ilmu ke email pendaftar</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const nextCollect = formConfig.collectEmail === false;
-                          setFormConfig({
-                            ...formConfig,
-                            collectEmail: nextCollect,
-                            requireEmail: nextCollect ? formConfig.requireEmail : false,
-                          });
-                        }}
-                        className="text-teal-800"
-                      >
-                        {formConfig.collectEmail !== false ? (
-                          <ToggleRight className="w-7 h-7 text-teal-700" />
-                        ) : (
-                          <ToggleLeft className="w-7 h-7 text-slate-400" />
-                        )}
-                      </button>
+                  <div className="p-3.5 bg-white rounded-2xl border border-emerald-200 bg-emerald-50/50 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase text-emerald-900 block flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-amber-500" /> Undangan
+                      (VIP)
+                    </span>
+                    <div className="flex items-baseline gap-1 mt-1">
+                      <span className="text-xl font-black text-emerald-950">
+                        {eventData.specialInviteCount ||
+                          eventData.referralSignups ||
+                          0}
+                      </span>
+                      <span className="text-xs text-emerald-700 font-semibold">
+                        {eventData.quotaInvite
+                          ? `/ ${eventData.quotaInvite} max`
+                          : 'tamu'}
+                      </span>
                     </div>
-
-                    {formConfig.collectEmail !== false && (
-                      <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between">
-                        <label className="text-xs text-slate-600 flex items-center gap-2 cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            checked={formConfig.requireEmail === true}
-                            onChange={(e) =>
-                              setFormConfig({
-                                ...formConfig,
-                                requireEmail: e.target.checked,
-                              })
-                            }
-                            className="rounded border-slate-300 text-teal-700 focus:ring-teal-500 w-3.5 h-3.5"
-                          />
-                          <span className="text-[11px] font-medium text-slate-700">Wajibkan email diisi oleh pendaftar</span>
-                        </label>
-                        <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold ${formConfig.requireEmail ? 'bg-rose-100 text-rose-800 border border-rose-200' : 'bg-slate-200 text-slate-600'}`}>
-                          {formConfig.requireEmail ? 'Wajib Diisi' : 'Opsional'}
-                        </span>
-                      </div>
+                    {(eventData.quotaInviteIkhwan ||
+                      eventData.quotaInviteAkhwat) && (
+                      <span className="text-[9.5px] text-emerald-700 block font-medium mt-0.5">
+                        I: {eventData.specialInviteIkhwanCount || 0}/
+                        {eventData.quotaInviteIkhwan || '∞'} | A:{' '}
+                        {eventData.specialInviteAkhwatCount || 0}/
+                        {eventData.quotaInviteAkhwat || '∞'}
+                      </span>
                     )}
                   </div>
 
-                  <div className="p-3.5 bg-amber-50/70 rounded-xl border border-amber-200 sm:col-span-2 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-xs font-bold text-amber-950 block">
-                          Izinkan Pendaftaran Anggota Keluarga / Rombongan Sekaligus
+                  <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase text-indigo-800 block flex items-center gap-1">
+                      <Car className="w-3 h-3 text-indigo-600" /> Parkir Mobil
+                    </span>
+                    <div className="flex items-baseline gap-1 mt-1">
+                      <span className="text-xl font-black text-indigo-950">
+                        {eventData.carsCount || 0}
+                      </span>
+                      <span className="text-xs text-slate-400 font-semibold">
+                        {eventData.carParkingQuota
+                          ? `/ ${eventData.carParkingQuota} slot`
+                          : 'mobil'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase text-amber-800 block flex items-center gap-1">
+                      <Bike className="w-3 h-3 text-amber-600" /> Parkir Motor
+                    </span>
+                    <div className="flex items-baseline gap-1 mt-1">
+                      <span className="text-xl font-black text-amber-950">
+                        {eventData.motorcyclesCount || 0}
+                      </span>
+                      <span className="text-xs text-slate-400 font-semibold">
+                        {eventData.motorcycleParkingQuota
+                          ? `/ ${eventData.motorcycleParkingQuota} slot`
+                          : 'motor'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Admin Special Invitation Panel */}
+                <div className="p-4 bg-gradient-to-r from-emerald-950 to-slate-900 text-white rounded-2xl border border-emerald-700/60 shadow-md space-y-3">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                    <div>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-900 text-emerald-300 border border-emerald-600">
+                        Khusus Panitia / Tamu VIP
+                      </span>
+                      <h4 className="text-sm font-bold text-slate-100 mt-1 flex items-center gap-1.5">
+                        <span>🎟️ Tautan Khusus Jalur Undangan Resmi</span>
+                      </h4>
+                      <p className="text-xs text-slate-300 leading-relaxed">
+                        Sistem menggunakan <b>Tautan Khusus</b>. Formulir umum
+                        jamaah <b>tidak menampilkan</b> kotak input kode
+                        undangan agar jamaah biasa tidak bingung. Cukup bagikan
+                        Tautan Khusus ini kepada tamu VIP / undangan agar jalur
+                        khusus otomatis terverifikasi dan terkunci.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 font-mono text-xs bg-black/40 px-3 py-1.5 rounded-xl border border-emerald-500/30">
+                      <span className="text-slate-400">Kode:</span>
+                      <span className="font-black text-emerald-400">
+                        {eventData.adminInviteCode ||
+                          `UNDANGAN-${eventData.id.slice(0, 6).toUpperCase()}`}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-slate-800/80">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setManualIsInvite(true);
+                        setShowAddParticipant(true);
+                      }}
+                      className="px-3.5 py-1.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-amber-950 text-xs font-black rounded-xl transition-all flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-950" />
+                      <span>+ Input Tamu Undangan (VIP)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const code =
+                          eventData.adminInviteCode ||
+                          `UNDANGAN-${eventData.id.slice(0, 6).toUpperCase()}`;
+                        const url = `${window.location.origin}/kajian/${eventData.id}?invite=${code}`;
+                        navigator.clipboard.writeText(url);
+                        showToast(
+                          'Tautan pendaftaran khusus kajian (/kajian/:id?invite=...) berhasil disalin!',
+                        );
+                      }}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Salin Tautan Khusus Kajian</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const code =
+                          eventData.adminInviteCode ||
+                          `UNDANGAN-${eventData.id.slice(0, 6).toUpperCase()}`;
+                        const url = `${window.location.origin}/events?event=${eventData.id}&invite=${code}`;
+                        navigator.clipboard.writeText(url);
+                        showToast(
+                          'Tautan khusus katalog portal (/events?invite=...) disalin!',
+                        );
+                      }}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                    >
+                      <Copy className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Salin Tautan Portal</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const code =
+                          eventData.adminInviteCode ||
+                          `UNDANGAN-${eventData.id.slice(0, 6).toUpperCase()}`;
+                        const url = `${window.location.origin}/kajian/${eventData.id}?invite=${code}`;
+                        const waText = `Assalamu'alaikum Warahmatullahi Wabarakatuh.\n\nYth. Bapak/Ibu/Asatidzah Undangan Khusus,\nPanitia Yayasan Tarbiyah Sunnah mengundang antum untuk menghadiri:\n📌 *${eventData.title}*\n🎙️ Bersama: ${eventData.speaker}\n🗓️ Waktu: ${new Date(eventData.startAt).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}\n📍 Lokasi: ${eventData.locationName || 'Masjid Tarbiyah Sunnah'}\n\nKonfirmasi kehadiran melalui tautan undangan resmi panitia:\n🔗 ${url}\n(Jalur khusus undangan akan otomatis terverifikasi tanpa perlu mengetik kode manual)\n\nJazakumullahu khairan wa barakallahu fiikum.\n- Panitia Yayasan Tarbiyah Sunnah`;
+                        navigator.clipboard.writeText(waText);
+                        showToast(
+                          'Format pesan WhatsApp resmi panitia berhasil disalin!',
+                        );
+                      }}
+                      className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>Salin Format Undangan WhatsApp</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Fast Scanner / Ticket Check-In Form */}
+                <div className="p-4 bg-teal-900 text-white rounded-2xl shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="space-y-0.5">
+                    <h4 className="text-sm font-bold flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />{' '}
+                      Scanner & Presensi Cepat di Lokasi
+                    </h4>
+                    <p className="text-xs text-teal-200">
+                      Ketik 4-digit nomor tiket (misal: `1048` atau `YTS-1048`)
+                      atau scan QR tiket jamaah untuk langsung check-in.
+                    </p>
+                  </div>
+
+                  <form
+                    onSubmit={handleCheckInByTicket}
+                    className="flex items-center gap-2 w-full sm:w-auto"
+                  >
+                    <input
+                      type="text"
+                      placeholder="Contoh: 1048 atau YTS-1048"
+                      value={ticketInput}
+                      onChange={(e) => setTicketInput(e.target.value)}
+                      className="px-3.5 py-2 rounded-xl bg-teal-950/80 border border-teal-700 text-xs text-white placeholder:text-teal-400/80 focus:ring-2 focus:ring-emerald-400 focus:outline-none uppercase font-mono w-full sm:w-56"
+                    />
+                    <button
+                      type="submit"
+                      className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-emerald-950 font-bold text-xs rounded-xl shadow-xs shrink-0 active:scale-95"
+                    >
+                      Check-in
+                    </button>
+                  </form>
+                </div>
+
+                {/* Search, Filters, Add Participant & Export */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-slate-200">
+                  <div className="flex items-center gap-2 flex-1 flex-wrap">
+                    <input
+                      type="text"
+                      placeholder="Cari nama, WA, plat nomor, atau tiket..."
+                      value={participantSearch}
+                      onChange={(e) => setParticipantSearch(e.target.value)}
+                      className="px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none min-w-[200px]"
+                    />
+
+                    <select
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value as any)}
+                      className="px-2.5 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none bg-white font-semibold text-slate-700"
+                    >
+                      <option value="all">Semua Status</option>
+                      <option value="attended">Hadir (Checked-In)</option>
+                      <option value="registered">
+                        Terdaftar (Belum Hadir)
+                      </option>
+                      <option value="from_referral">✨ Undangan Panitia</option>
+                    </select>
+
+                    <select
+                      value={genderFilter}
+                      onChange={(e) => setGenderFilter(e.target.value as any)}
+                      className="px-2.5 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none bg-white font-semibold text-slate-700"
+                    >
+                      <option value="all">Semua Jamaah</option>
+                      <option value="ikhwan">Ikhwan Saja</option>
+                      <option value="akhwat">Akhwat Saja</option>
+                    </select>
+
+                    <select
+                      value={vehicleFilter}
+                      onChange={(e) => setVehicleFilter(e.target.value as any)}
+                      className="px-2.5 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none bg-white font-semibold text-slate-700"
+                    >
+                      <option value="all">Semua Kendaraan</option>
+                      <option value="car">🚗 Mobil</option>
+                      <option value="motorcycle">🏍️ Motor</option>
+                      <option value="none">🚶 Tanpa Kendaraan</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowImportModal(true)}
+                      className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-300 shadow-2xs transition-all active:scale-95"
+                      title="Impor Data Peserta dari File CSV dengan Pratinjau & Skip Duplikat"
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-teal-800" />
+                      <span>📥 Impor CSV</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setManualIsInvite(true);
+                        setShowAddParticipant(true);
+                      }}
+                      className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
+                      title="Tambah Peserta Tamu Undangan Khusus (VIP) langsung dari dashboard"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                      <span>✨ Tambah Undangan (VIP)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setManualIsInvite(false);
+                        setShowAddParticipant(true);
+                      }}
+                      className="px-3.5 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs active:scale-95"
+                    >
+                      <PlusCircle className="w-3.5 h-3.5" />
+                      <span>+ Tambah Manual</span>
+                    </button>
+
+                    <button
+                      onClick={handleExportCSV}
+                      className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-300 transition-all active:scale-95"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Ekspor CSV</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Participants Roster Table */}
+                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs text-slate-600">
+                      <thead className="bg-slate-100/80 text-slate-700 font-bold border-b border-slate-200">
+                        <tr>
+                          <th className="p-3.5">Nama Jamaah & Kontak</th>
+                          <th className="p-3.5">Kategori</th>
+                          <th className="p-3.5">Kode Tiket</th>
+                          <th className="p-3.5">Kendaraan & Parkir</th>
+                          <th className="p-3.5">Jawaban Kustom</th>
+                          <th className="p-3.5 text-center">Status & Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredParticipants.length > 0 ? (
+                          filteredParticipants.map((p) => (
+                            <tr
+                              key={p.id}
+                              className="hover:bg-slate-50/80 transition-colors"
+                            >
+                              <td className="p-3.5">
+                                <span className="font-bold text-slate-900 block">
+                                  {p.personName}
+                                </span>
+                                <span className="text-[11px] text-slate-500 font-mono block">
+                                  {p.personPhone}
+                                </span>
+                                {p.personEmail && (
+                                  <span
+                                    className="text-[10px] text-teal-700 font-medium block truncate max-w-[180px]"
+                                    title={p.personEmail}
+                                  >
+                                    ✉ {p.personEmail}
+                                  </span>
+                                )}
+                                {p.personCity && (
+                                  <span className="text-[10px] text-slate-400 block">
+                                    {p.personCity}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-3.5">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                    p.personGender === 'ikhwan'
+                                      ? 'bg-teal-50 text-teal-800 border border-teal-200'
+                                      : 'bg-rose-50 text-rose-800 border border-rose-200'
+                                  }`}
+                                >
+                                  {p.personGender === 'ikhwan'
+                                    ? 'Ikhwan'
+                                    : 'Akhwat'}
+                                </span>
+                              </td>
+                              <td className="p-3.5 font-mono text-[11px] font-semibold text-slate-700">
+                                <span className="block">
+                                  {p.ticketCode || '-'}
+                                </span>
+                                {(p.isSpecialInvite ||
+                                  p.source === 'admin_invite' ||
+                                  p.referredByAttendanceId) && (
+                                  <span className="mt-1 inline-block rounded bg-emerald-50 border border-emerald-300 px-1.5 py-0.5 text-[9px] font-sans font-bold text-emerald-800">
+                                    ✨ Undangan Panitia
+                                  </span>
+                                )}
+                                {p.isStaffRegistration && (
+                                  <span className="mt-1 ml-1 inline-block rounded bg-indigo-50 border border-indigo-300 px-1.5 py-0.5 text-[9px] font-sans font-bold text-indigo-800">
+                                    {p.isStaffFamilyRegistration
+                                      ? 'Keluarga Staff'
+                                      : 'Staff Yayasan'}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-3.5">
+                                {p.vehicleType === 'car' && (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-900 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-lg">
+                                    <Car className="w-3 h-3 text-indigo-600" />{' '}
+                                    Mobil: {p.vehiclePlateNumber || 'Slot OK'}
+                                  </span>
+                                )}
+                                {p.vehicleType === 'motorcycle' && (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-900 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg">
+                                    <Bike className="w-3 h-3 text-amber-600" />{' '}
+                                    Motor: {p.vehiclePlateNumber || 'Slot OK'}
+                                  </span>
+                                )}
+                                {(!p.vehicleType ||
+                                  p.vehicleType === 'none') && (
+                                  <span className="text-[11px] text-slate-400">
+                                    Tanpa Kendaraan
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-3.5">
+                                {p.registrationData &&
+                                Object.keys(p.registrationData).length > 0 ? (
+                                  <div className="space-y-1 max-w-xs text-[11px]">
+                                    {Object.entries(p.registrationData).map(
+                                      ([key, val]) => (
+                                        <div
+                                          key={key}
+                                          className="bg-slate-50 p-1 rounded border border-slate-200"
+                                        >
+                                          <span className="text-slate-500 font-semibold">
+                                            {key}:{' '}
+                                          </span>
+                                          <span className="text-slate-800">
+                                            {Array.isArray(val)
+                                              ? val.join(', ')
+                                              : String(val)}
+                                          </span>
+                                        </div>
+                                      ),
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-400 text-[10px]">
+                                    -
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-3.5 text-center">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    onClick={() => handleToggleAttendance(p.id)}
+                                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all shadow-2xs ${
+                                      p.status === 'attended'
+                                        ? 'bg-emerald-100 text-emerald-900 border border-emerald-300 hover:bg-emerald-200'
+                                        : 'bg-slate-100 text-slate-700 border border-slate-300 hover:bg-teal-50 hover:text-teal-900'
+                                    }`}
+                                  >
+                                    {p.status === 'attended'
+                                      ? '✓ Hadir'
+                                      : 'Tandai Hadir'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSendWhatsAppTicket(p)}
+                                    className="p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg border border-transparent hover:border-emerald-200 transition-all active:scale-95"
+                                    title="Kirim / Bagikan Tiket & QR Code via WhatsApp (wa.me)"
+                                  >
+                                    <Send className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleResendTicketEmail(p)}
+                                    disabled={
+                                      !p.personEmail ||
+                                      emailSendingAttendanceId === p.id
+                                    }
+                                    className="p-1.5 text-sky-600 hover:text-sky-800 hover:bg-sky-50 rounded-lg border border-transparent hover:border-sky-200 transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
+                                    title={
+                                      p.personEmail
+                                        ? `Kirim ulang e-tiket terbaru ke ${p.personEmail}`
+                                        : 'Peserta belum memiliki alamat email'
+                                    }
+                                  >
+                                    {emailSendingAttendanceId === p.id ? (
+                                      <RotateCcw className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Mail className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setDeletingParticipant(p);
+                                      setDeleteGroupCheckbox(false);
+                                    }}
+                                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-transparent hover:border-rose-200 transition-all active:scale-95"
+                                    title="Hapus pendaftar kajian (mengembalikan kuota)"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td
+                              colSpan={6}
+                              className="p-8 text-center text-slate-400"
+                            >
+                              Belum ada peserta yang cocok dengan kriteria
+                              pencarian / filter.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 2: PENGATURAN SEGMEN, KUOTA, FASILITAS & ATURAN LOKASI */}
+            {activeTab === 'settings' && (
+              <form onSubmit={handleSaveSettings} className="space-y-6">
+                {/* 1. Location & Google Maps */}
+                <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
+                  <div className="flex items-start gap-2">
+                    <MapPin className="w-4 h-4 text-rose-700 mt-0.5 shrink-0" />
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900">
+                        1. Lokasi &amp; Google Maps
+                      </h4>
+                      <p className="text-xs text-slate-500">
+                        Atur detail lokasi yang tampil pada halaman pendaftaran
+                        publik dan tombol navigasi jamaah.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Nama Tempat / Venue
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Contoh: Masjid Tarbiyah Sunnah Bandung"
+                        value={locationName}
+                        onChange={(e) => setLocationName(e.target.value)}
+                        className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Tautan Google Maps (Opsional)
+                      </label>
+                      <input
+                        type="url"
+                        placeholder="https://maps.app.goo.gl/..."
+                        value={googleMapsUrl}
+                        onChange={(e) => setGoogleMapsUrl(e.target.value)}
+                        className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Alamat Lengkap Lokasi
+                    </label>
+                    <textarea
+                      rows={2}
+                      placeholder="Contoh: Jl. Jurang No. 64, Pasteur, Kec. Sukajadi, Kota Bandung"
+                      value={locationAddress}
+                      onChange={(e) => setLocationAddress(e.target.value)}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none resize-y"
+                    />
+                    <p className="mt-1 text-[10px] text-slate-400">
+                      Jika tidak mengisi tautan Google Maps, sistem membuat
+                      navigasi otomatis dari alamat ini atau nama venue.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Petunjuk Kedatangan (Opsional)
+                    </label>
+                    <textarea
+                      rows={2}
+                      placeholder="Contoh: Gunakan pintu gerbang utama. Parkir motor berada di sisi timur dan akan diarahkan petugas."
+                      value={locationDirections}
+                      onChange={(e) => setLocationDirections(e.target.value)}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none resize-y"
+                    />
+                  </div>
+
+                  <label className="p-3 bg-teal-50 border border-teal-200 rounded-xl flex items-center justify-between gap-3 cursor-pointer">
+                    <div>
+                      <span className="text-xs font-bold text-teal-950 block">
+                        Tampilkan Google Maps untuk jamaah
+                      </span>
+                      <span className="text-[11px] text-teal-800">
+                        Peta hanya ditampilkan pada kajian offline atau hybrid.
+                      </span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={showGoogleMaps}
+                      onChange={(e) => setShowGoogleMaps(e.target.checked)}
+                      className="h-4 w-4 rounded text-teal-700 focus:ring-teal-500"
+                    />
+                  </label>
+                </div>
+
+                {/* 1. Target Audience Segmentation */}
+                <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900">
+                      2. Segmentasi & Target Jamaah Majelis
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      Pilih target audiens. Sistem akan membatasi formulir
+                      pendaftaran sesuai kategori ini.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <label
+                      className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                        targetAudience === 'umum'
+                          ? 'border-teal-700 bg-teal-50 ring-2 ring-teal-500/20 shadow-2xs'
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="targetAudience"
+                        value="umum"
+                        checked={targetAudience === 'umum'}
+                        onChange={(e) => setTargetAudience(e.target.value)}
+                        className="sr-only"
+                      />
+                      <div className="space-y-1">
+                        <span className="font-bold text-xs text-slate-900 block flex items-center gap-1.5">
+                          🌐 Umum (Ikhwan & Akhwat)
                         </span>
-                        <span className="text-[11px] text-amber-800">
-                          Memungkinkan 1 pendaftar/kepala keluarga mendaftarkan beberapa anggota keluarga (istri, anak, orang tua) dalam 1 formulir (cocok untuk I'tikaf / Daurah).
+                        <p className="text-[11px] text-slate-500">
+                          Terbuka untuk Jamaah Ikhwan & Akhwat sekaligus.
+                        </p>
+                      </div>
+                    </label>
+
+                    <label
+                      className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                        targetAudience === 'akhwat_only'
+                          ? 'border-rose-700 bg-rose-50 ring-2 ring-rose-500/20 shadow-2xs'
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="targetAudience"
+                        value="akhwat_only"
+                        checked={targetAudience === 'akhwat_only'}
+                        onChange={(e) => setTargetAudience(e.target.value)}
+                        className="sr-only"
+                      />
+                      <div className="space-y-1">
+                        <span className="font-bold text-xs text-rose-950 block flex items-center gap-1.5">
+                          🌸 Khusus Akhwat Saja
+                        </span>
+                        <p className="text-[11px] text-slate-500">
+                          Hanya menerima pendaftaran jamaah wanita/akhwat.
+                        </p>
+                      </div>
+                    </label>
+
+                    <label
+                      className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                        targetAudience === 'ikhwan_only'
+                          ? 'border-sky-700 bg-sky-50 ring-2 ring-sky-500/20 shadow-2xs'
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="targetAudience"
+                        value="ikhwan_only"
+                        checked={targetAudience === 'ikhwan_only'}
+                        onChange={(e) => setTargetAudience(e.target.value)}
+                        className="sr-only"
+                      />
+                      <div className="space-y-1">
+                        <span className="font-bold text-xs text-sky-950 block flex items-center gap-1.5">
+                          🕌 Khusus Ikhwan Saja
+                        </span>
+                        <p className="text-[11px] text-slate-500">
+                          Hanya menerima pendaftaran jamaah laki-laki/ikhwan.
+                        </p>
+                      </div>
+                    </label>
+
+                    <label
+                      className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                        targetAudience === 'anak'
+                          ? 'border-amber-700 bg-amber-50 ring-2 ring-amber-500/20 shadow-2xs'
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="targetAudience"
+                        value="anak"
+                        checked={targetAudience === 'anak'}
+                        onChange={(e) => setTargetAudience(e.target.value)}
+                        className="sr-only"
+                      />
+                      <div className="space-y-1">
+                        <span className="font-bold text-xs text-amber-950 block flex items-center gap-1.5">
+                          🌱 Kajian Anak & Santri Cilik
+                        </span>
+                        <p className="text-[11px] text-slate-500">
+                          Program pendidikan akidah/adab untuk usia anak-anak.
+                        </p>
+                      </div>
+                    </label>
+
+                    <label
+                      className={`p-3.5 rounded-2xl border cursor-pointer transition-all sm:col-span-2 ${
+                        targetAudience === 'itikaf_ramadan'
+                          ? 'border-purple-700 bg-purple-50 ring-2 ring-purple-500/20 shadow-2xs'
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="targetAudience"
+                        value="itikaf_ramadan"
+                        checked={targetAudience === 'itikaf_ramadan'}
+                        onChange={(e) => setTargetAudience(e.target.value)}
+                        className="sr-only"
+                      />
+                      <div className="space-y-1">
+                        <span className="font-bold text-xs text-purple-950 block flex items-center gap-1.5">
+                          🌙 Program 10 Hari Terakhir Ramadan (I'tikaf & Qiyamul
+                          Lail)
+                        </span>
+                        <p className="text-[11px] text-slate-500">
+                          Pengelolaan pendaftaran i'tikaf menginap, pembagian
+                          sahur/iftar, dan aturan khusus masjid.
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* Batasan Usia Minimal Peserta */}
+                  <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/60 p-3.5 rounded-xl border">
+                    <div>
+                      <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <span>⏳ Batasan Usia Minimal Peserta (Opsional)</span>
+                        {minAge && Number(minAge) > 0 ? (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-bold border border-amber-300">
+                            Aktif (Min. {minAge} Tahun)
+                          </span>
+                        ) : (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
+                            Bebas Usia
+                          </span>
+                        )}
+                      </label>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Contoh: Isi <strong>15</strong> jika pendaftar dan
+                        rombongan minimal berusia 15 tahun. Kosongkan jika
+                        majelis ini bebas untuk segala rentang usia.
+                      </p>
+                    </div>
+                    <div className="w-full sm:w-48 shrink-0">
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min="1"
+                          max="120"
+                          placeholder="Bebas usia"
+                          value={minAge}
+                          onChange={(e) =>
+                            setMinAge(
+                              e.target.value === ''
+                                ? ''
+                                : Math.max(1, parseInt(e.target.value) || 0),
+                            )
+                          }
+                          className="w-full pl-3 pr-14 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono font-bold focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
+                          Tahun
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Biaya & Rekening Pembayaran Daurah / Kajian */}
+                <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                        <CreditCard className="w-4 h-4 text-amber-700" />
+                        <span>
+                          3. Tipe Kegiatan & Biaya Pendaftaran / Daurah
+                        </span>
+                      </h4>
+                      <p className="text-xs text-slate-500">
+                        Tentukan apakah kegiatan gratis (infaq sukarela) atau
+                        berbayar dengan instruksi rekening bank.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`text-xs font-bold ${isPaid ? 'text-amber-800' : 'text-slate-500'}`}
+                      >
+                        {isPaid ? 'Berbayar (Paid)' : 'Gratis (Free)'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsPaid(!isPaid)}
+                        className={`p-1 rounded-xl transition-all ${
+                          isPaid
+                            ? 'bg-amber-600 text-white'
+                            : 'bg-slate-200 text-slate-600'
+                        }`}
+                      >
+                        {isPaid ? (
+                          <ToggleRight className="w-6 h-6" />
+                        ) : (
+                          <ToggleLeft className="w-6 h-6" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {isPaid && (
+                    <div className="p-4 bg-amber-50/50 rounded-2xl border border-amber-200/80 space-y-4 animate-in fade-in duration-200">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-800 mb-1">
+                            Nominal Biaya / Harga Tiket (Rp) *
+                          </label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500">
+                              Rp
+                            </span>
+                            <input
+                              type="number"
+                              placeholder="Misal: 50000"
+                              value={priceRupiah}
+                              onChange={(e) =>
+                                setPriceRupiah(
+                                  e.target.value === ''
+                                    ? ''
+                                    : Number(e.target.value),
+                                )
+                              }
+                              required={isPaid}
+                              className="w-full pl-9 pr-3 py-2.5 bg-white border border-amber-300 rounded-xl text-xs font-mono font-bold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold text-slate-800 mb-1">
+                            Nama Bank Tujuan Transfer *
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Misal: Bank Syariah Indonesia (BSI)"
+                            value={bankName}
+                            onChange={(e) => setBankName(e.target.value)}
+                            required={isPaid}
+                            className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-800 mb-1">
+                            Nomor Rekening Bank *
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Misal: 7123456789"
+                            value={bankAccountNumber}
+                            onChange={(e) =>
+                              setBankAccountNumber(e.target.value)
+                            }
+                            required={isPaid}
+                            className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-xs font-mono font-bold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold text-slate-800 mb-1">
+                            Atas Nama (Pemilik Rekening) *
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Misal: Yayasan Tarbiyah Sunnah"
+                            value={bankAccountName}
+                            onChange={(e) => setBankAccountName(e.target.value)}
+                            required={isPaid}
+                            className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-800 mb-1">
+                          Catatan & Instruksi Pembayaran untuk Jamaah
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={paymentInstructions}
+                          onChange={(e) =>
+                            setPaymentInstructions(e.target.value)
+                          }
+                          placeholder="Contoh: Silakan transfer sesuai nominal. Unggah foto bukti transfer saat mendaftar. Tiket otomatis aktif setelah diverifikasi panitia."
+                          className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Quota Management */}
+                <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900">
+                      3. Batas Kuota Peserta (Kapasitas Majelis)
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      Kosongkan jika tidak ada batas kuota. Pendaftaran otomatis
+                      terkunci saat kuota masing-masing jalur tercapai.
+                    </p>
+                  </div>
+
+                  {/* 3A: Kuota Jalur Reguler */}
+                  <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        🏛️ 3A. Kuota Jalur Reguler (Jamaah Umum)
+                      </span>
+                      <span className="text-[10px] uppercase font-extrabold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
+                        Jalur Reguler
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Total Kuota Reguler
+                        </label>
+                        <input
+                          type="number"
+                          placeholder="Misal: 250"
+                          value={quota}
+                          onChange={(e) =>
+                            setQuota(
+                              e.target.value === ''
+                                ? ''
+                                : Number(e.target.value),
+                            )
+                          }
+                          className="w-full p-2.5 border border-slate-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-teal-800 mb-1">
+                          Reguler Ikhwan
+                        </label>
+                        <input
+                          type="number"
+                          placeholder="Misal: 100"
+                          value={quotaIkhwan}
+                          onChange={(e) =>
+                            setQuotaIkhwan(
+                              e.target.value === ''
+                                ? ''
+                                : Number(e.target.value),
+                            )
+                          }
+                          className="w-full p-2.5 border border-slate-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-rose-800 mb-1">
+                          Reguler Akhwat
+                        </label>
+                        <input
+                          type="number"
+                          placeholder="Misal: 150"
+                          value={quotaAkhwat}
+                          onChange={(e) =>
+                            setQuotaAkhwat(
+                              e.target.value === ''
+                                ? ''
+                                : Number(e.target.value),
+                            )
+                          }
+                          className="w-full p-2.5 border border-slate-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3B: Kuota Jalur Khusus Undangan (VIP) */}
+                  <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-200 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-500" /> 3B.
+                        Kuota Jalur Undangan Khusus (VIP / Tamu)
+                      </span>
+                      <span className="text-[10px] uppercase font-extrabold px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900">
+                        Jalur VIP
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-emerald-700">
+                      Batas kuota terpisah untuk pendaftar tamu undangan khusus
+                      panitia (baik via link undangan ber-token maupun input
+                      manual admin).
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-emerald-950 mb-1">
+                          Total Kuota Undangan
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="Misal: 50"
+                          value={quotaInvite}
+                          onChange={(e) =>
+                            setQuotaInvite(
+                              e.target.value === ''
+                                ? ''
+                                : Number(e.target.value),
+                            )
+                          }
+                          className="w-full p-2.5 border border-emerald-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-teal-800 mb-1">
+                          Undangan Ikhwan
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="Misal: 25"
+                          value={quotaInviteIkhwan}
+                          onChange={(e) =>
+                            setQuotaInviteIkhwan(
+                              e.target.value === ''
+                                ? ''
+                                : Number(e.target.value),
+                            )
+                          }
+                          className="w-full p-2.5 border border-emerald-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-rose-800 mb-1">
+                          Undangan Akhwat
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="Misal: 25"
+                          value={quotaInviteAkhwat}
+                          onChange={(e) =>
+                            setQuotaInviteAkhwat(
+                              e.target.value === ''
+                                ? ''
+                                : Number(e.target.value),
+                            )
+                          }
+                          className="w-full p-2.5 border border-emerald-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-indigo-50/60 rounded-2xl border border-indigo-200 space-y-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <span className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                          <BriefcaseBusiness className="w-3.5 h-3.5 text-indigo-700" />{' '}
+                          3C. Jalur Staff Yayasan
+                        </span>
+                        <p className="mt-1 text-[11px] text-indigo-800">
+                          Kuota ini terpisah dari reguler dan undangan. Form
+                          staff hanya bisa diakses lewat tautan rahasia di
+                          bawah.
+                        </p>
+                      </div>
+                      <label className="inline-flex items-center gap-2 text-xs font-bold text-indigo-950">
+                        <input
+                          type="checkbox"
+                          checked={isStaffRegistrationOpen}
+                          onChange={(e) =>
+                            setIsStaffRegistrationOpen(e.target.checked)
+                          }
+                          className="h-4 w-4 accent-indigo-700"
+                        />{' '}
+                        Pendaftaran staff dibuka
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <label className="block text-xs font-bold text-indigo-950">
+                        Total kuota staff
+                        <input
+                          type="number"
+                          min="0"
+                          value={quotaStaff}
+                          onChange={(e) =>
+                            setQuotaStaff(
+                              e.target.value === ''
+                                ? ''
+                                : Number(e.target.value),
+                            )
+                          }
+                          placeholder="Misal: 30"
+                          className="mt-1 w-full p-2.5 border border-indigo-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                        />
+                      </label>
+                      <label className="block text-xs font-bold text-indigo-950">
+                        Staff Ikhwan
+                        <input
+                          type="number"
+                          min="0"
+                          value={quotaStaffIkhwan}
+                          onChange={(e) =>
+                            setQuotaStaffIkhwan(
+                              e.target.value === ''
+                                ? ''
+                                : Number(e.target.value),
+                            )
+                          }
+                          placeholder="Misal: 15"
+                          className="mt-1 w-full p-2.5 border border-indigo-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                        />
+                      </label>
+                      <label className="block text-xs font-bold text-indigo-950">
+                        Staff Akhwat
+                        <input
+                          type="number"
+                          min="0"
+                          value={quotaStaffAkhwat}
+                          onChange={(e) =>
+                            setQuotaStaffAkhwat(
+                              e.target.value === ''
+                                ? ''
+                                : Number(e.target.value),
+                            )
+                          }
+                          placeholder="Misal: 15"
+                          className="mt-1 w-full p-2.5 border border-indigo-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                        />
+                      </label>
+                    </div>
+                    <div className="grid gap-3 rounded-xl border border-indigo-200 bg-white/70 p-3 sm:grid-cols-[1fr_10rem] sm:items-end">
+                      <label className="inline-flex items-start gap-2 text-xs font-bold text-indigo-950">
+                        <input
+                          type="checkbox"
+                          checked={
+                            formConfig.allowStaffFamilyRegistration === true
+                          }
+                          onChange={(e) =>
+                            setFormConfig((current) => ({
+                              ...current,
+                              allowStaffFamilyRegistration: e.target.checked,
+                            }))
+                          }
+                          className="mt-0.5 h-4 w-4 accent-indigo-700"
+                        />
+                        <span>
+                          Izinkan staff menambahkan keluarga
+                          <br />
+                          <span className="font-normal text-indigo-700">
+                            Setiap anggota memperoleh QR dan e-tiket sendiri.
+                          </span>
+                        </span>
+                      </label>
+                      <label className="block text-xs font-bold text-indigo-950">
+                        Maks. keluarga tambahan
+                        <input
+                          type="number"
+                          min="1"
+                          max="20"
+                          disabled={
+                            formConfig.allowStaffFamilyRegistration !== true
+                          }
+                          value={formConfig.maxStaffFamilyParticipants ?? 4}
+                          onChange={(e) =>
+                            setFormConfig((current) => ({
+                              ...current,
+                              maxStaffFamilyParticipants: Math.min(
+                                20,
+                                Math.max(1, Number(e.target.value) || 1),
+                              ),
+                            }))
+                          }
+                          className="mt-1 w-full rounded-lg border border-indigo-300 bg-white p-2 text-xs disabled:cursor-not-allowed disabled:bg-slate-100"
+                        />
+                      </label>
+                    </div>
+                    <div className="flex flex-col gap-2 border-t border-indigo-200 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                      <span className="text-[11px] text-indigo-800">
+                        Terdaftar: {eventData.staffCount || 0}
+                        {eventData.quotaStaff
+                          ? ` / ${eventData.quotaStaff}`
+                          : ''}
+                      </span>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={handleCopyStaffLink}
+                          disabled={!eventData.staffRegistrationToken}
+                          className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-300 bg-white px-3 py-2 text-xs font-bold text-indigo-800 disabled:opacity-50"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                          {copiedStaffLink ? 'Tersalin' : 'Salin tautan staff'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleRotateStaffLink}
+                          disabled={rotatingStaffLink}
+                          className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          {rotatingStaffLink ? 'Membuat...' : 'Ganti tautan'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Parking & Logistics Quotas */}
+                <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <Car className="w-4 h-4 text-indigo-700" /> 4. Batasan
+                      Fasilitas Parkir Kendaraan
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      Tentukan kapasitas slot parkir di lokasi kajian untuk
+                      menghindari kemacetan dan keterbatasan area.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-indigo-900 mb-1 flex items-center gap-1">
+                        <Car className="w-3.5 h-3.5 text-indigo-600" /> Kuota
+                        Slot Parkir Mobil
+                      </label>
+                      <input
+                        type="number"
+                        placeholder="Misal: 25 Mobil"
+                        value={carParkingQuota}
+                        onChange={(e) =>
+                          setCarParkingQuota(
+                            e.target.value === '' ? '' : Number(e.target.value),
+                          )
+                        }
+                        className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      />
+                      <span className="text-[10px] text-slate-400 block mt-1">
+                        Bila penuh, jamaah dihimbau menggunakan
+                        motor/transportasi umum.
+                      </span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-amber-900 mb-1 flex items-center gap-1">
+                        <Bike className="w-3.5 h-3.5 text-amber-600" /> Kuota
+                        Slot Parkir Sepeda Motor
+                      </label>
+                      <input
+                        type="number"
+                        placeholder="Misal: 150 Motor"
+                        value={motorcycleParkingQuota}
+                        onChange={(e) =>
+                          setMotorcycleParkingQuota(
+                            e.target.value === '' ? '' : Number(e.target.value),
+                          )
+                        }
+                        className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Venue Rules & Restrictions */}
+                <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <ShieldAlert className="w-4 h-4 text-emerald-700" /> 5.
+                      Tata Tertib & Aturan Khusus Lokasi Majelis
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      Pilih aturan yang wajib disetujui jamaah saat mendaftar
+                      online.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {VENUE_RULES_PRESETS.map((rule) => {
+                      const isChecked = venueRules.includes(rule.id);
+                      return (
+                        <label
+                          key={rule.id}
+                          className={`p-3 rounded-xl border cursor-pointer flex items-start gap-2.5 transition-all ${
+                            isChecked
+                              ? 'bg-teal-50/80 border-teal-600 ring-1 ring-teal-500/20'
+                              : 'border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setVenueRules([...venueRules, rule.id]);
+                              } else {
+                                setVenueRules(
+                                  venueRules.filter((r) => r !== rule.id),
+                                );
+                              }
+                            }}
+                            className="mt-0.5 rounded text-teal-700 focus:ring-teal-500"
+                          />
+                          <div>
+                            <span className="text-xs font-bold text-slate-900 block">
+                              {rule.label}
+                            </span>
+                            <span className="text-[11px] text-slate-500 block leading-tight">
+                              {rule.desc}
+                            </span>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Catatan Aturan Tambahan (Kustom)
+                    </label>
+                    <textarea
+                      rows={2}
+                      placeholder="Contoh: Dilarang membawa makanan beraroma tajam ke dalam ruang utama..."
+                      value={customVenueRules}
+                      onChange={(e) => setCustomVenueRules(e.target.value)}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="px-6 py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50"
+                  >
+                    {saving
+                      ? 'Menyimpan...'
+                      : 'Simpan Seluruh Pengaturan Kajian'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* TAB 3: FORM BUILDER PENDAFTARAN */}
+            {activeTab === 'form_builder' && (
+              <div className="space-y-6">
+                {/* Standar Biodata Fields Toggles */}
+                <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900">
+                        Field Biodata Standar
+                      </h4>
+                      <p className="text-xs text-slate-500">
+                        Nama Lengkap dan Nomor WhatsApp wajib aktif secara
+                        default.
+                      </p>
+                    </div>
+                    <span className="text-[10px] font-bold text-teal-800 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200">
+                      Auto Synchronized
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                    <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 block">
+                          Pilihan Kategori Ikhwan / Akhwat
+                        </span>
+                        <span className="text-[11px] text-slate-500">
+                          Memisahkan data jamaah laki-laki & wanita
                         </span>
                       </div>
                       <button
@@ -2248,750 +2794,1090 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                         onClick={() =>
                           setFormConfig({
                             ...formConfig,
-                            allowMultiParticipant: !formConfig.allowMultiParticipant,
+                            requireGender: !formConfig.requireGender,
                           })
                         }
-                        className="text-amber-800"
+                        className="text-teal-800"
                       >
-                        {formConfig.allowMultiParticipant ? (
-                          <ToggleRight className="w-7 h-7 text-amber-800" />
+                        {formConfig.requireGender !== false ? (
+                          <ToggleRight className="w-7 h-7 text-teal-700" />
                         ) : (
                           <ToggleLeft className="w-7 h-7 text-slate-400" />
                         )}
                       </button>
                     </div>
 
-                    {formConfig.allowMultiParticipant && (
-                      <div className="pt-2 border-t border-amber-200/60 flex items-center gap-3">
-                        <label className="text-xs font-bold text-amber-900">
-                          Batas Maksimal Anggota Tambahan:
-                        </label>
-                        <input
-                          type="number"
-                          min={1}
-                          max={20}
-                          value={formConfig.maxMultiParticipants || 10}
-                          onChange={(e) =>
+                    <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 block">
+                          Pendaftaran Kendaraan & Parkir
+                        </span>
+                        <span className="text-[11px] text-slate-500">
+                          Pilihan Mobil/Motor + Input Plat Nomor
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFormConfig({
+                            ...formConfig,
+                            collectVehicle: !formConfig.collectVehicle,
+                          })
+                        }
+                        className="text-teal-800"
+                      >
+                        {formConfig.collectVehicle !== false ? (
+                          <ToggleRight className="w-7 h-7 text-teal-700" />
+                        ) : (
+                          <ToggleLeft className="w-7 h-7 text-slate-400" />
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 block">
+                          Kota / Domisili Jamaah
+                        </span>
+                        <span className="text-[11px] text-slate-500">
+                          Mengetahui asal daerah jamaah
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFormConfig({
+                            ...formConfig,
+                            collectCity: !formConfig.collectCity,
+                          })
+                        }
+                        className="text-teal-800"
+                      >
+                        {formConfig.collectCity !== false ? (
+                          <ToggleRight className="w-7 h-7 text-teal-700" />
+                        ) : (
+                          <ToggleLeft className="w-7 h-7 text-slate-400" />
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-xs font-bold text-slate-800 block">
+                            Alamat Email Jamaah
+                          </span>
+                          <span className="text-[11px] text-slate-500">
+                            Kirim otomatis E-Tiket kajian &amp; materi ilmu ke
+                            email pendaftar
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextCollect =
+                              formConfig.collectEmail === false;
                             setFormConfig({
                               ...formConfig,
-                              maxMultiParticipants: parseInt(e.target.value) || 10,
+                              collectEmail: nextCollect,
+                              requireEmail: nextCollect
+                                ? formConfig.requireEmail
+                                : false,
+                            });
+                          }}
+                          className="text-teal-800"
+                        >
+                          {formConfig.collectEmail !== false ? (
+                            <ToggleRight className="w-7 h-7 text-teal-700" />
+                          ) : (
+                            <ToggleLeft className="w-7 h-7 text-slate-400" />
+                          )}
+                        </button>
+                      </div>
+
+                      {formConfig.collectEmail !== false && (
+                        <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between">
+                          <label className="text-xs text-slate-600 flex items-center gap-2 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={formConfig.requireEmail === true}
+                              onChange={(e) =>
+                                setFormConfig({
+                                  ...formConfig,
+                                  requireEmail: e.target.checked,
+                                })
+                              }
+                              className="rounded border-slate-300 text-teal-700 focus:ring-teal-500 w-3.5 h-3.5"
+                            />
+                            <span className="text-[11px] font-medium text-slate-700">
+                              Wajibkan email diisi oleh pendaftar
+                            </span>
+                          </label>
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded-md font-bold ${formConfig.requireEmail ? 'bg-rose-100 text-rose-800 border border-rose-200' : 'bg-slate-200 text-slate-600'}`}
+                          >
+                            {formConfig.requireEmail
+                              ? 'Wajib Diisi'
+                              : 'Opsional'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-3.5 bg-amber-50/70 rounded-xl border border-amber-200 sm:col-span-2 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-xs font-bold text-amber-950 block">
+                            Izinkan Pendaftaran Anggota Keluarga / Rombongan
+                            Sekaligus
+                          </span>
+                          <span className="text-[11px] text-amber-800">
+                            Memungkinkan 1 pendaftar/kepala keluarga
+                            mendaftarkan beberapa anggota keluarga (istri, anak,
+                            orang tua) dalam 1 formulir (cocok untuk I'tikaf /
+                            Daurah).
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFormConfig({
+                              ...formConfig,
+                              allowMultiParticipant:
+                                !formConfig.allowMultiParticipant,
                             })
                           }
-                          className="w-20 p-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold text-amber-950 text-center"
-                        />
-                        <span className="text-[11px] text-amber-700">orang per keluarga/rombongan</span>
+                          className="text-amber-800"
+                        >
+                          {formConfig.allowMultiParticipant ? (
+                            <ToggleRight className="w-7 h-7 text-amber-800" />
+                          ) : (
+                            <ToggleLeft className="w-7 h-7 text-slate-400" />
+                          )}
+                        </button>
+                      </div>
+
+                      {formConfig.allowMultiParticipant && (
+                        <div className="pt-2 border-t border-amber-200/60 flex items-center gap-3">
+                          <label className="text-xs font-bold text-amber-900">
+                            Batas Maksimal Anggota Tambahan:
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={20}
+                            value={formConfig.maxMultiParticipants || 10}
+                            onChange={(e) =>
+                              setFormConfig({
+                                ...formConfig,
+                                maxMultiParticipants:
+                                  parseInt(e.target.value) || 10,
+                              })
+                            }
+                            className="w-20 p-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold text-amber-950 text-center"
+                          />
+                          <span className="text-[11px] text-amber-700">
+                            orang per keluarga/rombongan
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Custom Questions Form Builder */}
+                <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900">
+                        Pertanyaan Kustom Tambahan
+                      </h4>
+                      <p className="text-xs text-slate-500">
+                        Tambahkan pertanyaan khusus untuk daurah, ukuran kitab,
+                        atau kesiapan i'tikaf.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowAddField(true)}
+                      className="px-3 py-1.5 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>+ Tambah Pertanyaan</span>
+                    </button>
+                  </div>
+
+                  {/* List of Custom Fields */}
+                  <div className="space-y-3 pt-2">
+                    {formConfig.customFields &&
+                    formConfig.customFields.length > 0 ? (
+                      formConfig.customFields.map((field, idx) => (
+                        <div
+                          key={field.id}
+                          className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-4"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-black text-teal-900 bg-teal-100 px-2 py-0.5 rounded">
+                                Q{idx + 1}
+                              </span>
+                              <span className="text-xs font-bold text-slate-900">
+                                {field.label}
+                              </span>
+                              {field.required && (
+                                <span className="text-[10px] text-red-600 font-bold">
+                                  *Wajib
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-slate-500">
+                              Tipe: <b>{field.type}</b>
+                              {field.options && field.options.length > 0 && (
+                                <span>
+                                  {' '}
+                                  | Pilihan: {field.options.join(', ')}
+                                </span>
+                              )}
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteField(field.id)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Hapus Pertanyaan"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-6 border border-dashed border-slate-300 rounded-2xl text-center space-y-1">
+                        <p className="text-xs font-semibold text-slate-500">
+                          Belum ada pertanyaan kustom yang dibuat.
+                        </p>
+                        <p className="text-[11px] text-slate-400">
+                          Klik tombol "+ Tambah Pertanyaan" untuk menambahkan
+                          input khusus.
+                        </p>
                       </div>
                     )}
                   </div>
-                </div>
-              </div>
 
-              {/* Custom Questions Form Builder */}
-              <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-900">Pertanyaan Kustom Tambahan</h4>
-                    <p className="text-xs text-slate-500">
-                      Tambahkan pertanyaan khusus untuk daurah, ukuran kitab, atau kesiapan i'tikaf.
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowAddField(true)}
-                    className="px-3 py-1.5 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>+ Tambah Pertanyaan</span>
-                  </button>
-                </div>
-
-                {/* List of Custom Fields */}
-                <div className="space-y-3 pt-2">
-                  {formConfig.customFields && formConfig.customFields.length > 0 ? (
-                    formConfig.customFields.map((field, idx) => (
-                      <div
-                        key={field.id}
-                        className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-4"
-                      >
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-black text-teal-900 bg-teal-100 px-2 py-0.5 rounded">
-                              Q{idx + 1}
-                            </span>
-                            <span className="text-xs font-bold text-slate-900">{field.label}</span>
-                            {field.required && <span className="text-[10px] text-red-600 font-bold">*Wajib</span>}
-                          </div>
-                          <p className="text-[11px] text-slate-500">
-                            Tipe: <b>{field.type}</b>
-                            {field.options && field.options.length > 0 && (
-                              <span> | Pilihan: {field.options.join(', ')}</span>
-                            )}
-                          </p>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteField(field.id)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          title="Hapus Pertanyaan"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="p-6 border border-dashed border-slate-300 rounded-2xl text-center space-y-1">
-                      <p className="text-xs font-semibold text-slate-500">Belum ada pertanyaan kustom yang dibuat.</p>
-                      <p className="text-[11px] text-slate-400">
-                        Klik tombol "+ Tambah Pertanyaan" untuk menambahkan input khusus.
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Add Custom Field Form Drawer / Inline Box */}
-                {showAddField && (
-                  <form onSubmit={handleAddCustomField} className="p-4 bg-teal-50/70 border border-teal-200 rounded-2xl space-y-3">
-                    <h5 className="text-xs font-bold text-teal-950">Buat Pertanyaan Kustom Baru</h5>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-700 mb-1">Label Pertanyaan *</label>
-                        <input
-                          type="text"
-                          required
-                          placeholder="Contoh: Sudah pernah menghafal Juz 30?"
-                          value={newFieldLabel}
-                          onChange={(e) => setNewFieldLabel(e.target.value)}
-                          className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-700 mb-1">Tipe Input *</label>
-                        <select
-                          value={newFieldType}
-                          onChange={(e) => setNewFieldType(e.target.value as any)}
-                          className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                        >
-                          <option value="text">Teks Singkat (Text)</option>
-                          <option value="textarea">Paragraf / Penjelasan (Textarea)</option>
-                          <option value="select">Pilihan Ganda Dropdown (Select)</option>
-                          <option value="radio">Pilihan Tunggal (Radio)</option>
-                          <option value="checkbox">Pilihan Banyak (Checkbox)</option>
-                          <option value="number">Angka (Number)</option>
-                        </select>
-                      </div>
-
-                      {['select', 'radio', 'checkbox'].includes(newFieldType) && (
-                        <div className="sm:col-span-2">
+                  {/* Add Custom Field Form Drawer / Inline Box */}
+                  {showAddField && (
+                    <form
+                      onSubmit={handleAddCustomField}
+                      className="p-4 bg-teal-50/70 border border-teal-200 rounded-2xl space-y-3"
+                    >
+                      <h5 className="text-xs font-bold text-teal-950">
+                        Buat Pertanyaan Kustom Baru
+                      </h5>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
                           <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                            Opsi Pilihan (Pisahkan dengan koma) *
+                            Label Pertanyaan *
                           </label>
                           <input
                             type="text"
                             required
-                            placeholder="Contoh: Sudah Hafal, Belum Pernah, Sedang Proses"
-                            value={newFieldOptionsRaw}
-                            onChange={(e) => setNewFieldOptionsRaw(e.target.value)}
+                            placeholder="Contoh: Sudah pernah menghafal Juz 30?"
+                            value={newFieldLabel}
+                            onChange={(e) => setNewFieldLabel(e.target.value)}
                             className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
                           />
                         </div>
-                      )}
 
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-700 mb-1">Placeholder Bantuan</label>
-                        <input
-                          type="text"
-                          placeholder="Contoh: Tuliskan jawaban Anda..."
-                          value={newFieldPlaceholder}
-                          onChange={(e) => setNewFieldPlaceholder(e.target.value)}
-                          className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                        />
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                            Tipe Input *
+                          </label>
+                          <select
+                            value={newFieldType}
+                            onChange={(e) =>
+                              setNewFieldType(e.target.value as any)
+                            }
+                            className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                          >
+                            <option value="text">Teks Singkat (Text)</option>
+                            <option value="textarea">
+                              Paragraf / Penjelasan (Textarea)
+                            </option>
+                            <option value="select">
+                              Pilihan Ganda Dropdown (Select)
+                            </option>
+                            <option value="radio">
+                              Pilihan Tunggal (Radio)
+                            </option>
+                            <option value="checkbox">
+                              Pilihan Banyak (Checkbox)
+                            </option>
+                            <option value="number">Angka (Number)</option>
+                          </select>
+                        </div>
+
+                        {['select', 'radio', 'checkbox'].includes(
+                          newFieldType,
+                        ) && (
+                          <div className="sm:col-span-2">
+                            <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                              Opsi Pilihan (Pisahkan dengan koma) *
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="Contoh: Sudah Hafal, Belum Pernah, Sedang Proses"
+                              value={newFieldOptionsRaw}
+                              onChange={(e) =>
+                                setNewFieldOptionsRaw(e.target.value)
+                              }
+                              className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                            />
+                          </div>
+                        )}
+
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                            Placeholder Bantuan
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Contoh: Tuliskan jawaban Anda..."
+                            value={newFieldPlaceholder}
+                            onChange={(e) =>
+                              setNewFieldPlaceholder(e.target.value)
+                            }
+                            className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-4">
+                          <label className="flex items-center gap-1.5 text-xs text-slate-700 font-bold cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={newFieldRequired}
+                              onChange={(e) =>
+                                setNewFieldRequired(e.target.checked)
+                              }
+                              className="rounded text-teal-600 focus:ring-teal-500"
+                            />
+                            <span>Wajib Diisi oleh Jamaah</span>
+                          </label>
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-2 pt-4">
-                        <label className="flex items-center gap-1.5 text-xs text-slate-700 font-bold cursor-pointer">
+                      <div className="flex items-center justify-end gap-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowAddField(false)}
+                          className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-lg"
+                        >
+                          Batal
+                        </button>
+                        <button
+                          type="submit"
+                          className="px-4 py-1.5 bg-teal-800 hover:bg-teal-900 text-white text-xs font-bold rounded-lg shadow-xs"
+                        >
+                          Tambahkan Pertanyaan
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+
+                {/* Template WhatsApp Konfirmasi */}
+                <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-3">
+                  <h4 className="text-sm font-bold text-slate-900">
+                    Template Pesan WhatsApp Konfirmasi
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    Gunakan placeholder{' '}
+                    <code>&#123;&#123;ticket_code&#125;&#125;</code> untuk nomor
+                    tiket otomatis.
+                  </p>
+                  <textarea
+                    rows={3}
+                    value={formConfig.whatsappMessageTemplate || ''}
+                    onChange={(e) =>
+                      setFormConfig({
+                        ...formConfig,
+                        whatsappMessageTemplate: e.target.value,
+                      })
+                    }
+                    className="w-full p-3 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none font-mono"
+                  />
+                </div>
+
+                {/* Tautan Grup WhatsApp Tersegmentasi */}
+                <div className="p-5 bg-emerald-50/70 border border-emerald-200 rounded-2xl space-y-4">
+                  <div>
+                    <h4 className="text-sm font-bold text-emerald-950">
+                      Tautan Grup WhatsApp Peserta
+                    </h4>
+                    <p className="mt-1 text-xs leading-relaxed text-emerald-800">
+                      Tautan hanya ditampilkan sesudah pendaftaran dan dibedakan
+                      otomatis berdasarkan gender peserta. Gunakan tautan
+                      undangan resmi WhatsApp.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-emerald-950 mb-1.5">
+                      Grup Ikhwan
+                    </label>
+                    <input
+                      type="url"
+                      placeholder="https://chat.whatsapp.com/..."
+                      value={formConfig.whatsappGroupIkhwanUrl || ''}
+                      onChange={(e) =>
+                        setFormConfig({
+                          ...formConfig,
+                          whatsappGroupIkhwanUrl: e.target.value,
+                        })
+                      }
+                      className="w-full p-3 border border-emerald-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-emerald-950 mb-1.5">
+                      Grup Akhwat
+                    </label>
+                    <input
+                      type="url"
+                      placeholder="https://chat.whatsapp.com/..."
+                      value={formConfig.whatsappGroupAkhwatUrl || ''}
+                      onChange={(e) =>
+                        setFormConfig({
+                          ...formConfig,
+                          whatsappGroupAkhwatUrl: e.target.value,
+                        })
+                      }
+                      className="w-full p-3 border border-emerald-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveFormConfig}
+                    disabled={saving}
+                    className="px-6 py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50"
+                  >
+                    {saving
+                      ? 'Menyimpan...'
+                      : 'Simpan Seluruh Konfigurasi Form Builder'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 4: EMAIL KAJIAN */}
+            {activeTab === 'email' && (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-4 bg-white rounded-2xl border border-sky-200 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase text-sky-700 block">
+                      Penerima Email
+                    </span>
+                    <span className="mt-1 block text-2xl font-black text-sky-950">
+                      {eventData.emailRecipientCount || 0}
+                    </span>
+                    <span className="text-[11px] text-slate-500">
+                      alamat unik peserta
+                    </span>
+                  </div>
+                  <div className="p-4 bg-white rounded-2xl border border-emerald-200 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase text-emerald-700 block">
+                      Reminder Terkirim
+                    </span>
+                    <span className="mt-1 block text-2xl font-black text-emerald-950">
+                      {eventData.emailReminderSentCount || 0}
+                    </span>
+                    <span className="text-[11px] text-slate-500">
+                      penanda pengiriman H-1
+                    </span>
+                  </div>
+                  <div className="p-4 bg-white rounded-2xl border border-amber-200 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase text-amber-700 block">
+                      Zona Waktu Email
+                    </span>
+                    <span className="mt-1 block text-2xl font-black text-amber-950">
+                      WIB
+                    </span>
+                    <span className="text-[11px] text-slate-500">
+                      Asia/Jakarta
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-5">
+                  <div className="flex items-start gap-3">
+                    <Mail className="w-5 h-5 text-sky-700 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900">
+                        Pengiriman E-Tiket
+                      </h4>
+                      <p className="text-xs text-slate-500 mt-1">
+                        E-tiket selalu dibentuk dari judul, pemateri, waktu, dan
+                        lokasi kajian yang tersimpan saat ini.
+                      </p>
+                    </div>
+                  </div>
+                  <label className="flex items-center justify-between gap-4 p-3.5 rounded-xl bg-sky-50 border border-sky-200 cursor-pointer">
+                    <div>
+                      <span className="text-xs font-bold text-sky-950 block">
+                        E-tiket otomatis setelah pendaftaran
+                      </span>
+                      <span className="text-[11px] text-sky-800">
+                        Hanya dikirim bila peserta mengisi alamat email.
+                      </span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={
+                        formConfig.emailNotifications
+                          ?.registrationTicketEnabled !== false
+                      }
+                      onChange={(e) =>
+                        setFormConfig({
+                          ...formConfig,
+                          emailNotifications: {
+                            ...formConfig.emailNotifications,
+                            registrationTicketEnabled: e.target.checked,
+                          },
+                        })
+                      }
+                      className="w-4 h-4 rounded text-sky-700 focus:ring-sky-500"
+                    />
+                  </label>
+                </div>
+
+                <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-5">
+                  <div className="flex items-start gap-3">
+                    <Send className="w-5 h-5 text-emerald-700 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900">
+                        Reminder Email Kajian
+                      </h4>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Pengiriman hanya dilakukan ketika admin menekan tombol
+                        kirim dan mengikuti batas broadcast email harian sistem.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200">
+                    <span className="text-xs font-bold text-emerald-950 block">
+                      Pemicu Admin
+                    </span>
+                    <span className="text-[11px] text-emerald-800">
+                      Reminder H-1 tidak memiliki jadwal otomatis dan hanya
+                      berjalan setelah admin menekan tombol kirim.
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                    <span className="text-[11px] text-slate-500">
+                      Kirim ulang e-tiket individual tersedia pada tab daftar
+                      peserta.
+                    </span>
+                    <button
+                      type="button"
+                      disabled={
+                        sendingReminder ||
+                        (eventData.emailRecipientCount || 0) === 0
+                      }
+                      onClick={() => setShowReminderConfirm(true)}
+                      className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold inline-flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Kirim Reminder Sekarang</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveFormConfig}
+                    disabled={saving}
+                    className="px-6 py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>
+                      {saving ? 'Menyimpan...' : 'Simpan Pengaturan Email'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 5: TATA TERTIB & SYARAT KAJIAN */}
+            {activeTab === 'rules' && (
+              <div className="space-y-6">
+                {/* Header Card with Toggle & Actions */}
+                <div className="p-5 bg-gradient-to-br from-amber-50/80 via-white to-orange-50/50 border border-amber-200 rounded-3xl shadow-2xs space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-200 text-amber-900 border border-amber-300">
+                          Aturan & Syarat Kajian
+                        </span>
+                        <span className="text-xs text-amber-800 font-semibold">
+                          Formulir Registrasi Online Jamaah
+                        </span>
+                      </div>
+                      <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                        <ScrollText className="w-5 h-5 text-amber-700" />
+                        <span>
+                          Tata Tertib Majelis Ilmu & Syarat Mengikuti Kajian
+                        </span>
+                      </h3>
+                      <p className="text-xs text-slate-600 max-w-2xl leading-relaxed">
+                        Atur tata tertib adab majelis ilmu, tata tertib khusus
+                        tempat/lokasi, serta syarat peserta. Jamaah wajib
+                        membaca dan menyetujui poin-poin ini di formulir
+                        pendaftaran sebelum dapat memperoleh e-tiket.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleResetRulesToDefault}
+                        className="px-3 py-2 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border border-amber-300 shadow-2xs active:scale-95"
+                        title="Kembalikan semua poin ke standar preset sunnah YTS"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5 text-amber-800" />
+                        <span>Preset Standar YTS</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowRulesPreview(!showRulesPreview)}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-2xs active:scale-95 ${
+                          showRulesPreview
+                            ? 'bg-slate-800 text-white border-slate-700'
+                            : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                        }`}
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>
+                          {showRulesPreview
+                            ? 'Tutup Pratinjau'
+                            : 'Pratinjau Jamaah'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Mandatory Agreement Switch */}
+                  <div className="pt-3 border-t border-amber-200/70 flex items-center justify-between">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formConfig.requireRulesAgreement !== false}
+                        onChange={(e) =>
+                          setFormConfig({
+                            ...formConfig,
+                            requireRulesAgreement: e.target.checked,
+                          })
+                        }
+                        className="w-4 h-4 rounded text-amber-700 focus:ring-amber-500 accent-amber-700"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-slate-900 block">
+                          Wajibkan Jamaah Membaca & Menyetujui Sebelum Mendaftar
+                        </span>
+                        <span className="text-[11px] text-slate-500 block">
+                          Jika diaktifkan, tombol pendaftaran online terkunci
+                          sampai jamaah mencentang kotak persetujuan.
+                        </span>
+                      </div>
+                    </label>
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                        formConfig.requireRulesAgreement !== false
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : 'bg-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {formConfig.requireRulesAgreement !== false
+                        ? 'Wajib (Aktif)'
+                        : 'Opsional'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Sub-fitur 1: Adab & Tata Tertib Majelis Ilmu (Umum) */}
+                <div className="p-5 bg-white border border-slate-200 rounded-3xl shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center font-bold text-sm">
+                        📜
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900">
+                          1. Tata Tertib & Adab Majelis Ilmu (Umum)
+                        </h4>
+                        <p className="text-[11px] text-slate-500">
+                          Poin-poin adab penuntut ilmu, kerapian pakaian syar'i,
+                          ketertiban, dan pemisahan shaf ikhwan/akhwat.
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-extrabold">
+                      {(formConfig.adabRules || []).length} Poin
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {(formConfig.adabRules || []).map((rule, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-start gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100/60 transition-colors group"
+                      >
+                        <span className="w-5 h-5 rounded-full bg-teal-800 text-white text-[10px] font-black flex items-center justify-center shrink-0 mt-1">
+                          {idx + 1}
+                        </span>
+                        <input
+                          type="text"
+                          value={rule}
+                          onChange={(e) =>
+                            handleUpdateAdabRule(idx, e.target.value)
+                          }
+                          className="flex-1 bg-transparent text-xs text-slate-800 font-medium focus:outline-none focus:bg-white focus:p-1.5 focus:border focus:border-teal-500 focus:rounded-lg"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAdabRule(idx)}
+                          className="p-1 text-slate-400 hover:text-rose-600 rounded-lg opacity-60 group-hover:opacity-100 transition-opacity"
+                          title="Hapus poin ini"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+
+                    {(!formConfig.adabRules ||
+                      formConfig.adabRules.length === 0) && (
+                      <p className="text-xs text-slate-400 italic py-2">
+                        Belum ada poin tata tertib umum majelis. Klik tombol
+                        "Preset Standar YTS" di atas untuk memuat tata tertib
+                        sunnah.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Add New Adab Rule */}
+                  <div className="flex gap-2 pt-2 border-t border-slate-100">
+                    <input
+                      type="text"
+                      placeholder="Tulis poin tata tertib adab majelis ilmu baru..."
+                      value={newAdabRule}
+                      onChange={(e) => setNewAdabRule(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddAdabRule();
+                        }
+                      }}
+                      className="flex-1 p-2.5 border border-slate-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddAdabRule}
+                      disabled={!newAdabRule.trim()}
+                      className="px-4 py-2 bg-teal-800 hover:bg-teal-900 disabled:opacity-40 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Tambah Poin</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sub-fitur 2: Tata Tertib Khusus Tempat / Lokasi Tertentu (Venue Rules) */}
+                <div className="p-5 bg-white border border-slate-200 rounded-3xl shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-sm">
+                        🕌
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900">
+                          2. Tata Tertib Khusus Tempat / Lokasi Tertentu (Venue
+                          Rules)
+                        </h4>
+                        <p className="text-[11px] text-slate-500">
+                          Aturan spesifik terkait lokasi (parkir warga, batas
+                          suci, penitipan sandal, area nursery balita).
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleApplyYtsVenuePreset}
+                      className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded-lg text-[11px] font-bold transition-all active:scale-95 cursor-pointer"
+                    >
+                      Contoh Aturan Masjid YTS
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-xs font-bold text-slate-700">
+                      Catatan Aturan Khusus Tempat / Venue (Bisa Diedit Bebas):
+                    </label>
+                    <textarea
+                      rows={4}
+                      placeholder="Contoh: Wajib menjaga batas suci masjid. Parkir kendaraan tertib hanya pada kantong parkir resmi yang diarahkan laskar (dilarang parkir di bahu jalan warga)..."
+                      value={formConfig.venueRulesText || ''}
+                      onChange={(e) => {
+                        setFormConfig({
+                          ...formConfig,
+                          venueRulesText: e.target.value,
+                        });
+                        setCustomVenueRules(e.target.value);
+                      }}
+                      className="w-full p-3 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none font-sans leading-relaxed"
+                    />
+                    <p className="text-[11px] text-slate-500">
+                      Jika dikosongkan, bagian aturan khusus tempat tidak akan
+                      dimunculkan di formulir pendaftaran jamaah.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Sub-fitur 3: Syarat Mengikuti Kajian (Requirements) */}
+                <div className="p-5 bg-white border border-slate-200 rounded-3xl shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-sm">
+                        📋
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900">
+                          3. Syarat Mengikuti Kajian (Requirements)
+                        </h4>
+                        <p className="text-[11px] text-slate-500">
+                          Persyaratan wajib bagi peserta (kepemilikan e-tiket,
+                          mushaf/kitab catatan, kehadiran sebelum acara).
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-extrabold">
+                      {(formConfig.participantRequirements || []).length} Syarat
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {(formConfig.participantRequirements || []).map(
+                      (req, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-start gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100/60 transition-colors group"
+                        >
+                          <span className="w-5 h-5 rounded-full bg-emerald-700 text-white text-[10px] font-black flex items-center justify-center shrink-0 mt-1">
+                            ✓
+                          </span>
+                          <input
+                            type="text"
+                            value={req}
+                            onChange={(e) =>
+                              handleUpdateRequirement(idx, e.target.value)
+                            }
+                            className="flex-1 bg-transparent text-xs text-slate-800 font-medium focus:outline-none focus:bg-white focus:p-1.5 focus:border focus:border-emerald-500 focus:rounded-lg"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveRequirement(idx)}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded-lg opacity-60 group-hover:opacity-100 transition-opacity"
+                            title="Hapus syarat ini"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ),
+                    )}
+
+                    {(!formConfig.participantRequirements ||
+                      formConfig.participantRequirements.length === 0) && (
+                      <p className="text-xs text-slate-400 italic py-2">
+                        Belum ada poin syarat kajian. Tambahkan di bawah atau
+                        gunakan preset YTS.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Add New Requirement */}
+                  <div className="flex gap-2 pt-2 border-t border-slate-100">
+                    <input
+                      type="text"
+                      placeholder="Tulis syarat baru (misal: Membawa mushaf Al-Qur'an dan kitab rujukan)..."
+                      value={newRequirement}
+                      onChange={(e) => setNewRequirement(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddRequirement();
+                        }
+                      }}
+                      className="flex-1 p-2.5 border border-slate-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddRequirement}
+                      disabled={!newRequirement.trim()}
+                      className="px-4 py-2 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-40 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Tambah Syarat</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sub-fitur 4: Edukasi Adab Penuntut Ilmu (Modal Guide) */}
+                <div className="p-5 bg-white border border-slate-200 rounded-3xl shadow-2xs space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center font-bold text-sm">
+                      📖
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900">
+                        4. Panduan & Dalil Adab Penuntut Ilmu (Edukasi Jamaah)
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Teks penjelasan ini akan muncul di jendela dialog saat
+                        jamaah mengklik tombol "Baca Penjelasan Lengkap Adab
+                        Majelis Ilmu" di formulir pendaftaran.
+                      </p>
+                    </div>
+                  </div>
+
+                  <textarea
+                    rows={5}
+                    value={formConfig.rulesModalDetail || ''}
+                    onChange={(e) =>
+                      setFormConfig({
+                        ...formConfig,
+                        rulesModalDetail: e.target.value,
+                      })
+                    }
+                    className="w-full p-3 border border-slate-300 rounded-xl text-xs font-sans focus:ring-2 focus:ring-indigo-500 focus:outline-none leading-relaxed font-mono"
+                  />
+                </div>
+
+                {/* Sub-fitur 5: Live Preview Box */}
+                {showRulesPreview && (
+                  <div className="p-5 bg-amber-50/60 border-2 border-amber-300 rounded-3xl space-y-3 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between border-b border-amber-200 pb-2">
+                      <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                        <Eye className="w-4 h-4 text-amber-800" /> Pratinjau
+                        Tampilan Jamaah di Formulir Pendaftaran:
+                      </span>
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">
+                        Live Preview
+                      </span>
+                    </div>
+
+                    {/* Card Preview */}
+                    <div className="p-4 bg-white rounded-2xl border border-amber-200 space-y-3 shadow-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">📜</span>
+                        <span className="text-xs font-bold text-slate-900">
+                          Tata Tertib & Adab Majelis Ilmu
+                        </span>
+                      </div>
+                      <ul className="space-y-1 text-xs text-slate-700 list-disc list-inside">
+                        {(formConfig.adabRules || DEFAULT_ADAB_RULES)
+                          .slice(0, 4)
+                          .map((r, i) => (
+                            <li key={i}>{r}</li>
+                          ))}
+                        {(formConfig.adabRules || []).length > 4 && (
+                          <li className="text-amber-800 font-semibold list-none pl-4">
+                            + {(formConfig.adabRules || []).length - 4} poin
+                            tata tertib lainnya...
+                          </li>
+                        )}
+                      </ul>
+
+                      {formConfig.venueRulesText && (
+                        <div className="pt-2 border-t border-slate-100">
+                          <span className="text-xs font-bold text-amber-950 block mb-1">
+                            🕌 Aturan Khusus Lokasi / Tempat:
+                          </span>
+                          <p className="text-xs text-slate-600 whitespace-pre-line leading-relaxed">
+                            {formConfig.venueRulesText}
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="pt-2 border-t border-slate-100">
+                        <span className="text-xs font-bold text-emerald-950 block mb-1">
+                          📋 Syarat Mengikuti Kajian:
+                        </span>
+                        <ul className="space-y-1 text-xs text-slate-700 list-disc list-inside">
+                          {(
+                            formConfig.participantRequirements ||
+                            DEFAULT_PARTICIPANT_REQUIREMENTS
+                          ).map((req, i) => (
+                            <li key={i}>{req}</li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div className="pt-2 border-t border-amber-100">
+                        <label className="flex items-start gap-2 text-xs text-slate-800 font-semibold">
                           <input
                             type="checkbox"
-                            checked={newFieldRequired}
-                            onChange={(e) => setNewFieldRequired(e.target.checked)}
-                            className="rounded text-teal-600 focus:ring-teal-500"
+                            checked={true}
+                            readOnly
+                            className="mt-0.5 rounded text-amber-700"
                           />
-                          <span>Wajib Diisi oleh Jamaah</span>
+                          <span>
+                            Saya telah membaca, memahami, dan berkomitmen
+                            mematuhi seluruh Tata Tertib Majelis Ilmu serta
+                            Syarat Kajian di atas. *
+                          </span>
                         </label>
                       </div>
                     </div>
-
-                    <div className="flex items-center justify-end gap-2 pt-2">
-                      <button
-                        type="button"
-                        onClick={() => setShowAddField(false)}
-                        className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-lg"
-                      >
-                        Batal
-                      </button>
-                      <button
-                        type="submit"
-                        className="px-4 py-1.5 bg-teal-800 hover:bg-teal-900 text-white text-xs font-bold rounded-lg shadow-xs"
-                      >
-                        Tambahkan Pertanyaan
-                      </button>
-                    </div>
-                  </form>
+                  </div>
                 )}
-              </div>
 
-              {/* Template WhatsApp Konfirmasi */}
-              <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-3">
-                <h4 className="text-sm font-bold text-slate-900">Template Pesan WhatsApp Konfirmasi</h4>
-                <p className="text-xs text-slate-500">
-                  Gunakan placeholder <code>&#123;&#123;ticket_code&#125;&#125;</code> untuk nomor tiket otomatis.
-                </p>
-                <textarea
-                  rows={3}
-                  value={formConfig.whatsappMessageTemplate || ''}
-                  onChange={(e) => setFormConfig({ ...formConfig, whatsappMessageTemplate: e.target.value })}
-                  className="w-full p-3 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none font-mono"
-                />
-              </div>
-
-              {/* Tautan Grup WhatsApp Tersegmentasi */}
-              <div className="p-5 bg-emerald-50/70 border border-emerald-200 rounded-2xl space-y-4">
-                <div>
-                  <h4 className="text-sm font-bold text-emerald-950">Tautan Grup WhatsApp Peserta</h4>
-                  <p className="mt-1 text-xs leading-relaxed text-emerald-800">
-                    Tautan hanya ditampilkan sesudah pendaftaran dan dibedakan otomatis berdasarkan gender peserta. Gunakan tautan undangan resmi WhatsApp.
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-emerald-950 mb-1.5">Grup Ikhwan</label>
-                  <input
-                    type="url"
-                    placeholder="https://chat.whatsapp.com/..."
-                    value={formConfig.whatsappGroupIkhwanUrl || ''}
-                    onChange={(e) => setFormConfig({ ...formConfig, whatsappGroupIkhwanUrl: e.target.value })}
-                    className="w-full p-3 border border-emerald-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-600 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-emerald-950 mb-1.5">Grup Akhwat</label>
-                  <input
-                    type="url"
-                    placeholder="https://chat.whatsapp.com/..."
-                    value={formConfig.whatsappGroupAkhwatUrl || ''}
-                    onChange={(e) => setFormConfig({ ...formConfig, whatsappGroupAkhwatUrl: e.target.value })}
-                    className="w-full p-3 border border-emerald-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-600 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={handleSaveFormConfig}
-                  disabled={saving}
-                  className="px-6 py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50"
-                >
-                  {saving ? 'Menyimpan...' : 'Simpan Seluruh Konfigurasi Form Builder'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 4: EMAIL KAJIAN */}
-          {activeTab === 'email' && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="p-4 bg-white rounded-2xl border border-sky-200 shadow-2xs">
-                  <span className="text-[10px] font-bold uppercase text-sky-700 block">Penerima Email</span>
-                  <span className="mt-1 block text-2xl font-black text-sky-950">{eventData.emailRecipientCount || 0}</span>
-                  <span className="text-[11px] text-slate-500">alamat unik peserta</span>
-                </div>
-                <div className="p-4 bg-white rounded-2xl border border-emerald-200 shadow-2xs">
-                  <span className="text-[10px] font-bold uppercase text-emerald-700 block">Reminder Terkirim</span>
-                  <span className="mt-1 block text-2xl font-black text-emerald-950">{eventData.emailReminderSentCount || 0}</span>
-                  <span className="text-[11px] text-slate-500">penanda pengiriman H-1</span>
-                </div>
-                <div className="p-4 bg-white rounded-2xl border border-amber-200 shadow-2xs">
-                  <span className="text-[10px] font-bold uppercase text-amber-700 block">Zona Waktu Email</span>
-                  <span className="mt-1 block text-2xl font-black text-amber-950">WIB</span>
-                  <span className="text-[11px] text-slate-500">Asia/Jakarta</span>
-                </div>
-              </div>
-
-              <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-5">
-                <div className="flex items-start gap-3">
-                  <Mail className="w-5 h-5 text-sky-700 mt-0.5" />
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-900">Pengiriman E-Tiket</h4>
-                    <p className="text-xs text-slate-500 mt-1">E-tiket selalu dibentuk dari judul, pemateri, waktu, dan lokasi kajian yang tersimpan saat ini.</p>
-                  </div>
-                </div>
-                <label className="flex items-center justify-between gap-4 p-3.5 rounded-xl bg-sky-50 border border-sky-200 cursor-pointer">
-                  <div>
-                    <span className="text-xs font-bold text-sky-950 block">E-tiket otomatis setelah pendaftaran</span>
-                    <span className="text-[11px] text-sky-800">Hanya dikirim bila peserta mengisi alamat email.</span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={formConfig.emailNotifications?.registrationTicketEnabled !== false}
-                    onChange={(e) => setFormConfig({
-                      ...formConfig,
-                      emailNotifications: {
-                        ...formConfig.emailNotifications,
-                        registrationTicketEnabled: e.target.checked,
-                      },
-                    })}
-                    className="w-4 h-4 rounded text-sky-700 focus:ring-sky-500"
-                  />
-                </label>
-              </div>
-
-              <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-5">
-                <div className="flex items-start gap-3">
-                  <Send className="w-5 h-5 text-emerald-700 mt-0.5" />
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-900">Reminder Email Kajian</h4>
-                    <p className="text-xs text-slate-500 mt-1">Pengiriman hanya dilakukan ketika admin menekan tombol kirim dan mengikuti batas broadcast email harian sistem.</p>
-                  </div>
-                </div>
-                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200">
-                  <span className="text-xs font-bold text-emerald-950 block">Pemicu Admin</span>
-                  <span className="text-[11px] text-emerald-800">Reminder H-1 tidak memiliki jadwal otomatis dan hanya berjalan setelah admin menekan tombol kirim.</span>
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-                  <span className="text-[11px] text-slate-500">Kirim ulang e-tiket individual tersedia pada tab daftar peserta.</span>
+                {/* Save Button for Rules Tab */}
+                <div className="flex justify-end gap-3 pt-2">
                   <button
                     type="button"
-                    disabled={sendingReminder || (eventData.emailRecipientCount || 0) === 0}
-                    onClick={() => setShowReminderConfirm(true)}
-                    className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold inline-flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                    onClick={handleSaveFormConfig}
+                    disabled={saving}
+                    className="px-6 py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2"
                   >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>Kirim Reminder Sekarang</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={handleSaveFormConfig}
-                  disabled={saving}
-                  className="px-6 py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>{saving ? 'Menyimpan...' : 'Simpan Pengaturan Email'}</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 5: TATA TERTIB & SYARAT KAJIAN */}
-          {activeTab === 'rules' && (
-            <div className="space-y-6">
-              {/* Header Card with Toggle & Actions */}
-              <div className="p-5 bg-gradient-to-br from-amber-50/80 via-white to-orange-50/50 border border-amber-200 rounded-3xl shadow-2xs space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-200 text-amber-900 border border-amber-300">
-                        Aturan & Syarat Kajian
-                      </span>
-                      <span className="text-xs text-amber-800 font-semibold">
-                        Formulir Registrasi Online Jamaah
-                      </span>
-                    </div>
-                    <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
-                      <ScrollText className="w-5 h-5 text-amber-700" />
-                      <span>Tata Tertib Majelis Ilmu & Syarat Mengikuti Kajian</span>
-                    </h3>
-                    <p className="text-xs text-slate-600 max-w-2xl leading-relaxed">
-                      Atur tata tertib adab majelis ilmu, tata tertib khusus tempat/lokasi, serta syarat peserta. Jamaah wajib membaca dan menyetujui poin-poin ini di formulir pendaftaran sebelum dapat memperoleh e-tiket.
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2 flex-wrap shrink-0">
-                    <button
-                      type="button"
-                      onClick={handleResetRulesToDefault}
-                      className="px-3 py-2 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border border-amber-300 shadow-2xs active:scale-95"
-                      title="Kembalikan semua poin ke standar preset sunnah YTS"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5 text-amber-800" />
-                      <span>Preset Standar YTS</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowRulesPreview(!showRulesPreview)}
-                      className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-2xs active:scale-95 ${
-                        showRulesPreview
-                          ? 'bg-slate-800 text-white border-slate-700'
-                          : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
-                      }`}
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>{showRulesPreview ? 'Tutup Pratinjau' : 'Pratinjau Jamaah'}</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Mandatory Agreement Switch */}
-                <div className="pt-3 border-t border-amber-200/70 flex items-center justify-between">
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formConfig.requireRulesAgreement !== false}
-                      onChange={(e) =>
-                        setFormConfig({ ...formConfig, requireRulesAgreement: e.target.checked })
-                      }
-                      className="w-4 h-4 rounded text-amber-700 focus:ring-amber-500 accent-amber-700"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-slate-900 block">
-                        Wajibkan Jamaah Membaca & Menyetujui Sebelum Mendaftar
-                      </span>
-                      <span className="text-[11px] text-slate-500 block">
-                        Jika diaktifkan, tombol pendaftaran online terkunci sampai jamaah mencentang kotak persetujuan.
-                      </span>
-                    </div>
-                  </label>
-                  <span
-                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
-                      formConfig.requireRulesAgreement !== false
-                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                        : 'bg-slate-200 text-slate-600'
-                    }`}
-                  >
-                    {formConfig.requireRulesAgreement !== false ? 'Wajib (Aktif)' : 'Opsional'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Sub-fitur 1: Adab & Tata Tertib Majelis Ilmu (Umum) */}
-              <div className="p-5 bg-white border border-slate-200 rounded-3xl shadow-2xs space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center font-bold text-sm">
-                      📜
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-900">
-                        1. Tata Tertib & Adab Majelis Ilmu (Umum)
-                      </h4>
-                      <p className="text-[11px] text-slate-500">
-                        Poin-poin adab penuntut ilmu, kerapian pakaian syar'i, ketertiban, dan pemisahan shaf ikhwan/akhwat.
-                      </p>
-                    </div>
-                  </div>
-                  <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-extrabold">
-                    {(formConfig.adabRules || []).length} Poin
-                  </span>
-                </div>
-
-                <div className="space-y-2">
-                  {(formConfig.adabRules || []).map((rule, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-start gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100/60 transition-colors group"
-                    >
-                      <span className="w-5 h-5 rounded-full bg-teal-800 text-white text-[10px] font-black flex items-center justify-center shrink-0 mt-1">
-                        {idx + 1}
-                      </span>
-                      <input
-                        type="text"
-                        value={rule}
-                        onChange={(e) => handleUpdateAdabRule(idx, e.target.value)}
-                        className="flex-1 bg-transparent text-xs text-slate-800 font-medium focus:outline-none focus:bg-white focus:p-1.5 focus:border focus:border-teal-500 focus:rounded-lg"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveAdabRule(idx)}
-                        className="p-1 text-slate-400 hover:text-rose-600 rounded-lg opacity-60 group-hover:opacity-100 transition-opacity"
-                        title="Hapus poin ini"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-
-                  {(!formConfig.adabRules || formConfig.adabRules.length === 0) && (
-                    <p className="text-xs text-slate-400 italic py-2">
-                      Belum ada poin tata tertib umum majelis. Klik tombol "Preset Standar YTS" di atas untuk memuat tata tertib sunnah.
-                    </p>
-                  )}
-                </div>
-
-                {/* Add New Adab Rule */}
-                <div className="flex gap-2 pt-2 border-t border-slate-100">
-                  <input
-                    type="text"
-                    placeholder="Tulis poin tata tertib adab majelis ilmu baru..."
-                    value={newAdabRule}
-                    onChange={(e) => setNewAdabRule(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddAdabRule();
-                      }
-                    }}
-                    className="flex-1 p-2.5 border border-slate-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddAdabRule}
-                    disabled={!newAdabRule.trim()}
-                    className="px-4 py-2 bg-teal-800 hover:bg-teal-900 disabled:opacity-40 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shrink-0"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Tambah Poin</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Sub-fitur 2: Tata Tertib Khusus Tempat / Lokasi Tertentu (Venue Rules) */}
-              <div className="p-5 bg-white border border-slate-200 rounded-3xl shadow-2xs space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-sm">
-                      🕌
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-900">
-                        2. Tata Tertib Khusus Tempat / Lokasi Tertentu (Venue Rules)
-                      </h4>
-                      <p className="text-[11px] text-slate-500">
-                        Aturan spesifik terkait lokasi (parkir warga, batas suci, penitipan sandal, area nursery balita).
-                      </p>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleApplyYtsVenuePreset}
-                    className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded-lg text-[11px] font-bold transition-all active:scale-95 cursor-pointer"
-                  >
-                    Contoh Aturan Masjid YTS
-                  </button>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="block text-xs font-bold text-slate-700">
-                    Catatan Aturan Khusus Tempat / Venue (Bisa Diedit Bebas):
-                  </label>
-                  <textarea
-                    rows={4}
-                    placeholder="Contoh: Wajib menjaga batas suci masjid. Parkir kendaraan tertib hanya pada kantong parkir resmi yang diarahkan laskar (dilarang parkir di bahu jalan warga)..."
-                    value={formConfig.venueRulesText || ''}
-                    onChange={(e) => {
-                      setFormConfig({ ...formConfig, venueRulesText: e.target.value });
-                      setCustomVenueRules(e.target.value);
-                    }}
-                    className="w-full p-3 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none font-sans leading-relaxed"
-                  />
-                  <p className="text-[11px] text-slate-500">
-                    Jika dikosongkan, bagian aturan khusus tempat tidak akan dimunculkan di formulir pendaftaran jamaah.
-                  </p>
-                </div>
-              </div>
-
-              {/* Sub-fitur 3: Syarat Mengikuti Kajian (Requirements) */}
-              <div className="p-5 bg-white border border-slate-200 rounded-3xl shadow-2xs space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-sm">
-                      📋
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-900">
-                        3. Syarat Mengikuti Kajian (Requirements)
-                      </h4>
-                      <p className="text-[11px] text-slate-500">
-                        Persyaratan wajib bagi peserta (kepemilikan e-tiket, mushaf/kitab catatan, kehadiran sebelum acara).
-                      </p>
-                    </div>
-                  </div>
-                  <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-extrabold">
-                    {(formConfig.participantRequirements || []).length} Syarat
-                  </span>
-                </div>
-
-                <div className="space-y-2">
-                  {(formConfig.participantRequirements || []).map((req, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-start gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100/60 transition-colors group"
-                    >
-                      <span className="w-5 h-5 rounded-full bg-emerald-700 text-white text-[10px] font-black flex items-center justify-center shrink-0 mt-1">
-                        ✓
-                      </span>
-                      <input
-                        type="text"
-                        value={req}
-                        onChange={(e) => handleUpdateRequirement(idx, e.target.value)}
-                        className="flex-1 bg-transparent text-xs text-slate-800 font-medium focus:outline-none focus:bg-white focus:p-1.5 focus:border focus:border-emerald-500 focus:rounded-lg"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveRequirement(idx)}
-                        className="p-1 text-slate-400 hover:text-rose-600 rounded-lg opacity-60 group-hover:opacity-100 transition-opacity"
-                        title="Hapus syarat ini"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-
-                  {(!formConfig.participantRequirements || formConfig.participantRequirements.length === 0) && (
-                    <p className="text-xs text-slate-400 italic py-2">
-                      Belum ada poin syarat kajian. Tambahkan di bawah atau gunakan preset YTS.
-                    </p>
-                  )}
-                </div>
-
-                {/* Add New Requirement */}
-                <div className="flex gap-2 pt-2 border-t border-slate-100">
-                  <input
-                    type="text"
-                    placeholder="Tulis syarat baru (misal: Membawa mushaf Al-Qur'an dan kitab rujukan)..."
-                    value={newRequirement}
-                    onChange={(e) => setNewRequirement(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddRequirement();
-                      }
-                    }}
-                    className="flex-1 p-2.5 border border-slate-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddRequirement}
-                    disabled={!newRequirement.trim()}
-                    className="px-4 py-2 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-40 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shrink-0"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Tambah Syarat</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Sub-fitur 4: Edukasi Adab Penuntut Ilmu (Modal Guide) */}
-              <div className="p-5 bg-white border border-slate-200 rounded-3xl shadow-2xs space-y-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center font-bold text-sm">
-                    📖
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-900">
-                      4. Panduan & Dalil Adab Penuntut Ilmu (Edukasi Jamaah)
-                    </h4>
-                    <p className="text-[11px] text-slate-500">
-                      Teks penjelasan ini akan muncul di jendela dialog saat jamaah mengklik tombol "Baca Penjelasan Lengkap Adab Majelis Ilmu" di formulir pendaftaran.
-                    </p>
-                  </div>
-                </div>
-
-                <textarea
-                  rows={5}
-                  value={formConfig.rulesModalDetail || ''}
-                  onChange={(e) => setFormConfig({ ...formConfig, rulesModalDetail: e.target.value })}
-                  className="w-full p-3 border border-slate-300 rounded-xl text-xs font-sans focus:ring-2 focus:ring-indigo-500 focus:outline-none leading-relaxed font-mono"
-                />
-              </div>
-
-              {/* Sub-fitur 5: Live Preview Box */}
-              {showRulesPreview && (
-                <div className="p-5 bg-amber-50/60 border-2 border-amber-300 rounded-3xl space-y-3 animate-in fade-in duration-200">
-                  <div className="flex items-center justify-between border-b border-amber-200 pb-2">
-                    <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
-                      <Eye className="w-4 h-4 text-amber-800" /> Pratinjau Tampilan Jamaah di Formulir Pendaftaran:
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>
+                      {saving
+                        ? 'Menyimpan...'
+                        : 'Simpan Seluruh Tata Tertib & Syarat Kajian'}
                     </span>
-                    <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">
-                      Live Preview
-                    </span>
-                  </div>
-
-                  {/* Card Preview */}
-                  <div className="p-4 bg-white rounded-2xl border border-amber-200 space-y-3 shadow-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm">📜</span>
-                      <span className="text-xs font-bold text-slate-900">Tata Tertib & Adab Majelis Ilmu</span>
-                    </div>
-                    <ul className="space-y-1 text-xs text-slate-700 list-disc list-inside">
-                      {(formConfig.adabRules || DEFAULT_ADAB_RULES).slice(0, 4).map((r, i) => (
-                        <li key={i}>{r}</li>
-                      ))}
-                      {(formConfig.adabRules || []).length > 4 && (
-                        <li className="text-amber-800 font-semibold list-none pl-4">
-                          + {(formConfig.adabRules || []).length - 4} poin tata tertib lainnya...
-                        </li>
-                      )}
-                    </ul>
-
-                    {formConfig.venueRulesText && (
-                      <div className="pt-2 border-t border-slate-100">
-                        <span className="text-xs font-bold text-amber-950 block mb-1">
-                          🕌 Aturan Khusus Lokasi / Tempat:
-                        </span>
-                        <p className="text-xs text-slate-600 whitespace-pre-line leading-relaxed">
-                          {formConfig.venueRulesText}
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="pt-2 border-t border-slate-100">
-                      <span className="text-xs font-bold text-emerald-950 block mb-1">
-                        📋 Syarat Mengikuti Kajian:
-                      </span>
-                      <ul className="space-y-1 text-xs text-slate-700 list-disc list-inside">
-                        {(formConfig.participantRequirements || DEFAULT_PARTICIPANT_REQUIREMENTS).map((req, i) => (
-                          <li key={i}>{req}</li>
-                        ))}
-                      </ul>
-                    </div>
-
-                    <div className="pt-2 border-t border-amber-100">
-                      <label className="flex items-start gap-2 text-xs text-slate-800 font-semibold">
-                        <input type="checkbox" checked={true} readOnly className="mt-0.5 rounded text-amber-700" />
-                        <span>
-                          Saya telah membaca, memahami, dan berkomitmen mematuhi seluruh Tata Tertib Majelis Ilmu serta Syarat Kajian di atas. *
-                        </span>
-                      </label>
-                    </div>
-                  </div>
+                  </button>
                 </div>
-              )}
-
-              {/* Save Button for Rules Tab */}
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={handleSaveFormConfig}
-                  disabled={saving}
-                  className="px-6 py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>{saving ? 'Menyimpan...' : 'Simpan Seluruh Tata Tertib & Syarat Kajian'}</span>
-                </button>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
 
-        {/* Modal Footer */}
-        <div className="p-4 bg-slate-100 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 shrink-0">
-          <span>ID Acara: <code>{eventData.id}</code></span>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl"
-          >
-            Tutup
-          </button>
+          {/* Modal Footer */}
+          <div className="p-4 bg-slate-100 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 shrink-0">
+            <span>
+              ID Acara: <code>{eventData.id}</code>
+            </span>
+            <button
+              onClick={onClose}
+              className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl"
+            >
+              Tutup
+            </button>
+          </div>
         </div>
       </div>
-    </div>
 
       {/* SUB-MODAL: MANUAL ADD PARTICIPANT */}
       {showAddParticipant && (
@@ -3000,7 +3886,9 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
             <div className="flex items-center justify-between border-b pb-3">
               <div>
                 <h4 className="text-base font-bold text-slate-900">
-                  {manualIsInvite ? '✨ Tambah Tamu Undangan (VIP)' : 'Tambah Peserta Reguler'}
+                  {manualIsInvite
+                    ? '✨ Tambah Tamu Undangan (VIP)'
+                    : 'Tambah Peserta Reguler'}
                 </h4>
                 <span className="text-[11px] text-slate-500">
                   {manualIsInvite
@@ -3047,17 +3935,21 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
             {manualIsInvite && (
               <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-2xl text-[11px] text-amber-900 space-y-1">
                 <span className="font-bold flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-600" /> Tamu Undangan Khusus (VIP)
+                  <Sparkles className="w-3.5 h-3.5 text-amber-600" /> Tamu
+                  Undangan Khusus (VIP)
                 </span>
                 <p className="text-amber-800">
-                  Peserta ini dialokasikan ke kuota undangan khusus dan akan menerima e-tiket VIP resmi dengan QR Code presensi.
+                  Peserta ini dialokasikan ke kuota undangan khusus dan akan
+                  menerima e-tiket VIP resmi dengan QR Code presensi.
                 </p>
               </div>
             )}
 
             <form onSubmit={handleManualAddParticipant} className="space-y-3">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Nama Lengkap Jamaah *</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Nama Lengkap Jamaah *
+                </label>
                 <input
                   type="text"
                   required
@@ -3069,7 +3961,9 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Nomor WhatsApp *</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Nomor WhatsApp *
+                </label>
                 <input
                   type="tel"
                   required
@@ -3082,7 +3976,9 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Kategori Gender</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Kategori Gender
+                  </label>
                   <select
                     value={manualGender}
                     onChange={(e) => setManualGender(e.target.value as any)}
@@ -3093,12 +3989,18 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Usia (Tahun)</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Usia (Tahun)
+                  </label>
                   <input
                     type="number"
                     placeholder="Contoh: 35"
                     value={manualAge}
-                    onChange={(e) => setManualAge(e.target.value === '' ? '' : Number(e.target.value))}
+                    onChange={(e) =>
+                      setManualAge(
+                        e.target.value === '' ? '' : Number(e.target.value),
+                      )
+                    }
                     className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
                   />
                 </div>
@@ -3106,7 +4008,9 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Kota / Domisili</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Kota / Domisili
+                  </label>
                   <input
                     type="text"
                     placeholder="Bandung"
@@ -3116,7 +4020,9 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Email (Opsional)</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Email (Opsional)
+                  </label>
                   <input
                     type="email"
                     placeholder="email@domain.com"
@@ -3144,10 +4050,14 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Kendaraan</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Kendaraan
+                  </label>
                   <select
                     value={manualVehicleType}
-                    onChange={(e) => setManualVehicleType(e.target.value as any)}
+                    onChange={(e) =>
+                      setManualVehicleType(e.target.value as any)
+                    }
                     className="w-full p-2.5 border border-slate-300 rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
                   >
                     <option value="none">Tanpa Kendaraan</option>
@@ -3156,7 +4066,9 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Plat Nomor</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Plat Nomor
+                  </label>
                   <input
                     type="text"
                     placeholder="D 1234 ABC"
@@ -3184,7 +4096,11 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                       : 'bg-teal-800 hover:bg-teal-900'
                   }`}
                 >
-                  {manualSubmitting ? 'Menyimpan...' : manualIsInvite ? '✨ Daftarkan Tamu VIP' : 'Simpan & Daftarkan'}
+                  {manualSubmitting
+                    ? 'Menyimpan...'
+                    : manualIsInvite
+                      ? '✨ Daftarkan Tamu VIP'
+                      : 'Simpan & Daftarkan'}
                 </button>
               </div>
             </form>
@@ -3203,9 +4119,13 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                 </div>
                 <div>
                   <h4 className="text-base font-bold text-slate-900">
-                    {ticketModalData.isSpecialInvite ? 'Tamu Undangan Terdaftar!' : 'Peserta Berhasil Didaftarkan!'}
+                    {ticketModalData.isSpecialInvite
+                      ? 'Tamu Undangan Terdaftar!'
+                      : 'Peserta Berhasil Didaftarkan!'}
                   </h4>
-                  <span className="text-xs text-slate-500">Tiket & QR Code siap dikirimkan</span>
+                  <span className="text-xs text-slate-500">
+                    Tiket & QR Code siap dikirimkan
+                  </span>
                 </div>
               </div>
               <button
@@ -3230,28 +4150,40 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                 <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 block">
                   KODE E-TIKET PRESENSI
                 </span>
-                <span className="text-xl font-black font-mono text-teal-950">{ticketModalData.ticketCode}</span>
+                <span className="text-xl font-black font-mono text-teal-950">
+                  {ticketModalData.ticketCode}
+                </span>
               </div>
 
               <div className="text-left text-xs border-t border-slate-200 pt-2 space-y-1">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Nama:</span>
-                  <strong className="text-slate-900">{ticketModalData.personName}</strong>
+                  <strong className="text-slate-900">
+                    {ticketModalData.personName}
+                  </strong>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Nomor WhatsApp:</span>
-                  <span className="font-mono text-slate-700">{ticketModalData.phone}</span>
+                  <span className="font-mono text-slate-700">
+                    {ticketModalData.phone}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Jalur Pendaftaran:</span>
-                  <span className={`font-bold ${ticketModalData.isSpecialInvite ? 'text-amber-700' : 'text-teal-700'}`}>
-                    {ticketModalData.isSpecialInvite ? '✨ Undangan Khusus (VIP)' : '🏛️ Jalur Reguler'}
+                  <span
+                    className={`font-bold ${ticketModalData.isSpecialInvite ? 'text-amber-700' : 'text-teal-700'}`}
+                  >
+                    {ticketModalData.isSpecialInvite
+                      ? '✨ Undangan Khusus (VIP)'
+                      : '🏛️ Jalur Reguler'}
                   </span>
                 </div>
                 {ticketModalData.inviteNotes && (
                   <div className="flex justify-between">
                     <span className="text-slate-500">Catatan Undangan:</span>
-                    <span className="font-medium text-slate-800">{ticketModalData.inviteNotes}</span>
+                    <span className="font-medium text-slate-800">
+                      {ticketModalData.inviteNotes}
+                    </span>
                   </div>
                 )}
               </div>
@@ -3291,7 +4223,11 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
                   }}
                   className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 border border-slate-300"
                 >
-                  {copiedWaMsg ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedWaMsg ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
                   <span>{copiedWaMsg ? 'Tersalin!' : 'Salin Pesan Tiket'}</span>
                 </button>
 
@@ -3367,8 +4303,15 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
           title="Kirim Reminder Email Sekarang?"
           message={
             <div className="space-y-2">
-              <p>Reminder akan dikirim ke maksimal <strong>{eventData?.emailRecipientCount || 0}</strong> alamat email unik peserta kajian ini.</p>
-              <p className="text-[11px] text-amber-800">Batas broadcast email harian tetap diterapkan. Peserta tanpa email tidak akan dihubungi.</p>
+              <p>
+                Reminder akan dikirim ke maksimal{' '}
+                <strong>{eventData?.emailRecipientCount || 0}</strong> alamat
+                email unik peserta kajian ini.
+              </p>
+              <p className="text-[11px] text-amber-800">
+                Batas broadcast email harian tetap diterapkan. Peserta tanpa
+                email tidak akan dihubungi.
+              </p>
             </div>
           }
           confirmLabel="Kirim Reminder"
@@ -3403,43 +4346,65 @@ export const EventManageModal: React.FC<EventManageModalProps> = ({
             <div className="space-y-3 text-left">
               <p className="text-xs text-slate-600 leading-relaxed">
                 Apakah Anda yakin ingin menghapus pendaftaran atas nama{' '}
-                <strong className="text-slate-900 font-bold">{deletingParticipant.personName}</strong>{' '}
-                (Tiket: <span className="font-mono font-bold text-teal-800">{deletingParticipant.ticketCode || '-'}</span>)?
+                <strong className="text-slate-900 font-bold">
+                  {deletingParticipant.personName}
+                </strong>{' '}
+                (Tiket:{' '}
+                <span className="font-mono font-bold text-teal-800">
+                  {deletingParticipant.ticketCode || '-'}
+                </span>
+                )?
               </p>
 
               <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-[11px] font-semibold flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>Kuota kajian akan otomatis bertambah kembali setelah pendaftar dihapus.</span>
+                <span>
+                  Kuota kajian akan otomatis bertambah kembali setelah pendaftar
+                  dihapus.
+                </span>
               </div>
 
-              {deletingParticipant.registrationGroupId && (() => {
-                const groupCount = (eventData?.participants || []).filter(
-                  (m) => m.registrationGroupId === deletingParticipant.registrationGroupId
-                ).length;
+              {deletingParticipant.registrationGroupId &&
+                (() => {
+                  const groupCount = (eventData?.participants || []).filter(
+                    (m) =>
+                      m.registrationGroupId ===
+                      deletingParticipant.registrationGroupId,
+                  ).length;
 
-                if (groupCount > 1) {
-                  return (
-                    <label className="flex items-start gap-2.5 p-2.5 bg-amber-50 border border-amber-200 rounded-xl cursor-pointer hover:bg-amber-100/60 transition-colors">
-                      <input
-                        type="checkbox"
-                        checked={deleteGroupCheckbox}
-                        onChange={(e) => setDeleteGroupCheckbox(e.target.checked)}
-                        className="rounded text-rose-600 focus:ring-rose-500 w-4 h-4 mt-0.5"
-                      />
-                      <div className="text-[11px] text-amber-950">
-                        <span className="font-bold block">Pendaftaran Rombongan / Keluarga</span>
-                        <span className="text-amber-800">
-                          Hapus seluruh anggota rombongan ini sekaligus (<strong>{groupCount} orang</strong>) untuk mengembalikan seluruh kuota rombongan.
-                        </span>
-                      </div>
-                    </label>
-                  );
-                }
-                return null;
-              })()}
+                  if (groupCount > 1) {
+                    return (
+                      <label className="flex items-start gap-2.5 p-2.5 bg-amber-50 border border-amber-200 rounded-xl cursor-pointer hover:bg-amber-100/60 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={deleteGroupCheckbox}
+                          onChange={(e) =>
+                            setDeleteGroupCheckbox(e.target.checked)
+                          }
+                          className="rounded text-rose-600 focus:ring-rose-500 w-4 h-4 mt-0.5"
+                        />
+                        <div className="text-[11px] text-amber-950">
+                          <span className="font-bold block">
+                            Pendaftaran Rombongan / Keluarga
+                          </span>
+                          <span className="text-amber-800">
+                            Hapus seluruh anggota rombongan ini sekaligus (
+                            <strong>{groupCount} orang</strong>) untuk
+                            mengembalikan seluruh kuota rombongan.
+                          </span>
+                        </div>
+                      </label>
+                    );
+                  }
+                  return null;
+                })()}
             </div>
           }
-          confirmLabel={deleteGroupCheckbox ? 'Ya, Hapus Seluruh Rombongan' : 'Ya, Hapus Pendaftar'}
+          confirmLabel={
+            deleteGroupCheckbox
+              ? 'Ya, Hapus Seluruh Rombongan'
+              : 'Ya, Hapus Pendaftar'
+          }
           cancelLabel="Batal"
           variant="danger"
           loading={deleteParticipantLoading}
