@@ -75,9 +75,22 @@ Migrasi `0013_attendance_checkin_nullable.sql` mengizinkan waktu hadir kosong da
 
 Regresi pembayaran menguji pembayaran pending/verifikasi/rejected pada endpoint tiket lama, person ID, scanner staf, gate privat, toggle dan bulk check-in. Portal absensi mandiri juga menolak pembayaran belum sah. Setelah pembayaran disetujui, gate menerima peserta; pembatalan membersihkan waktu hadir dan peserta dapat melakukan absensi mandiri kembali. Pengujian portal memakai sesi fixture yang ditandatangani aplikasi pada staging; pengujian ini tidak menggantikan login Google interaktif pengguna.
 
+Pembaruan pembayaran diterbitkan melalui PR #26, commit `7150a64d15e76f418afc7edd8f4eef77113fa914`, deploy produksi `6aeb6bcbe6c9ebb9eba5b07b`, pada 5 November 2026 pukul 00:31 WIB. Migrasi 0013 produksi selesai pukul 00:32 WIB: fingerprint seluruh 50 tabel lama identik dan semua nilai historis dipertahankan. Sebanyak 17/17 pemeriksaan HTTPS kontrol pembayaran pada preview berhasil tanpa pengiriman email. Halaman publik, konfigurasi Google publik, API dan penutupan kunci gate publik kembali diverifikasi pada rilis akhir.
+
 ## Batas verifikasi dan konfigurasi lembaga
 
 - Rekening umum donasi/wakaf belum diisi karena belum dikonfirmasi lembaga. Rekening event/bazar lama dipertahankan. Portal menampilkan kondisi rekening belum tersedia, bukan rekening contoh.
 - Tidak ada pesan/email yang dikirim ke jamaah atau staf sebagai bagian UAT. Koneksi provider dan konfigurasi bisa diperiksa tanpa pengiriman; penerimaan email nyata tetap memerlukan alamat uji yang disetujui.
 - Alur Google memerlukan akun Google pengguna untuk pengujian login interaktif. Absensi manual, QR, sesi, seri dan kaitan profil sudah diuji.
 - Fitur EO lanjutan yang belum tersedia (misalnya rundown/tugas kepanitiaan per event, anggaran/vendor, dan inventaris) tetap tercatat pada audit awal; keberhasilan alur yang tersedia bukan klaim bahwa modul tersebut sudah dikembangkan.
+
+
+## Dashboard pengelola — 5 November 2026
+
+PR #27 menambahkan ringkasan operasional admin, agenda yang terhubung peserta/pengaturan event, enam pintasan formulir dan filter donasi bulanan WIB. Tidak ada migrasi skema baru. Pratinjau `https://deploy-preview-27--crmyts.netlify.app` memakai branch staging yang sama; URL preview diselaraskan sebelum build akhir. Build lokal, 415 tes, 493 pemeriksaan peran staging, 21 pemeriksaan SQL dashboard dan 133 UAT terhubung sudah lulus. Hasil tinjauan browser dan backlog EO tercatat pada audit.
+
+
+Pemeriksaan HTTPS preview menemukan timeout pada ringkasan broadcast kajian. Perbaikan mengganti pembacaan berulang dengan satu agregasi terbatas dan memisahkan status log H-8/H-1. Agregasi SQL staging selesai 53 ms, 10/10 pemeriksaan lulus dan seluruh fixture log di-rollback. Setelah perbaikan, 417 tes pada 71 berkas serta pemeriksaan tipe lulus. Tidak ada email/pesan yang dikirim.
+
+
+Sebelum penerapan dashboard, fingerprint produksi dibandingkan kembali dengan catatan sesudah migrasi 0013. Seluruh 48 tabel yang tidak memuat perubahan login/audit identik; tidak ada perbedaan data bisnis. Akun fixture tinjauan UI staging telah dinonaktifkan dan sesinya dicabut; server pratinjau lokal dihentikan setelah pemeriksaan browser.

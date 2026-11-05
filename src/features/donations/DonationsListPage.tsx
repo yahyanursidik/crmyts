@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router';
+import { useCreateIntent } from '@/lib/useCreateIntent';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router';
 import { usePermissions } from '@refinedev/core';
 import { apiClient } from '@/lib/apiClient';
 import {
@@ -91,7 +92,9 @@ function getInitials(name: string): string {
 }
 
 export const DonationsListPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'donations' | 'donors'>('donations');
+  const [pageParams] = useSearchParams();
+  const listRequest = useRef(0);
+  const [activeTab, setActiveTab] = useState<'donations' | 'donors'>(() => pageParams.get('tab') === 'donors' ? 'donors' : 'donations');
   const { data: permissions = [] } = usePermissions<PermissionCode[]>({});
 
   const canVerifyDonation = permissions.includes(PERMISSIONS.DONATIONS_VERIFY);
@@ -111,9 +114,18 @@ export const DonationsListPage: React.FC = () => {
   });
 
   // Filters & Search
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [search, setSearch] = useState(() => pageParams.get('search') || '');
+  const [debouncedSearch, setDebouncedSearch] = useState(() => pageParams.get('search') || '');
+  const [statusFilter, setStatusFilter] = useState(() => ['unverified', 'verified', 'need_review', 'rejected'].includes(pageParams.get('status') || '') ? pageParams.get('status')! : '');
+  const [monthFilter, setMonthFilter] = useState(() => /^(19|20)\d{2}-(0[1-9]|1[0-2])$/.test(pageParams.get('month') || '') ? pageParams.get('month')! : '');
+  useEffect(() => {
+    const status = pageParams.get('status') || '';
+    setStatusFilter(['unverified', 'verified', 'need_review', 'rejected'].includes(status) ? status : '');
+    setSearch(pageParams.get('search') || '');
+    const month = pageParams.get('month') || '';
+    setMonthFilter(/^(19|20)\d{2}-(0[1-9]|1[0-2])$/.test(month) ? month : '');
+    setActiveTab(pageParams.get('tab') === 'donors' ? 'donors' : 'donations');
+  }, [pageParams]);
   const [paymentFilter, setPaymentFilter] = useState('');
   const [programFilter, setProgramFilter] = useState('');
   const [programsList, setProgramsList] = useState<ProgramOption[]>([]);
@@ -133,6 +145,8 @@ export const DonationsListPage: React.FC = () => {
 
   // Modals
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const createIntent = useCreateIntent(PERMISSIONS.DONATIONS_CREATE);
+  const closeCreateModal = () => { setCreateModalOpen(false); createIntent.clear(); };
   const [verifyModalOpen, setVerifyModalOpen] = useState(false);
   const [reconciliationModalOpen, setReconciliationModalOpen] = useState(false);
   const [selectedDonation, setSelectedDonation] = useState<DonationItem | null>(null);
@@ -189,6 +203,7 @@ export const DonationsListPage: React.FC = () => {
   }, []);
 
   const fetchDonations = async (pageToFetch = 1) => {
+    const request = ++listRequest.current;
     try {
       setDonationsLoading(true);
       setDonationsError(null);
@@ -198,10 +213,12 @@ export const DonationsListPage: React.FC = () => {
       params.append('pageSize', pagination.pageSize.toString());
       if (debouncedSearch.trim()) params.append('search', debouncedSearch.trim());
       if (statusFilter) params.append('verificationStatus', statusFilter);
+      if (monthFilter) params.append('month', monthFilter);
       if (paymentFilter) params.append('paymentMethod', paymentFilter);
       if (programFilter) params.append('programId', programFilter);
 
       const res = await apiClient<DonationItem[]>(`/donations?${params.toString()}`);
+      if (request !== listRequest.current) return;
       setDonationsList(res.data || []);
 
       if (res.meta?.pagination) {
@@ -211,9 +228,10 @@ export const DonationsListPage: React.FC = () => {
         setStats((res.meta as any).stats);
       }
     } catch (err: any) {
+      if (request !== listRequest.current) return;
       setDonationsError(err.message || 'Gagal memuat riwayat donasi');
     } finally {
-      setDonationsLoading(false);
+      if (request === listRequest.current) setDonationsLoading(false);
     }
   };
 
@@ -232,7 +250,7 @@ export const DonationsListPage: React.FC = () => {
 
   useEffect(() => {
     fetchDonations(1);
-  }, [debouncedSearch, statusFilter, paymentFilter, programFilter, pagination.pageSize]);
+  }, [debouncedSearch, statusFilter, monthFilter, paymentFilter, programFilter, pagination.pageSize]);
 
   useEffect(() => {
     if (activeTab === 'donors') {
@@ -241,6 +259,7 @@ export const DonationsListPage: React.FC = () => {
   }, [activeTab]);
 
   const resetAllFilters = () => {
+    setMonthFilter('');
     setSearch('');
     setDebouncedSearch('');
     setStatusFilter('');
@@ -334,7 +353,7 @@ export const DonationsListPage: React.FC = () => {
     }
   };
 
-  const isAnyFilterActive = Boolean(debouncedSearch || statusFilter || paymentFilter || programFilter);
+  const isAnyFilterActive = Boolean(debouncedSearch || statusFilter || monthFilter || paymentFilter || programFilter);
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto pb-16">
@@ -583,7 +602,11 @@ export const DonationsListPage: React.FC = () => {
             </div>
 
             {/* Dropdown Filters */}
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 pt-2 border-t border-[#1B4332]/8 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-2.5 pt-2 border-t border-[#1B4332]/8 text-xs">
+              <div>
+                <label className="sr-only" htmlFor="donation-month">Bulan donasi</label>
+                <input id="donation-month" type="month" value={monthFilter} onChange={(event) => setMonthFilter(event.target.value)} min="1900-01" max="2099-12" className="w-full rounded-lg border border-surface-200 bg-cream-50 px-2.5 py-1.5 text-xs text-brand-950" />
+              </div>
               <div>
                 <select
                   value={statusFilter}
@@ -1082,8 +1105,8 @@ export const DonationsListPage: React.FC = () => {
 
       {/* Create Donation Modal */}
       <CreateDonationModal
-        isOpen={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
+        isOpen={createModalOpen || createIntent.active}
+        onClose={() => closeCreateModal()}
         onSuccess={() => {
           fetchDonations(1);
           if (activeTab === 'donors') fetchDonors();

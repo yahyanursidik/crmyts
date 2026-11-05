@@ -35,5 +35,22 @@
       "restraint": 5,
       "variety": 4
     }
+  },
+  {
+    "date": "2026-11-05",
+    "macrostructure": "Workbench / operational overview",
+    "theme": "tarbiyah-official-logo",
+    "enrichment": "none",
+    "scope": "admin dashboard",
+    "brief": "Ringkasan jamaah, event, donasi dan wakaf dengan aksi langsung, antrean nyata dan navigasi lintas modul",
+    "visualVerification": "Browser staging: desktop and 320 / 375 / 414 / 768 px; no horizontal overflow; six create forms and event participant/settings links verified",
+    "critique": {
+      "philosophy": 4,
+      "hierarchy": 5,
+      "execution": 4,
+      "specificity": 5,
+      "restraint": 5,
+      "variety": 4
+    }
   }
 ]

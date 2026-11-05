@@ -28,6 +28,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const canInteract = permissions.includes(PERMISSIONS.INTERACTIONS_CREATE) && permissions.includes(PERMISSIONS.PERSONS_LIST);
   const destinations = APP_DESTINATIONS.filter((item) => canOpenDestination(item, permissions));
   const current = getDestination(location.pathname);
+  useEffect(() => {
+    const previous = document.title;
+    document.title = `${current?.label || 'Ruang kerja'} | YTS`;
+    return () => { document.title = previous; };
+  }, [current?.label]);
   const role = user?.roles?.map((code) => ROLE_LABELS[code]).filter(Boolean).join(' · ') || 'Pengurus YTS';
   const initials = (user?.fullName || user?.name || 'YTS').split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
   const toggleCollapsed = () => setCollapsed((previous) => { localStorage.setItem('yts_sidebar_collapsed', String(!previous)); return !previous; });

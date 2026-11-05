@@ -1,3 +1,5 @@
+import { PERMISSIONS } from '@server/permissions/constants';
+import { useCreateIntent } from '@/lib/useCreateIntent';
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { apiClient } from '@/lib/apiClient';
@@ -118,6 +120,8 @@ export const WaqfPipelinePage: React.FC = () => {
 
   // Modals
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const createIntent = useCreateIntent(PERMISSIONS.WAQF_CREATE);
+  const closeCreateModal = () => { setCreateModalOpen(false); createIntent.clear(); };
   const [transitionModalOpen, setTransitionModalOpen] = useState(false);
   const [selectedCase, setSelectedCase] = useState<WaqfCaseItem | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -793,8 +797,8 @@ export const WaqfPipelinePage: React.FC = () => {
 
       {/* Create Waqf Modal */}
       <CreateWaqfModal
-        isOpen={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
+        isOpen={createModalOpen || createIntent.active}
+        onClose={() => closeCreateModal()}
         onSuccess={() => {
           fetchCases(1);
           showToast('Inisiasi kasus amanah wakaf berhasil dicatat!');

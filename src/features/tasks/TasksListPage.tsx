@@ -1,7 +1,8 @@
+import { useCreateIntent } from '@/lib/useCreateIntent';
 import { PermissionGate } from '@/components/common/PermissionGate';
 import { PERMISSIONS } from '@server/permissions/constants';
-import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router';
 import { apiClient } from '@/lib/apiClient';
 import {
   Plus,
@@ -83,6 +84,8 @@ function getInitials(name: string): string {
 }
 
 export const TasksListPage: React.FC = () => {
+  const [pageParams] = useSearchParams();
+  const listRequest = useRef(0);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -104,13 +107,17 @@ export const TasksListPage: React.FC = () => {
   });
 
   // Filters
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [search, setSearch] = useState(() => pageParams.get('search') || '');
+  const [debouncedSearch, setDebouncedSearch] = useState(() => pageParams.get('search') || '');
   const [activeTypeFilter, setActiveTypeFilter] = useState<'all' | 'kunjungan' | 'whatsapp' | 'telepon' | 'administrasi'>('all');
   const [activeStatusFilter, setActiveStatusFilter] = useState<'all' | 'pending' | 'in_progress' | 'waiting' | 'completed'>('all');
   const [activePriorityFilter, setActivePriorityFilter] = useState<'all' | 'urgent' | 'high' | 'medium' | 'low'>('all');
   const [activeStaffFilter, setActiveStaffFilter] = useState<string>('all');
-  const [onlyOverdue, setOnlyOverdue] = useState(false);
+  const [onlyOverdue, setOnlyOverdue] = useState(() => pageParams.get('overdue') === 'true');
+  useEffect(() => {
+    setOnlyOverdue(pageParams.get('overdue') === 'true');
+    setSearch(pageParams.get('search') || '');
+  }, [pageParams]);
 
   // Staff and Person Selection
   const [staffList, setStaffList] = useState<StaffUser[]>([]);
@@ -120,6 +127,8 @@ export const TasksListPage: React.FC = () => {
 
   // Create Modal
   const [showModal, setShowModal] = useState(false);
+  const createIntent = useCreateIntent(PERMISSIONS.TASKS_CREATE);
+  const closeCreateModal = () => { setShowModal(false); createIntent.clear(); };
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [selectedPerson, setSelectedPerson] = useState<PersonOption | null>(null);
   const [newTask, setNewTask] = useState({
@@ -162,6 +171,7 @@ export const TasksListPage: React.FC = () => {
 
   // Load Tasks
   const loadTasks = async (pageToFetch = 1) => {
+    const request = ++listRequest.current;
     try {
       setLoading(true);
       setError(null);
@@ -177,6 +187,7 @@ export const TasksListPage: React.FC = () => {
       if (onlyOverdue) params.append('isOverdue', 'true');
 
       const res = await apiClient<TaskItem[]>(`/tasks?${params.toString()}`);
+      if (request !== listRequest.current) return;
       setTasks(res.data || []);
 
       if (res.meta?.pagination) {
@@ -186,10 +197,11 @@ export const TasksListPage: React.FC = () => {
         setStats((res.meta as any).stats);
       }
     } catch (err: any) {
+      if (request !== listRequest.current) return;
       console.error('Failed to load tasks:', err);
       setError(err.message || 'Gagal memuat daftar tugas');
     } finally {
-      setLoading(false);
+      if (request === listRequest.current) setLoading(false);
     }
   };
 
@@ -274,7 +286,7 @@ export const TasksListPage: React.FC = () => {
         body: JSON.stringify(payload),
       });
 
-      setShowModal(false);
+      closeCreateModal();
       setSelectedPerson(null);
       setPersonSearch('');
       setNewTask({
@@ -1007,7 +1019,7 @@ export const TasksListPage: React.FC = () => {
       </div>
 
       {/* CREATE TASK MODAL */}
-      {showModal && (
+      {(showModal || createIntent.active) && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-[#FBF9F4] rounded-2xl shadow-2xl border border-[#1B4332]/20 w-full max-w-xl overflow-hidden my-6 animate-in fade-in zoom-in-95 duration-150">
             <div className="px-6 py-4 border-b border-[#1B4332]/10 flex items-center justify-between bg-[#F2EEE4]">
@@ -1021,7 +1033,7 @@ export const TasksListPage: React.FC = () => {
               </div>
               <button
                 type="button"
-                onClick={() => setShowModal(false)}
+                onClick={() => closeCreateModal()}
                 className="p-1.5 rounded-lg text-[#6B7A72] hover:text-[#1C2321] hover:bg-[#1B4332]/8 transition-colors"
               >
                 <X className="w-4 h-4" />
@@ -1213,7 +1225,7 @@ export const TasksListPage: React.FC = () => {
               <div className="pt-3 border-t border-[#1B4332]/10 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowModal(false)}
+                  onClick={() => closeCreateModal()}
                   className="px-3.5 py-2 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#1C2321] rounded-xl text-xs font-semibold border border-[#1B4332]/12"
                 >
                   Batal

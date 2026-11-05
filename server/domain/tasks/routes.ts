@@ -4,7 +4,7 @@ import { requireAuth, requirePermission, validateBody } from '../../http/middlew
 import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import { tasks, appUsers } from '../../db/schema';
-import { eq, desc, and, sql, ilike, or } from 'drizzle-orm';
+import { eq, desc, and, sql, ilike, or, inArray } from 'drizzle-orm';
 import { logAuditEvent } from '../../audit/service';
 import { PERMISSIONS, hasPermission } from '../../permissions/constants';
 import { sendEmail, renderEmailLayout } from '../../email/service';
@@ -81,7 +81,7 @@ export function registerTasksRoutes(router: Router) {
         conditions.push(ilike(tasks.description, `%[TYPE:${taskType}]%`));
       }
       if (isOverdue) {
-        conditions.push(and(sql`${tasks.dueAt} < NOW()`, sql`${tasks.status} != 'completed'`));
+        conditions.push(and(sql`${tasks.dueAt} < NOW()`, inArray(tasks.status, ['pending', 'in_progress', 'waiting'])));
       }
 
       const combinedWhere = conditions.length > 0 ? and(...conditions) : undefined;
@@ -114,7 +114,7 @@ export function registerTasksRoutes(router: Router) {
             .select({
               totalAll: sql<number>`(SELECT count(*)::int FROM "tasks" WHERE ${ownerFilter})`,
               pendingCount: sql<number>`(SELECT count(*)::int FROM "tasks" WHERE ${ownerFilter} AND "status" IN ('pending', 'in_progress', 'waiting'))`,
-              overdueCount: sql<number>`(SELECT count(*)::int FROM "tasks" WHERE ${ownerFilter} AND "due_at" < NOW() AND "status" != 'completed')`,
+              overdueCount: sql<number>`(SELECT count(*)::int FROM "tasks" WHERE ${ownerFilter} AND "due_at" < NOW() AND "status" IN ('pending', 'in_progress', 'waiting'))`,
               completedCount: sql<number>`(SELECT count(*)::int FROM "tasks" WHERE ${ownerFilter} AND "status" = 'completed')`,
             })
             .from(sql`(SELECT 1) dummy`);
@@ -126,8 +126,8 @@ export function registerTasksRoutes(router: Router) {
         } catch (err) {
           stats = {
             totalAll: list.length,
-            pendingCount: list.filter((t) => t.status !== 'completed').length,
-            overdueCount: list.filter((t) => new Date(t.dueAt).getTime() < Date.now() && t.status !== 'completed').length,
+            pendingCount: list.filter((t) => ['pending', 'in_progress', 'waiting'].includes(t.status)).length,
+            overdueCount: list.filter((t) => new Date(t.dueAt).getTime() < Date.now() && ['pending', 'in_progress', 'waiting'].includes(t.status)).length,
             completedCount: list.filter((t) => t.status === 'completed').length,
           };
         }
@@ -182,7 +182,7 @@ export function registerTasksRoutes(router: Router) {
           status: t.status,
           priority: t.priority,
           dueAt: t.dueAt,
-          isOverdue: new Date(t.dueAt).getTime() < Date.now() && t.status !== 'completed',
+          isOverdue: new Date(t.dueAt).getTime() < Date.now() && ['pending', 'in_progress', 'waiting'].includes(t.status),
           waVisitationMessage,
           waDirectUrl,
           person: t.person

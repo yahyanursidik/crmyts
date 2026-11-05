@@ -1,7 +1,8 @@
+import { useCreateIntent } from '@/lib/useCreateIntent';
 import { PermissionGate } from '@/components/common/PermissionGate';
 import { PERMISSIONS } from '@server/permissions/constants';
 import React, { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { apiClient } from '@/lib/apiClient';
 import { 
   Search, 
@@ -72,6 +73,8 @@ function getInitials(name: string): string {
 }
 
 export const PersonsListPage: React.FC = () => {
+  const [pageParams] = useSearchParams();
+  const listRequest = useRef(0);
   const [personsList, setPersonsList] = useState<PersonListItem[]>([]);
   const [pagination, setPagination] = useState<PaginationMeta>({
     page: 1,
@@ -80,9 +83,14 @@ export const PersonsListPage: React.FC = () => {
     totalPages: 1,
   });
 
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [engagementFilter, setEngagementFilter] = useState('');
+  const [search, setSearch] = useState(() => pageParams.get('search') || '');
+  const [debouncedSearch, setDebouncedSearch] = useState(() => pageParams.get('search') || '');
+  const [engagementFilter, setEngagementFilter] = useState(() => ['baru', 'aktif', 'rutin', 'dorman', 'jarang', 'sangat_aktif', 'kembali_aktif'].includes(pageParams.get('engagement') || '') ? pageParams.get('engagement')! : '');
+  useEffect(() => {
+    const engagement = pageParams.get('engagement') || '';
+    setEngagementFilter(['baru', 'aktif', 'rutin', 'dorman', 'jarang', 'sangat_aktif', 'kembali_aktif'].includes(engagement) ? engagement : '');
+    setSearch(pageParams.get('search') || '');
+  }, [pageParams]);
   const [domisiliFilter, setDomisiliFilter] = useState('');
   const [debouncedDomisili, setDebouncedDomisili] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
@@ -97,6 +105,8 @@ export const PersonsListPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const createIntent = useCreateIntent(PERMISSIONS.PERSONS_CREATE);
+  const closeCreateModal = () => { setIsCreateModalOpen(false); createIntent.clear(); };
   const [personToDelete, setPersonToDelete] = useState<PersonListItem | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [selectedPersonIds, setSelectedPersonIds] = useState<Set<string>>(new Set());
@@ -139,6 +149,7 @@ export const PersonsListPage: React.FC = () => {
   };
 
   const fetchPersons = async (pageToFetch = 1, forceStatsRefresh = false) => {
+    const request = ++listRequest.current;
     try {
       setLoading(true);
       setError(null);
@@ -154,6 +165,7 @@ export const PersonsListPage: React.FC = () => {
       if (forceStatsRefresh) params.append('refreshStats', '1');
 
       const res = await apiClient<PersonListItem[]>(`/persons?${params.toString()}`);
+      if (request !== listRequest.current) return;
       setPersonsList(res.data || []);
       setSelectedPersonIds(new Set());
       if (res.meta?.pagination) {
@@ -163,9 +175,10 @@ export const PersonsListPage: React.FC = () => {
         setKpiStats((res.meta as any).stats);
       }
     } catch (err: any) {
+      if (request !== listRequest.current) return;
       setError(err.message || 'Gagal memuat data jamaah');
     } finally {
-      setLoading(false);
+      if (request === listRequest.current) setLoading(false);
     }
   };
 
@@ -734,8 +747,8 @@ export const PersonsListPage: React.FC = () => {
 
       {/* CREATE MODAL */}
       <PersonFormModal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
+        isOpen={isCreateModalOpen || createIntent.active}
+        onClose={() => closeCreateModal()}
         onSuccess={() => fetchPersons(1)}
       />
 

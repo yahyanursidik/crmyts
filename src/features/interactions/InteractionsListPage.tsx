@@ -1,3 +1,5 @@
+import { PERMISSIONS } from '@server/permissions/constants';
+import { useCreateIntent } from '@/lib/useCreateIntent';
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { apiClient } from '@/lib/apiClient';
@@ -98,6 +100,8 @@ export const InteractionsListPage: React.FC = () => {
   const [outcomeFilter, setOutcomeFilter] = useState('');
   const [sensitivityFilter, setSensitivityFilter] = useState('');
   const [isQuickModalOpen, setIsQuickModalOpen] = useState(false);
+  const createIntent = useCreateIntent(PERMISSIONS.INTERACTIONS_CREATE);
+  const closeCreateModal = () => { setIsQuickModalOpen(false); createIntent.clear(); };
   const [itemToDelete, setItemToDelete] = useState<InteractionListItem | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
@@ -632,8 +636,8 @@ export const InteractionsListPage: React.FC = () => {
 
       {/* QUICK INTERACTION MODAL */}
       <QuickInteractionModal
-        isOpen={isQuickModalOpen}
-        onClose={() => setIsQuickModalOpen(false)}
+        isOpen={isQuickModalOpen || createIntent.active}
+        onClose={() => closeCreateModal()}
         onSuccess={() => fetchInteractions(1)}
       />
 

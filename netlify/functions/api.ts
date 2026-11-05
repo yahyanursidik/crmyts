@@ -1,6 +1,6 @@
 import { Router } from '../../server/http/router';
 import { extractRequestId, RequestContext, resolveTokenClaims } from '../../server/http/middleware';
-import { successResponse } from '../../server/http/response';
+import { successResponse, errorResponse } from '../../server/http/response';
 import { registerAuthRoutes } from '../../server/auth/routes';
 import { registerDashboardRoutes } from '../../server/domain/dashboard/routes';
 import { registerPersonsRoutes } from '../../server/domain/persons/routes';
@@ -100,6 +100,7 @@ export const handler = async (event: NetlifyEvent) => {
         }
       } catch (err) {
         console.error('[Session Resolve Error]:', err);
+        return errorResponse('INTERNAL_ERROR', 'Koneksi layanan sedang terganggu. Silakan coba kembali.', 503, requestId, undefined, { 'Retry-After': '1' });
       }
     }
 

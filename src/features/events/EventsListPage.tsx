@@ -1,3 +1,6 @@
+import { useSearchParams } from 'react-router';
+import { PERMISSIONS } from '@server/permissions/constants';
+import { useCreateIntent } from '@/lib/useCreateIntent';
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '@/lib/apiClient';
 import {
@@ -82,6 +85,8 @@ export const EventsListPage: React.FC = () => {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const createIntent = useCreateIntent(PERMISSIONS.EVENTS_MANAGE);
+  const closeCreateModal = () => { setShowCreateModal(false); createIntent.clear(); };
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
 
   // Selected modals
@@ -98,6 +103,22 @@ export const EventsListPage: React.FC = () => {
   const [audienceFilter, setAudienceFilter] = useState('all');
   const [deliveryFilter, setDeliveryFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageParams, setPageParams] = useSearchParams();
+  useEffect(() => {
+    const status = pageParams.get('status') || 'all';
+    setStatusFilter(['all', 'scheduled', 'ongoing', 'completed', 'cancelled', 'open_reg', 'closed_reg', 'upcoming'].includes(status) ? status : 'all');
+    setCurrentPage(1);
+  }, [pageParams]);
+  const linkedEventId = events.some((event) => event.id === pageParams.get('eventId')) ? pageParams.get('eventId') : null;
+  const manageEventId = selectedManageEventId || (pageParams.get('panel') === 'settings' ? linkedEventId : null);
+  const submissionsEventId = selectedSubmissionsEventId || (pageParams.get('panel') !== 'settings' ? linkedEventId : null);
+  const clearLinkedEvent = () => {
+    if (!pageParams.has('eventId')) return;
+    setPageParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.delete('eventId'); next.delete('panel'); return next;
+    }, { replace: true });
+  };
 
   // Copy & Delete
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -185,7 +206,7 @@ export const EventsListPage: React.FC = () => {
         body: JSON.stringify(payload),
       });
 
-      setShowCreateModal(false);
+      closeCreateModal();
       setNewEvent({
         title: '',
         category: 'Kajian Rutin',
@@ -286,7 +307,8 @@ export const EventsListPage: React.FC = () => {
       (e.locationName && e.locationName.toLowerCase().includes(q));
 
     let matchStatus = true;
-    if (statusFilter === 'open_reg') matchStatus = e.isRegistrationOpen;
+    if (statusFilter === 'upcoming') matchStatus = (e.status === 'scheduled' && new Date(e.startAt).getTime() >= Date.now()) || (e.status === 'ongoing' && (!e.endAt || new Date(e.endAt).getTime() >= Date.now()));
+    else if (statusFilter === 'open_reg') matchStatus = e.isRegistrationOpen;
     else if (statusFilter === 'closed_reg') matchStatus = !e.isRegistrationOpen;
     else if (statusFilter !== 'all') matchStatus = e.status === statusFilter;
 
@@ -531,6 +553,7 @@ export const EventsListPage: React.FC = () => {
           <div className="flex items-center gap-1 overflow-x-auto pb-1 max-w-full text-xs font-semibold">
             {[
               { id: 'all', label: 'Semua Kajian' },
+              { id: 'upcoming', label: 'Agenda mendatang' },
               { id: 'open_reg', label: 'Pendaftaran Buka' },
               { id: 'scheduled', label: 'Terjadwal' },
               { id: 'ongoing', label: 'Sedang Berlangsung' },
@@ -1016,7 +1039,7 @@ export const EventsListPage: React.FC = () => {
       )}
 
       {/* CREATE EVENT MODAL */}
-      {showCreateModal && (
+      {(showCreateModal || createIntent.active) && (
         <div className="fixed inset-0 z-50 bg-[#0F3A2E]/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/20 shadow-2xl max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden">
             <div className="px-5 py-4 border-b border-[#1B4332]/12 flex items-center justify-between bg-white">
@@ -1029,7 +1052,7 @@ export const EventsListPage: React.FC = () => {
                 </p>
               </div>
               <button
-                onClick={() => setShowCreateModal(false)}
+                onClick={() => closeCreateModal()}
                 className="text-[#8A9690] hover:text-[#1C2321] p-1 rounded-lg"
               >
                 ✕
@@ -1317,7 +1340,7 @@ export const EventsListPage: React.FC = () => {
               <div className="pt-3 border-t border-[#1B4332]/10 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowCreateModal(false)}
+                  onClick={() => closeCreateModal()}
                   className="px-4 py-2 text-[#3D4A44] hover:bg-[#F2EEE4] rounded-lg font-semibold"
                 >
                   Batal
@@ -1348,11 +1371,12 @@ export const EventsListPage: React.FC = () => {
       )}
 
       {/* MANAGE MODAL */}
-      {selectedManageEventId && (
+      {manageEventId && (
         <EventManageModal
-          eventId={selectedManageEventId}
+          eventId={manageEventId}
           onClose={() => {
             setSelectedManageEventId(null);
+            clearLinkedEvent();
             loadEvents();
           }}
           onEventUpdated={loadEvents}
@@ -1360,12 +1384,13 @@ export const EventsListPage: React.FC = () => {
       )}
 
       {/* SUBMISSIONS MODAL */}
-      {selectedSubmissionsEventId && (
+      {submissionsEventId && (
         <EventSubmissionsModal
-          eventId={selectedSubmissionsEventId}
+          eventId={submissionsEventId}
           isOpen={true}
           onClose={() => {
             setSelectedSubmissionsEventId(null);
+            clearLinkedEvent();
             loadEvents();
           }}
           onRefreshList={loadEvents}

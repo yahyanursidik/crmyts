@@ -4,6 +4,7 @@ import { appUsers, appUserCredentials } from '../db/schema';
 import { RoleCode, PermissionCode, ROLE_PERMISSIONS } from '../permissions/constants';
 import { createSessionToken } from './token';
 import { verifyPassword } from './password';
+import { retryConnectionRead } from '../db/readRetry';
 
 export interface AuthenticatedUser {
   id: string;
@@ -22,6 +23,7 @@ function profile(user: { id: string; authSubject: string; email: string; fullNam
 }
 
 export async function resolveUserBySubject(authSubject: string, sessionVersion?: number): Promise<AuthenticatedUser | null> {
+  return retryConnectionRead(async () => {
   const db = getDb();
   const user = await db.query.appUsers.findFirst({ where: eq(appUsers.authSubject, authSubject), with: { userRoles: { with: { role: true } } } });
   if (!user) return null;
@@ -30,6 +32,7 @@ export async function resolveUserBySubject(authSubject: string, sessionVersion?:
     if (!credential || credential.sessionVersion !== sessionVersion) return null;
   }
   return profile(user);
+  });
 }
 
 export async function resolveUserByEmail(email: string): Promise<AuthenticatedUser | null> {

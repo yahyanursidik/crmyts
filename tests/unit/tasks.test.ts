@@ -33,6 +33,18 @@ describe('Tasks & Visitation Assignment with WhatsApp Template (M07)', () => {
     email: 'muhsin@example.com',
   };
 
+  it('does not flag cancelled or completed tasks as overdue', async () => {
+    const items = ['pending', 'in_progress', 'waiting', 'completed', 'cancelled'].map((status, index) => ({
+      id: `task-status-${index}`, title: 'Tindak lanjut', status, priority: 'medium',
+      dueAt: new Date('2020-01-01T00:00:00Z'), description: '', person: null, owner: null,
+    }));
+    vi.spyOn(client, 'getDb').mockReturnValue({ query: { tasks: { findMany: vi.fn().mockResolvedValue(items) } } } as any);
+    const res = await router.handle({ requestId: 'task-status-test', method: 'GET', path: '/api/tasks', headers: {}, query: {}, params: {}, body: {}, user: csUser });
+    expect(res.statusCode).toBe(200);
+    const data = JSON.parse(res.body).data;
+    expect(data.map((task: any) => task.isOverdue)).toEqual([true, true, true, false, false]);
+  });
+
   it('1. GET /api/tasks generates WhatsApp visitation message with required wording', async () => {
     const mockDb = {
       query: {
