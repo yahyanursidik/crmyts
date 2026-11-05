@@ -23,7 +23,8 @@ export function readBazaarAccess(headers: Record<string, string | undefined>) {
   if (
     prefix !== "bazaar-access" ||
     !payload ||
-    !/^[A-Za-z0-9_-]{43}$/.test(signature || "") ||
+    !signature ||
+    !/^[A-Za-z0-9_-]{43}$/.test(signature) ||
     extra.length
   )
     return null;
