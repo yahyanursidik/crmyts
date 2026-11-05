@@ -3,6 +3,7 @@ import { Router } from '../../server/http/router';
 import { registerDataQualityRoutes } from '../../server/domain/data-quality/routes';
 import * as client from '../../server/db/client';
 import { ROLES, PERMISSIONS } from '../../server/permissions/constants';
+import { kajianRutinAttendance } from '../../server/db/schema';
 
 describe('Data Quality & Stewardship (Step 14 / M10)', () => {
   const router = new Router();
@@ -136,6 +137,10 @@ describe('Data Quality & Stewardship (Step 14 / M10)', () => {
         eventAttendance: {
           findMany: vi.fn().mockResolvedValue([]),
         },
+        kajianRutinAttendance: {
+          findMany: vi.fn().mockResolvedValue([{ id: '018fcccc-0000-7000-8000-000000000004', seriesId: '018fcccc-0000-7000-8000-000000000005', sessionId: '018fcccc-0000-7000-8000-000000000006', personId: secondaryPerson.id, status: 'present' }]),
+          findFirst: vi.fn().mockResolvedValue(undefined),
+        },
         personRoles: {
           findMany: vi.fn().mockResolvedValue([]),
         },
@@ -144,6 +149,7 @@ describe('Data Quality & Stewardship (Step 14 / M10)', () => {
         },
       },
       update: mockUpdate,
+      execute: vi.fn().mockResolvedValue([]),
       delete: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
       insert: vi.fn().mockReturnValue({ values: mockAuditInsert }),
     };
@@ -179,6 +185,8 @@ describe('Data Quality & Stewardship (Step 14 / M10)', () => {
     const json = JSON.parse(res.body);
     expect(json.data).toBeDefined();
     expect(mockDb.transaction).toHaveBeenCalled();
+    expect(mockUpdate).toHaveBeenCalledWith(kajianRutinAttendance);
+    expect(mockAuditInsert).toHaveBeenCalledWith(expect.objectContaining({ afterJson: expect.objectContaining({ routineAttendance: [expect.objectContaining({ targetPersonId: primaryPerson.id, sourcePersonId: secondaryPerson.id })] }) }));
   });
 
   it('3. POST /api/data-quality/quick-fix normalizes phone number to E.164 and audits', async () => {

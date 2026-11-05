@@ -126,7 +126,7 @@ export function KajianRutinPortalPage() {
   const [daurahLoading, setDaurahLoading] = useState(false);
   const [showDaurahHistory, setShowDaurahHistory] = useState(false);
 
-  const [history, setHistory] = useState<Array<{ id: string; seriesTitle: string; sessionDate: string; startAt: string; checkInAt: string; source: string }>>([]);
+  const [history, setHistory] = useState<Array<{ id: string; sessionId: string; seriesTitle: string; sessionDate: string; startAt: string; checkInAt: string; source: string }>>([]);
   const [showHistory, setShowHistory] = useState(false);
 
   const [banner, setBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -180,7 +180,7 @@ export function KajianRutinPortalPage() {
   }, []);
 
   const fetchMe = useCallback(async (token: string) => {
-    const { data } = await apiClient<{ profile: PortalProfile; history: Array<{ id: string; seriesTitle: string; sessionDate: string; startAt: string; checkInAt: string; source: string }> }>(
+    const { data } = await apiClient<{ profile: PortalProfile; history: Array<{ id: string; sessionId: string; seriesTitle: string; sessionDate: string; startAt: string; checkInAt: string; source: string }> }>(
       '/public/kajian-rutin/portal/me',
       { headers: { Authorization: `Bearer ${token}` } }
     );
@@ -518,6 +518,7 @@ export function KajianRutinPortalPage() {
             </div>
             {item.topic && <p className="mt-0.5 text-[12.5px] font-medium text-[#3D4A44]">{item.topic}</p>}
             {item.speaker && <p className="text-[12px] text-[#6B7A72]">Pemateri: {item.speaker}</p>}
+            {(item.targetAudience && item.targetAudience !== 'umum' || !!item.quota) && <p className="mt-1 text-xs text-[var(--color-ink-2)]">{item.targetAudience === 'ikhwan_only' ? 'Khusus Ikhwan' : item.targetAudience === 'akhwat_only' ? 'Khusus Akhwat' : item.targetAudience === 'anak' ? 'Kajian anak' : 'Umum'}{item.quota ? ' · ' + (item.attendanceCount || 0) + '/' + item.quota + ' hadir' : ''}</p>}
             <div className="mt-2 space-y-1 text-[12.5px] text-[#4B5A52]">
               <p className="flex items-center gap-1.5">
                 <CalendarDays className="h-3.5 w-3.5 text-[#1B4332]/60" />
@@ -548,11 +549,11 @@ export function KajianRutinPortalPage() {
               <button
                 type="button"
                 onClick={() => void handleAbsenRutin(item)}
-                disabled={isSubmitting}
+                disabled={isSubmitting || item.isFull}
                 className="inline-flex items-center gap-2 rounded-xl bg-[#1B4332] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition-all hover:bg-[#14352A] active:scale-98 disabled:opacity-60"
               >
                 {isSubmitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                Absen Sekarang
+                {item.isFull ? 'Kuota penuh' : 'Absen Sekarang'}
               </button>
             )
           ) : (
@@ -952,7 +953,7 @@ export function KajianRutinPortalPage() {
                         windowOpenAt: scan.checkInWindow.openAt,
                         windowCloseAt: scan.checkInWindow.closeAt,
                         isOpen: scan.checkInWindow.isOpen,
-                        alreadyAbsen: history.find((h) => h.sessionDate === scan.session.sessionDate)?.checkInAt || null,
+                        alreadyAbsen: history.find((h) => h.sessionId === scan.session.id)?.checkInAt || null,
                       },
                       true
                     )}

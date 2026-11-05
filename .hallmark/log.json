@@ -1,5 +1,22 @@
 [
   {
+    "date": "2026-11-05",
+    "macrostructure": "Workbench / routine directory and session panels",
+    "theme": "tarbiyah-official-logo",
+    "enrichment": "none",
+    "scope": "Kajian Rutin / series, sessions, attendance and portal",
+    "brief": "Calendar cadence, connected Jamaah identities, reversible attendance, concise search and session workspace",
+    "visualVerification": "Staging desktop and 320 / 375 / 414 / 768 px; manual validation, correction/restore, QR, Escape and URL context verified without horizontal document overflow",
+    "critique": {
+      "philosophy": 4,
+      "hierarchy": 4,
+      "execution": 4,
+      "specificity": 5,
+      "restraint": 4,
+      "variety": 4
+    }
+  },
+  {
     "date": "2026-09-10",
     "macrostructure": "Narrative Workflow",
     "theme": "tarbiyah-official-logo",

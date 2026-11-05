@@ -10,8 +10,11 @@ export function routineContactMatch(
   phone: SQL,
   attendanceEmail = sql`a.email`,
   attendancePhone = sql`a.phone`,
+  personId?: SQL,
+  attendancePersonId = sql`a.person_id`,
 ) {
-  return sql`((nullif(btrim(${email}),'') IS NOT NULL AND lower(btrim(${email}))=lower(btrim(${attendanceEmail}))) OR (${canonicalPhone(phone)}=${canonicalPhone(attendancePhone)}))`;
+  const contact = sql`((nullif(btrim(${email}),'') IS NOT NULL AND lower(btrim(${email}))=lower(btrim(${attendanceEmail}))) OR (${canonicalPhone(phone)}=${canonicalPhone(attendancePhone)}))`;
+  return personId ? sql`(${attendancePersonId}=${personId} OR (${attendancePersonId} IS NULL AND ${contact}))` : contact;
 }
 
 /** A presence is one event/session, never merely a registration or an excused absence. */
@@ -28,7 +31,7 @@ export function attendedActivityRows(ids?: string[]) {
     WHERE a.status='attended' AND ${scope}
     UNION
     SELECT p.id,s.id,'routine',r.title,s.start_at,r.id
-    FROM persons p JOIN kajian_rutin_attendance a ON ${routineContactMatch(sql`p.email`, sql`p.phone_e164`)}
+    FROM persons p JOIN kajian_rutin_attendance a ON ${routineContactMatch(sql`p.email`, sql`p.phone_e164`, sql`a.email`, sql`a.phone`, sql`p.id`)}
     JOIN kajian_rutin_sessions s ON s.id=a.session_id JOIN kajian_rutin_series r ON r.id=a.series_id
     WHERE a.status='present' AND ${scope}
   `;

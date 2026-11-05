@@ -233,6 +233,7 @@ describe('Role-by-Role Comprehensive UAT Suite (CRM YTS)', () => {
             findFirst: vi.fn().mockImplementation(() => Promise.resolve(mockPrimary)),
           },
           eventAttendance: { findMany: vi.fn().mockResolvedValue([]) },
+          kajianRutinAttendance: { findMany: vi.fn().mockResolvedValue([]) },
           personRoles: { findMany: vi.fn().mockResolvedValue([]) },
           personTags: { findMany: vi.fn().mockResolvedValue([]) },
         },

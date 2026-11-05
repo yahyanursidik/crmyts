@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { LoaderCircle, X } from 'lucide-react';
 import type { KajianRutinSeries, KajianRutinSession, KajianRutinSpeaker } from '../../lib/kajianRutin';
+import { useEventDialog } from '../events/components/useEventDialog';
 
 /**
  * Ubah satu pertemuan: tanggal, jam, lokasi, pemateri, tema & status bisa
@@ -35,6 +36,7 @@ export function KajianRutinSessionEditModal({
     topic: '',
     notes: '',
   });
+  const dialogRef = useEventDialog(isOpen && !!session && !!series, () => { if (!saving) onClose(); });
 
   useEffect(() => {
     if (isOpen && session) {
@@ -56,7 +58,7 @@ export function KajianRutinSessionEditModal({
   const speakerOptions = Array.from(new Set([...speakers.map((s) => s.name), series.speaker || '', session.speaker || ''])).filter(Boolean);
 
   const handleSubmit = () => {
-    onSave({
+    const payload: Record<string, unknown> = {
       sessionDate: form.sessionDate,
       startTime: form.startTime || null,
       endTime: form.endTime || null,
@@ -64,7 +66,10 @@ export function KajianRutinSessionEditModal({
       speaker: form.speaker.trim() || null,
       topic: form.topic.trim() || null,
       notes: form.notes.trim() || null,
-    });
+    };
+    for (const key of Object.keys(payload)) if ((payload[key] ?? null) === (session[key as keyof KajianRutinSession] ?? null)) delete payload[key];
+    if (!Object.keys(payload).length) { onClose(); return; }
+    onSave(payload);
   };
 
   const inputClass =
@@ -73,12 +78,12 @@ export function KajianRutinSessionEditModal({
 
   return (
     <div
-      className="fixed inset-0 z-70 flex items-start justify-center overflow-y-auto bg-[#0f3a2e]/60 p-4 backdrop-blur-xs sm:p-8"
+      className="kr-overlay"
       onClick={(e) => {
         if (e.target === e.currentTarget && !saving) onClose();
       }}
     >
-      <div className="w-full max-w-xl rounded-3xl border border-[#e7e4d8] bg-[#fbfaf6] shadow-2xl" role="dialog" aria-modal="true">
+      <div ref={dialogRef} tabIndex={-1} className="kr-legacy-dialog w-full max-w-xl rounded-3xl border border-[#e7e4d8] bg-[#fbfaf6] shadow-2xl" role="dialog" aria-label="Ubah pertemuan kajian" aria-modal="true">
         <div className="flex items-center justify-between border-b border-[#e7e4d8] px-6 py-4">
           <div>
             <h3 className="font-display text-base font-black text-[#1c321d]">Ubah Pertemuan</h3>
@@ -86,7 +91,7 @@ export function KajianRutinSessionEditModal({
               Kolom jam/lokasi/pemateri yang dikosongkan mengikuti nilai seri ({series.startTime} WIB{series.endTime ? `–${series.endTime}` : ''}).
             </p>
           </div>
-          <button onClick={onClose} disabled={saving} className="rounded-xl p-2 text-[#8a9690] hover:bg-[#f2eee4] hover:text-[#1c321d]">
+          <button aria-label="Tutup dialog" onClick={onClose} disabled={saving} className="rounded-xl p-2 text-[#8a9690] hover:bg-[#f2eee4] hover:text-[#1c321d]">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -97,15 +102,15 @@ export function KajianRutinSessionEditModal({
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
               <label className={labelClass} htmlFor="ks-date">Tanggal *</label>
-              <input id="ks-date" type="date" className={inputClass} value={form.sessionDate} onChange={(e) => set('sessionDate', e.target.value)} />
+              <input id="ks-date" type="date" className={inputClass} value={form.sessionDate} onInput={(e) => set('sessionDate', e.currentTarget.value)} onChange={(e) => set('sessionDate', e.target.value)} />
             </div>
             <div>
               <label className={labelClass} htmlFor="ks-start">Jam Mulai (WIB)</label>
-              <input id="ks-start" type="time" className={inputClass} value={form.startTime} onChange={(e) => set('startTime', e.target.value)} placeholder={series.startTime} />
+              <input id="ks-start" type="time" className={inputClass} value={form.startTime} onInput={(e) => set('startTime', e.currentTarget.value)} onChange={(e) => set('startTime', e.target.value)} placeholder={series.startTime} />
             </div>
             <div>
               <label className={labelClass} htmlFor="ks-end">Jam Selesai (WIB)</label>
-              <input id="ks-end" type="time" className={inputClass} value={form.endTime} onChange={(e) => set('endTime', e.target.value)} placeholder={series.endTime || series.startTime} />
+              <input id="ks-end" type="time" className={inputClass} value={form.endTime} onInput={(e) => set('endTime', e.currentTarget.value)} onChange={(e) => set('endTime', e.target.value)} placeholder={series.endTime || series.startTime} />
             </div>
           </div>
 

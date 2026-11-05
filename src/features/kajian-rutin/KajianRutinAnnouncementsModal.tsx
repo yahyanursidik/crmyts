@@ -3,6 +3,7 @@ import { Eye, EyeOff, LoaderCircle, Megaphone, Pencil, Pin, Plus, Trash2, X } fr
 import { apiClient } from '../../lib/apiClient';
 import { formatWibShortDate, type KajianRutinAnnouncement } from '../../lib/kajianRutin';
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
+import { useEventDialog } from '../events/components/useEventDialog';
 
 const inputClass =
   'min-h-10 w-full rounded-lg border border-[#d5d1c1] bg-white px-3 py-2 text-sm text-[#1c321d] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#365e38]';
@@ -32,6 +33,7 @@ export function KajianRutinAnnouncementsModal({
   const [formError, setFormError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<KajianRutinAnnouncement | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const dialogRef = useEventDialog(isOpen, () => { if (!saving && !deleting) onClose(); });
 
   const load = useCallback(async () => {
     try {
@@ -119,7 +121,7 @@ export function KajianRutinAnnouncementsModal({
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await apiClient(`/kajian-rutin/announcements/${deleteTarget.id}`, { method: 'DELETE' });
+      await apiClient(`/kajian-rutin/announcements/${deleteTarget.id}`, { method: 'PATCH', body: JSON.stringify({ isActive: false }) });
       setDeleteTarget(null);
       await load();
     } catch (err) {
@@ -132,12 +134,12 @@ export function KajianRutinAnnouncementsModal({
 
   return (
     <div
-      className="fixed inset-0 z-70 flex items-start justify-center overflow-y-auto bg-[#0f3a2e]/60 p-4 backdrop-blur-xs sm:p-8"
+      className="kr-overlay"
       onClick={(e) => {
         if (e.target === e.currentTarget && !saving) onClose();
       }}
     >
-      <div className="w-full max-w-2xl rounded-3xl border border-[#e7e4d8] bg-[#fbfaf6] shadow-2xl" role="dialog" aria-modal="true">
+      <div ref={dialogRef} tabIndex={-1} className="kr-legacy-dialog w-full max-w-2xl rounded-3xl border border-[#e7e4d8] bg-[#fbfaf6] shadow-2xl" role="dialog" aria-label="Pengumuman Jamaah" aria-modal="true">
         <div className="flex items-center justify-between border-b border-[#e7e4d8] px-6 py-4">
           <div>
             <h3 className="flex items-center gap-2 font-display text-base font-black text-[#1c321d]">
@@ -145,7 +147,7 @@ export function KajianRutinAnnouncementsModal({
             </h3>
             <p className="text-[11px] text-[#8a9690]">Tampil di kolom pengumuman halaman peserta kajian (/peserta/kajian).</p>
           </div>
-          <button onClick={onClose} className="rounded-xl p-2 text-[#8a9690] hover:bg-[#f2eee4] hover:text-[#1c321d]">
+          <button aria-label="Tutup dialog" onClick={onClose} className="rounded-xl p-2 text-[#8a9690] hover:bg-[#f2eee4] hover:text-[#1c321d]">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -194,7 +196,7 @@ export function KajianRutinAnnouncementsModal({
                   className="flex items-center gap-2 rounded-xl bg-[#1b4332] px-4 py-2 text-xs font-bold text-white hover:bg-[#14352a] disabled:opacity-50"
                 >
                   {saving ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                  {editingId ? 'Simpan Perubahan' : 'Terbitkan Pengumuman'}
+                  {editingId ? 'Simpan Perubahan' : 'Simpan Pengumuman'}
                 </button>
               </div>
             </div>
@@ -249,7 +251,7 @@ export function KajianRutinAnnouncementsModal({
                         className="rounded-lg p-1.5 text-[#8a9690] hover:bg-[#f2eee4] hover:text-[#1b4332]">
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
-                      <button type="button" onClick={() => setDeleteTarget(item)} title="Hapus pengumuman"
+                      <button type="button" onClick={() => setDeleteTarget(item)} title="Arsipkan pengumuman"
                         className="rounded-lg p-1.5 text-[#8a9690] hover:bg-rose-50 hover:text-rose-600">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -265,9 +267,9 @@ export function KajianRutinAnnouncementsModal({
       <ConfirmDialog
         isOpen={Boolean(deleteTarget)}
         variant="danger"
-        title="Hapus Pengumuman?"
-        message={deleteTarget ? `“${deleteTarget.title}” akan dihapus permanen dari halaman jamaah.` : ''}
-        confirmLabel="Ya, Hapus"
+        title="Arsipkan Pengumuman?"
+        message={deleteTarget ? `“${deleteTarget.title}” akan disembunyikan dari portal dan dapat dipulihkan dari halaman jamaah.` : ''}
+        confirmLabel="Arsipkan"
         loading={deleting}
         onConfirm={handleDelete}
         onClose={() => setDeleteTarget(null)}
