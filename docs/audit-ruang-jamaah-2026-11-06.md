@@ -66,3 +66,9 @@ Bukti lokal berada di `scratch/access-rollout/`: `staging-room-verification.json
 | Penarikan persetujuan mandiri | Tim dapat segera menarik publikasi; autentikasi pemilik untuk menarik izin melalui portal belum tersedia. |
 
 Bagian tersebut merupakan pengembangan berikutnya. Alur operasional penanganan manual, tugas, profil, interaksi, dan kurasi pada rilis ini dapat dipakai tanpa menunggu integrasi pengiriman otomatis.
+
+## Jalur rilis
+
+Perubahan diajukan pada [PR #33](https://github.com/yahyanursidik/crmyts/pull/33), dengan [preview terisolasi](https://deploy-preview-33--crmyts.netlify.app/ruang-jamaah/kelola). Pengaturan URL preview hanya diubah untuk konteks deploy-preview; konfigurasi produksi tetap memakai domain live.
+
+`scripts/verify-room-readiness.ts` menguji login 10 peran, inbox/detail, pencocokan profil, izin operasi dan ekspor, validasi tanpa mutasi bisnis, privasi cerita publik, serta hash 49 tabel bisnis sebelum/sesudah pemeriksaan HTTPS. Rilis dilakukan setelah preview lulus, lalu skrip yang sama dijalankan pada live. Bukti akhirnya disimpan sebagai `staging-room-https-verification.json`, `production-room-https-verification.json`, `room-production-deploy.json`, dan `room-release-summary.json` di direktori laporan lokal.
