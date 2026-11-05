@@ -75,6 +75,8 @@ Migrasi `0013_attendance_checkin_nullable.sql` mengizinkan waktu hadir kosong da
 
 Regresi pembayaran menguji pembayaran pending/verifikasi/rejected pada endpoint tiket lama, person ID, scanner staf, gate privat, toggle dan bulk check-in. Portal absensi mandiri juga menolak pembayaran belum sah. Setelah pembayaran disetujui, gate menerima peserta; pembatalan membersihkan waktu hadir dan peserta dapat melakukan absensi mandiri kembali. Pengujian portal memakai sesi fixture yang ditandatangani aplikasi pada staging; pengujian ini tidak menggantikan login Google interaktif pengguna.
 
+Pembaruan pembayaran diterbitkan melalui PR #26, commit `7150a64d15e76f418afc7edd8f4eef77113fa914`, deploy produksi `6aeb6bcbe6c9ebb9eba5b07b`, pada 5 November 2026 pukul 00:31 WIB. Migrasi 0013 produksi selesai pukul 00:32 WIB: fingerprint seluruh 50 tabel lama identik dan semua nilai historis dipertahankan. Sebanyak 17/17 pemeriksaan HTTPS kontrol pembayaran pada preview berhasil tanpa pengiriman email. Halaman publik, konfigurasi Google publik, API dan penutupan kunci gate publik kembali diverifikasi pada rilis akhir.
+
 ## Batas verifikasi dan konfigurasi lembaga
 
 - Rekening umum donasi/wakaf belum diisi karena belum dikonfirmasi lembaga. Rekening event/bazar lama dipertahankan. Portal menampilkan kondisi rekening belum tersedia, bukan rekening contoh.

@@ -39,6 +39,7 @@ async function request(role: string, feature: string, path: string, expected: nu
 }
 
 const features: Array<{ name: string; path: string; permission?: PermissionCode; report?: Parameters<typeof canViewReport>[0]; roles?: RoleCode[] }> = [
+  { name: 'agenda pengelola', path: '/api/dashboard/operations', roles: ['crm_admin'] },
   { name: 'profil akun', path: '/api/settings/profile' },
   { name: 'yayasan', path: '/api/settings/foundation' },
   { name: 'program donasi', path: '/api/settings/programs' },

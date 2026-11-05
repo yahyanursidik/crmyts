@@ -4,7 +4,7 @@ import { requireAuth, requirePermission, validateBody } from '../../http/middlew
 import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import { donations, donationPrograms, persons, personRoles, auditLogs } from '../../db/schema';
-import { eq, desc, and, sql, inArray, or, ilike } from 'drizzle-orm';
+import { eq, desc, and, sql, inArray, or, ilike, gte, lt } from 'drizzle-orm';
 import { PERMISSIONS } from '../../permissions/constants';
 import { defaultAttachmentService } from '../../storage/service';
 import { sendDonationVerifiedReceiptEmail } from '../../email/service';
@@ -84,8 +84,18 @@ export function registerDonationsRoutes(router: Router) {
       const programId = ctx.query.programId?.trim();
       const verificationStatus = ctx.query.verificationStatus?.trim();
       const paymentMethod = ctx.query.paymentMethod?.trim();
+      const month = ctx.query.month?.trim();
+      if (month && !/^(19|20)\d{2}-(0[1-9]|1[0-2])$/.test(month)) {
+        return errorResponse('VALIDATION_ERROR', 'Bulan donasi tidak valid.', 400, ctx.requestId);
+      }
 
       const conditions = [];
+      if (month) {
+        const [year, monthNumber] = month.split('-').map(Number);
+        const offset = 7 * 60 * 60 * 1000;
+        conditions.push(gte(donations.donationDate, new Date(Date.UTC(year!, monthNumber! - 1, 1) - offset)));
+        conditions.push(lt(donations.donationDate, new Date(Date.UTC(year!, monthNumber!, 1) - offset)));
+      }
       if (search) {
         conditions.push(
           or(

@@ -17,8 +17,11 @@ import {
 import { sql, eq, and, or, isNull, inArray, gte, lte, desc, asc } from 'drizzle-orm';
 import { ROLES, RoleCode, PERMISSIONS, ROLE_PERMISSIONS, hasPermission } from '../../permissions/constants';
 import { canOpenPath } from '../../permissions/navigation';
+import { registerDashboardOperations } from './operations';
+import { jakartaCalendarWindow } from './time';
 
 export function registerDashboardRoutes(router: Router) {
+  registerDashboardOperations(router);
   // 1. Executive Stats for Leadership
   router.get(
     '/api/dashboard/stats',
@@ -27,8 +30,7 @@ export function registerDashboardRoutes(router: Router) {
       const db = getDb();
 
       const now = new Date();
-      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+      const { monthStart: firstDayOfMonth, monthEnd: lastDayOfMonth } = jakartaCalendarWindow(now);
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
       // Core KPIs Aggregation in Parallel
@@ -50,7 +52,7 @@ export function registerDashboardRoutes(router: Router) {
         db.select({ count: sql<number>`count(*)::int` }).from(persons).where(and(eq(persons.isActive, true), eq(persons.engagementStatus, 'dorman'))),
         db.select({ count: sql<number>`count(*)::int` }).from(tasks).where(
           and(
-            or(eq(tasks.status, 'pending'), eq(tasks.status, 'in_progress')),
+            inArray(tasks.status, ['pending', 'in_progress', 'waiting']),
             lte(tasks.dueAt, now)
           )
         ),
@@ -90,6 +92,7 @@ export function registerDashboardRoutes(router: Router) {
         })
         .from(events)
         .leftJoin(eventAttendance, and(eq(eventAttendance.eventId, events.id), eq(eventAttendance.status, 'attended')))
+        .where(lte(events.startAt, now))
         .groupBy(events.id, events.title, events.startAt, events.speaker)
         .orderBy(sql`${events.startAt} DESC`)
         .limit(6);
@@ -140,7 +143,7 @@ export function registerDashboardRoutes(router: Router) {
 
       // Action Queues
       const urgentTasks = await db.query.tasks.findMany({
-        where: or(eq(tasks.status, 'pending'), eq(tasks.status, 'in_progress')),
+        where: inArray(tasks.status, ['pending', 'in_progress', 'waiting']),
         orderBy: (t, { asc }) => [asc(t.dueAt)],
         limit: 5,
         with: {
@@ -301,14 +304,13 @@ export function registerDashboardRoutes(router: Router) {
       const taskScope = hasPermission(user!.roles, PERMISSIONS.TASKS_VIEW_ALL) ? undefined : eq(tasks.ownerUserId, user!.id);
 
       const now = new Date();
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-      const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+      const { dayStart: todayStart, dayEnd: todayEnd } = jakartaCalendarWindow(now);
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
       // Common Overdue Tasks for user / role
       const overdueTasks = canReadTasks ? await db.query.tasks.findMany({
         where: and(
-          or(eq(tasks.status, 'pending'), eq(tasks.status, 'in_progress')),
+          inArray(tasks.status, ['pending', 'in_progress', 'waiting']),
           lte(tasks.dueAt, now), taskScope
         ),
         orderBy: [asc(tasks.dueAt)],
@@ -327,7 +329,7 @@ export function registerDashboardRoutes(router: Router) {
       // Today's Scheduled Tasks
       const todayTasks = canReadTasks ? await db.query.tasks.findMany({
         where: and(
-          or(eq(tasks.status, 'pending'), eq(tasks.status, 'in_progress')),
+          inArray(tasks.status, ['pending', 'in_progress', 'waiting']),
           gte(tasks.dueAt, todayStart),
           lte(tasks.dueAt, todayEnd), taskScope
         ),
@@ -391,16 +393,16 @@ export function registerDashboardRoutes(router: Router) {
           const [recentAuditsRes] = await db.select({ count: sql<number>`count(*)::int` }).from(auditLogs).where(gte(auditLogs.createdAt, todayStart));
 
           roleKpis = [
-            { label: 'Total User Staf', value: totalUsersRes?.count || 0, color: 'text-brand-800' },
-            { label: 'Jamaah Tanpa Owner', value: unassignedPersonsRes?.count || 0, color: 'text-amber-800' },
-            { label: 'Audit Log 24 Jam', value: recentAuditsRes?.count || 0, color: 'text-blue-800' },
-            { label: 'Total Overdue Tugas', value: overdueTasks.length, color: 'text-red-800' },
+            { label: 'Akun staf', value: totalUsersRes?.count || 0, color: 'text-brand-800' },
+            { label: 'Jamaah belum memiliki PIC', value: unassignedPersonsRes?.count || 0, color: 'text-amber-800' },
+            { label: 'Aktivitas audit hari ini', value: recentAuditsRes?.count || 0, color: 'text-blue-800' },
+            { label: 'Tugas terlambat di daftar', value: overdueTasks.length, color: 'text-red-800' },
           ];
 
           quickActions = [
             { label: 'Log audit', href: '/audit', icon: 'Shield', description: 'Riwayat perubahan data' },
             { label: 'Kualitas data', href: '/data-quality', icon: 'Database', description: 'Duplikasi dan kelengkapan jamaah' },
-            { label: '+ Buat Tugas Global', href: '/tasks', icon: 'Plus', description: 'Delegasikan tugas ke staf yayasan' },
+            { label: 'Buat tugas', href: '/tasks?action=create', icon: 'Plus', description: 'Delegasikan tugas ke staf yayasan' },
             { label: 'Master Jamaah', href: '/people', icon: 'Users', description: 'Buka database master jamaah' },
           ];
 
@@ -418,12 +420,6 @@ export function registerDashboardRoutes(router: Router) {
             });
           }
 
-          attentionItems.push({
-            id: 'att_system_health',
-            title: 'Integritas Sistem & Koneksi DB Neon',
-            description: 'Koneksi database PostgreSQL Neon beroperasi optimal dengan latensi normal.',
-            level: 'info',
-          });
           break;
         }
 
@@ -446,7 +442,7 @@ export function registerDashboardRoutes(router: Router) {
 
           quickActions = [
             { label: 'Review Duplikasi Jamaah', href: '/data-quality', icon: 'Layers', description: 'Cek potensi duplikasi nomor telepon' },
-            { label: '+ Input Jamaah Baru', href: '/people', icon: 'UserPlus', description: 'Pencatatan jamaah dengan validasi E.164' },
+            { label: 'Tambah jamaah', href: '/people?action=create', icon: 'UserPlus', description: 'Pencatatan jamaah dengan validasi E.164' },
             { label: 'Lengkapi Data Domisili', href: '/people', icon: 'MapPin', description: 'Filter jamaah tanpa kota/kabupaten' },
           ];
 
@@ -499,8 +495,8 @@ export function registerDashboardRoutes(router: Router) {
           ];
 
           quickActions = [
-            { label: '+ Catat Sapaan (60s)', href: '/interactions', icon: 'MessageSquare', actionType: 'modal_interaction', description: 'Log cepat respon WhatsApp / telepon' },
-            { label: '+ Buat Tugas Sapaan', href: '/tasks', icon: 'Calendar', description: 'Jadwalkan sapaan jamaah berikutnya' },
+            { label: 'Catat interaksi', href: '/interactions?action=create', icon: 'MessageSquare', actionType: 'modal_interaction', description: 'Log cepat respon WhatsApp / telepon' },
+            { label: 'Buat tugas sapaan', href: '/tasks?action=create', icon: 'Calendar', description: 'Jadwalkan sapaan jamaah berikutnya' },
             { label: 'Cari Jamaah / Kontak', href: '/people', icon: 'Search', description: 'Buka profil 360° jamaah' },
           ];
 
@@ -578,7 +574,7 @@ export function registerDashboardRoutes(router: Router) {
           ];
 
           quickActions = [
-            { label: '+ Jadwal Kajian Baru', href: '/events', icon: 'Plus', description: 'Buat agenda kajian tematik / rutin' },
+            { label: 'Buat event', href: '/events?action=create', icon: 'Plus', description: 'Buat agenda kajian tematik / rutin' },
             { label: 'Buka Scanner Gate', href: '/gate', icon: 'QrCode', description: 'Pindai tiket peserta di pintu masuk' },
             { label: 'Kelola Peserta & Presensi', href: '/events', icon: 'FileSpreadsheet', description: 'Cek daftar jamaah, ekspor & impor' },
             { label: 'Portal Kajian Publik', href: '/kajian', icon: 'Globe', description: 'Buka halaman pendaftaran online jamaah' },
@@ -653,9 +649,9 @@ export function registerDashboardRoutes(router: Router) {
           ];
 
           quickActions = [
-            { label: '+ Catat Donasi / Infaq', href: '/donations', icon: 'Coins', description: 'Input penerimaan transfer infaq jamaah' },
-            { label: '+ Sapa Donatur Potensial', href: '/interactions', icon: 'MessageSquare', description: 'Jadwalkan komunikasi program dakwah' },
-            { label: 'Buka Master Donatur', href: '/donations', icon: 'Users', description: 'Lihat donatur loyal terverifikasi' },
+            { label: 'Catat donasi', href: '/donations?action=create', icon: 'Coins', description: 'Input penerimaan transfer infaq jamaah' },
+            { label: 'Catat interaksi donatur', href: '/interactions?action=create', icon: 'MessageSquare', description: 'Jadwalkan komunikasi program dakwah' },
+            { label: 'Direktori donatur', href: '/donations?tab=donors', icon: 'Users', description: 'Lihat donatur loyal terverifikasi' },
           ];
 
           todayItems = mapToday(todayTasks);
@@ -709,7 +705,7 @@ export function registerDashboardRoutes(router: Router) {
           ];
 
           quickActions = [
-            { label: '+ Inisiasi Kasus Wakaf', href: '/waqf', icon: 'Building2', description: 'Catat peminat wakaf tanah/aset baru' },
+            { label: 'Buat kasus wakaf', href: '/waqf?action=create', icon: 'Building2', description: 'Catat peminat wakaf tanah/aset baru' },
             { label: 'Buka Kanban Pipeline', href: '/waqf', icon: 'LayoutGrid', description: 'Pantau 7 tahapan legalitas wakaf' },
             { label: 'Kelola Berkas & AIW', href: '/waqf', icon: 'FileText', description: 'Checklist dokumen PPAIW & sertifikat' },
           ];
@@ -767,7 +763,7 @@ export function registerDashboardRoutes(router: Router) {
           ];
 
           quickActions = [
-            { label: 'Buka Antrean Verifikasi', href: '/donations', icon: 'ShieldCheck', description: 'Sahkan donasi sesuai mutasi bank' },
+            { label: 'Verifikasi donasi', href: '/donations?status=unverified', icon: 'ShieldCheck', description: 'Sahkan donasi sesuai mutasi bank' },
             { label: 'Koreksi Transaksi Sah', href: '/donations', icon: 'Edit3', description: 'Penyesuaian transaksi sah dengan audit' },
             { label: 'Laporan Rekonsiliasi Infaq', href: '/donations', icon: 'FileSpreadsheet', description: 'Rekap infaq harian/bulanan' },
           ];
@@ -839,7 +835,7 @@ export function registerDashboardRoutes(router: Router) {
           ];
 
           quickActions = [
-            { label: 'Ringkasan Eksekutif', href: '/', icon: 'BarChart3', description: 'Lihat 10 KPI & 5 visual grafik' },
+            { label: 'Analitik yayasan', href: '/?view=executive', icon: 'BarChart3', description: 'Ringkasan jamaah, kegiatan dan keuangan' },
             { label: 'Laporan yayasan', href: '/reports', icon: 'FileSpreadsheet' },
           ];
 

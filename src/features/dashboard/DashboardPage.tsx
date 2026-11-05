@@ -16,86 +16,18 @@ import {
   AlertTriangle,
   Lock,
 } from 'lucide-react';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { LoadingState } from '@/components/common/LoadingState';
 import { getWhatsAppLink } from '@/lib/phone';
 import { RoleDashboardView } from './RoleDashboardView';
 import { BrandEmblem } from '@/components/common/BrandLogo';
 import { useGetIdentity } from '@refinedev/core';
 import { UserIdentity } from '@/lib/authProvider';
+import { AdminOverview } from './AdminOverview';
+import { DashboardResponse } from './types';
+import { monthlyDonationsLink, openTaskCount } from './model';
+import './dashboard.css';
 
-interface DashboardResponse {
-  kpis: {
-    totalJamaah: number;
-    aktifJamaah: number;
-    rutinJamaah: number;
-    dormanJamaah: number;
-    overdueTasks: number;
-    monthDonationsRupiah: number;
-    unverifiedDonations: number;
-    activeWaqfCases: number;
-    agingWaqfCases: number;
-    dataQualityIssues: number;
-  };
-  charts: {
-    attendanceTrend: Array<{
-      id: string;
-      title: string;
-      date: string;
-      speaker: string;
-      attendees: number;
-    }>;
-    engagementDistribution: Array<{
-      status: string;
-      count: number;
-    }>;
-    donationsByProgram: Array<{
-      programId: string;
-      programName: string;
-      programCode: string;
-      totalRupiah: number;
-      count: number;
-    }>;
-    waqfStages: Array<{
-      stage: string;
-      caseCount: number;
-      totalEstimatedRupiah: number;
-    }>;
-    taskCompletion: Array<{
-      status: string;
-      count: number;
-    }>;
-  };
-  queues: {
-    urgentTasks: Array<{
-      id: string;
-      title: string;
-      ownerUserId?: string;
-      personId?: string | null;
-      personName?: string | null;
-      personPhone?: string | null;
-      priority: string;
-      dueAt: string;
-      isOverdue: boolean;
-    }>;
-    unverifiedDonations: Array<{
-      id: string;
-      personName: string;
-      programName: string;
-      amountRupiah: number;
-      donationDate: string;
-    }>;
-    recentAuditLogs?: Array<{
-      id: string;
-      action: string;
-      entityType: string;
-      entityId?: string | null;
-      actorName: string;
-      reason?: string | null;
-      createdAt: string;
-    }>;
-  };
-}
 
 const ENGAGEMENT_CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
   rutin: { label: 'Rutin', color: 'text-[#1B4332]', bg: 'bg-[#1B4332]', border: 'border-[#1B4332]' },
@@ -135,7 +67,14 @@ function getIndonesianFullDate(): string {
 
 export const DashboardPage: React.FC = () => {
   const { data: identity } = useGetIdentity<UserIdentity>();
-  const [viewTab, setViewTab] = useState<'antrean' | 'executive' | 'role'>('role');
+  const [pageParams, setPageParams] = useSearchParams();
+  const isAdmin = identity?.roles?.includes('crm_admin') || false;
+  const canExecutive = identity?.roles?.some((role) => ['crm_admin', 'leadership_viewer', 'auditor'].includes(role)) || false;
+  type View = 'overview' | 'antrean' | 'executive' | 'role';
+  const requestedView = pageParams.get('view');
+  const viewTab: View = isAdmin && ['overview', 'antrean', 'executive', 'role'].includes(requestedView || '')
+    ? requestedView as View : canExecutive && requestedView === 'executive' ? 'executive' : isAdmin ? 'overview' : 'role';
+  const setViewTab = (view: View) => setPageParams({ view }, { replace: true });
   const [queueFilter, setQueueFilter] = useState<'all' | 'mine' | 'overdue'>('all');
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -143,32 +82,26 @@ export const DashboardPage: React.FC = () => {
 
   const isFinanceUser = identity?.roles?.some((r) => ['finance_verifier', 'crm_admin'].includes(r));
 
-  const canExecutive = identity?.roles?.includes('crm_admin') || false;
-
   useEffect(() => {
-    if (viewTab === 'role' || !canExecutive) { setLoading(false); return; }
+    if (viewTab === 'role' || viewTab === 'overview' || !canExecutive) { setLoading(false); return; }
+    const controller = new AbortController();
     async function loadStats() {
       try {
         setLoading(true);
         setError(null);
-        const res = await apiClient<DashboardResponse>('/dashboard/stats');
-        setData(res.data);
+        const res = await apiClient<DashboardResponse>('/dashboard/stats', { signal: controller.signal });
+        if (!controller.signal.aborted) setData(res.data);
       } catch (err: any) {
-        setError(err.message || 'Gagal memuat ringkasan dashboard');
+        if (!controller.signal.aborted) setError(err.message || 'Gagal memuat ringkasan dashboard');
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
     loadStats();
+    return () => controller.abort();
   }, [viewTab, canExecutive]);
 
-  if (loading && viewTab !== 'role') {
-    return <LoadingState message="Memuat ruang kendali amanah..." />;
-  }
-
-  if (error && viewTab !== 'role') {
-    return <div className="p-6 text-red-700 bg-red-50 rounded-xl border border-red-200 text-xs">{error}</div>;
-  }
+  if (!canExecutive) return <RoleDashboardView />;
 
   const formatRupiah = (val: number) => {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
@@ -178,7 +111,7 @@ export const DashboardPage: React.FC = () => {
   const totalDonationSum = data?.charts.donationsByProgram.reduce((acc, curr) => acc + curr.totalRupiah, 0) || 1;
   const maxAttendance = data?.charts.attendanceTrend.length ? Math.max(...data.charts.attendanceTrend.map((a) => a.attendees), 10) : 10;
   
-  const totalPendingActions = (data?.kpis.overdueTasks || 0) + (data?.kpis.unverifiedDonations || 0) + (data?.queues.urgentTasks.length || 0);
+  const totalPendingActions = (data ? openTaskCount(data) : 0) + (data?.kpis.unverifiedDonations || 0);
 
   // Filter urgent tasks based on pill selection
   const filteredTasks = (data?.queues.urgentTasks || []).filter((t) => {
@@ -189,53 +122,16 @@ export const DashboardPage: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto pb-10">
-      {/* 1. VIEW MODE SELECTOR (Mockup 1a/1b/Role) */}
-      <div className="flex flex-wrap gap-3 items-center justify-between pb-3 border-b border-[#1B4332]/12">
-        <div className="bg-[#F2EEE4] max-w-full overflow-x-auto p-1 rounded-xl flex items-center gap-1 border border-[#1B4332]/12 shadow-2xs">
-          {canExecutive && (<button
-            onClick={() => setViewTab('antrean')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              viewTab === 'antrean'
-                ? 'bg-[#1B4332] text-white shadow-2xs'
-                : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-white/60'
-            }`}
-          >
-            <CheckSquare className="w-3.5 h-3.5" /> Antrean kerja
-          </button>)}
+      <nav className="dashboard-tabs" aria-label="Tampilan dashboard">
+        {([
+          ['overview', 'Ringkasan'], ['antrean', 'Antrean'],
+          ['executive', 'Analitik'], ['role', 'Peran'],
+        ] as const).filter(([value]) => isAdmin || value === 'executive' || value === 'role').map(([value, label]) => <button key={value} type="button" aria-current={viewTab === value ? 'page' : undefined} onClick={() => setViewTab(value)}>{label}</button>)}
+      </nav>
 
-          {canExecutive && (<button
-            onClick={() => setViewTab('executive')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              viewTab === 'executive'
-                ? 'bg-[#1B4332] text-white shadow-2xs'
-                : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-white/60'
-            }`}
-          >
-            <TrendingUp className="w-3.5 h-3.5" /> Ikhtisar yayasan
-          </button>)}
-
-          <button
-            onClick={() => setViewTab('role')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              viewTab === 'role'
-                ? 'bg-[#1B4332] text-white shadow-2xs'
-                : 'text-[#3D4A44] hover:text-[#14352A] hover:bg-white/60'
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" /> Ruang kerja saya
-          </button>
-        </div>
-
-        {/* Status indicator */}
-        <div className="hidden sm:flex items-center gap-1.5 text-xs text-[#6B7A72]">
-          <span className="w-2 h-2 rounded-full bg-[#2F7D4F]" />
-          <span>Sistem Aktif &amp; Tersinkronisasi</span>
-        </div>
-      </div>
-
-      {viewTab === 'role' ? (
+      {viewTab === 'overview' ? <AdminOverview /> : viewTab === 'role' ? (
         <RoleDashboardView />
-      ) : !data ? null : viewTab === 'antrean' ? (
+      ) : loading ? <LoadingState message="Memuat ringkasan yayasan…" /> : error ? <div className="admin-notice" role="alert"><p>{error}</p><button type="button" onClick={() => setViewTab('overview')}>Kembali ke ringkasan</button></div> : !data ? null : viewTab === 'antrean' ? (
         /* =========================================================================
            TAB 1: BERANDA KERJA & ANTREAN PRIORITAS (MOCKUP 1a)
         ========================================================================= */
@@ -286,7 +182,7 @@ export const DashboardPage: React.FC = () => {
                     : 'text-white/80 hover:text-white hover:bg-white/10'
                 }`}
               >
-                Tugas Saya ({data.queues.urgentTasks.length})
+                Tugas saya ({data.queues.urgentTasks.filter((task) => task.ownerUserId === identity?.id).length})
               </button>
 
               <button
@@ -708,10 +604,10 @@ export const DashboardPage: React.FC = () => {
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="text-xl sm:text-2xl font-bold text-[#1C2321] tracking-tight font-display">
-                    Ikhtisar Lembaga &amp; Governance
+                    Analitik yayasan
                   </h1>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#1B4332]/10 text-[#1B4332] border border-[#1B4332]/20">
-                    Live SQL Aggregates
+                    Data yayasan
                   </span>
                 </div>
                 <p className="text-xs text-[#6B7A72] mt-0.5">
@@ -719,11 +615,7 @@ export const DashboardPage: React.FC = () => {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 text-xs">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span> Neon PostgreSQL Synchronized
-              </span>
-            </div>
+
           </div>
 
           {/* 10 TOP KPI STRIP */}
@@ -739,7 +631,7 @@ export const DashboardPage: React.FC = () => {
               </div>
             </Link>
 
-            <Link to="/people" className="p-3.5 bg-white rounded-xl border border-[#1B4332]/12 shadow-2xs hover:border-[#0F4C4A] transition-all">
+            <Link to="/people?engagement=aktif" className="p-3.5 bg-white rounded-xl border border-[#1B4332]/12 shadow-2xs hover:border-[#0F4C4A] transition-all">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-[10px] font-bold text-[#0F4C4A] uppercase tracking-wider">Aktif</span>
                 <Activity className="w-3.5 h-3.5 text-[#0F4C4A]" />
@@ -750,7 +642,7 @@ export const DashboardPage: React.FC = () => {
               </div>
             </Link>
 
-            <Link to="/people" className="p-3.5 bg-white rounded-xl border border-[#1B4332]/12 shadow-2xs hover:border-[#1B4332] transition-all">
+            <Link to="/people?engagement=rutin" className="p-3.5 bg-white rounded-xl border border-[#1B4332]/12 shadow-2xs hover:border-[#1B4332] transition-all">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-[10px] font-bold text-[#1B4332] uppercase tracking-wider">Rutin</span>
                 <CheckSquare className="w-3.5 h-3.5 text-[#1B4332]" />
@@ -761,7 +653,7 @@ export const DashboardPage: React.FC = () => {
               </div>
             </Link>
 
-            <Link to="/automation" className="p-3.5 bg-white rounded-xl border border-[#1B4332]/12 shadow-2xs hover:border-[#C77A16] transition-all">
+            <Link to="/people?engagement=dorman" className="p-3.5 bg-white rounded-xl border border-[#1B4332]/12 shadow-2xs hover:border-[#C77A16] transition-all">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-[10px] font-bold text-[#B06E12] uppercase tracking-wider">Dorman</span>
                 <Clock className="w-3.5 h-3.5 text-[#C77A16]" />
@@ -772,9 +664,9 @@ export const DashboardPage: React.FC = () => {
               </div>
             </Link>
 
-            <Link to="/tasks" className="p-3.5 bg-white rounded-xl border border-red-200 bg-red-50/20 shadow-2xs hover:border-red-400 transition-all">
+            <Link to="/tasks?overdue=true" className="p-3.5 bg-white rounded-xl border border-red-200 bg-red-50/20 shadow-2xs hover:border-red-400 transition-all">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-[10px] font-bold text-[#A8412F] uppercase tracking-wider">Tugas Overdue</span>
+                <span className="text-[10px] font-bold text-[#A8412F] uppercase tracking-wider">Tugas terlambat</span>
                 <AlertCircle className="w-3.5 h-3.5 text-[#A8412F]" />
               </div>
               <div className="mt-1.5">
@@ -783,7 +675,7 @@ export const DashboardPage: React.FC = () => {
               </div>
             </Link>
 
-            <Link to="/donations" className="p-3.5 bg-white rounded-xl border border-[#1B4332]/12 shadow-2xs hover:border-[#1B4332] transition-all">
+            <Link to={monthlyDonationsLink()} className="p-3.5 bg-white rounded-xl border border-[#1B4332]/12 shadow-2xs hover:border-[#1B4332] transition-all">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-[10px] font-bold text-[#2F7D4F] uppercase tracking-wider">Donasi Bulan Ini</span>
                 <Coins className="w-3.5 h-3.5 text-[#2F7D4F]" />
@@ -794,9 +686,9 @@ export const DashboardPage: React.FC = () => {
               </div>
             </Link>
 
-            <Link to="/donations" className="p-3.5 bg-white rounded-xl border border-amber-200 bg-amber-50/20 shadow-2xs hover:border-amber-400 transition-all">
+            <Link to="/donations?status=unverified" className="p-3.5 bg-white rounded-xl border border-amber-200 bg-amber-50/20 shadow-2xs hover:border-amber-400 transition-all">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-[10px] font-bold text-[#B06E12] uppercase tracking-wider">Unverified</span>
+                <span className="text-[10px] font-bold text-[#B06E12] uppercase tracking-wider">Belum diverifikasi</span>
                 <ShieldAlert className="w-3.5 h-3.5 text-[#C77A16]" />
               </div>
               <div className="mt-1.5">
@@ -829,7 +721,7 @@ export const DashboardPage: React.FC = () => {
 
             <Link to="/data-quality" className="p-3.5 bg-white rounded-xl border border-rose-200 bg-rose-50/20 shadow-2xs hover:border-rose-400 transition-all">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-[10px] font-bold text-rose-800 uppercase tracking-wider">Data Issue</span>
+                <span className="text-[10px] font-bold text-rose-800 uppercase tracking-wider">Data belum lengkap</span>
                 <AlertTriangle className="w-3.5 h-3.5 text-rose-700" />
               </div>
               <div className="mt-1.5">
@@ -848,7 +740,7 @@ export const DashboardPage: React.FC = () => {
                   <TrendingUp className="w-4 h-4 text-[#1B4332]" />
                   <h2 className="text-sm font-bold text-[#1C2321] font-display">Tren Presensi Kajian Jamaah</h2>
                 </div>
-                <span className="text-[11px] text-[#8A9690]">6 Kajian Terakhir</span>
+                <span className="text-[11px] text-[#8A9690]">6 event terbaru</span>
               </div>
 
               <div className="space-y-3 pt-2">
