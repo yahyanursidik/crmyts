@@ -1,3 +1,4 @@
+import { loadBazaarReceipt, readBazaarAccessToken } from '@/lib/bazaarAccess';
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router';
 import { apiClient } from '@/lib/apiClient';
@@ -96,9 +97,8 @@ export const BazaarSurveyPortalPage: React.FC = () => {
   const [data, setData] = useState<PublicBazaarResponse | null>(null);
 
   // Tenant Identification
-  const [selectedAppId, setSelectedAppId] = useState('');
-  const [brandSearch, setBrandSearch] = useState('');
-  const [phoneInput, setPhoneInput] = useState('');
+  const [accessCode,setAccessCode]=useState(()=>eventId?loadBazaarReceipt(eventId):'');
+  const selectedAppId=readBazaarAccessToken(accessCode)?.applicationId||'';
 
   // Survey Form Data
   const [ratings, setRatings] = useState<Record<string, number>>({
@@ -144,8 +144,8 @@ export const BazaarSurveyPortalPage: React.FC = () => {
     e.preventDefault();
     if (!eventId) return;
 
-    if (!selectedAppId && !phoneInput.trim() && !brandSearch.trim()) {
-      showToast('Harap pilih Brand Anda atau masukkan No. WhatsApp terdaftar.');
+    if (!selectedAppId) {
+      showToast('Gunakan kode akses pribadi dari bukti pendaftaran.');
       return;
     }
 
@@ -153,8 +153,6 @@ export const BazaarSurveyPortalPage: React.FC = () => {
       setSubmitting(true);
       const payload = {
         applicationId: selectedAppId || undefined,
-        phone: phoneInput.trim() || undefined,
-        brandName: brandSearch.trim() || undefined,
         satisfactionOverall: ratings.satisfactionOverall,
         satisfactionLocation: ratings.satisfactionLocation,
         satisfactionFacilities: ratings.satisfactionFacilities,
@@ -167,6 +165,7 @@ export const BazaarSurveyPortalPage: React.FC = () => {
 
       await apiClient(`/public/events/${eventId}/bazaar/survey`, {
         method: 'POST',
+        headers:{Authorization:'Bearer '+accessCode.trim()},
         body: JSON.stringify(payload),
       });
 
@@ -209,7 +208,6 @@ export const BazaarSurveyPortalPage: React.FC = () => {
   }
 
   const { event, bazaar } = data;
-  const tenantsList = bazaar.registeredTenants || [];
 
   return (
     <div className="min-h-screen bg-[#F7F4EC] text-[#1C2321] selection:bg-[#E0B970] selection:text-[#14352A] flex flex-col justify-between font-sans">
@@ -305,7 +303,7 @@ export const BazaarSurveyPortalPage: React.FC = () => {
 
             <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
               <Link
-                to="/portal"
+                to="/peserta"
                 className="w-full sm:w-auto px-6 py-3 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl font-bold text-xs shadow-xs transition-all"
               >
                 Kembali ke Portal Utama YTS
@@ -331,67 +329,11 @@ export const BazaarSurveyPortalPage: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-sm font-bold font-display text-[#1C2321]">Identitas Tenant / Brand Peserta</h3>
-                  <p className="text-[11px] text-[#6B7A72]">Pilih Brand terdaftar atau masukkan nomor kontak WhatsApp Anda</p>
+                  <p className="text-[11px] text-[#6B7A72]">Kode pribadi menghubungkan survei ke pendaftaran yang benar.</p>
                 </div>
               </div>
 
-              <div className="space-y-3.5 text-xs">
-                {tenantsList.length > 0 && (
-                  <div className="space-y-1">
-                    <label className="font-semibold text-[#1C2321]">
-                      Pilih Brand dari Daftar Peserta Terdaftar:
-                    </label>
-                    <select
-                      value={selectedAppId}
-                      onChange={(e) => {
-                        setSelectedAppId(e.target.value);
-                        if (e.target.value) {
-                          setBrandSearch('');
-                          setPhoneInput('');
-                        }
-                      }}
-                      className="w-full px-3.5 py-2.5 bg-[#F2EEE4] border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
-                    >
-                      <option value="">-- Pilih Brand Terdaftar pada Event Ini --</option>
-                      {tenantsList.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.brandName || 'Tanpa Nama'} {t.boothCode ? `[Stan: ${t.boothCode}]` : ''} — PIC: {t.picName || '-'}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {!selectedAppId && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                    <div className="space-y-1">
-                      <label className="font-semibold text-[#1C2321]">
-                        Nama Brand / Lapak Usaha:
-                      </label>
-                      <input
-                        type="text"
-                        value={brandSearch}
-                        onChange={(e) => setBrandSearch(e.target.value)}
-                        placeholder="Contoh: Madu Murni Al-Barakah"
-                        className="w-full px-3.5 py-2.5 bg-[#F2EEE4] border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="font-semibold text-[#1C2321]">
-                        No. WhatsApp Terdaftar:
-                      </label>
-                      <input
-                        type="tel"
-                        value={phoneInput}
-                        onChange={(e) => setPhoneInput(e.target.value)}
-                        placeholder="Contoh: 081234567890"
-                        className="w-full px-3.5 py-2.5 bg-[#F2EEE4] border border-[#1B4332]/14 rounded-xl text-xs font-semibold text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
+              <div className="space-y-2 text-xs"><label htmlFor="bazaar-survey-access" className="font-semibold">Kode akses pribadi</label><textarea id="bazaar-survey-access" value={accessCode} onChange={e=>setAccessCode(e.target.value)} rows={3} autoComplete="off" className="w-full min-w-0 rounded-xl border p-3 font-mono" placeholder="Tempel kode dari bukti pendaftaran"/></div>
             </div>
 
             {/* 2. Rating Questions */}

@@ -1,775 +1,535 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Router } from '../../server/http/router';
-import { registerBazaarRoutes } from '../../server/domain/bazaar/routes';
-import * as client from '../../server/db/client';
-import { ROLES, PERMISSIONS } from '../../server/permissions/constants';
-
-describe('PRD Web App YTS Bazar – Tenant & Event Management System', () => {
-  const router = new Router();
-  registerBazaarRoutes(router);
-
-  const mockAdminUser = {
-    id: '018f0000-0000-7000-8000-000000000001',
-    authSubject: 'auth_admin_001',
-    email: 'kajian@tarbiyahsunnah.id',
-    fullName: 'Admin Kajian YTS',
-    roles: [ROLES.EVENT_ADMIN],
-    permissions: [PERMISSIONS.EVENTS_MANAGE],
-    isActive: true,
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getTableName } from "drizzle-orm";
+import { Router } from "../../server/http/router";
+import { registerBazaarRoutes } from "../../server/domain/bazaar/routes";
+import * as client from "../../server/db/client";
+import { ROLES, PERMISSIONS } from "../../server/permissions/constants";
+import {
+  createBazaarAccess,
+  readBazaarAccess,
+} from "../../server/domain/bazaar/accessToken";
+import {
+  bazaarBankConfigured,
+  bazaarPaymentConfirmed,
+  bazaarRegistrationOpen,
+} from "../../src/lib/bazaarPolicy";
+import { parseBazaarCsv } from "../../src/features/bazaar/importModel";
+const E = "018f1111-2222-7000-8000-000000000001",
+  B = "018f2222-3333-7000-8000-000000000002",
+  S = "018f3333-4444-7000-8000-000000000003",
+  T = "018f4444-5555-7000-8000-000000000004",
+  A = "018f5555-6666-7000-8000-000000000005",
+  P = "018f6666-7777-7000-8000-000000000006";
+const actor = {
+  id: P,
+  authSubject: "fixture",
+  email: "staff@example.test",
+  fullName: "Staff UAT",
+  roles: [ROLES.EVENT_ADMIN],
+  permissions: [PERMISSIONS.EVENTS_MANAGE],
+  isActive: true,
+};
+let event: any, bazaar: any, tenant: any, app: any, booth: any;
+let db: any;
+const router = new Router();
+registerBazaarRoutes(router);
+beforeEach(() => {
+  vi.restoreAllMocks();
+  event = {
+    id: E,
+    title: "Event UAT",
+    status: "scheduled",
+    startAt: new Date(Date.now() + 86400000),
+    endAt: new Date(Date.now() + 90000000),
   };
-
-  const sampleEventId = '018f1111-2222-7000-8000-000000000001';
-  const sampleBazaarId = '018f2222-3333-7000-8000-000000000002';
-  const sampleBoothId = '018f3333-4444-7000-8000-000000000003';
-  const sampleTenantId = '018f4444-5555-7000-8000-000000000004';
-  const sampleAppId = '018f5555-6666-7000-8000-000000000005';
-
-  const mockDb = {
-    execute: vi.fn().mockResolvedValue([]),
-    query: {
-      events: {
-        findFirst: vi.fn(),
-      },
-      bazaarEvents: {
-        findFirst: vi.fn(),
-        findMany: vi.fn(),
-      },
-      bazaarBooths: {
-        findFirst: vi.fn(),
-        findMany: vi.fn(),
-      },
-      bazaarTenants: {
-        findFirst: vi.fn(),
-        findMany: vi.fn(),
-      },
-      bazaarApplications: {
-        findFirst: vi.fn(),
-        findMany: vi.fn(),
-      },
-      bazaarSurveys: {
-        findFirst: vi.fn(),
-        findMany: vi.fn(),
-      },
-      bazaarIncidents: {
-        findMany: vi.fn(),
-      },
-      bazaarEvaluations: {
-        findFirst: vi.fn(),
-      },
-      persons: {
-        findFirst: vi.fn(),
-      },
-    },
-    insert: vi.fn(),
-    update: vi.fn(),
-    delete: vi.fn(),
+  bazaar = {
+    id: B,
+    eventId: E,
+    title: "Bazar UAT",
+    isOpen: true,
+    paymentEnabled: false,
+    defaultFeeRupiah: 100000,
+    categoryQuotas: null,
+    surveyEnabled: true,
+    event,
   };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
-  });
-
-  it('1. GET /api/events/:id/bazaar returns 404 if event does not exist', async () => {
-    mockDb.query.events.findFirst.mockResolvedValue(null);
-
-    const res = await router.handle({
-      requestId: 'req_bazaar_1',
-      method: 'GET',
-      path: `/api/events/${sampleEventId}/bazaar`,
-      headers: {},
-      query: {},
-      params: { id: sampleEventId },
-      body: {},
-      user: mockAdminUser,
-    });
-
-    expect(res.statusCode).toBe(404);
-  });
-
-  it('2. POST /api/events/:id/bazaar initializes bazaar configuration', async () => {
-    mockDb.query.events.findFirst.mockResolvedValue({
-      id: sampleEventId,
-      title: 'Daurah Kitab Tauhid Syawal 1447H',
-    });
-    mockDb.query.bazaarEvents.findFirst.mockResolvedValue(null);
-
-    const mockCreated = {
-      id: sampleBazaarId,
-      eventId: sampleEventId,
-      title: 'Bazar Kuliner & Busana Daurah',
-      isOpen: true,
-      defaultFeeRupiah: 150000,
+  tenant = {
+    id: T,
+    personId: P,
+    brandName: "Usaha UAT",
+    picName: "PIC UAT",
+    picPhone: "+6281234567890",
+    businessCategory: "kuliner",
+    internalFlag: "normal",
+    internalTags: [],
+  };
+  booth = {
+    id: S,
+    bazaarId: B,
+    code: "A-01",
+    name: "Stan A",
+    status: "available",
+    allowedCategory: "kuliner",
+    priceRupiah: 100000,
+  };
+  app = {
+    id: A,
+    bazaarId: B,
+    tenantId: T,
+    status: "submitted",
+    infaqAmountRupiah: 100000,
+    paymentVerifiedAt: null,
+    paymentVerifiedBy: null,
+    assignedBoothId: null,
+    isPublished: false,
+    tenant,
+  };
+  const defaults: any = {
+    events: () => event,
+    bazaarEvents: () => bazaar,
+    bazaarTenants: () => tenant,
+    bazaarApplications: () => app,
+    bazaarBooths: () => booth,
+    bazaarSurveys: () => undefined,
+    bazaarEvaluations: () => undefined,
+    persons: () => undefined,
+  };
+  const query: any = {};
+  for (const [table, fn] of Object.entries(defaults))
+    query[table] = {
+      findFirst: vi.fn(fn as any),
+      findMany: vi.fn().mockResolvedValue([]),
     };
-
-    mockDb.insert.mockReturnValue({
-      values: vi.fn().mockReturnValue({
-        returning: vi.fn().mockResolvedValue([mockCreated]),
+  query.bazaarIncidents = { findMany: vi.fn().mockResolvedValue([]) };
+  const records: any = {
+    events: () => event,
+    bazaar_events: () => bazaar,
+    bazaar_tenants: () => tenant,
+    bazaar_applications: () => app,
+    bazaar_booths: () => booth,
+    persons: () => ({ id: P }),
+    bazaar_surveys: () => ({ id: S }),
+  };
+  db = {
+    query,
+    execute: vi.fn().mockResolvedValue([]),
+    select: vi.fn(() => ({
+      from: () => ({ where: () => ({ limit: async () => [] }) }),
+    })),
+    insert: vi.fn((table: any) => ({
+      values: (value: any) => ({
+        returning: async () =>
+          Array.isArray(value)
+            ? value.map((row: any, index: number) => ({
+                id: S + "-" + index,
+                ...row,
+              }))
+            : [
+                {
+                  ...(records[getTableName(table)]?.() || { id: P }),
+                  ...value,
+                },
+              ],
+        onConflictDoNothing: async () => [],
       }),
-    });
-
-    const res = await router.handle({
-      requestId: 'req_bazaar_2',
-      method: 'POST',
-      path: `/api/events/${sampleEventId}/bazaar`,
-      headers: {},
-      query: {},
-      params: { id: sampleEventId },
-      body: {
-        title: 'Bazar Kuliner & Busana Daurah',
-        description: 'Bazar resmi jamaah Daurah Syawal 1447H',
-        isOpen: true,
-        defaultFeeRupiah: 150000,
-        bankName: 'BSI',
-        bankAccountNumber: '7144778899',
-      },
-      user: mockAdminUser,
-    });
-
-    expect(res.statusCode).toBe(200);
-    const json = JSON.parse(res.body);
-    expect(json.data.id).toBe(sampleBazaarId);
-    expect(json.data.title).toBe('Bazar Kuliner & Busana Daurah');
+    })),
+    update: vi.fn((table: any) => ({
+      set: (value: any) => ({
+        where: () => ({
+          returning: async () => [
+            { ...(records[getTableName(table)]?.() || { id: P }), ...value },
+          ],
+        }),
+      }),
+    })),
+    delete: vi.fn(() => ({ where: async () => [] })),
+  };
+  db.transaction = vi.fn(async (callback: any) => callback(db));
+  vi.spyOn(client, "getDb").mockReturnValue(db);
+});
+async function request(
+  method: string,
+  path: string,
+  body?: unknown,
+  token?: string,
+  user: any = actor,
+  query: Record<string, string> = {},
+) {
+  return router.handle({
+    requestId: "bazaar-unit",
+    method,
+    path,
+    body,
+    headers: token ? { authorization: "Bearer " + token } : {},
+    params: {},
+    query,
+    user,
   });
-
-  it('3. POST /api/events/:id/bazaar/booths/bulk generates booth slots', async () => {
-    mockDb.query.bazaarEvents.findFirst.mockResolvedValue({
-      id: sampleBazaarId,
-      eventId: sampleEventId,
+}
+describe("Bazaar access, workflow and truthful summaries", () => {
+  it("requires staff access for the operational directory", async () => {
+    const response = await request(
+      "GET",
+      "/api/bazaar/overview",
+      undefined,
+      undefined,
+      null,
+    );
+    expect(response.statusCode).toBe(401);
+  });
+  it("rejects malformed route IDs before touching business data", async () => {
+    const response = await request("PUT", "/api/events/not-a-uuid/bazaar", {
+      title: "Bad",
     });
-
-    const mockBooths = [
-      { id: 'b1', code: 'A-01', name: 'Booth Selasar A-01', priceRupiah: 150000 },
-      { id: 'b2', code: 'A-02', name: 'Booth Selasar A-02', priceRupiah: 150000 },
-    ];
-
-    mockDb.insert.mockReturnValue({
-      values: vi.fn().mockReturnValue({
-        returning: vi.fn().mockResolvedValue(mockBooths),
-      }),
+    expect(response.statusCode).toBe(400);
+    expect(db.update).not.toHaveBeenCalled();
+  });
+  it("does not create a second bazaar for one event", async () => {
+    const response = await request("POST", `/api/events/${E}/bazaar`, {
+      title: "Duplicate",
     });
-
-    const res = await router.handle({
-      requestId: 'req_bazaar_3',
-      method: 'POST',
-      path: `/api/events/${sampleEventId}/bazaar/booths/bulk`,
-      headers: {},
-      query: {},
-      params: { id: sampleEventId },
-      body: {
+    expect(response.statusCode).toBe(409);
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+  it("clears a nullable deadline instead of silently retaining it", async () => {
+    bazaar.surveyDeadline = new Date(Date.now() + 9999999);
+    const response = await request("PUT", `/api/events/${E}/bazaar`, {
+      surveyDeadline: null,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).data.surveyDeadline).toBeNull();
+  });
+  it("requires complete reviewed bank data before payment activation", async () => {
+    const response = await request("PUT", `/api/events/${E}/bazaar`, {
+      paymentEnabled: true,
+      bankAccountNumber: "7144778899",
+      bankName: "Contoh",
+      bankAccountName: "Contoh",
+    });
+    expect(response.statusCode).toBe(400);
+    expect(db.update).not.toHaveBeenCalled();
+  });
+  it("rejects duplicate booth codes as a whole batch", async () => {
+    const response = await request(
+      "POST",
+      `/api/events/${E}/bazaar/booths/bulk`,
+      {
         booths: [
-          { code: 'A-01', name: 'Booth Selasar A-01', zone: 'Selasar', priceRupiah: 150000 },
-          { code: 'A-02', name: 'Booth Selasar A-02', zone: 'Selasar', priceRupiah: 150000 },
+          { code: "a-01", name: "A" },
+          { code: "A-01", name: "B" },
         ],
       },
-      user: mockAdminUser,
-    });
-
-    expect(res.statusCode).toBe(200);
-    const json = JSON.parse(res.body);
-    expect(json.data.length).toBe(2);
-    expect(json.data[0].code).toBe('A-01');
+    );
+    expect(response.statusCode).toBe(400);
+    expect(db.insert).not.toHaveBeenCalled();
   });
-
-  it('4. POST /api/public/events/:id/bazaar/apply creates master tenant CRM & application with preference', async () => {
-    mockDb.query.bazaarEvents.findFirst.mockResolvedValue({
-      id: sampleBazaarId,
-      eventId: sampleEventId,
-      isOpen: true,
-      defaultFeeRupiah: 150000,
-    });
-
-    mockDb.query.bazaarTenants.findFirst.mockResolvedValue(null);
-    mockDb.query.persons.findFirst.mockResolvedValue(null);
-
-    const mockPerson = { id: 'p1', fullName: 'Abu Fulan' };
-    const mockTenant = { id: sampleTenantId, brandName: 'Madu Al-Barkah', picPhone: '+6281234567890' };
-    const mockApp = { id: sampleAppId, bazaarId: sampleBazaarId, tenantId: sampleTenantId, status: 'submitted' };
-
-    mockDb.insert
-      .mockReturnValueOnce({
-        values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([mockPerson]) }),
-      })
-      .mockReturnValueOnce({
-        values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([mockTenant]) }),
-      })
-      .mockReturnValueOnce({
-        values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([mockApp]) }),
-      });
-
-    mockDb.query.bazaarApplications.findFirst.mockResolvedValue(null);
-
-    const res = await router.handle({
-      requestId: 'req_bazaar_4',
-      method: 'POST',
-      path: `/api/public/events/${sampleEventId}/bazaar/apply`,
-      headers: {},
-      query: {},
-      params: { id: sampleEventId },
-      body: {
-        brandName: 'Madu Al-Barkah',
-        businessCategory: 'herbal_kesehatan',
-        picName: 'Abu Fulan',
-        picPhone: '081234567890',
-        productDescription: 'Madu Murni Hutan Riau',
-        electricityNeeded: true,
-        electricityWatts: 450,
-        boothPreferences: 'Dekat pintu masuk utama',
-      },
-    });
-
-    expect(res.statusCode).toBe(200);
-    const json = JSON.parse(res.body);
-    expect(json.data.application.id).toBe(sampleAppId);
-    expect(json.data.tenant.brandName).toBe('Madu Al-Barkah');
-  });
-
-  it('5. PUT /api/events/:id/bazaar/applications/:appId/assign-booth assigns booth and returns warning if category collision occurs', async () => {
-    mockDb.query.bazaarApplications.findFirst.mockResolvedValue({
-      id: sampleAppId,
-      bazaarId: sampleBazaarId,
-      tenant: { id: sampleTenantId, businessCategory: 'kuliner' },
-    });
-
-    mockDb.query.bazaarBooths.findFirst.mockResolvedValue({
-      id: sampleBoothId,
-      bazaarId: sampleBazaarId,
-      code: 'K-02',
-      zone: 'Area Kuliner',
-    });
-
-    // Mock existing app in the same zone with same category
-    mockDb.query.bazaarApplications.findMany.mockResolvedValue([
+  it("does not merge a public submission before rejecting an existing application", async () => {
+    db.query.bazaarTenants.findMany.mockResolvedValue([tenant]);
+    const response = await request(
+      "POST",
+      `/api/public/events/${E}/bazaar/apply`,
       {
-        id: 'app_other',
-        tenant: { businessCategory: 'kuliner' },
-        assignedBooth: { code: 'K-01', zone: 'Area Kuliner' },
+        brandName: tenant.brandName,
+        picName: "Do not overwrite",
+        picPhone: tenant.picPhone,
+        businessCategory: "kuliner",
+        productDescription: "Produk uji",
+      agreedToRules: true,
+      },
+      undefined,
+      null,
+    );
+    expect(response.statusCode).toBe(409);
+    expect(db.update).not.toHaveBeenCalled();
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+  it("does not allow payment verification by jumping directly from submitted", async () => {
+    const response = await request(
+      "PUT",
+      `/api/events/${E}/bazaar/applications/${A}/status`,
+      { status: "payment_verified" },
+    );
+    expect(response.statusCode).toBe(409);
+    expect(db.update).not.toHaveBeenCalled();
+  });
+  it("refuses a booth assignment while payment is unverified", async () => {
+    const response = await request(
+      "PUT",
+      `/api/events/${E}/bazaar/applications/${A}/assign-booth`,
+      { boothId: S },
+    );
+    expect(response.statusCode).toBe(409);
+    expect(db.update).not.toHaveBeenCalled();
+  });
+  it("refuses an occupied booth even when the submitting tenant is verified", async () => {
+    app.status = "payment_verified";
+    app.paymentVerifiedAt = new Date();
+    db.query.bazaarApplications.findFirst
+      .mockResolvedValueOnce(app)
+      .mockResolvedValueOnce({ ...app, id: P });
+    const response = await request(
+      "PUT",
+      `/api/events/${E}/bazaar/applications/${A}/assign-booth`,
+      { boothId: S },
+    );
+    expect(response.statusCode).toBe(409);
+    expect(db.update).not.toHaveBeenCalled();
+  });
+  it("enforces booth category instead of applying a warning after assignment", async () => {
+    app.status = "payment_verified";
+    app.paymentVerifiedAt = new Date();
+    booth.allowedCategory = "buku_kitab";
+    db.query.bazaarApplications.findFirst
+      .mockResolvedValueOnce(app)
+      .mockResolvedValueOnce(undefined);
+    const response = await request(
+      "PUT",
+      `/api/events/${E}/bazaar/applications/${A}/assign-booth`,
+      { boothId: S },
+    );
+    expect(response.statusCode).toBe(409);
+    expect(db.update).not.toHaveBeenCalled();
+  });
+  it("invalidates payment verification when the fee editor changes the amount", async () => {
+    app.status = "payment_verified";
+    app.paymentVerifiedAt = new Date();
+    const response = await request(
+      "PUT",
+      `/api/events/${E}/bazaar/applications/${A}/fee`,
+      { infaqAmountRupiah: 200000, status: "payment_verified" },
+    );
+    expect(response.statusCode).toBe(200);
+    const data = JSON.parse(response.body).data;
+    expect(data.status).toBe("payment_pending");
+    expect(data.paymentVerifiedAt).toBeNull();
+  });
+  it("rejects check-in before a booth and verified payment exist", async () => {
+    const response = await request("POST", `/api/events/${E}/bazaar/check-in`, {
+      applicationId: A,
+    });
+    expect(response.statusCode).toBe(409);
+    expect(db.update).not.toHaveBeenCalled();
+  });
+  it("does not rewrite the timestamp when a tenant checks in twice", async () => {
+    app.status = "checked_in";
+    app.checkedInAt = new Date("2026-01-01T00:00:00Z");
+    const response = await request("POST", `/api/events/${E}/bazaar/check-in`, {
+      applicationId: A,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).data.checkedInAt).toBe(
+      app.checkedInAt.toISOString(),
+    );
+    expect(db.update).not.toHaveBeenCalled();
+  });
+  it("retains booths with placement history", async () => {
+    db.query.bazaarApplications.findMany.mockResolvedValue([app]);
+    const response = await request(
+      "DELETE",
+      `/api/events/${E}/bazaar/booths/${S}`,
+    );
+    expect(response.statusCode).toBe(409);
+    expect(db.delete).not.toHaveBeenCalled();
+  });
+  it("excludes unverified operational statuses from lifetime infaq", async () => {
+    db.query.bazaarTenants.findMany.mockResolvedValue([
+      {
+        ...tenant,
+        applications: [
+          {
+            status: "booth_assigned",
+            infaqAmountRupiah: 150000,
+            paymentVerifiedAt: null,
+          },
+          {
+            status: "payment_verified",
+            infaqAmountRupiah: 200000,
+            paymentVerifiedAt: new Date(),
+          },
+          {
+            status: "cancelled",
+            infaqAmountRupiah: 900000,
+            paymentVerifiedAt: new Date(),
+          },
+        ],
       },
     ]);
-
-    mockDb.update.mockReturnValue({
-      set: vi.fn().mockReturnValue({
-        where: vi.fn().mockReturnValue({
-          returning: vi.fn().mockResolvedValue([
-            { id: sampleAppId, assignedBoothId: sampleBoothId, status: 'booth_assigned' },
-          ]),
-        }),
-      }),
-    });
-
-    const res = await router.handle({
-      requestId: 'req_bazaar_5',
-      method: 'PUT',
-      path: `/api/events/${sampleEventId}/bazaar/applications/${sampleAppId}/assign-booth`,
-      headers: {},
-      query: {},
-      params: { id: sampleEventId, appId: sampleAppId },
-      body: {
-        boothId: sampleBoothId,
-        placementReason: 'category_isolation',
-      },
-      user: mockAdminUser,
-    });
-
-    expect(res.statusCode).toBe(200);
-    const json = JSON.parse(res.body);
-    expect(json.data.assignedBoothId).toBe(sampleBoothId);
-    expect(json.data.smartWarning).toContain("Terdapat 1 booth berkategori 'kuliner' di zona 'Area Kuliner'");
+    const response = await request("GET", "/api/bazaar/tenants");
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).data[0].lifetimeInfaqRupiah).toBe(200000);
   });
-
-  it('6. POST /api/events/:id/bazaar/check-in checks in tenant on event day', async () => {
-    mockDb.update.mockReturnValue({
-      set: vi.fn().mockReturnValue({
-        where: vi.fn().mockReturnValue({
-          returning: vi.fn().mockResolvedValue([{ id: sampleAppId, status: 'checked_in' }]),
-        }),
-      }),
-    });
-
-    const res = await router.handle({
-      requestId: 'req_bazaar_6',
-      method: 'POST',
-      path: `/api/events/${sampleEventId}/bazaar/check-in`,
-      headers: {},
-      query: {},
-      params: { id: sampleEventId },
-      body: { applicationId: sampleAppId },
-      user: mockAdminUser,
-    });
-
-    expect(res.statusCode).toBe(200);
-    const json = JSON.parse(res.body);
-    expect(json.data.status).toBe('checked_in');
+  it("does not expose a private application through a public UUID or phone", async () => {
+    const response = await request(
+      "GET",
+      `/api/public/events/${E}/bazaar/check-status`,
+      undefined,
+      undefined,
+      null,
+      { appId: A, phone: tenant.picPhone },
+    );
+    expect(response.statusCode).toBe(401);
   });
-
-  it('7. POST /api/public/events/:id/bazaar/survey submits post-event survey with omzet range', async () => {
-    mockDb.query.bazaarApplications.findFirst.mockResolvedValue({
-      id: sampleAppId,
-      tenantId: sampleTenantId,
-    });
-    mockDb.query.bazaarSurveys.findFirst.mockResolvedValue(null);
-
-    const mockSurvey = {
-      id: 'survey_1',
-      applicationId: sampleAppId,
-      omzetRange: '2-5m',
-      satisfactionOverall: 5,
-    };
-
-    mockDb.insert.mockReturnValue({
-      values: vi.fn().mockReturnValue({
-        returning: vi.fn().mockResolvedValue([mockSurvey]),
-      }),
-    });
-
-    mockDb.update.mockReturnValue({
-      set: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([]),
-      }),
-    });
-
-    const res = await router.handle({
-      requestId: 'req_bazaar_7',
-      method: 'POST',
-      path: `/api/public/events/${sampleEventId}/bazaar/survey`,
-      headers: {},
-      query: {},
-      params: { id: sampleEventId },
-      body: {
-        applicationId: sampleAppId,
+  it("loads an owner receipt while omitting internal comments", async () => {
+    app.adminNotes = "INTERNAL";
+    app.paymentNotes = "INTERNAL";
+    const response = await request(
+      "GET",
+      `/api/public/events/${E}/bazaar/check-status`,
+      undefined,
+      createBazaarAccess(A, B),
+      null,
+    );
+    expect(response.statusCode).toBe(200);
+    const data = JSON.parse(response.body).data;
+    expect(data.application.id).toBe(A);
+    expect(data.application.adminNotes).toBeUndefined();
+    expect(data.application.paymentNotes).toBeUndefined();
+    expect(data.bazaar.bankAccountNumber).toBeNull();
+  });
+  it("rejects surveys identified only by a public brand or application ID", async () => {
+    const response = await request(
+      "POST",
+      `/api/public/events/${E}/bazaar/survey`,
+      {
+        applicationId: A,
+        brandName: tenant.brandName,
         satisfactionOverall: 5,
-        satisfactionLocation: 4,
+        satisfactionLocation: 5,
         satisfactionFacilities: 5,
         satisfactionCommunication: 5,
-        satisfactionTraffic: 4,
-        omzetRange: '2-5m',
-        feedback: 'Alhamdulillah ramai dan tertib.',
-        willingToJoinNext: true,
+        satisfactionTraffic: 5,
+        omzetRange: "<1m",
       },
-    });
-
-    expect(res.statusCode).toBe(200);
-    const json = JSON.parse(res.body);
-    expect(json.data.omzetRange).toBe('2-5m');
+      undefined,
+      null,
+    );
+    expect(response.statusCode).toBe(401);
+    expect(db.insert).not.toHaveBeenCalled();
   });
-
-  it('8. PUT /api/events/:id/bazaar/applications/:appId/fee updates custom fee and payment notes', async () => {
-    mockDb.query.bazaarApplications.findFirst.mockResolvedValue({
-      id: sampleAppId,
-      infaqAmountRupiah: 150000,
-      status: 'submitted',
-      tenant: { brandName: 'Kopi Sunnah Barakah' },
-    });
-
-    const mockUpdated = {
-      id: sampleAppId,
-      infaqAmountRupiah: 75000,
-      paymentNotes: 'Diskon UMKM binaan 50%',
-      status: 'payment_verified',
-    };
-
-    mockDb.update.mockReturnValue({
-      set: vi.fn().mockReturnValue({
-        where: vi.fn().mockReturnValue({
-          returning: vi.fn().mockResolvedValue([mockUpdated]),
-        }),
-      }),
-    });
-
-    const res = await router.handle({
-      requestId: 'req_bazaar_8',
-      method: 'PUT',
-      path: `/api/events/${sampleEventId}/bazaar/applications/${sampleAppId}/fee`,
-      headers: {},
-      query: {},
-      params: { id: sampleEventId, appId: sampleAppId },
-      body: {
-        infaqAmountRupiah: 75000,
-        paymentNotes: 'Diskon UMKM binaan 50%',
-        status: 'payment_verified',
-      },
-      user: mockAdminUser,
-    });
-
-    expect(res.statusCode).toBe(200);
-    const json = JSON.parse(res.body);
-    expect(json.data.infaqAmountRupiah).toBe(75000);
-    expect(json.data.paymentNotes).toBe('Diskon UMKM binaan 50%');
-    expect(json.data.status).toBe('payment_verified');
-  });
-
-  it('9. PUT /api/events/:id/bazaar/applications/:appId/assign-booth syncs booth price and checks category compatibility', async () => {
-    mockDb.query.bazaarApplications.findFirst.mockResolvedValue({
-      id: sampleAppId,
-      bazaarId: sampleBazaarId,
-      assignedBoothId: null,
-      infaqAmountRupiah: 150000,
-      tenant: { businessCategory: 'kuliner' },
-    });
-
-    mockDb.query.bazaarBooths.findFirst.mockResolvedValue({
-      id: sampleBoothId,
-      bazaarId: sampleBazaarId,
-      code: 'B-01',
-      zone: 'Selasar Barat',
-      priceRupiah: 250000,
-      allowedCategory: 'busana_muslim',
-    });
-
-    mockDb.query.bazaarApplications.findMany.mockResolvedValue([]);
-
-    const mockAssigned = {
-      id: sampleAppId,
-      assignedBoothId: sampleBoothId,
-      status: 'booth_assigned',
-      infaqAmountRupiah: 250000,
-    };
-
-    mockDb.update.mockReturnValue({
-      set: vi.fn().mockReturnValue({
-        where: vi.fn().mockReturnValue({
-          returning: vi.fn().mockResolvedValue([mockAssigned]),
-        }),
-      }),
-    });
-
-    const res = await router.handle({
-      requestId: 'req_bazaar_9',
-      method: 'PUT',
-      path: `/api/events/${sampleEventId}/bazaar/applications/${sampleAppId}/assign-booth`,
-      headers: {},
-      query: {},
-      params: { id: sampleEventId, appId: sampleAppId },
-      body: {
-        boothId: sampleBoothId,
-        placementReason: 'custom',
-        syncBoothPrice: true,
-      },
-      user: mockAdminUser,
-    });
-
-    expect(res.statusCode).toBe(200);
-    const json = JSON.parse(res.body);
-    expect(json.data.infaqAmountRupiah).toBe(250000);
-    expect(json.data.smartWarning).toContain('Perhatian: Stand \'B-01\' dialokasikan khusus untuk kategori \'busana_muslim\'');
-  });
-
-  it('10. GET /api/bazaar/tenants calculates lifetimeInfaqRupiah for CRM profiles', async () => {
-    mockDb.query.bazaarTenants.findMany.mockResolvedValue([
+  it("rejects unauthorized proof replacement", async () => {
+    const response = await request(
+      "POST",
+      `/api/public/events/${E}/bazaar/upload-proof`,
       {
-        id: sampleTenantId,
-        brandName: 'Penerbit Sunnah',
-        businessCategory: 'buku_kitab',
-        picName: 'Abu Ahmad',
-        picPhone: '08123456789',
-        applications: [
-          { status: 'payment_verified', infaqAmountRupiah: 150000 },
-          { status: 'completed', infaqAmountRupiah: 200000 },
-          { status: 'rejected', infaqAmountRupiah: 150000 },
-        ],
+        applicationId: A,
+        phone: tenant.picPhone,
+        paymentProofUrl: "https://example.test/proof.png",
       },
+      undefined,
+      null,
+    );
+    expect(response.statusCode).toBe(401);
+    expect(db.update).not.toHaveBeenCalled();
+  });
+  it("does not list ended events as open registration", async () => {
+    event.endAt = new Date(Date.now() - 1);
+    db.query.bazaarEvents.findMany.mockResolvedValue([
+      { ...bazaar, booths: [] },
     ]);
-
-    const res = await router.handle({
-      requestId: 'req_bazaar_10',
-      method: 'GET',
-      path: '/api/bazaar/tenants',
-      headers: {},
-      query: {},
-      params: {},
-      body: {},
-      user: mockAdminUser,
-    });
-
-    expect(res.statusCode).toBe(200);
-    const json = JSON.parse(res.body);
-    expect(json.data[0].lifetimeInfaqRupiah).toBe(350000);
-    expect(json.data[0].totalParticipations).toBe(3);
+    const response = await request(
+      "GET",
+      "/api/public/bazaars",
+      undefined,
+      undefined,
+      null,
+    );
+    expect(JSON.parse(response.body).data).toEqual([]);
   });
-
-  it('11. GET /api/public/events/:id/bazaar/check-status retrieves tenant application status and booth assignment', async () => {
-    mockDb.query.bazaarEvents.findFirst.mockResolvedValue({
-      id: sampleBazaarId,
-      eventId: sampleEventId,
-      title: 'Bazar Daurah Syawal',
-      defaultFeeRupiah: 150000,
-      bankName: 'BSI',
-      bankAccountNumber: '7100012345',
-      bankAccountName: 'Yayasan Tarbiyah Sunnah',
-      event: {
-        id: sampleEventId,
-        title: 'Kajian Daurah Syawal',
-        startAt: new Date().toISOString(),
-        locationName: 'Masjid Tarbiyah Sunnah',
-      },
-    });
-
-    mockDb.query.bazaarApplications.findFirst.mockResolvedValue({
-      id: sampleAppId,
-      bazaarId: sampleBazaarId,
-      status: 'booth_assigned',
-      infaqAmountRupiah: 250000,
-      registeredAt: new Date(),
-      updatedAt: new Date(),
-      electricityNeeded: true,
-      electricityWatts: 900,
-      tenant: {
-        id: sampleTenantId,
-        brandName: 'Penerbit Sunnah',
-        businessCategory: 'buku_kitab',
-        picName: 'Abu Ahmad',
-        picPhone: '08123456789',
-      },
-      assignedBooth: {
-        id: sampleBoothId,
-        code: 'B-01',
-        name: 'Booth Selasar Barat',
-        zone: 'Selasar Barat',
-        size: '2x2 meter',
-        priceRupiah: 250000,
-      },
-    });
-
-    const res = await router.handle({
-      requestId: 'req_bazaar_11',
-      method: 'GET',
-      path: `/api/public/events/${sampleEventId}/bazaar/check-status`,
-      headers: {},
-      query: { appId: sampleAppId },
-      params: { id: sampleEventId },
-      body: {},
-    });
-
-    expect(res.statusCode).toBe(200);
-    const json = JSON.parse(res.body);
-    expect(json.data.application.id).toBe(sampleAppId);
-    expect(json.data.application.status).toBe('booth_assigned');
-    expect(json.data.tenant.brandName).toBe('Penerbit Sunnah');
-    expect(json.data.assignedBooth.code).toBe('B-01');
-  });
-
-  it('12. POST /api/public/events/:id/bazaar/upload-proof updates paymentProofUrl and sets status to payment_verification', async () => {
-    mockDb.query.bazaarApplications.findFirst.mockResolvedValue({
-      id: sampleAppId,
-      bazaarId: sampleBazaarId,
-      status: 'submitted',
-      tenant: {
-        id: sampleTenantId,
-        picPhone: '08123456789',
-      },
-    });
-
-    const mockUpdated = {
-      id: sampleAppId,
-      status: 'payment_verification',
-      paymentProofUrl: 'https://storage.yts.web.id/proofs/transfer_123.jpg',
-    };
-
-    mockDb.update.mockReturnValue({
-      set: vi.fn().mockReturnValue({
-        where: vi.fn().mockReturnValue({
-          returning: vi.fn().mockResolvedValue([mockUpdated]),
-        }),
-      }),
-    });
-
-    const res = await router.handle({
-      requestId: 'req_bazaar_12',
-      method: 'POST',
-      path: `/api/public/events/${sampleEventId}/bazaar/upload-proof`,
-      headers: {},
-      query: {},
-      params: { id: sampleEventId },
-      body: {
-        applicationId: sampleAppId,
-        phone: '08123456789',
-        paymentProofUrl: 'https://storage.yts.web.id/proofs/transfer_123.jpg',
-        paymentNotes: 'Transfer via BSI Mobile a.n. Abu Ahmad',
-      },
-    });
-
-    expect(res.statusCode).toBe(200);
-    const json = JSON.parse(res.body);
-    expect(json.data.application.status).toBe('payment_verification');
-    expect(json.data.application.paymentProofUrl).toBe('https://storage.yts.web.id/proofs/transfer_123.jpg');
-  });
-
-  it('13. GET /api/public/bazaars returns active bazaars with booth counts and event details', async () => {
-    mockDb.query.bazaarEvents.findMany.mockResolvedValue([
-      {
-        id: sampleBazaarId,
-        eventId: sampleEventId,
-        title: 'Bazar Daurah Syawal',
-        defaultFeeRupiah: 150000,
-        isOpen: true,
-        booths: [
-          { id: 'b1', code: 'A-01', status: 'available' },
-          { id: 'b2', code: 'A-02', status: 'assigned' },
-        ],
-        event: {
-          id: sampleEventId,
-          title: 'Kajian Daurah Syawal',
-          speaker: 'Ustadz Fulan',
-          startAt: new Date().toISOString(),
-          locationName: 'Masjid Tarbiyah Sunnah',
-        },
-      },
-    ]);
-
-    const res = await router.handle({
-      requestId: 'req_bazaar_13',
-      method: 'GET',
-      path: '/api/public/bazaars',
-      headers: {},
-      query: {},
-      params: {},
-      body: {},
-    });
-
-    expect(res.statusCode).toBe(200);
-    const json = JSON.parse(res.body);
-    expect(json.data).toHaveLength(1);
-    expect(json.data[0].title).toBe('Bazar Daurah Syawal');
-    expect(json.data[0].boothsCount).toBe(2);
-    expect(json.data[0].availableBoothsCount).toBe(1);
-    expect(json.data[0].event.title).toBe('Kajian Daurah Syawal');
-  });
-
-  it('14. PUT /api/events/:id/bazaar/booths/bulk-pricing updates booth pricing per zone/size', async () => {
-    mockDb.query.bazaarEvents.findFirst.mockResolvedValue({
-      id: sampleBazaarId,
-      eventId: sampleEventId,
-    });
-
-    const mockUpdated = [
-      { id: 'b1', code: 'A-01', zone: 'Selasar Depan', size: '2x2 meter', priceRupiah: 200000 },
-      { id: 'b2', code: 'A-02', zone: 'Selasar Depan', size: '2x2 meter', priceRupiah: 200000 },
-    ];
-
-    mockDb.update.mockReturnValue({
-      set: vi.fn().mockReturnValue({
-        where: vi.fn().mockReturnValue({
-          returning: vi.fn().mockResolvedValue(mockUpdated),
-        }),
-      }),
-    });
-
-    const res = await router.handle({
-      requestId: 'req_bazaar_14',
-      method: 'PUT',
-      path: `/api/events/${sampleEventId}/bazaar/booths/bulk-pricing`,
-      headers: {},
-      query: {},
-      params: { id: sampleEventId },
-      body: {
-        zone: 'Selasar Depan',
-        size: '2x2 meter',
-        priceRupiah: 200000,
-      },
-      user: mockAdminUser,
-    });
-
-    expect(res.statusCode).toBe(200);
-    const json = JSON.parse(res.body);
-    expect(json.data).toHaveLength(2);
-    expect(json.data[0].priceRupiah).toBe(200000);
-    expect(json.meta.total).toBe(2);
-  });
-
-  it('15. GET /api/public/events/:id/bazaar returns showcaseTenants with logo, social links, and booth data', async () => {
-    mockDb.query.events.findFirst.mockResolvedValue({
-      id: sampleEventId,
-      title: 'Kajian Akbar Ustadz Sunnah',
-      speaker: 'Ustadz Dr. Fulan',
-      startAt: new Date().toISOString(),
-      endAt: new Date().toISOString(),
-      locationName: 'Masjid Tarbiyah Sunnah',
-    });
-
-    mockDb.query.bazaarEvents.findFirst.mockResolvedValue({
-      id: sampleBazaarId,
-      eventId: sampleEventId,
-      title: 'Bazar Akbar Sunnah',
-      description: 'Bazar stand kuliner dan busana muslim',
-      isOpen: true,
-      rulesAndTerms: 'Kepatuhan syariah terjaga.',
-      defaultFeeRupiah: 150000,
-      booths: [
-        {
-          id: sampleBoothId,
-          code: 'K-01',
-          name: 'Stand Kuliner 01',
-          zone: 'Area Kuliner & Minuman',
-          size: '2x2 meter',
-          facilities: ['1 Meja', '2 Kursi'],
-          priceRupiah: 150000,
-          allowedCategory: 'kuliner',
-          status: 'assigned',
-        },
-      ],
-      applications: [
-        {
-          id: sampleAppId,
-          tenantId: sampleTenantId,
-          status: 'booth_assigned',
-          isPublished: true,
-          tenant: {
-            id: sampleTenantId,
-            brandName: 'Kopi Herbal Al-Barakah',
-            businessCategory: 'kuliner',
-            logoUrl: 'https://images.unsplash.com/photo-kopi.jpg',
-            productDescription: 'Kopi biji salak & herbal habbatussauda murni.',
-            picName: 'Akhi Fulan',
-            picPhone: '081234567890',
-            picEmail: 'kopibarokah@example.com',
-            instagram: 'kopialbarakah',
-            threads: 'kopialbarakah',
-            websiteUrl: 'https://kopialbarakah.com',
-            googleDriveCatalogUrl: 'https://drive.google.com/file/d/catalog-pdf/view',
-            catalogUrls: [],
-          },
-          assignedBooth: {
-            id: sampleBoothId,
-            code: 'K-01',
-            name: 'Stand Kuliner 01',
-            zone: 'Area Kuliner & Minuman',
-            size: '2x2 meter',
-            facilities: ['1 Meja', '2 Kursi'],
-          },
-        },
-      ],
-    });
-
-    const res = await router.handle({
-      requestId: 'req_bazaar_15',
-      method: 'GET',
-      path: `/api/public/events/${sampleEventId}/bazaar`,
-      headers: {},
-      query: {},
-      params: { id: sampleEventId },
-      body: {},
-    });
-
-    expect(res.statusCode).toBe(200);
-    const json = JSON.parse(res.body);
-    expect(json.data.event.id).toBe(sampleEventId);
-    expect(json.data.bazaar.id).toBe(sampleBazaarId);
-    expect(json.data.bazaar.showcaseTenants).toHaveLength(1);
-
-    const showcase = json.data.bazaar.showcaseTenants[0];
-    expect(showcase.brandName).toBe('Kopi Herbal Al-Barakah');
-    expect(showcase.logoUrl).toBe('https://images.unsplash.com/photo-kopi.jpg');
-    expect(showcase.instagram).toBe('kopialbarakah');
-    expect(showcase.threads).toBe('kopialbarakah');
-    expect(showcase.websiteUrl).toBe('https://kopialbarakah.com');
-    expect(showcase.googleDriveCatalogUrl).toBe('https://drive.google.com/file/d/catalog-pdf/view');
-    expect(showcase.boothCode).toBe('K-01');
-    expect(showcase.booth.zone).toBe('Area Kuliner & Minuman');
-
-    // Also verify backward compatible registeredTenants
-    expect(json.data.bazaar.registeredTenants).toHaveLength(1);
-    expect(json.data.bazaar.registeredTenants[0].brandName).toBe('Kopi Herbal Al-Barakah');
-    expect(json.data.bazaar.registeredTenants[0].boothCode).toBe('K-01');
+  it("does not publish draft, unpublished or personally identifying records", async () => {
+    app.status = "booth_assigned";
+    app.paymentVerifiedAt = new Date();
+    app.isPublished = true;
+    app.assignedBooth = booth;
+    bazaar.booths = [booth];
+    bazaar.applications = [app, { ...app, id: P, isPublished: false }];
+    const response = await request(
+      "GET",
+      `/api/public/events/${E}/bazaar`,
+      undefined,
+      undefined,
+      null,
+    );
+    const list = JSON.parse(response.body).data.bazaar.showcaseTenants;
+    expect(list).toHaveLength(1);
+    expect(list[0].id).toBe(T);
+    expect(list[0].picPhone).toBe("");
+    expect(list[0].picEmail).toBeNull();
+    expect(list[0].id).not.toBe(A);
   });
 });
-
+describe("Bazaar shared policy and import parsing", () => {
+  it("binds a private access code to one application and detects tampering", () => {
+    const code = createBazaarAccess(A, B);
+    expect(readBazaarAccess({ authorization: "Bearer " + code })).toEqual({
+      kind: "bazaar_access",
+      applicationId: A,
+      bazaarId: B,
+    });
+    expect(
+      readBazaarAccess({ authorization: "Bearer " + code + "a" }),
+    ).toBeNull();
+  });
+  it("does not enable payments merely because legacy bank text exists", () => {
+    expect(
+      bazaarBankConfigured({
+        bankName: "Bank",
+        bankAccountNumber: "865001234567",
+        bankAccountName: "Fixture",
+      }),
+    ).toBe(false);
+    expect(
+      bazaarBankConfigured({
+        paymentEnabled: true,
+        bankName: "Bank",
+        bankAccountNumber: "865001234567",
+        bankAccountName: "Fixture",
+      }),
+    ).toBe(true);
+  });
+  it("requires evidence for positive infaq even after operational progression", () => {
+    expect(
+      bazaarPaymentConfirmed({
+        status: "completed",
+        infaqAmountRupiah: 100000,
+      }),
+    ).toBe(false);
+    expect(
+      bazaarPaymentConfirmed({
+        status: "completed",
+        infaqAmountRupiah: 100000,
+        paymentVerifiedAt: new Date(),
+      }),
+    ).toBe(true);
+  });
+  it("respects cancellation and registration deadlines", () => {
+    expect(
+      bazaarRegistrationOpen(
+        { ...bazaar, registrationDeadline: new Date(Date.now() - 1) },
+        event,
+      ),
+    ).toBe(false);
+    expect(
+      bazaarRegistrationOpen(bazaar, { ...event, status: "cancelled" }),
+    ).toBe(false);
+  });
+  it("reads quoted commas and quoted multiline text without shifting columns", () => {
+    const rows = parseBazaarCsv(
+      'brandName,picName,picPhone,productDescription\r\n"Usaha, A",PIC,08123456789,"Produk\nbaris kedua"',
+    );
+    expect(rows[0]).toMatchObject({
+      brandName: "Usaha, A",
+      picName: "PIC",
+      picPhone: "08123456789",
+      productDescription: "Produk\nbaris kedua",
+      businessCategory: "kuliner",
+    });
+  });
+  it("rejects an unclosed quoted cell or missing identity headers", () => {
+    expect(() =>
+      parseBazaarCsv('brandName,picName,picPhone\n"Usaha,PIC,08123456789'),
+    ).toThrow("kutip");
+    expect(() => parseBazaarCsv("brandName,picName\nUsaha,PIC")).toThrow(
+      "picPhone",
+    );
+  });
+});

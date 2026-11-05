@@ -1,9 +1,8 @@
-import { z } from 'zod';
-import { Router } from '../../http/router';
-import { validateBody } from '../../http/middleware';
-import { requireEventAccess } from '../events/access';
-import { successResponse, errorResponse } from '../../http/response';
-import { getDb } from '../../db/client';
+import { z } from "zod";
+import { Router } from "../../http/router";
+import { requireEventAccess } from "../events/access";
+import { successResponse, errorResponse } from "../../http/response";
+import { getDb } from "../../db/client";
 import {
   events,
   bazaarEvents,
@@ -13,11 +12,36 @@ import {
   bazaarSurveys,
   bazaarIncidents,
   bazaarEvaluations,
-  persons,
-} from '../../db/schema';
-import { eq, and, desc, asc, sql, ilike, or } from 'drizzle-orm';
-import { normalizeIndonesianPhone } from '../../lib/phone';
-import { ensureS3StorageUrl } from '../../storage/providers/s3';
+} from "../../db/schema";
+import { eq, and, desc, asc, sql, or } from "drizzle-orm";
+import { type Handler, type RequestContext } from "../../http/middleware";
+import { logExportEvent, logAuditEvent } from "../../audit/service";
+import { recordsToCsv } from "../../lib/csv";
+import { PERMISSIONS, hasPermission } from "../../permissions/constants";
+import { createBazaarAccess, readBazaarAccess } from "./accessToken";
+import {
+  BazaarError,
+  configureBazaar,
+  changeApplication,
+  assignBazaarBooth,
+  checkInBazaar,
+  mutateBooth,
+  publicApplyBazaar,
+  submitBazaarSurvey,
+  uploadBazaarProof,
+  saveBazaarTenant,
+  importBazaarTenants,
+  publishBazaar,
+  recordBazaarIncident,
+  evaluateBazaarTenant,
+} from "./operations";
+import {
+  BAZAAR_CATEGORIES,
+  BAZAAR_PLACED,
+  bazaarBankConfigured,
+  bazaarRegistrationOpen,
+  bazaarPaymentConfirmed,
+} from "../../../src/lib/bazaarPolicy";
 
 let bazaarTablesInitialized = false;
 let bazaarInitPromise: Promise<void> | null = null;
@@ -27,7 +51,7 @@ export async function ensureBazaarTablesExist(db: any) {
   if (!bazaarInitPromise) {
     bazaarInitPromise = (async () => {
       try {
-        if (typeof db.execute === 'function') {
+        if (typeof db.execute === "function") {
           await db.execute(sql`
         CREATE TABLE IF NOT EXISTS bazaar_events (
           id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -171,6 +195,7 @@ export async function ensureBazaarTablesExist(db: any) {
         );
 
         -- Ensure columns exist in already-created tables (safe schema evolution):
+        ALTER TABLE bazaar_events ADD COLUMN IF NOT EXISTS payment_enabled boolean NOT NULL DEFAULT false;
         ALTER TABLE bazaar_events ADD COLUMN IF NOT EXISTS registration_deadline timestamp with time zone;
         ALTER TABLE bazaar_events ADD COLUMN IF NOT EXISTS payment_deadline timestamp with time zone;
         ALTER TABLE bazaar_events ADD COLUMN IF NOT EXISTS survey_deadline timestamp with time zone;
@@ -231,7 +256,7 @@ export async function ensureBazaarTablesExist(db: any) {
         }
         bazaarTablesInitialized = true;
       } catch (err) {
-        console.error('ensureBazaarTablesExist error:', err);
+        console.error("ensureBazaarTablesExist error:", err);
         bazaarTablesInitialized = true;
       }
     })();
@@ -241,18 +266,23 @@ export async function ensureBazaarTablesExist(db: any) {
 
 // Schemas
 const createBazaarSchema = z.object({
-  title: z.string().min(3, 'Nama bazar minimal 3 karakter'),
+  title: z.string().min(3, "Nama bazar minimal 3 karakter"),
   description: z.string().optional().nullable(),
   isOpen: z.boolean().default(true),
   rulesAndTerms: z.string().optional().nullable(),
   defaultFeeRupiah: z.number().int().min(0).default(0),
+  paymentEnabled: z.boolean().default(false),
   bankName: z.string().optional().nullable(),
   bankAccountNumber: z.string().optional().nullable(),
   bankAccountName: z.string().optional().nullable(),
   paymentInstructions: z.string().optional().nullable(),
-  registrationDeadline: z.string().optional().nullable(),
-  paymentDeadline: z.string().optional().nullable(),
-  surveyDeadline: z.string().optional().nullable(),
+  registrationDeadline: z
+    .string()
+    .datetime({ offset: true })
+    .optional()
+    .nullable(),
+  paymentDeadline: z.string().datetime({ offset: true }).optional().nullable(),
+  surveyDeadline: z.string().datetime({ offset: true }).optional().nullable(),
   surveyEnabled: z.boolean().default(true),
   layoutZones: z
     .array(
@@ -280,18 +310,19 @@ const bulkCreateBoothsSchema = z.object({
   booths: z
     .array(
       z.object({
-        code: z.string().min(1, 'Kode booth diperlukan'),
-        name: z.string().min(1, 'Nama booth diperlukan'),
-        zone: z.string().default('Zona Utama'),
-        size: z.string().default('2x2 meter'),
+        code: z.string().min(1, "Kode booth diperlukan"),
+        name: z.string().min(1, "Nama booth diperlukan"),
+        zone: z.string().default("Zona Utama"),
+        size: z.string().default("2x2 meter"),
         facilities: z.array(z.string()).default([]),
         priceRupiah: z.number().int().min(0).default(0),
-        allowedCategory: z.string().default('all'),
+        allowedCategory: z.string().default("all"),
         positionX: z.number().int().default(0),
         positionY: z.number().int().default(0),
       }),
     )
-    .min(1, 'Minimal 1 booth'),
+    .min(1, "Minimal 1 booth")
+    .max(500, "Maksimal 500 stan per permintaan."),
 });
 
 const updateBoothSchema = z.object({
@@ -302,7 +333,7 @@ const updateBoothSchema = z.object({
   facilities: z.array(z.string()).optional(),
   priceRupiah: z.number().int().min(0).optional(),
   allowedCategory: z.string().optional(),
-  status: z.enum(['available', 'assigned', 'reserved', 'blocked']).optional(),
+  status: z.enum(["available", "assigned", "reserved", "blocked"]).optional(),
   reservedReason: z.string().optional().nullable(),
   reservedForPartnerName: z.string().optional().nullable(),
   positionX: z.number().int().optional(),
@@ -312,24 +343,24 @@ const updateBoothSchema = z.object({
 const bulkUpdateBoothPricingSchema = z.object({
   zone: z.string().optional(),
   size: z.string().optional(),
-  priceRupiah: z.number().int().min(0, 'Tarif infaq tidak boleh negatif'),
+  priceRupiah: z.number().int().min(0, "Tarif infaq tidak boleh negatif"),
 });
 
 const updateApplicationStatusSchema = z.object({
   status: z.enum([
-    'draft',
-    'submitted',
-    'under_review',
-    'accepted',
-    'waitlist',
-    'rejected',
-    'payment_pending',
-    'payment_verification',
-    'payment_verified',
-    'booth_assigned',
-    'checked_in',
-    'completed',
-    'cancelled',
+    "draft",
+    "submitted",
+    "under_review",
+    "accepted",
+    "waitlist",
+    "rejected",
+    "payment_pending",
+    "payment_verification",
+    "payment_verified",
+    "booth_assigned",
+    "checked_in",
+    "completed",
+    "cancelled",
   ]),
   rejectionReason: z.string().optional().nullable(),
   adminNotes: z.string().optional().nullable(),
@@ -342,19 +373,19 @@ const updateTenantFeeSchema = z.object({
   paymentNotes: z.string().optional().nullable(),
   status: z
     .enum([
-      'draft',
-      'submitted',
-      'under_review',
-      'accepted',
-      'waitlist',
-      'rejected',
-      'payment_pending',
-      'payment_verification',
-      'payment_verified',
-      'booth_assigned',
-      'checked_in',
-      'completed',
-      'cancelled',
+      "draft",
+      "submitted",
+      "under_review",
+      "accepted",
+      "waitlist",
+      "rejected",
+      "payment_pending",
+      "payment_verification",
+      "payment_verified",
+      "booth_assigned",
+      "checked_in",
+      "completed",
+      "cancelled",
     ])
     .optional(),
 });
@@ -363,12 +394,12 @@ const assignBoothSchema = z.object({
   boothId: z.string().uuid().nullable(),
   placementReason: z
     .enum([
-      'category_isolation',
-      'traffic_management',
-      'power_access',
-      'equity_rotation',
-      'partner_reserved',
-      'custom',
+      "category_isolation",
+      "traffic_management",
+      "power_access",
+      "equity_rotation",
+      "partner_reserved",
+      "custom",
     ])
     .optional(),
   placementNotes: z.string().optional().nullable(),
@@ -379,10 +410,10 @@ const assignBoothSchema = z.object({
 
 const recordIncidentSchema = z.object({
   applicationId: z.string().uuid(),
-  type: z.enum(['negative', 'positive']).default('negative'),
-  category: z.string().min(2, 'Kategori kejadian diperlukan'),
-  severity: z.enum(['minor', 'moderate', 'major']).default('minor'),
-  description: z.string().min(3, 'Deskripsi kejadian diperlukan'),
+  type: z.enum(["negative", "positive"]).default("negative"),
+  category: z.string().min(2, "Kategori kejadian diperlukan"),
+  severity: z.enum(["minor", "moderate", "major"]).default("minor"),
+  description: z.string().min(3, "Deskripsi kejadian diperlukan"),
   photoUrl: z.string().optional().nullable(),
 });
 
@@ -394,41 +425,73 @@ const staffEvaluationSchema = z.object({
   trafficDisruptionRisk: z.number().int().min(1).max(5).default(1),
   recommendNextEvent: z.boolean().default(true),
   suggestedFlag: z
-    .enum(['normal', 'review_next_event', 'do_not_auto_accept'])
-    .default('normal'),
+    .enum(["normal", "review_next_event", "do_not_auto_accept"])
+    .default("normal"),
   internalNotes: z.string().optional().nullable(),
 });
 
+const safeLink = z
+  .string()
+  .trim()
+  .max(1500)
+  .refine(
+    (value) => !value || /^https?:\/\//i.test(value),
+    "Gunakan tautan http atau https.",
+  )
+  .optional()
+  .nullable();
+const proofSchema = z
+  .string()
+  .max(6_000_000)
+  .refine(
+    (value) =>
+      /^https:\/\//i.test(value) ||
+      /^data:(image\/(jpeg|png|webp)|application\/pdf);base64,[A-Za-z0-9+/=]+$/.test(
+        value,
+      ),
+    "Bukti harus berupa gambar/PDF atau tautan https.",
+  );
 const publicApplySchema = z.object({
-  brandName: z.string().min(2, 'Nama brand/usaha minimal 2 karakter'),
-  businessCategory: z.string().min(2, 'Kategori usaha diperlukan'),
-  picName: z.string().min(2, 'Nama penanggung jawab diperlukan'),
-  picPhone: z.string().min(8, 'Nomor WhatsApp tidak valid'),
+  agreedToRules: z.literal(true, {
+    errorMap: () => ({ message: "Setujui tata tertib sebelum mendaftar." }),
+  }),
+  brandName: z
+    .string()
+    .trim()
+    .min(2, "Nama brand/usaha minimal 2 karakter")
+    .max(160),
+  businessCategory: z.enum(BAZAAR_CATEGORIES),
+  picName: z
+    .string()
+    .trim()
+    .min(2, "Nama penanggung jawab diperlukan")
+    .max(160),
+  picPhone: z.string().trim().min(8, "Nomor WhatsApp tidak valid").max(24),
   picEmail: z
     .string()
-    .email('Format email tidak valid')
+    .email("Format email tidak valid")
     .optional()
     .nullable()
-    .or(z.literal('')),
+    .or(z.literal("")),
   picKtpNumber: z.string().optional().nullable(),
   instagram: z.string().optional().nullable(),
   threads: z.string().optional().nullable(),
-  websiteUrl: z.string().optional().nullable(),
-  logoUrl: z.string().optional().nullable(),
-  googleDriveCatalogUrl: z.string().optional().nullable(),
+  websiteUrl: safeLink,
+  logoUrl: safeLink,
+  googleDriveCatalogUrl: safeLink,
   address: z.string().optional().nullable(),
-  productDescription: z.string().min(3, 'Deskripsi produk diperlukan'),
-  catalogUrl: z.string().optional().nullable(),
+  productDescription: z.string().min(3, "Deskripsi produk diperlukan"),
+  catalogUrl: safeLink,
   electricityNeeded: z.boolean().default(false),
   electricityWatts: z.number().int().min(0).default(0),
   specialRequests: z.string().optional().nullable(),
   boothPreferences: z.string().optional().nullable(),
-  paymentProofUrl: z.string().optional().nullable(),
+  paymentProofUrl: proofSchema.optional().nullable(),
   infaqAmountRupiah: z.number().int().min(0).default(0),
 });
 
 const publicSurveySchema = z.object({
-  applicationId: z.string().optional().nullable(),
+  applicationId: z.string().uuid().optional().nullable(),
   phone: z.string().optional().nullable(),
   brandName: z.string().optional().nullable(),
   satisfactionOverall: z.number().int().min(1).max(5),
@@ -436,16 +499,130 @@ const publicSurveySchema = z.object({
   satisfactionFacilities: z.number().int().min(1).max(5),
   satisfactionCommunication: z.number().int().min(1).max(5),
   satisfactionTraffic: z.number().int().min(1).max(5),
-  omzetRange: z.enum(['<1m', '1-2m', '2-5m', '5-10m', '>10m']),
+  omzetRange: z.enum(["<1m", "1-2m", "2-5m", "5-10m", ">10m"]),
   feedback: z.string().optional().nullable(),
   willingToJoinNext: z.boolean().default(true),
 });
 
 const publicUploadProofSchema = z.object({
-  applicationId: z.string().uuid('ID Pendaftaran tidak valid'),
-  phone: z.string().min(8, 'Nomor WhatsApp verifikasi diperlukan'),
-  paymentProofUrl: z.string().min(3, 'Bukti transfer pembayaran diperlukan'),
+  applicationId: z.string().uuid("ID Pendaftaran tidak valid"),
+  phone: z.string().min(8, "Nomor WhatsApp verifikasi diperlukan"),
+  paymentProofUrl: proofSchema,
   paymentNotes: z.string().optional().nullable(),
+});
+
+const tenantEditSchema = publicApplySchema
+  .pick({
+    brandName: true,
+    businessCategory: true,
+    picName: true,
+    picPhone: true,
+    picEmail: true,
+    picKtpNumber: true,
+    instagram: true,
+    threads: true,
+    websiteUrl: true,
+    logoUrl: true,
+    googleDriveCatalogUrl: true,
+    address: true,
+    productDescription: true,
+  })
+  .partial()
+  .extend({
+    personId: z.string().uuid().nullable().optional(),
+    catalogUrls: z.array(z.string().url().max(1500)).max(20).optional(),
+    internalTags: z.array(z.string().trim().max(80)).max(30).optional(),
+    internalFlag: z
+      .enum(["normal", "review_next_event", "do_not_auto_accept"])
+      .optional(),
+    internalNotes: z.string().max(4000).nullable().optional(),
+  });
+const importTenantSchema = z.object({
+  rows: z
+    .array(
+      publicApplySchema
+        .pick({
+          brandName: true,
+          businessCategory: true,
+          picName: true,
+          picPhone: true,
+          picEmail: true,
+          instagram: true,
+          address: true,
+          productDescription: true,
+        })
+        .extend({
+          businessCategory: z.enum(BAZAAR_CATEGORIES).default("kuliner"),
+          productDescription: z.string().max(2000).optional().nullable(),
+        }),
+    )
+    .min(1)
+    .max(500),
+  dryRun: z.boolean().default(false),
+});
+function bazaarOperation(
+  schema: z.ZodTypeAny | undefined,
+  operation: (ctx: RequestContext, body: any) => Promise<unknown>,
+  publicRoute = false,
+): Handler {
+  const handler: Handler = async (ctx) => {
+    for (const key of ["id", "appId", "boothId", "tenantId"])
+      if (
+        ctx.params[key] &&
+        !z.string().uuid().safeParse(ctx.params[key]).success
+      )
+        return errorResponse(
+          "VALIDATION_ERROR",
+          "ID tidak valid.",
+          400,
+          ctx.requestId,
+        );
+    const parsed = schema?.safeParse(ctx.body);
+    if (parsed && !parsed.success)
+      return errorResponse(
+        "VALIDATION_ERROR",
+        parsed.error.issues[0]?.message || "Data tidak valid.",
+        400,
+        ctx.requestId,
+      );
+    try {
+      await ensureBazaarTablesExist(getDb());
+      return successResponse(
+        await operation(ctx, parsed?.success ? parsed.data : ctx.body || {}),
+        { requestId: ctx.requestId },
+      );
+    } catch (error) {
+      if (error instanceof BazaarError)
+        return errorResponse(
+          error.status === 401
+            ? "UNAUTHENTICATED"
+            : error.status === 403
+              ? "FORBIDDEN"
+              : error.status === 404
+                ? "NOT_FOUND"
+                : error.status === 409
+                  ? "CONFLICT"
+                  : "VALIDATION_ERROR",
+          error.message,
+          error.status,
+          ctx.requestId,
+        );
+      const code = (error as any)?.cause?.code || (error as any)?.code;
+      if (["23505", "55P03", "40P01"].includes(code))
+        return errorResponse(
+          "CONFLICT",
+          "Data sedang diproses atau sudah digunakan. Muat ulang dan periksa hasilnya.",
+          409,
+          ctx.requestId,
+        );
+      throw error;
+    }
+  };
+  return publicRoute ? handler : requireEventAccess(handler);
+}
+const actor = (ctx: RequestContext) => ({
+  id: ctx.user!.id,
+  requestId: ctx.requestId,
 });
 
 function applicationInEvent(
@@ -458,17 +635,10 @@ function applicationInEvent(
     sql`EXISTS (SELECT 1 FROM bazaar_events b WHERE b.id = ${bazaarApplications.bazaarId} AND (b.event_id = ${eventId}::uuid OR (${allowBazaarId} AND b.id = ${eventId}::uuid)))`,
   );
 }
-function boothInEvent(boothId: string, eventId: string) {
-  return and(
-    eq(bazaarBooths.id, boothId),
-    sql`EXISTS (SELECT 1 FROM bazaar_events b WHERE b.id = ${bazaarBooths.bazaarId} AND b.event_id = ${eventId}::uuid)`,
-  );
-}
-
 export function registerBazaarRoutes(router: Router) {
   // 0. GET /api/bazaar/overview (Single fast query for Bazaar Hub list)
   router.get(
-    '/api/bazaar/overview',
+    "/api/bazaar/overview",
     requireEventAccess(async (ctx) => {
       const db = getDb();
       await ensureBazaarTablesExist(db);
@@ -482,6 +652,7 @@ export function registerBazaarRoutes(router: Router) {
           startAt: true,
           endAt: true,
           locationName: true,
+          status: true,
         },
       });
 
@@ -498,6 +669,7 @@ export function registerBazaarRoutes(router: Router) {
               id: true,
               status: true,
               infaqAmountRupiah: true,
+              paymentVerifiedAt: true,
             },
           },
         },
@@ -508,32 +680,22 @@ export function registerBazaarRoutes(router: Router) {
         const booths = baz.booths || [];
         const apps = baz.applications || [];
         const availableBoothsCount = booths.filter(
-          (b: any) => b.status === 'available',
+          (b: any) => b.status === "available",
         ).length;
         const bookedBoothsCount = booths.filter(
-          (b: any) => b.status === 'assigned',
+          (b: any) => b.status === "assigned",
         ).length;
-        const verifiedTenantsCount = apps.filter(
-          (a: any) =>
-            a.status === 'payment_verified' ||
-            a.status === 'booth_assigned' ||
-            a.status === 'checked_in' ||
-            a.status === 'completed',
-        ).length;
+        const verifiedTenantsCount = apps.filter(bazaarPaymentConfirmed).length;
         const totalInfaqRupiah = apps
-          .filter(
-            (a: any) =>
-              a.status === 'payment_verified' ||
-              a.status === 'booth_assigned' ||
-              a.status === 'checked_in' ||
-              a.status === 'completed',
-          )
+          .filter(bazaarPaymentConfirmed)
           .reduce((sum: number, a: any) => sum + (a.infaqAmountRupiah || 0), 0);
 
         bazaarMap.set(baz.eventId, {
           id: baz.id,
           title: baz.title,
           isOpen: baz.isOpen,
+          registrationDeadline: baz.registrationDeadline,
+          paymentConfigured: bazaarBankConfigured(baz),
           defaultFeeRupiah: baz.defaultFeeRupiah,
           boothsCount: booths.length,
           availableBoothsCount,
@@ -551,6 +713,7 @@ export function registerBazaarRoutes(router: Router) {
         startAt: ev.startAt,
         endAt: ev.endAt,
         locationName: ev.locationName,
+        status: ev.status,
         bazaar: bazaarMap.get(ev.id) || null,
       }));
 
@@ -563,7 +726,7 @@ export function registerBazaarRoutes(router: Router) {
 
   // 1. GET /api/events/:id/bazaar
   router.get(
-    '/api/events/:id/bazaar',
+    "/api/events/:id/bazaar",
     requireEventAccess(async (ctx) => {
       const db = getDb();
       await ensureBazaarTablesExist(db);
@@ -571,8 +734,8 @@ export function registerBazaarRoutes(router: Router) {
 
       if (!eventId) {
         return errorResponse(
-          'VALIDATION_ERROR',
-          'Event ID diperlukan.',
+          "VALIDATION_ERROR",
+          "Event ID diperlukan.",
           400,
           ctx.requestId,
         );
@@ -584,8 +747,8 @@ export function registerBazaarRoutes(router: Router) {
 
       if (!eventRecord) {
         return errorResponse(
-          'NOT_FOUND',
-          'Jadwal kajian tidak ditemukan.',
+          "NOT_FOUND",
+          "Jadwal kajian tidak ditemukan.",
           404,
           ctx.requestId,
         );
@@ -624,355 +787,64 @@ export function registerBazaarRoutes(router: Router) {
 
   // 2. POST /api/events/:id/bazaar
   router.post(
-    '/api/events/:id/bazaar',
-    requireEventAccess(
-      validateBody(createBazaarSchema, async (ctx, body) => {
-        const db = getDb();
-        await ensureBazaarTablesExist(db);
-        const eventId = ctx.params?.id;
-
-        if (!eventId) {
-          return errorResponse(
-            'VALIDATION_ERROR',
-            'Event ID diperlukan.',
-            400,
-            ctx.requestId,
-          );
-        }
-
-        const eventRecord = await db.query.events.findFirst({
-          where: eq(events.id, eventId),
-        });
-
-        if (!eventRecord) {
-          return errorResponse(
-            'NOT_FOUND',
-            'Jadwal kajian tidak ditemukan.',
-            404,
-            ctx.requestId,
-          );
-        }
-
-        const existingBazaar = await db.query.bazaarEvents.findFirst({
-          where: eq(bazaarEvents.eventId, eventId),
-        });
-
-        if (existingBazaar) {
-          return errorResponse(
-            'CONFLICT',
-            'Bazar untuk kajian ini sudah pernah diaktifkan.',
-            409,
-            ctx.requestId,
-          );
-        }
-
-        const [created] = await db
-          .insert(bazaarEvents)
-          .values({
-            eventId,
-            title: body.title,
-            description: body.description || null,
-            isOpen: body.isOpen ?? true,
-            rulesAndTerms: body.rulesAndTerms || null,
-            defaultFeeRupiah: body.defaultFeeRupiah || 0,
-            bankName: body.bankName || null,
-            bankAccountNumber: body.bankAccountNumber || null,
-            bankAccountName: body.bankAccountName || null,
-            paymentInstructions: body.paymentInstructions || null,
-            registrationDeadline: body.registrationDeadline
-              ? new Date(body.registrationDeadline)
-              : null,
-            paymentDeadline: body.paymentDeadline
-              ? new Date(body.paymentDeadline)
-              : null,
-            surveyDeadline: body.surveyDeadline
-              ? new Date(body.surveyDeadline)
-              : null,
-            surveyEnabled: body.surveyEnabled ?? true,
-            layoutZones: body.layoutZones || [
-              {
-                id: 'zone_selasar',
-                name: 'Selasar Depan',
-                description: 'Area Utama Ramai Jamaah',
-                color: '#047857',
-              },
-              {
-                id: 'zone_kuliner',
-                name: 'Area Kuliner & Minuman',
-                description: 'Dekat Tempat Wudhu & Parkir',
-                color: '#b45309',
-              },
-              {
-                id: 'zone_busana',
-                name: 'Area Busana & Herbal',
-                description: 'Selasar Samping Masjid',
-                color: '#4338ca',
-              },
-            ],
-            categoryQuotas: body.categoryQuotas || null,
-          })
-          .returning();
-
-        return successResponse(created, { requestId: ctx.requestId });
-      }),
+    "/api/events/:id/bazaar",
+    bazaarOperation(createBazaarSchema, async (ctx, body) =>
+      configureBazaar(ctx.params.id!, body, actor(ctx), true),
     ),
   );
 
   // 3. PUT /api/events/:id/bazaar
   router.put(
-    '/api/events/:id/bazaar',
-    requireEventAccess(
-      validateBody(createBazaarSchema.partial(), async (ctx, body) => {
-        const db = getDb();
-        await ensureBazaarTablesExist(db);
-        const eventId = ctx.params?.id;
-
-        if (!eventId) {
-          return errorResponse(
-            'VALIDATION_ERROR',
-            'Event ID diperlukan.',
-            400,
-            ctx.requestId,
-          );
-        }
-
-        const existing = await db.query.bazaarEvents.findFirst({
-          where: eq(bazaarEvents.eventId, eventId),
-        });
-
-        if (!existing) {
-          return errorResponse(
-            'NOT_FOUND',
-            'Bazar belum diinisialisasi untuk kajian ini.',
-            404,
-            ctx.requestId,
-          );
-        }
-
-        const [updated] = await db
-          .update(bazaarEvents)
-          .set({
-            ...body,
-            registrationDeadline: body.registrationDeadline
-              ? new Date(body.registrationDeadline)
-              : existing.registrationDeadline,
-            paymentDeadline: body.paymentDeadline
-              ? new Date(body.paymentDeadline)
-              : existing.paymentDeadline,
-            surveyDeadline: body.surveyDeadline
-              ? new Date(body.surveyDeadline)
-              : existing.surveyDeadline,
-            updatedAt: new Date(),
-          })
-          .where(eq(bazaarEvents.id, existing.id))
-          .returning();
-
-        return successResponse(updated, { requestId: ctx.requestId });
-      }),
+    "/api/events/:id/bazaar",
+    bazaarOperation(createBazaarSchema.partial(), async (ctx, body) =>
+      configureBazaar(ctx.params.id!, body, actor(ctx)),
     ),
   );
 
   // 4. BOOTH MANAGEMENT
   router.post(
-    '/api/events/:id/bazaar/booths/bulk',
-    requireEventAccess(
-      validateBody(bulkCreateBoothsSchema, async (ctx, body) => {
-        const db = getDb();
-        await ensureBazaarTablesExist(db);
-        const eventId = ctx.params?.id;
-        if (!eventId) {
-          return errorResponse(
-            'VALIDATION_ERROR',
-            'Event ID diperlukan.',
-            400,
-            ctx.requestId,
-          );
-        }
-
-        const bazaar = await db.query.bazaarEvents.findFirst({
-          where: eq(bazaarEvents.eventId, eventId),
-        });
-
-        if (!bazaar) {
-          return errorResponse(
-            'NOT_FOUND',
-            'Bazar belum diinisialisasi.',
-            404,
-            ctx.requestId,
-          );
-        }
-
-        const boothRows = body.booths.map((b) => ({
-          bazaarId: bazaar.id,
-          code: b.code.toUpperCase().trim(),
-          name: b.name,
-          zone: b.zone || 'Zona Utama',
-          size: b.size || '2x2 meter',
-          facilities: b.facilities || [],
-          priceRupiah: b.priceRupiah ?? bazaar.defaultFeeRupiah,
-          allowedCategory: b.allowedCategory || 'all',
-          status: 'available',
-          positionX: b.positionX || 0,
-          positionY: b.positionY || 0,
-        }));
-
-        const inserted = await db
-          .insert(bazaarBooths)
-          .values(boothRows)
-          .returning();
-        return successResponse(inserted, {
-          requestId: ctx.requestId,
-          total: inserted.length,
-        });
-      }),
+    "/api/events/:id/bazaar/booths/bulk",
+    bazaarOperation(bulkCreateBoothsSchema, async (ctx, body) =>
+      mutateBooth(ctx.params.id!, undefined, body, actor(ctx), "bulk"),
     ),
   );
 
   router.put(
-    '/api/events/:id/bazaar/booths/bulk-pricing',
-    requireEventAccess(
-      validateBody(bulkUpdateBoothPricingSchema, async (ctx, body) => {
-        const db = getDb();
-        await ensureBazaarTablesExist(db);
-        const eventId = ctx.params?.id;
-        if (!eventId) {
-          return errorResponse(
-            'VALIDATION_ERROR',
-            'Event ID diperlukan.',
-            400,
-            ctx.requestId,
-          );
-        }
-
-        const bazaar = await db.query.bazaarEvents.findFirst({
-          where: eq(bazaarEvents.eventId, eventId),
-        });
-
-        if (!bazaar) {
-          return errorResponse(
-            'NOT_FOUND',
-            'Bazar belum diinisialisasi.',
-            404,
-            ctx.requestId,
-          );
-        }
-
-        const conditions = [eq(bazaarBooths.bazaarId, bazaar.id)];
-        if (body.zone && body.zone !== 'ALL') {
-          conditions.push(eq(bazaarBooths.zone, body.zone));
-        }
-        if (body.size && body.size !== 'ALL') {
-          conditions.push(eq(bazaarBooths.size, body.size));
-        }
-
-        const updated = await db
-          .update(bazaarBooths)
-          .set({
-            priceRupiah: body.priceRupiah,
-            updatedAt: new Date(),
-          })
-          .where(and(...conditions))
-          .returning();
-
-        return successResponse(updated, {
-          requestId: ctx.requestId,
-          total: updated.length,
-          message: `Berhasil memperbarui tarif ${updated.length} stand.`,
-        });
-      }),
+    "/api/events/:id/bazaar/booths/bulk-pricing",
+    bazaarOperation(bulkUpdateBoothPricingSchema, async (ctx, body) =>
+      mutateBooth(ctx.params.id!, undefined, body, actor(ctx), "pricing"),
     ),
   );
 
   router.put(
-    '/api/events/:id/bazaar/booths/:boothId',
-    requireEventAccess(
-      validateBody(updateBoothSchema, async (ctx, body) => {
-        const db = getDb();
-        const boothId = ctx.params?.boothId;
-        if (!boothId) {
-          return errorResponse(
-            'VALIDATION_ERROR',
-            'Booth ID diperlukan.',
-            400,
-            ctx.requestId,
-          );
-        }
-
-        const existing = await db.query.bazaarBooths.findFirst({
-          where: boothInEvent(boothId, ctx.params.id!),
-        });
-
-        if (!existing) {
-          return errorResponse(
-            'NOT_FOUND',
-            'Slot booth tidak ditemukan.',
-            404,
-            ctx.requestId,
-          );
-        }
-
-        const [updated] = await db
-          .update(bazaarBooths)
-          .set({
-            ...body,
-            reservedBy:
-              body.status === 'reserved'
-                ? ctx.user?.id || null
-                : existing.reservedBy,
-            updatedAt: new Date(),
-          })
-          .where(boothInEvent(boothId, ctx.params.id!))
-          .returning();
-
-        return successResponse(updated, { requestId: ctx.requestId });
-      }),
+    "/api/events/:id/bazaar/booths/:boothId",
+    bazaarOperation(updateBoothSchema, async (ctx, body) =>
+      mutateBooth(
+        ctx.params.id!,
+        ctx.params.boothId!,
+        body,
+        actor(ctx),
+        "update",
+      ),
     ),
   );
 
   router.delete(
-    '/api/events/:id/bazaar/booths/:boothId',
-    requireEventAccess(async (ctx) => {
-      const db = getDb();
-      const boothId = ctx.params?.boothId;
-      if (!boothId) {
-        return errorResponse(
-          'VALIDATION_ERROR',
-          'Booth ID diperlukan.',
-          400,
-          ctx.requestId,
-        );
-      }
-
-      const existing = await db.query.bazaarBooths.findFirst({
-        where: boothInEvent(boothId, ctx.params.id!),
-      });
-      if (!existing)
-        return errorResponse(
-          'NOT_FOUND',
-          'Stan tidak ditemukan pada event ini.',
-          404,
-          ctx.requestId,
-        );
-      const referenced = await db.query.bazaarApplications.findFirst({
-        where: eq(bazaarApplications.assignedBoothId, boothId),
-      });
-      if (referenced)
-        return errorResponse(
-          'CONFLICT',
-          'Stan memiliki riwayat penempatan tenant. Nonaktifkan stan agar riwayat tetap tersimpan.',
-          409,
-          ctx.requestId,
-        );
-      await db
-        .delete(bazaarBooths)
-        .where(boothInEvent(boothId, ctx.params.id!));
-      return successResponse({ success: true }, { requestId: ctx.requestId });
-    }),
+    "/api/events/:id/bazaar/booths/:boothId",
+    bazaarOperation(undefined, async (ctx, body) =>
+      mutateBooth(
+        ctx.params.id!,
+        ctx.params.boothId!,
+        body,
+        actor(ctx),
+        "delete",
+      ),
+    ),
   );
 
   // 5. MASTER TENANT CRM
   router.get(
-    '/api/bazaar/tenants',
+    "/api/bazaar/tenants",
     requireEventAccess(async (ctx) => {
       const db = getDb();
       await ensureBazaarTablesExist(db);
@@ -1008,20 +880,16 @@ export function registerBazaarRoutes(router: Router) {
             (t.instagram && t.instagram.toLowerCase().includes(q)),
         );
       }
-      if (category && category !== 'all') {
+      if (category && category !== "all") {
         filtered = filtered.filter((t) => t.businessCategory === category);
       }
-      if (flag && flag !== 'all') {
+      if (flag && flag !== "all") {
         filtered = filtered.filter((t) => t.internalFlag === flag);
       }
 
       const enriched = filtered.map((t) => {
         const verifiedApps = (t.applications || []).filter(
-          (a: any) =>
-            a.status === 'payment_verified' ||
-            a.status === 'booth_assigned' ||
-            a.status === 'checked_in' ||
-            a.status === 'completed',
+          bazaarPaymentConfirmed,
         );
         const lifetimeInfaqRupiah = verifiedApps.reduce(
           (sum: number, a: any) => sum + (a.infaqAmountRupiah || 0),
@@ -1042,15 +910,15 @@ export function registerBazaarRoutes(router: Router) {
   );
 
   router.get(
-    '/api/bazaar/tenants/:tenantId',
+    "/api/bazaar/tenants/:tenantId",
     requireEventAccess(async (ctx) => {
       const db = getDb();
       await ensureBazaarTablesExist(db);
       const tenantId = ctx.params?.tenantId;
       if (!tenantId) {
         return errorResponse(
-          'VALIDATION_ERROR',
-          'Tenant ID diperlukan.',
+          "VALIDATION_ERROR",
+          "Tenant ID diperlukan.",
           400,
           ctx.requestId,
         );
@@ -1082,8 +950,8 @@ export function registerBazaarRoutes(router: Router) {
 
       if (!tenant) {
         return errorResponse(
-          'NOT_FOUND',
-          'Profil tenant tidak ditemukan.',
+          "NOT_FOUND",
+          "Profil tenant tidak ditemukan.",
           404,
           ctx.requestId,
         );
@@ -1094,151 +962,31 @@ export function registerBazaarRoutes(router: Router) {
   );
 
   router.put(
-    '/api/bazaar/tenants/:tenantId',
-    requireEventAccess(async (ctx) => {
-      const db = getDb();
-      const tenantId = ctx.params?.tenantId;
-      if (!tenantId) {
-        return errorResponse(
-          'VALIDATION_ERROR',
-          'Tenant ID diperlukan.',
-          400,
-          ctx.requestId,
-        );
-      }
-      const body = (ctx.body as any) || {};
-
-      const existing = await db.query.bazaarTenants.findFirst({
-        where: eq(bazaarTenants.id, tenantId),
-      });
-
-      if (!existing) {
-        return errorResponse(
-          'NOT_FOUND',
-          'Profil tenant tidak ditemukan.',
-          404,
-          ctx.requestId,
-        );
-      }
-
-      const [updated] = await db
-        .update(bazaarTenants)
-        .set({
-          brandName: body.brandName ?? existing.brandName,
-          picName: body.picName ?? existing.picName,
-          picPhone: body.picPhone
-            ? normalizeIndonesianPhone(body.picPhone)
-            : existing.picPhone,
-          picEmail: body.picEmail ?? existing.picEmail,
-          picKtpNumber: body.picKtpNumber ?? existing.picKtpNumber,
-          instagram:
-            body.instagram !== undefined ? body.instagram : existing.instagram,
-          threads: body.threads !== undefined ? body.threads : existing.threads,
-          websiteUrl:
-            body.websiteUrl !== undefined
-              ? body.websiteUrl
-              : existing.websiteUrl,
-          logoUrl: body.logoUrl !== undefined ? body.logoUrl : existing.logoUrl,
-          googleDriveCatalogUrl:
-            body.googleDriveCatalogUrl !== undefined
-              ? body.googleDriveCatalogUrl
-              : existing.googleDriveCatalogUrl,
-          catalogUrls:
-            body.catalogUrls !== undefined
-              ? body.catalogUrls
-              : existing.catalogUrls,
-          address: body.address ?? existing.address,
-          businessCategory: body.businessCategory ?? existing.businessCategory,
-          productDescription:
-            body.productDescription ?? existing.productDescription,
-          internalTags: body.internalTags ?? existing.internalTags,
-          internalFlag: body.internalFlag ?? existing.internalFlag,
-          internalNotes: body.internalNotes ?? existing.internalNotes,
-          updatedAt: new Date(),
-        })
-        .where(eq(bazaarTenants.id, tenantId))
-        .returning();
-
-      return successResponse(updated, { requestId: ctx.requestId });
-    }),
+    "/api/bazaar/tenants/:tenantId",
+    bazaarOperation(tenantEditSchema, async (ctx, body) =>
+      saveBazaarTenant(ctx.params.tenantId!, body, actor(ctx)),
+    ),
   );
 
   // Legacy Data Import Endpoint
   router.post(
-    '/api/bazaar/tenants/import-legacy',
-    requireEventAccess(async (ctx) => {
-      const db = getDb();
-      await ensureBazaarTablesExist(db);
-      const rows = (ctx.body as any)?.rows || [];
-
-      let imported = 0;
-      let merged = 0;
-
-      for (const r of rows) {
-        if (!r.brandName || !r.picPhone) continue;
-        const normalizedPhone = normalizeIndonesianPhone(r.picPhone);
-
-        // Deduplication check: Phone OR Brand
-        const existing = await db.query.bazaarTenants.findFirst({
-          where: or(
-            eq(bazaarTenants.picPhone, normalizedPhone),
-            ilike(bazaarTenants.brandName, r.brandName.trim()),
-          ),
-        });
-
-        if (existing) {
-          const currentTags = existing.internalTags || [];
-          if (!currentTags.includes('Repeat Tenant')) {
-            currentTags.push('Repeat Tenant');
-          }
-          await db
-            .update(bazaarTenants)
-            .set({
-              internalTags: currentTags,
-              instagram: existing.instagram || r.instagram,
-              address: existing.address || r.address,
-              productDescription:
-                existing.productDescription || r.productDescription,
-              updatedAt: new Date(),
-            })
-            .where(eq(bazaarTenants.id, existing.id));
-          merged++;
-        } else {
-          await db.insert(bazaarTenants).values({
-            brandName: r.brandName.trim(),
-            businessCategory: r.businessCategory || 'kuliner',
-            picName: r.picName || 'PIC Tenant',
-            picPhone: normalizedPhone,
-            picEmail: r.picEmail || null,
-            instagram: r.instagram || null,
-            address: r.address || null,
-            productDescription: r.productDescription || null,
-            internalTags: ['Legacy Tenant', 'Event Sebelumnya'],
-            internalFlag: 'normal',
-            isLegacyData: true,
-          });
-          imported++;
-        }
-      }
-
-      return successResponse(
-        { imported, merged, totalProcessed: rows.length },
-        { requestId: ctx.requestId },
-      );
-    }),
+    "/api/bazaar/tenants/import-legacy",
+    bazaarOperation(importTenantSchema, async (ctx, body) =>
+      importBazaarTenants(body.rows, actor(ctx), body.dryRun),
+    ),
   );
 
   // 6. APPLICATIONS & SELECTION LIFECYCLE
   router.get(
-    '/api/events/:id/bazaar/applications',
+    "/api/events/:id/bazaar/applications",
     requireEventAccess(async (ctx) => {
       const db = getDb();
       await ensureBazaarTablesExist(db);
       const eventId = ctx.params?.id;
       if (!eventId) {
         return errorResponse(
-          'VALIDATION_ERROR',
-          'Event ID diperlukan.',
+          "VALIDATION_ERROR",
+          "Event ID diperlukan.",
           400,
           ctx.requestId,
         );
@@ -1279,381 +1027,61 @@ export function registerBazaarRoutes(router: Router) {
   );
 
   router.put(
-    '/api/events/:id/bazaar/applications/:appId/status',
-    requireEventAccess(
-      validateBody(updateApplicationStatusSchema, async (ctx, body) => {
-        const db = getDb();
-        const appId = ctx.params?.appId;
-        if (!appId) {
-          return errorResponse(
-            'VALIDATION_ERROR',
-            'App ID diperlukan.',
-            400,
-            ctx.requestId,
-          );
-        }
-
-        const existing = await db.query.bazaarApplications.findFirst({
-          where: applicationInEvent(appId, ctx.params.id!),
-        });
-
-        if (!existing) {
-          return errorResponse(
-            'NOT_FOUND',
-            'Pendaftaran tidak ditemukan.',
-            404,
-            ctx.requestId,
-          );
-        }
-
-        const isVerified = body.status === 'payment_verified';
-        const [updated] = await db
-          .update(bazaarApplications)
-          .set({
-            status: body.status,
-            rejectionReason: body.rejectionReason ?? existing.rejectionReason,
-            adminNotes: body.adminNotes ?? existing.adminNotes,
-            paymentNotes: body.paymentNotes ?? existing.paymentNotes,
-            infaqAmountRupiah:
-              body.infaqAmountRupiah ?? existing.infaqAmountRupiah,
-            paymentVerifiedAt: isVerified
-              ? new Date()
-              : existing.paymentVerifiedAt,
-            paymentVerifiedBy: isVerified
-              ? ctx.user?.id || '00000000-0000-0000-0000-000000000000'
-              : existing.paymentVerifiedBy,
-            updatedAt: new Date(),
-          })
-          .where(applicationInEvent(appId, ctx.params.id!))
-          .returning();
-
-        return successResponse(updated, { requestId: ctx.requestId });
-      }),
+    "/api/events/:id/bazaar/applications/:appId/status",
+    bazaarOperation(updateApplicationStatusSchema, async (ctx, body) =>
+      changeApplication(ctx.params.id!, ctx.params.appId!, body, actor(ctx)),
     ),
   );
 
   // Update Tenant Application Fee / Infaq Setting
   router.put(
-    '/api/events/:id/bazaar/applications/:appId/fee',
-    requireEventAccess(
-      validateBody(updateTenantFeeSchema, async (ctx, body) => {
-        const db = getDb();
-        const appId = ctx.params?.appId;
-        if (!appId) {
-          return errorResponse(
-            'VALIDATION_ERROR',
-            'App ID diperlukan.',
-            400,
-            ctx.requestId,
-          );
-        }
-
-        const existing = await db.query.bazaarApplications.findFirst({
-          where: applicationInEvent(appId, ctx.params.id!),
-          with: { tenant: true },
-        });
-
-        if (!existing) {
-          return errorResponse(
-            'NOT_FOUND',
-            'Pendaftaran tenant tidak ditemukan.',
-            404,
-            ctx.requestId,
-          );
-        }
-
-        const isVerified = body.status === 'payment_verified';
-        const [updated] = await db
-          .update(bazaarApplications)
-          .set({
-            infaqAmountRupiah: body.infaqAmountRupiah,
-            paymentNotes:
-              body.paymentNotes !== undefined
-                ? body.paymentNotes
-                : existing.paymentNotes,
-            status: body.status || existing.status,
-            paymentVerifiedAt: isVerified
-              ? new Date()
-              : body.status &&
-                  body.status !== 'payment_verified' &&
-                  existing.status === 'payment_verified'
-                ? null
-                : existing.paymentVerifiedAt,
-            paymentVerifiedBy: isVerified
-              ? ctx.user?.id || '00000000-0000-0000-0000-000000000000'
-              : existing.paymentVerifiedBy,
-            updatedAt: new Date(),
-          })
-          .where(applicationInEvent(appId, ctx.params.id!))
-          .returning();
-
-        return successResponse(updated, {
-          requestId: ctx.requestId,
-          message: `Tarif pendaftaran untuk ${existing.tenant?.brandName || 'tenant'} berhasil diperbarui menjadi Rp ${body.infaqAmountRupiah.toLocaleString('id-ID')}`,
-        });
-      }),
+    "/api/events/:id/bazaar/applications/:appId/fee",
+    bazaarOperation(updateTenantFeeSchema, async (ctx, body) =>
+      changeApplication(
+        ctx.params.id!,
+        ctx.params.appId!,
+        body,
+        actor(ctx),
+        true,
+      ),
     ),
   );
 
   // Manual Booth Assignment by Admin (with Smart Collision Checks & Category Validation)
   router.put(
-    '/api/events/:id/bazaar/applications/:appId/assign-booth',
-    requireEventAccess(
-      validateBody(assignBoothSchema, async (ctx, body) => {
-        const db = getDb();
-        const appId = ctx.params?.appId;
-        if (!appId) {
-          return errorResponse(
-            'VALIDATION_ERROR',
-            'App ID diperlukan.',
-            400,
-            ctx.requestId,
-          );
-        }
-
-        const application = await db.query.bazaarApplications.findFirst({
-          where: applicationInEvent(appId, ctx.params.id!),
-          with: { tenant: true, bazaar: true },
-        });
-
-        if (!application) {
-          return errorResponse(
-            'NOT_FOUND',
-            'Pendaftaran tidak ditemukan.',
-            404,
-            ctx.requestId,
-          );
-        }
-
-        // If removing assignment
-        if (!body.boothId) {
-          if (application.assignedBoothId) {
-            await db
-              .update(bazaarBooths)
-              .set({ status: 'available' })
-              .where(eq(bazaarBooths.id, application.assignedBoothId));
-          }
-          const [unassigned] = await db
-            .update(bazaarApplications)
-            .set({
-              assignedBoothId: null,
-              placementReason: null,
-              placementNotes: null,
-              assignedBy: null,
-              assignedAt: null,
-              status:
-                application.status === 'booth_assigned'
-                  ? 'payment_verified'
-                  : application.status,
-              updatedAt: new Date(),
-            })
-            .where(applicationInEvent(appId, ctx.params.id!))
-            .returning();
-
-          return successResponse(unassigned, { requestId: ctx.requestId });
-        }
-
-        // Verify target booth
-        const targetBooth = await db.query.bazaarBooths.findFirst({
-          where: and(
-            eq(bazaarBooths.id, body.boothId),
-            eq(bazaarBooths.bazaarId, application.bazaarId),
-          ),
-        });
-
-        if (!targetBooth) {
-          return errorResponse(
-            'NOT_FOUND',
-            'Slot booth tidak ditemukan.',
-            404,
-            ctx.requestId,
-          );
-        }
-
-        // Smart warnings check: Check other applications in the same zone for same category
-        const zoneApps = await db.query.bazaarApplications.findMany({
-          where: and(
-            eq(bazaarApplications.bazaarId, application.bazaarId),
-            sql`${bazaarApplications.assignedBoothId} IS NOT NULL`,
-            sql`${bazaarApplications.id} != ${appId}`,
-          ),
-          with: { tenant: true, assignedBooth: true },
-        });
-
-        const sameCategoryInZone = zoneApps.filter(
-          (za) =>
-            za.assignedBooth?.zone === targetBooth.zone &&
-            za.tenant?.businessCategory ===
-              application.tenant?.businessCategory,
-        );
-
-        let smartWarning: string | null = null;
-        if (sameCategoryInZone.length > 0) {
-          smartWarning = `Perhatian: Terdapat ${sameCategoryInZone.length} booth berkategori '${application.tenant?.businessCategory}' di zona '${targetBooth.zone}' (${sameCategoryInZone.map((z) => z.assignedBooth?.code).join(', ')}).`;
-        }
-
-        // Category validation warning if booth specifies allowed category
-        if (
-          targetBooth.allowedCategory &&
-          targetBooth.allowedCategory !== 'all' &&
-          application.tenant?.businessCategory &&
-          targetBooth.allowedCategory !== application.tenant.businessCategory
-        ) {
-          const catWarning = `Perhatian: Stand '${targetBooth.code}' dialokasikan khusus untuk kategori '${targetBooth.allowedCategory}', sedangkan tenant berkategori '${application.tenant.businessCategory}'.`;
-          smartWarning = smartWarning
-            ? `${smartWarning} | ${catWarning}`
-            : catWarning;
-        }
-
-        // Free previous booth if any
-        if (
-          application.assignedBoothId &&
-          application.assignedBoothId !== body.boothId
-        ) {
-          await db
-            .update(bazaarBooths)
-            .set({ status: 'available' })
-            .where(eq(bazaarBooths.id, application.assignedBoothId));
-        }
-
-        // Update target booth status
-        await db
-          .update(bazaarBooths)
-          .set({ status: 'assigned', updatedAt: new Date() })
-          .where(eq(bazaarBooths.id, body.boothId));
-
-        // Determine infaq amount (custom or synced from booth price)
-        let newInfaqAmount = application.infaqAmountRupiah;
-        if (body.infaqAmountRupiah !== undefined) {
-          newInfaqAmount = body.infaqAmountRupiah;
-        } else if (body.syncBoothPrice && targetBooth.priceRupiah > 0) {
-          newInfaqAmount = targetBooth.priceRupiah;
-        }
-
-        // Update application
-        const [assigned] = await db
-          .update(bazaarApplications)
-          .set({
-            assignedBoothId: body.boothId,
-            placementReason: body.placementReason || 'custom',
-            placementNotes: body.placementNotes || null,
-            assignedBy: ctx.user?.id || '00000000-0000-0000-0000-000000000000',
-            assignedAt: new Date(),
-            status: 'booth_assigned',
-            infaqAmountRupiah: newInfaqAmount,
-            isPublished: body.isPublished ?? application.isPublished,
-            updatedAt: new Date(),
-          })
-          .where(applicationInEvent(appId, ctx.params.id!))
-          .returning();
-
-        return successResponse(
-          { ...assigned, smartWarning },
-          {
-            requestId: ctx.requestId,
-            message: smartWarning || 'Booth berhasil ditetapkan',
-          },
-        );
-      }),
+    "/api/events/:id/bazaar/applications/:appId/assign-booth",
+    bazaarOperation(assignBoothSchema, async (ctx, body) =>
+      assignBazaarBooth(ctx.params.id!, ctx.params.appId!, body, actor(ctx)),
     ),
   );
 
   // Toggle publish booth layout to tenants
   router.put(
-    '/api/events/:id/bazaar/publish-layout',
-    requireEventAccess(async (ctx) => {
-      const db = getDb();
-      const eventId = ctx.params?.id;
-      if (!eventId) {
-        return errorResponse(
-          'VALIDATION_ERROR',
-          'Event ID diperlukan.',
-          400,
-          ctx.requestId,
-        );
-      }
-      const isPublished = (ctx.body as any)?.isPublished ?? true;
-
-      const bazaar = await db.query.bazaarEvents.findFirst({
-        where: eq(bazaarEvents.eventId, eventId),
-      });
-
-      if (!bazaar) {
-        return errorResponse(
-          'NOT_FOUND',
-          'Bazar tidak ditemukan.',
-          404,
-          ctx.requestId,
-        );
-      }
-
-      await db
-        .update(bazaarApplications)
-        .set({ isPublished: !!isPublished, updatedAt: new Date() })
-        .where(eq(bazaarApplications.bazaarId, bazaar.id));
-
-      return successResponse(
-        { isPublished: !!isPublished },
-        {
-          requestId: ctx.requestId,
-          message: isPublished
-            ? 'Layout booth berhasil dipublikasikan ke tenant!'
-            : 'Layout booth disembunyikan.',
-        },
-      );
-    }),
+    "/api/events/:id/bazaar/publish-layout",
+    bazaarOperation(z.object({ isPublished: z.boolean() }), async (ctx, body) =>
+      publishBazaar(ctx.params.id!, body.isPublished, actor(ctx)),
+    ),
   );
 
   // 7. ON-DAY OPERATIONS
   router.post(
-    '/api/events/:id/bazaar/check-in',
-    requireEventAccess(async (ctx) => {
-      const db = getDb();
-      const applicationId = (ctx.body as any)?.applicationId;
-
-      if (!applicationId) {
-        return errorResponse(
-          'VALIDATION_ERROR',
-          'Application ID diperlukan.',
-          400,
-          ctx.requestId,
-        );
-      }
-
-      const [checkedIn] = await db
-        .update(bazaarApplications)
-        .set({
-          status: 'checked_in',
-          checkedInAt: new Date(),
-          checkedInBy: ctx.user?.id || '00000000-0000-0000-0000-000000000000',
-          updatedAt: new Date(),
-        })
-        .where(applicationInEvent(applicationId, ctx.params.id!))
-        .returning();
-
-      if (!checkedIn)
-        return errorResponse(
-          'NOT_FOUND',
-          'Pendaftaran tenant tidak ditemukan pada event ini.',
-          404,
-          ctx.requestId,
-        );
-      return successResponse(checkedIn, {
-        requestId: ctx.requestId,
-        message: 'Tenant berhasil check-in kehadiran!',
-      });
-    }),
+    "/api/events/:id/bazaar/check-in",
+    bazaarOperation(
+      z.object({ applicationId: z.string().uuid() }),
+      async (ctx, body) =>
+        checkInBazaar(ctx.params.id!, body.applicationId, actor(ctx)),
+    ),
   );
 
   router.get(
-    '/api/events/:id/bazaar/incidents',
+    "/api/events/:id/bazaar/incidents",
     requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params?.id;
       if (!eventId) {
         return errorResponse(
-          'VALIDATION_ERROR',
-          'Event ID diperlukan.',
+          "VALIDATION_ERROR",
+          "Event ID diperlukan.",
           400,
           ctx.requestId,
         );
@@ -1677,66 +1105,22 @@ export function registerBazaarRoutes(router: Router) {
   );
 
   router.post(
-    '/api/events/:id/bazaar/incidents',
-    requireEventAccess(
-      validateBody(recordIncidentSchema, async (ctx, body) => {
-        const db = getDb();
-        const eventId = ctx.params?.id;
-        if (!eventId) {
-          return errorResponse(
-            'VALIDATION_ERROR',
-            'Event ID diperlukan.',
-            400,
-            ctx.requestId,
-          );
-        }
-
-        const application = await db.query.bazaarApplications.findFirst({
-          where: applicationInEvent(body.applicationId, eventId),
-        });
-
-        if (!application) {
-          return errorResponse(
-            'NOT_FOUND',
-            'Pendaftaran tenant tidak ditemukan.',
-            404,
-            ctx.requestId,
-          );
-        }
-
-        const [created] = await db
-          .insert(bazaarIncidents)
-          .values({
-            applicationId: body.applicationId,
-            tenantId: application.tenantId,
-            eventId,
-            type: body.type,
-            category: body.category,
-            severity: body.severity,
-            description: body.description,
-            photoUrl: body.photoUrl || null,
-            recordedBy: ctx.user?.id || '00000000-0000-0000-0000-000000000000',
-          })
-          .returning();
-
-        return successResponse(created, {
-          requestId: ctx.requestId,
-          message: 'Catatan kejadian berhasil disimpan!',
-        });
-      }),
+    "/api/events/:id/bazaar/incidents",
+    bazaarOperation(recordIncidentSchema, async (ctx, body) =>
+      recordBazaarIncident(ctx.params.id!, body, actor(ctx)),
     ),
   );
 
   // 8. POST-EVENT: Surveys & Staff Evaluations
   router.get(
-    '/api/events/:id/bazaar/surveys',
+    "/api/events/:id/bazaar/surveys",
     requireEventAccess(async (ctx) => {
       const db = getDb();
       const eventId = ctx.params?.id;
       if (!eventId) {
         return errorResponse(
-          'VALIDATION_ERROR',
-          'Event ID diperlukan.',
+          "VALIDATION_ERROR",
+          "Event ID diperlukan.",
           400,
           ctx.requestId,
         );
@@ -1753,11 +1137,11 @@ export function registerBazaarRoutes(router: Router) {
 
       // Omzet distribution stats & Average Satisfaction
       const omzetCounts: Record<string, number> = {
-        '<1m': 0,
-        '1-2m': 0,
-        '2-5m': 0,
-        '5-10m': 0,
-        '>10m': 0,
+        "<1m": 0,
+        "1-2m": 0,
+        "2-5m": 0,
+        "5-10m": 0,
+        ">10m": 0,
       };
 
       let sumOverall = 0;
@@ -1805,93 +1189,97 @@ export function registerBazaarRoutes(router: Router) {
   );
 
   router.post(
-    '/api/events/:id/bazaar/evaluations',
-    requireEventAccess(
-      validateBody(staffEvaluationSchema, async (ctx, body) => {
-        const db = getDb();
-        const eventId = ctx.params?.id;
-        if (!eventId) {
-          return errorResponse(
-            'VALIDATION_ERROR',
-            'Event ID diperlukan.',
-            400,
-            ctx.requestId,
-          );
-        }
+    "/api/events/:id/bazaar/evaluations",
+    bazaarOperation(staffEvaluationSchema, async (ctx, body) =>
+      evaluateBazaarTenant(ctx.params.id!, body, actor(ctx)),
+    ),
+  );
 
-        const application = await db.query.bazaarApplications.findFirst({
-          where: applicationInEvent(body.applicationId, eventId),
-        });
-
-        if (!application) {
-          return errorResponse(
-            'NOT_FOUND',
-            'Pendaftaran tidak ditemukan.',
-            404,
-            ctx.requestId,
-          );
-        }
-
-        const existing = await db.query.bazaarEvaluations.findFirst({
-          where: eq(bazaarEvaluations.applicationId, body.applicationId),
-        });
-
-        let evaluation;
-        if (existing) {
-          [evaluation] = await db
-            .update(bazaarEvaluations)
-            .set({
-              shariaComplianceScore: body.shariaComplianceScore,
-              cooperationScore: body.cooperationScore,
-              cleanlinessScore: body.cleanlinessScore,
-              trafficDisruptionRisk: body.trafficDisruptionRisk,
-              recommendNextEvent: body.recommendNextEvent,
-              suggestedFlag: body.suggestedFlag,
-              internalNotes: body.internalNotes || null,
-              evaluatedBy:
-                ctx.user?.id || '00000000-0000-0000-0000-000000000000',
-              evaluatedAt: new Date(),
-            })
-            .where(eq(bazaarEvaluations.id, existing.id))
-            .returning();
-        } else {
-          [evaluation] = await db
-            .insert(bazaarEvaluations)
-            .values({
-              applicationId: body.applicationId,
-              tenantId: application.tenantId,
-              eventId,
-              shariaComplianceScore: body.shariaComplianceScore,
-              cooperationScore: body.cooperationScore,
-              cleanlinessScore: body.cleanlinessScore,
-              trafficDisruptionRisk: body.trafficDisruptionRisk,
-              recommendNextEvent: body.recommendNextEvent,
-              suggestedFlag: body.suggestedFlag,
-              internalNotes: body.internalNotes || null,
-              evaluatedBy:
-                ctx.user?.id || '00000000-0000-0000-0000-000000000000',
-            })
-            .returning();
-        }
-
-        if (body.suggestedFlag && body.suggestedFlag !== 'normal') {
-          await db
-            .update(bazaarTenants)
-            .set({ internalFlag: body.suggestedFlag, updatedAt: new Date() })
-            .where(eq(bazaarTenants.id, application.tenantId));
-        }
-
-        return successResponse(evaluation, {
-          requestId: ctx.requestId,
-          message: 'Evaluasi panitia berhasil disimpan!',
-        });
+  router.post(
+    "/api/events/:id/bazaar/applications/:appId/access",
+    bazaarOperation(undefined, async (ctx) => {
+      const app = await getDb().query.bazaarApplications.findFirst({
+        where: applicationInEvent(ctx.params.appId!, ctx.params.id!),
+      });
+      if (!app) throw new BazaarError("Pendaftaran tidak ditemukan.", 404);
+      await logAuditEvent({
+        actorUserId: ctx.user!.id,
+        action: "bazaar_access_issue",
+        entityType: "bazaar_application",
+        entityId: app.id,
+        requestId: ctx.requestId,
+      });
+      return {
+        applicationId: app.id,
+        eventId: ctx.params.id!,
+        accessToken: createBazaarAccess(app.id, app.bazaarId),
+      };
+    }),
+  );
+  router.post(
+    "/api/events/:id/bazaar/export",
+    bazaarOperation(
+      z.object({
+        kind: z.enum(["applications", "surveys"]),
+        ids: z.array(z.string().uuid()).max(100000),
+        reason: z.string().trim().min(3).max(300),
       }),
+      async (ctx, body) => {
+        if (!hasPermission(ctx.user!.roles, PERMISSIONS.DATA_EXPORT))
+          throw new BazaarError("Izin ekspor diperlukan.", 403);
+        const bazaar = await getDb().query.bazaarEvents.findFirst({
+          where: eq(bazaarEvents.eventId, ctx.params.id!),
+        });
+        if (!bazaar) throw new BazaarError("Bazar tidak ditemukan.", 404);
+        const apps = await getDb().query.bazaarApplications.findMany({
+          where: eq(bazaarApplications.bazaarId, bazaar.id),
+          with: { tenant: true, assignedBooth: true, survey: true },
+        });
+        const selected = apps.filter((app) =>
+          body.ids.includes(body.kind === "surveys" ? app.survey?.id : app.id),
+        );
+        const rows = selected.map((app) =>
+          body.kind === "surveys"
+            ? {
+                Brand: app.tenant.brandName,
+                PIC: app.tenant.picName,
+                Stan: app.assignedBooth?.code,
+                Omzet: app.survey?.omzetRange,
+                Kepuasan: app.survey?.satisfactionOverall,
+                Lokasi: app.survey?.satisfactionLocation,
+                Fasilitas: app.survey?.satisfactionFacilities,
+                Komunikasi: app.survey?.satisfactionCommunication,
+                Pengunjung: app.survey?.satisfactionTraffic,
+                IkutLagi: app.survey?.willingToJoinNext ? "Ya" : "Tidak",
+                Dikirim: app.survey?.submittedAt?.toISOString(),
+                Masukan: app.survey?.feedback,
+              }
+            : {
+                Brand: app.tenant.brandName,
+                PIC: app.tenant.picName,
+                WhatsApp: app.tenant.picPhone,
+                Status: app.status,
+                Stan: app.assignedBooth?.code,
+                Tagihan: app.infaqAmountRupiah,
+                Terverifikasi: bazaarPaymentConfirmed(app) ? "Ya" : "Belum",
+              },
+        );
+        await logExportEvent({
+          actorUserId: ctx.user!.id,
+          exportType: "bazaar_" + body.kind,
+          rowCount: rows.length,
+          reason: body.reason,
+          filterJson: { eventId: ctx.params.id, ids: body.ids },
+          requestId: ctx.requestId,
+        });
+        return { csv: recordsToCsv(rows), count: rows.length };
+      },
     ),
   );
 
   // 9. PUBLIC PORTAL
   // Public List of Active Bazaars (Across all events)
-  router.get('/api/public/bazaars', async (ctx) => {
+  router.get("/api/public/bazaars", async (ctx) => {
     const db = getDb();
     await ensureBazaarTablesExist(db);
 
@@ -1904,54 +1292,61 @@ export function registerBazaarRoutes(router: Router) {
       },
     });
 
-    const list = bazaars.map((b) => {
-      const boothPrices = (b.booths || [])
-        .map((booth) => booth.priceRupiah)
-        .filter((p) => typeof p === 'number' && p > 0);
-      const minFeeRupiah =
-        boothPrices.length > 0 ? Math.min(...boothPrices) : b.defaultFeeRupiah;
-      const maxFeeRupiah =
-        boothPrices.length > 0 ? Math.max(...boothPrices) : b.defaultFeeRupiah;
+    const list = bazaars
+      .filter((b) => bazaarRegistrationOpen(b, b.event))
+      .map((b) => {
+        const boothPrices = (b.booths || [])
+          .map((booth) => booth.priceRupiah)
+          .filter((p) => typeof p === "number" && p > 0);
+        const minFeeRupiah =
+          boothPrices.length > 0
+            ? Math.min(...boothPrices)
+            : b.defaultFeeRupiah;
+        const maxFeeRupiah =
+          boothPrices.length > 0
+            ? Math.max(...boothPrices)
+            : b.defaultFeeRupiah;
 
-      return {
-        id: b.id,
-        eventId: b.eventId,
-        title: b.title,
-        description: b.description,
-        defaultFeeRupiah: b.defaultFeeRupiah,
-        minFeeRupiah,
-        maxFeeRupiah,
-        registrationDeadline: b.registrationDeadline,
-        paymentDeadline: b.paymentDeadline,
-        isOpen: b.isOpen,
-        boothsCount: b.booths?.length || 0,
-        availableBoothsCount:
-          b.booths?.filter((booth) => booth.status === 'available').length || 0,
-        event: b.event
-          ? {
-              id: b.event.id,
-              title: b.event.title,
-              speaker: b.event.speaker,
-              startAt: b.event.startAt,
-              endAt: b.event.endAt,
-              locationName: b.event.locationName,
-            }
-          : null,
-      };
-    });
+        return {
+          id: b.id,
+          eventId: b.eventId,
+          title: b.title,
+          description: b.description,
+          defaultFeeRupiah: b.defaultFeeRupiah,
+          minFeeRupiah,
+          maxFeeRupiah,
+          registrationDeadline: b.registrationDeadline,
+          paymentDeadline: b.paymentDeadline,
+          isOpen: b.isOpen,
+          boothsCount: b.booths?.length || 0,
+          availableBoothsCount:
+            b.booths?.filter((booth) => booth.status === "available").length ||
+            0,
+          event: b.event
+            ? {
+                id: b.event.id,
+                title: b.event.title,
+                speaker: b.event.speaker,
+                startAt: b.event.startAt,
+                endAt: b.event.endAt,
+                locationName: b.event.locationName,
+              }
+            : null,
+        };
+      });
 
     return successResponse(list, { requestId: ctx.requestId });
   });
 
-  router.get('/api/public/events/:id/bazaar', async (ctx) => {
+  router.get("/api/public/events/:id/bazaar", async (ctx) => {
     const db = getDb();
     await ensureBazaarTablesExist(db);
     const eventId = ctx.params?.id;
 
     if (!eventId) {
       return errorResponse(
-        'VALIDATION_ERROR',
-        'Event ID diperlukan.',
+        "VALIDATION_ERROR",
+        "Event ID diperlukan.",
         400,
         ctx.requestId,
       );
@@ -2001,8 +1396,8 @@ export function registerBazaarRoutes(router: Router) {
 
     if (!bazaar || !eventRecord) {
       return errorResponse(
-        'NOT_FOUND',
-        'Bazar atau jadwal kajian tidak ditemukan.',
+        "NOT_FOUND",
+        "Bazar atau jadwal kajian tidak ditemukan.",
         404,
         ctx.requestId,
       );
@@ -2021,20 +1416,25 @@ export function registerBazaarRoutes(router: Router) {
     }));
 
     const showcaseTenants = (bazaar.applications || [])
-      .filter((a: any) => a.status !== 'rejected' && a.status !== 'cancelled')
+      .filter(
+        (a: any) =>
+          a.isPublished &&
+          BAZAAR_PLACED.includes(a.status) &&
+          bazaarPaymentConfirmed(a),
+      )
       .map((a: any) => {
         const tenant = a.tenant;
         const booth = a.assignedBooth;
         return {
-          id: a.id,
+          id: tenant?.id || a.tenantId,
           tenantId: tenant?.id || a.tenantId,
-          brandName: tenant?.brandName || 'Tenant UMKM',
-          businessCategory: tenant?.businessCategory || 'kuliner',
+          brandName: tenant?.brandName || "Tenant UMKM",
+          picName: "",
+          picPhone: "",
+          picEmail: null,
+          businessCategory: tenant?.businessCategory || "kuliner",
           logoUrl: tenant?.logoUrl || null,
           productDescription: tenant?.productDescription || null,
-          picName: tenant?.picName || '',
-          picPhone: tenant?.picPhone || '',
-          picEmail: tenant?.picEmail || null,
           instagram: tenant?.instagram || null,
           threads: tenant?.threads || null,
           websiteUrl: tenant?.websiteUrl || null,
@@ -2079,13 +1479,20 @@ export function registerBazaarRoutes(router: Router) {
           id: bazaar.id,
           title: bazaar.title,
           description: bazaar.description,
-          isOpen: bazaar.isOpen,
+          isOpen: bazaarRegistrationOpen(bazaar, eventRecord),
+          paymentConfigured: bazaarBankConfigured(bazaar),
           rulesAndTerms: bazaar.rulesAndTerms,
           defaultFeeRupiah: bazaar.defaultFeeRupiah,
-          bankName: bazaar.bankName,
-          bankAccountNumber: bazaar.bankAccountNumber,
-          bankAccountName: bazaar.bankAccountName,
-          paymentInstructions: bazaar.paymentInstructions,
+          bankName: bazaarBankConfigured(bazaar) ? bazaar.bankName : null,
+          bankAccountNumber: bazaarBankConfigured(bazaar)
+            ? bazaar.bankAccountNumber
+            : null,
+          bankAccountName: bazaarBankConfigured(bazaar)
+            ? bazaar.bankAccountName
+            : null,
+          paymentInstructions: bazaarBankConfigured(bazaar)
+            ? bazaar.paymentInstructions
+            : null,
           registrationDeadline: bazaar.registrationDeadline,
           paymentDeadline: bazaar.paymentDeadline,
           surveyDeadline: bazaar.surveyDeadline,
@@ -2103,355 +1510,48 @@ export function registerBazaarRoutes(router: Router) {
 
   // Public Tenant Application Submission
   router.post(
-    '/api/public/events/:id/bazaar/apply',
-    validateBody(publicApplySchema, async (ctx, body) => {
-      const db = getDb();
-      await ensureBazaarTablesExist(db);
-      const eventId = ctx.params?.id;
-      if (!eventId) {
-        return errorResponse(
-          'VALIDATION_ERROR',
-          'Event ID diperlukan.',
-          400,
-          ctx.requestId,
-        );
-      }
-
-      const bazaar = await db.query.bazaarEvents.findFirst({
-        where: or(
-          eq(bazaarEvents.eventId, eventId),
-          eq(bazaarEvents.id, eventId),
-        ),
-      });
-
-      if (!bazaar || !bazaar.isOpen) {
-        return errorResponse(
-          'FORBIDDEN',
-          'Pendaftaran bazar untuk kajian ini sedang ditutup.',
-          403,
-          ctx.requestId,
-        );
-      }
-
-      if (
-        bazaar.registrationDeadline &&
-        new Date() > new Date(bazaar.registrationDeadline)
-      ) {
-        return errorResponse(
-          'FORBIDDEN',
-          'Batas waktu pendaftaran bazar telah berakhir.',
-          403,
-          ctx.requestId,
-        );
-      }
-
-      const normalizedPhone = normalizeIndonesianPhone(body.picPhone);
-
-      // 1. Find or create Master Tenant CRM profile
-      let masterTenant = await db.query.bazaarTenants.findFirst({
-        where: or(
-          eq(bazaarTenants.picPhone, normalizedPhone),
-          ilike(bazaarTenants.brandName, body.brandName.trim()),
-        ),
-      });
-
-      if (!masterTenant) {
-        let personId: string | null = null;
-        const existingPerson = await db.query.persons.findFirst({
-          where: eq(persons.phoneE164, normalizedPhone),
-        });
-
-        if (existingPerson) {
-          personId = existingPerson.id;
-        } else {
-          const [newPerson] = await db
-            .insert(persons)
-            .values({
-              fullName: body.picName,
-              phoneE164: normalizedPhone,
-              email: body.picEmail || null,
-              sourceCode: 'BAZAAR_PORTAL',
-            })
-            .returning();
-          personId = newPerson ? newPerson.id : null;
-        }
-
-        const [newTenant] = await db
-          .insert(bazaarTenants)
-          .values({
-            personId,
-            brandName: body.brandName.trim(),
-            businessCategory: body.businessCategory,
-            picName: body.picName,
-            picPhone: normalizedPhone,
-            picEmail: body.picEmail || null,
-            picKtpNumber: body.picKtpNumber || null,
-            instagram: body.instagram || null,
-            threads: body.threads || null,
-            websiteUrl: body.websiteUrl || null,
-            logoUrl: body.logoUrl || null,
-            googleDriveCatalogUrl: body.googleDriveCatalogUrl || null,
-            address: body.address || null,
-            productDescription: body.productDescription,
-            catalogUrls: body.catalogUrl ? [body.catalogUrl] : [],
-            internalTags: ['Pendaftar Baru'],
-            internalFlag: 'normal',
-          })
-          .returning();
-        masterTenant = newTenant;
-      } else {
-        const tags = masterTenant.internalTags || [];
-        if (!tags.includes('Repeat Tenant')) tags.push('Repeat Tenant');
-
-        await db
-          .update(bazaarTenants)
-          .set({
-            picName: body.picName,
-            picEmail: body.picEmail || masterTenant.picEmail,
-            instagram: body.instagram || masterTenant.instagram,
-            threads: body.threads || masterTenant.threads,
-            websiteUrl: body.websiteUrl || masterTenant.websiteUrl,
-            logoUrl: body.logoUrl || masterTenant.logoUrl,
-            googleDriveCatalogUrl:
-              body.googleDriveCatalogUrl || masterTenant.googleDriveCatalogUrl,
-            address: body.address || masterTenant.address,
-            productDescription: body.productDescription,
-            internalTags: tags,
-            updatedAt: new Date(),
-          })
-          .where(eq(bazaarTenants.id, masterTenant.id));
-      }
-
-      if (!masterTenant) {
-        return errorResponse(
-          'INTERNAL_ERROR',
-          'Gagal memproses master tenant.',
-          500,
-          ctx.requestId,
-        );
-      }
-
-      // 2. Check if already applied for this specific event
-      const existingApp = await db.query.bazaarApplications.findFirst({
-        where: and(
-          eq(bazaarApplications.bazaarId, bazaar.id),
-          eq(bazaarApplications.tenantId, masterTenant.id),
-        ),
-      });
-
-      if (existingApp) {
-        return errorResponse(
-          'CONFLICT',
-          'Brand/Usaha Anda sudah terdaftar pada bazar kajian ini.',
-          409,
-          ctx.requestId,
-        );
-      }
-
-      // 3. Create Application & Check Category Quotas
-      const hasPayment = !!body.paymentProofUrl;
-      let initialStatus = hasPayment ? 'payment_verification' : 'submitted';
-
-      if (bazaar.categoryQuotas && Array.isArray(bazaar.categoryQuotas)) {
-        const catSetting = (bazaar.categoryQuotas as any[]).find(
-          (q: any) => q.category === body.businessCategory,
-        );
-        if (catSetting && catSetting.maxQuota > 0) {
-          const catApps = await db.query.bazaarApplications.findMany({
-            where: eq(bazaarApplications.bazaarId, bazaar.id),
-            with: { tenant: true },
-          });
-          const activeCount = catApps.filter(
-            (a: any) =>
-              a.tenant?.businessCategory === body.businessCategory &&
-              a.status !== 'rejected' &&
-              a.status !== 'cancelled',
-          ).length;
-
-          if (activeCount >= catSetting.maxQuota) {
-            initialStatus = 'waitlist';
-          }
-        }
-      }
-
-      // Upload proof to Contabo S3 if provided (base64 data URL or external)
-      const storedProofUrl = await ensureS3StorageUrl(
-        body.paymentProofUrl,
-        'bazaar-proofs',
-        `bazaar_${masterTenant.brandName}`,
-      );
-
-      const [createdApp] = await db
-        .insert(bazaarApplications)
-        .values({
-          bazaarId: bazaar.id,
-          tenantId: masterTenant.id,
-          status: initialStatus,
-          electricityNeeded: body.electricityNeeded,
-          electricityWatts: body.electricityWatts || 0,
-          specialRequests: body.specialRequests || null,
-          boothPreferences: body.boothPreferences || null,
-          infaqAmountRupiah: body.infaqAmountRupiah || bazaar.defaultFeeRupiah,
-          paymentProofUrl: storedProofUrl || null,
-        })
-        .returning();
-
-      return successResponse(
-        {
-          application: createdApp,
-          tenant: masterTenant,
-          bazaarTitle: bazaar.title,
-        },
-        {
-          requestId: ctx.requestId,
-          message: 'Pendaftaran formulir tenant bazar berhasil dikirim!',
-        },
-      );
-    }),
+    "/api/public/events/:id/bazaar/apply",
+    bazaarOperation(
+      publicApplySchema,
+      async (ctx, body) => publicApplyBazaar(ctx.params.id!, body),
+      true,
+    ),
   );
 
   // Public Survey Submission
   router.post(
-    '/api/public/events/:id/bazaar/survey',
-    validateBody(publicSurveySchema, async (ctx, body) => {
-      const db = getDb();
-      await ensureBazaarTablesExist(db);
-      const eventId = ctx.params?.id;
-
-      if (!eventId) {
-        return errorResponse(
-          'VALIDATION_ERROR',
-          'Event ID diperlukan.',
-          400,
-          ctx.requestId,
-        );
-      }
-
-      let application: any = null;
-
-      if (body.applicationId) {
-        application = await db.query.bazaarApplications.findFirst({
-          where: applicationInEvent(body.applicationId, eventId, true),
-          with: { tenant: true },
-        });
-      }
-
-      if (!application && (body.phone || body.brandName)) {
-        const bazaar = await db.query.bazaarEvents.findFirst({
-          where: or(
-            eq(bazaarEvents.eventId, eventId),
-            eq(bazaarEvents.id, eventId),
-          ),
-        });
-
-        if (bazaar) {
-          const apps = await db.query.bazaarApplications.findMany({
-            where: eq(bazaarApplications.bazaarId, bazaar.id),
-            with: { tenant: true },
-          });
-
-          const normalizedPhone = body.phone
-            ? normalizeIndonesianPhone(body.phone)
-            : null;
-          const searchBrand = body.brandName
-            ? body.brandName.trim().toLowerCase()
-            : null;
-
-          application = apps.find((a) => {
-            if (
-              normalizedPhone &&
-              a.tenant?.picPhone &&
-              normalizeIndonesianPhone(a.tenant.picPhone) === normalizedPhone
-            )
-              return true;
-            if (
-              searchBrand &&
-              a.tenant?.brandName &&
-              a.tenant.brandName.toLowerCase().includes(searchBrand)
-            )
-              return true;
-            return false;
-          });
-        }
-      }
-
-      if (!application) {
-        return errorResponse(
-          'NOT_FOUND',
-          'Data pendaftaran tenant tidak ditemukan. Pastikan No. WhatsApp atau Nama Brand terdaftar pada event ini.',
-          404,
-          ctx.requestId,
-        );
-      }
-
-      const existingSurvey = await db.query.bazaarSurveys.findFirst({
-        where: eq(bazaarSurveys.applicationId, application.id),
-      });
-
-      if (existingSurvey) {
-        return errorResponse(
-          'CONFLICT',
-          'Anda sudah pernah mengisi survei untuk event ini. Jazakumullahu khairan!',
-          409,
-          ctx.requestId,
-        );
-      }
-
-      const [survey] = await db
-        .insert(bazaarSurveys)
-        .values({
-          applicationId: application.id,
-          tenantId: application.tenantId,
-          eventId,
-          satisfactionOverall: body.satisfactionOverall,
-          satisfactionLocation: body.satisfactionLocation,
-          satisfactionFacilities: body.satisfactionFacilities,
-          satisfactionCommunication: body.satisfactionCommunication,
-          satisfactionTraffic: body.satisfactionTraffic,
-          omzetRange: body.omzetRange,
-          feedback: body.feedback || null,
-          willingToJoinNext: body.willingToJoinNext,
-        })
-        .returning();
-
-      await db
-        .update(bazaarApplications)
-        .set({ status: 'completed', updatedAt: new Date() })
-        .where(eq(bazaarApplications.id, application.id));
-
-      return successResponse(survey, {
-        requestId: ctx.requestId,
-        message: 'Jazakumullahu khairan! Survei pasca-event berhasil dikirim.',
-      });
-    }),
+    "/api/public/events/:id/bazaar/survey",
+    bazaarOperation(
+      publicSurveySchema,
+      async (ctx, body) =>
+        submitBazaarSurvey(ctx.params.id!, body, readBazaarAccess(ctx.headers)),
+      true,
+    ),
   );
 
   // Public Tenant Application Status Tracker
-  router.get('/api/public/events/:id/bazaar/check-status', async (ctx) => {
+  router.get("/api/public/events/:id/bazaar/check-status", async (ctx) => {
     const db = getDb();
     await ensureBazaarTablesExist(db);
     const eventId = ctx.params?.id;
     if (!eventId) {
       return errorResponse(
-        'VALIDATION_ERROR',
-        'Event ID diperlukan.',
+        "VALIDATION_ERROR",
+        "Event ID diperlukan.",
         400,
         ctx.requestId,
       );
     }
 
-    const phone = ctx.query?.phone?.trim();
-    const appId = ctx.query?.appId?.trim();
-
-    if (!phone && !appId) {
+    const access = readBazaarAccess(ctx.headers);
+    if (!access)
       return errorResponse(
-        'VALIDATION_ERROR',
-        'Harap masukkan Nomor WhatsApp atau ID Pendaftaran.',
-        400,
+        "UNAUTHENTICATED",
+        "Masukkan kode akses pribadi dari bukti pendaftaran atau hubungi panitia.",
+        401,
         ctx.requestId,
       );
-    }
-
+    const appId = access.applicationId;
     let bazaar = await db.query.bazaarEvents.findFirst({
       where: or(
         eq(bazaarEvents.eventId, eventId),
@@ -2464,8 +1564,8 @@ export function registerBazaarRoutes(router: Router) {
 
     if (!bazaar) {
       return errorResponse(
-        'NOT_FOUND',
-        'Bazar tidak ditemukan.',
+        "NOT_FOUND",
+        "Bazar tidak ditemukan.",
         404,
         ctx.requestId,
       );
@@ -2473,7 +1573,7 @@ export function registerBazaarRoutes(router: Router) {
 
     let application: any = null;
 
-    if (appId) {
+    if (appId && access.bazaarId === bazaar.id) {
       application = await db.query.bazaarApplications.findFirst({
         where: and(
           eq(bazaarApplications.id, appId),
@@ -2486,28 +1586,10 @@ export function registerBazaarRoutes(router: Router) {
       });
     }
 
-    if (!application && phone) {
-      const normalizedPhone = normalizeIndonesianPhone(phone);
-      const apps = await db.query.bazaarApplications.findMany({
-        where: eq(bazaarApplications.bazaarId, bazaar.id),
-        orderBy: [desc(bazaarApplications.registeredAt)],
-        with: {
-          tenant: true,
-          assignedBooth: true,
-        },
-      });
-
-      application = apps.find(
-        (a) =>
-          a.tenant?.picPhone &&
-          normalizeIndonesianPhone(a.tenant.picPhone) === normalizedPhone,
-      );
-    }
-
     if (!application) {
       return errorResponse(
-        'NOT_FOUND',
-        'Data pendaftaran tidak ditemukan. Pastikan Nomor WhatsApp atau ID Pendaftaran sesuai.',
+        "NOT_FOUND",
+        "Data pendaftaran tidak ditemukan. Pastikan Nomor WhatsApp atau ID Pendaftaran sesuai.",
         404,
         ctx.requestId,
       );
@@ -2527,8 +1609,7 @@ export function registerBazaarRoutes(router: Router) {
           infaqAmountRupiah: application.infaqAmountRupiah,
           paymentProofUrl: application.paymentProofUrl,
           paymentVerifiedAt: application.paymentVerifiedAt,
-          paymentNotes: application.paymentNotes,
-          adminNotes: application.adminNotes,
+
           rejectionReason: application.rejectionReason,
           isPublished: application.isPublished,
         },
@@ -2544,25 +1625,33 @@ export function registerBazaarRoutes(router: Router) {
           catalogUrl: application.tenant?.catalogUrl,
           productDescription: application.tenant?.productDescription,
         },
-        assignedBooth: application.assignedBooth
-          ? {
-              id: application.assignedBooth.id,
-              code: application.assignedBooth.code,
-              name: application.assignedBooth.name,
-              zone: application.assignedBooth.zone,
-              size: application.assignedBooth.size,
-              facilities: application.assignedBooth.facilities,
-              priceRupiah: application.assignedBooth.priceRupiah,
-            }
-          : null,
+        assignedBooth:
+          application.isPublished && application.assignedBooth
+            ? {
+                id: application.assignedBooth.id,
+                code: application.assignedBooth.code,
+                name: application.assignedBooth.name,
+                zone: application.assignedBooth.zone,
+                size: application.assignedBooth.size,
+                facilities: application.assignedBooth.facilities,
+                priceRupiah: application.assignedBooth.priceRupiah,
+              }
+            : null,
         bazaar: {
           id: bazaar.id,
           title: bazaar.title,
           defaultFeeRupiah: bazaar.defaultFeeRupiah,
-          bankName: bazaar.bankName,
-          bankAccountNumber: bazaar.bankAccountNumber,
-          bankAccountName: bazaar.bankAccountName,
-          paymentInstructions: bazaar.paymentInstructions,
+          paymentConfigured: bazaarBankConfigured(bazaar),
+          bankName: bazaarBankConfigured(bazaar) ? bazaar.bankName : null,
+          bankAccountNumber: bazaarBankConfigured(bazaar)
+            ? bazaar.bankAccountNumber
+            : null,
+          bankAccountName: bazaarBankConfigured(bazaar)
+            ? bazaar.bankAccountName
+            : null,
+          paymentInstructions: bazaarBankConfigured(bazaar)
+            ? bazaar.paymentInstructions
+            : null,
         },
         event: bazaar.event
           ? {
@@ -2580,84 +1669,12 @@ export function registerBazaarRoutes(router: Router) {
 
   // Public Upload Proof of Payment (Susulan)
   router.post(
-    '/api/public/events/:id/bazaar/upload-proof',
-    validateBody(publicUploadProofSchema, async (ctx, body) => {
-      const db = getDb();
-      await ensureBazaarTablesExist(db);
-      const eventId = ctx.params?.id;
-      if (!eventId) {
-        return errorResponse(
-          'VALIDATION_ERROR',
-          'Event ID diperlukan.',
-          400,
-          ctx.requestId,
-        );
-      }
-
-      const application = await db.query.bazaarApplications.findFirst({
-        where: applicationInEvent(body.applicationId, eventId, true),
-        with: {
-          tenant: true,
-        },
-      });
-
-      if (!application) {
-        return errorResponse(
-          'NOT_FOUND',
-          'Pendaftaran tidak ditemukan.',
-          404,
-          ctx.requestId,
-        );
-      }
-
-      const inputPhone = normalizeIndonesianPhone(body.phone);
-      const tenantPhone = application.tenant?.picPhone
-        ? normalizeIndonesianPhone(application.tenant.picPhone)
-        : '';
-
-      if (inputPhone !== tenantPhone) {
-        return errorResponse(
-          'FORBIDDEN',
-          'Nomor WhatsApp verifikasi tidak sesuai dengan data pendaftaran.',
-          403,
-          ctx.requestId,
-        );
-      }
-
-      const newStatus =
-        application.status === 'submitted' ||
-        application.status === 'payment_pending'
-          ? 'payment_verification'
-          : application.status;
-
-      // Upload proof to Contabo S3
-      const storedProofUrl = await ensureS3StorageUrl(
-        body.paymentProofUrl,
-        'bazaar-proofs',
-        `bazaar_susulan_${application.id}`,
-      );
-
-      const [updated] = await db
-        .update(bazaarApplications)
-        .set({
-          paymentProofUrl: storedProofUrl || body.paymentProofUrl,
-          paymentNotes: body.paymentNotes || application.paymentNotes,
-          status: newStatus,
-          updatedAt: new Date(),
-        })
-        .where(eq(bazaarApplications.id, application.id))
-        .returning();
-
-      return successResponse(
-        {
-          application: updated,
-        },
-        {
-          requestId: ctx.requestId,
-          message:
-            'Bukti transfer berhasil diunggah! Panitia akan memverifikasi infaq Anda.',
-        },
-      );
-    }),
+    "/api/public/events/:id/bazaar/upload-proof",
+    bazaarOperation(
+      publicUploadProofSchema,
+      async (ctx, body) =>
+        uploadBazaarProof(ctx.params.id!, body, readBazaarAccess(ctx.headers)),
+      true,
+    ),
   );
 }
