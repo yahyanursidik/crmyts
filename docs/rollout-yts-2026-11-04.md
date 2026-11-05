@@ -94,3 +94,15 @@ Pemeriksaan HTTPS preview menemukan timeout pada ringkasan broadcast kajian. Per
 
 
 Sebelum penerapan dashboard, fingerprint produksi dibandingkan kembali dengan catatan sesudah migrasi 0013. Seluruh 48 tabel yang tidak memuat perubahan login/audit identik; tidak ada perbedaan data bisnis. Akun fixture tinjauan UI staging telah dinonaktifkan dan sesinya dicabut; server pratinjau lokal dihentikan setelah pemeriksaan browser.
+
+
+## Verifikasi akhir rilis dashboard produksi
+
+- PR: #27; commit fitur `3e59efac09912ade1717b7f35e2daa74d6366693`.
+- Deploy fitur: `6aebe32aa3f2f0537a030049`, terbit 5 November 2026 pukul 09:00:57 WIB di `https://app.yts.web.id`.
+- Build/CI, 417 tes otomatis pada 71 berkas, 493 pemeriksaan HTTPS preview dan 133 UAT staging lulus.
+- Produksi: 493/493 pemeriksaan login, sesi, akses fitur/subfitur dan pencabutan token pada 10 peran lulus, tanpa error aplikasi.
+- Produksi: 17/17 pemeriksaan dashboard/filter dengan SQL lulus; sembilan halaman/endpoint publik mengembalikan HTTP 200.
+- Fingerprint 48 tabel produksi tetap identik dengan baseline setelah migrasi 0013; tidak ada migrasi tambahan atau perubahan data bisnis dalam revamp dashboard.
+- Ringkasan broadcast: 10/10 pemeriksaan SQL, agregasi staging 53 ms; log fixture di-rollback dan tidak ada pesan dikirim.
+- Batas yang tetap berlaku: rekening umum resmi belum dikonfirmasi, login Google interaktif serta penerimaan email nyata belum diuji memakai akun lembaga, dan modul EO lanjutan/reset mandiri/limiter terdistribusi tercatat dalam backlog audit.
