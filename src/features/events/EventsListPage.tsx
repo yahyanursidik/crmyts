@@ -7,6 +7,7 @@ import {
 } from "@server/permissions/constants";
 import {
   CalendarDays,
+  MessageSquare,
   Plus,
   Search,
   LayoutGrid,
@@ -179,6 +180,7 @@ export const EventsListPage: React.FC = () => {
   };
   const actions = (event: EventItem) => (
     <div className="event-card-actions">
+      {permissions.includes(PERMISSIONS.INTERACTIONS_VIEW)&&<Link className="event-icon" title="Pesan jamaah" aria-label={`Pesan jamaah ${event.title}`} to={'/ruang-jamaah/kelola?eventId='+event.id}><MessageSquare size={17}/></Link>}
       <button
         className="event-button primary"
         onClick={() => openPanel(event.id, "participants")}

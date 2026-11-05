@@ -2,6 +2,7 @@ export interface InteractionItem {
   id: string;
   personId: string;
   eventId?: string | null;
+  roomEntryId?: string | null;
   channel: string;
   summary: string;
   outcome?: string | null;

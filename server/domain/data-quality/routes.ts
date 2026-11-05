@@ -16,6 +16,7 @@ import {
   auditLogs,
   kajianRutinAttendance,
   bazaarTenants,
+  jamaahRoomEntries,
 } from '../../db/schema';
 import { eq, and, isNull, desc, lte, sql } from 'drizzle-orm';
 import { PERMISSIONS } from '../../permissions/constants';
@@ -451,6 +452,7 @@ export function registerDataQualityRoutes(router: Router) {
       }
 
       // 6. Reassign sensitive notes
+      await tx.update(jamaahRoomEntries).set({personId:primaryPersonId,updatedAt:new Date(),updatedBy:user.id}).where(eq(jamaahRoomEntries.personId,secondaryPersonId));
       await tx
         .update(sensitiveNotes)
         .set({ personId: primaryPersonId })

@@ -19,6 +19,7 @@ import {
   tasks,
   events,
   appUsers,
+  jamaahRoomActivity,
 } from "../../db/schema";
 import { successResponse } from "../../http/response";
 import { PERMISSIONS as P, hasPermission } from "../../permissions/constants";
@@ -40,6 +41,21 @@ import {
   mayManageInteraction,
   mayUseEventContext,
 } from "./service";
+async function standalone(
+  ctx: RequestContext,
+  operation: (ctx: RequestContext) => Promise<any>,
+) {
+  const source = await getDb().query.jamaahRoomActivity.findFirst({
+    where: eq(jamaahRoomActivity.interactionId, ctx.params.id!),
+    columns: { entryId: true },
+  });
+  if (source)
+    throw new InteractionError(
+      "Kelola tanggapan dan tindak lanjut melalui pesan asal di Ruang Jamaah.",
+      409,
+    );
+  return operation(ctx);
+}
 export { OUTCOME_OPTIONS } from "./service";
 const date = z
   .string()
@@ -320,31 +336,64 @@ export function registerInteractionsRoutes(router: Router) {
         with: relations,
       });
       if (!row) throw new InteractionError("Interaksi tidak ditemukan.", 404);
+      const source = await getDb().query.jamaahRoomActivity.findFirst({
+        where: eq(jamaahRoomActivity.interactionId, row.id),
+        columns: { entryId: true },
+      });
       return {
         ...row,
-        canManage: mayManageInteraction(ctx.user!, row),
-        followUps: await linkedTasks(ctx, [row.id]),
+        roomEntryId: source?.entryId || null,
+        canManage: !source && mayManageInteraction(ctx.user!, row),
+        followUps: source
+          ? hasPermission(ctx.user!.roles, P.TASKS_VIEW_ALL) ||
+            hasPermission(ctx.user!.roles, P.TASKS_VIEW_OWN)
+            ? await getDb().query.tasks.findMany({
+                where: and(
+                  eq(tasks.relatedType, "jamaah_room_entry"),
+                  eq(tasks.relatedId, source.entryId),
+                  hasPermission(ctx.user!.roles, P.TASKS_VIEW_ALL)
+                    ? undefined
+                    : eq(tasks.ownerUserId, ctx.user!.id),
+                ),
+                columns: {
+                  id: true,
+                  title: true,
+                  status: true,
+                  priority: true,
+                  dueAt: true,
+                },
+                orderBy: [desc(tasks.createdAt)],
+                limit: 50,
+              })
+            : []
+          : await linkedTasks(ctx, [row.id]),
       };
     }),
   );
   router.patch(
     "/api/interactions/:id",
-    interactionOperation(P.INTERACTIONS_CREATE, correctInteraction),
+    interactionOperation(P.INTERACTIONS_CREATE, (ctx) =>
+      standalone(ctx, correctInteraction),
+    ),
   );
   router.post(
     "/api/interactions/:id/follow-up",
-    interactionOperation(P.INTERACTIONS_CREATE, addInteractionFollowup, 201),
+    interactionOperation(
+      P.INTERACTIONS_CREATE,
+      (ctx) => standalone(ctx, addInteractionFollowup),
+      201,
+    ),
   );
   router.delete(
     "/api/interactions/:id",
     interactionOperation(P.INTERACTIONS_CREATE, (ctx) =>
-      archiveInteraction(ctx),
+      standalone(ctx, archiveInteraction),
     ),
   );
   router.post(
     "/api/interactions/:id/restore",
     interactionOperation(P.INTERACTIONS_CREATE, (ctx) =>
-      archiveInteraction(ctx, true),
+      standalone(ctx, (context) => archiveInteraction(context, true)),
     ),
   );
 }

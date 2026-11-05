@@ -46,6 +46,7 @@ export interface PersonDetailData {
   }>;
   bazaarProfiles?: Array<{id:string;brandName:string;businessCategory:string;applications:Array<{id:string;status:string;checkedInAt?:string|null;bazaar?:{eventId:string;title:string};assignedBooth?:{code:string}|null}>}>;
   interactions: Array<{
+    // Connected response records retain their original message in Ruang Jamaah.
     id: string;
     channel: string;
     summary: string;
@@ -55,6 +56,7 @@ export interface PersonDetailData {
     occurredAt: string;
     creator?: { id: string; fullName: string } | null;
   }>;
+  roomEntries?: Array<{id:string;subject:string;status:string;createdAt:string}>;
   tasks: Array<{
     id: string;
     title: string;

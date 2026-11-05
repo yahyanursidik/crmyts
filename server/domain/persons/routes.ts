@@ -25,6 +25,7 @@ import {
   kajianRutinSessions,
   kajianRutinSeries,
   bazaarTenants,
+  jamaahRoomEntries,
 } from '../../db/schema';
 import {
   eq,
@@ -870,6 +871,7 @@ export function registerPersonsRoutes(router: Router) {
       return successResponse(
         {
           ...person,
+          roomEntries: canInteractions ? await db.query.jamaahRoomEntries.findMany({where:and(eq(jamaahRoomEntries.personId,personId),isNull(jamaahRoomEntries.archivedAt)),columns:{id:true,subject:true,status:true,createdAt:true},orderBy:[desc(jamaahRoomEntries.createdAt)],limit:100}) : [],
           bazaarProfiles,
           roles: person.roles.map((r) => r.roleCode),
           tags: person.tags.map((t) => ({

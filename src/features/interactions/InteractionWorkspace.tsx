@@ -654,6 +654,15 @@ function InteractionDetail({
               )}
             </div>
             <div className="ix-badges">
+              {item.roomEntryId && (
+                <Link
+                  className="ix-text-button"
+                  to={"/ruang-jamaah/kelola?pesan=" + item.roomEntryId}
+                >
+                  Pesan Ruang Jamaah
+                  <ArrowRight size={14} />
+                </Link>
+              )}
               <span className="ix-badge">{CHANNELS[item.channel]}</span>
               <span className="ix-badge">
                 {item.sensitivityLevel === "standard"
@@ -717,8 +726,10 @@ function InteractionDetail({
                   <Link
                     className="ix-text-button"
                     to={
-                      "/tasks?interactionId=" +
-                      item.id +
+                      (item.roomEntryId
+                        ? "/tasks?roomEntryId="
+                        : "/tasks?interactionId=") +
+                      (item.roomEntryId || item.id) +
                       "&personId=" +
                       item.personId
                     }

@@ -23,9 +23,9 @@ export function linkedInteractionTaskVisibility(
   userId: string,
 ) {
   if (!hasPermission(roles, PERMISSIONS.INTERACTIONS_VIEW))
-    return sql`${tasks.relatedType} IS DISTINCT FROM 'interaction'`;
+    return sql`(${tasks.relatedType} IS DISTINCT FROM 'interaction' AND ${tasks.relatedType} IS DISTINCT FROM 'jamaah_room_entry')`;
   const sourceScope = hasPermission(roles, PERMISSIONS.SENSITIVE_NOTES_VIEW)
     ? sql`true`
     : sql`(source_interaction.sensitivity_level='standard' OR source_interaction.owner_user_id=${userId} OR source_interaction.created_by=${userId})`;
-  return sql`(${tasks.relatedType} IS DISTINCT FROM 'interaction' OR EXISTS(SELECT 1 FROM interactions source_interaction WHERE source_interaction.id=${tasks.relatedId} AND ${sourceScope}))`;
+  return sql`((${tasks.relatedType} IS DISTINCT FROM 'interaction' OR EXISTS(SELECT 1 FROM interactions source_interaction WHERE source_interaction.id=${tasks.relatedId} AND ${sourceScope})) AND (${tasks.relatedType} IS DISTINCT FROM 'jamaah_room_entry' OR EXISTS(SELECT 1 FROM jamaah_room_entries source_room WHERE source_room.id=${tasks.relatedId})))`;
 }
