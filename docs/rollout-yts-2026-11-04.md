@@ -83,3 +83,8 @@ Pembaruan pembayaran diterbitkan melalui PR #26, commit `7150a64d15e76f418afc7ed
 - Tidak ada pesan/email yang dikirim ke jamaah atau staf sebagai bagian UAT. Koneksi provider dan konfigurasi bisa diperiksa tanpa pengiriman; penerimaan email nyata tetap memerlukan alamat uji yang disetujui.
 - Alur Google memerlukan akun Google pengguna untuk pengujian login interaktif. Absensi manual, QR, sesi, seri dan kaitan profil sudah diuji.
 - Fitur EO lanjutan yang belum tersedia (misalnya rundown/tugas kepanitiaan per event, anggaran/vendor, dan inventaris) tetap tercatat pada audit awal; keberhasilan alur yang tersedia bukan klaim bahwa modul tersebut sudah dikembangkan.
+
+
+## Dashboard pengelola — 5 November 2026
+
+PR #27 menambahkan ringkasan operasional admin, agenda yang terhubung peserta/pengaturan event, enam pintasan formulir dan filter donasi bulanan WIB. Tidak ada migrasi skema baru. Pratinjau `https://deploy-preview-27--crmyts.netlify.app` memakai branch staging yang sama; URL preview diselaraskan sebelum build akhir. Build lokal, 415 tes, 493 pemeriksaan peran staging, 21 pemeriksaan SQL dashboard dan 133 UAT terhubung sudah lulus. Hasil tinjauan browser dan backlog EO tercatat pada audit.
