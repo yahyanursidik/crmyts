@@ -64,3 +64,7 @@ Migrasi aditif `0016_interaction_connections.sql` menambah FK event, metadata ar
 4. Hubungan langsung ke transaksi donasi/wakaf atau sesi Kajian Rutin. Modul-modul tersebut tetap bertemu lewat profil Jamaah, sedangkan konteks langsung baru tersedia untuk Events. Riwayat lama tidak ditautkan berdasarkan tebakan.
 
 Hallmark · pre-emit critique: P4 H4 E4 S5 R5 V4. Workbench mengikuti token dan tipografi resmi YTS; fokus pada komunikasi, status aktual dan tindakan singkat.
+
+## Target rilis
+
+PR [#32](https://github.com/yahyanursidik/crmyts/pull/32); preview [Interactions YTS](https://deploy-preview-32--crmyts.netlify.app/interactions) memakai database dan kunci sesi staging. Target produksi: [app.yts.web.id/interactions](https://app.yts.web.id/interactions). Pemeriksaan HTTPS membandingkan data bisnis sebelum dan sesudah, tanpa mengubah atau mencabut sesi staf yang sedang digunakan.
