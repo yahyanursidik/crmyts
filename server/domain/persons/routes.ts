@@ -50,7 +50,8 @@ import {
   setPersonArchive,
   PersonConflict,
 } from './operations';
-import { interactionVisibility } from '../interactions/visibility';
+import { interactionVisibility, linkedInteractionTaskVisibility } from '../interactions/visibility';
+import { createPersonInteractionHandler } from '../interactions/service';
 
 const createPersonSchema = z.object({
   fullName: z
@@ -114,26 +115,6 @@ const bulkDeletePersonsSchema = z.object({
       'Daftar jamaah tidak boleh berulang',
     ),
   confirmation: z.enum(['ARSIPKAN', 'HAPUS']),
-});
-
-const createInteractionSchema = z.object({
-  channel: z.enum([
-    'whatsapp',
-    'phone_call',
-    'in_person',
-    'telegram',
-    'email',
-    'other',
-  ]),
-  summary: z.string().min(3, 'Ringkasan interaksi minimal 3 karakter'),
-  outcome: z.string().optional().nullable(),
-  sensitivityLevel: z
-    .enum(['standard', 'confidential', 'restricted'])
-    .default('standard'),
-  nextAction: z.string().optional().nullable(),
-  createFollowUpTask: z.boolean().default(false),
-  taskDueAt: z.string().datetime({ offset: true }).optional().nullable(),
-  taskPriority: z.enum(['low', 'medium', 'high', 'urgent']).default('medium'),
 });
 
 const createSensitiveNoteSchema = z.object({
@@ -659,6 +640,7 @@ export function registerPersonsRoutes(router: Router) {
           ? db.query.interactions.findMany({
               where: and(
                 eq(interactions.personId, personId),
+                isNull(interactions.archivedAt),
                 interactionVisibility(roles, ctx.user!.id),
               ),
               orderBy: [desc(interactions.occurredAt)],
@@ -677,6 +659,7 @@ export function registerPersonsRoutes(router: Router) {
           ? db.query.tasks.findMany({
               where: and(
                 eq(tasks.personId, personId),
+                linkedInteractionTaskVisibility(roles, ctx.user!.id),
                 hasPermission(roles, PERMISSIONS.TASKS_VIEW_ALL)
                   ? undefined
                   : eq(tasks.ownerUserId, ctx.user!.id),
@@ -1217,110 +1200,7 @@ export function registerPersonsRoutes(router: Router) {
     ),
   );
 
-  // POST /api/persons/:id/interactions (Log Interaction & Optional Follow-up Task)
-  router.post(
-    '/api/persons/:id/interactions',
-    requireAuth(
-      requirePermission(
-        PERMISSIONS.INTERACTIONS_CREATE,
-        validateBody(createInteractionSchema, async (ctx, body) => {
-          const db = getDb();
-          const personId = ctx.params.id!;
-          if (!ctx.user)
-            return errorResponse(
-              'UNAUTHENTICATED',
-              'Login diperlukan',
-              401,
-              ctx.requestId,
-            );
-          if (!personId)
-            return errorResponse(
-              'VALIDATION_ERROR',
-              'ID Jamaah diperlukan',
-              400,
-              ctx.requestId,
-            );
-
-          if (
-            body.createFollowUpTask &&
-            !hasPermission(ctx.user.roles, PERMISSIONS.TASKS_CREATE)
-          )
-            return errorResponse(
-              'FORBIDDEN',
-              'Izin membuat tugas diperlukan.',
-              403,
-              ctx.requestId,
-            );
-          if (
-            body.createFollowUpTask &&
-            (!body.nextAction?.trim() || !body.taskDueAt)
-          )
-            return errorResponse(
-              'VALIDATION_ERROR',
-              'Isi tindak lanjut dan tanggal tugas.',
-              400,
-              ctx.requestId,
-            );
-          return db.transaction(async (tx) => {
-            const person = await tx.query.persons.findFirst({
-              where: eq(persons.id, personId),
-              columns: { id: true },
-            });
-            if (!person)
-              return errorResponse(
-                'NOT_FOUND',
-                'Jamaah tidak ditemukan.',
-                404,
-                ctx.requestId,
-              );
-            const [interaction] = await tx
-              .insert(interactions)
-              .values({
-                personId,
-                channel: body.channel,
-                summary: body.summary,
-                outcome: body.outcome || null,
-                sensitivityLevel: body.sensitivityLevel,
-                ownerUserId: ctx.user!.id,
-                createdBy: ctx.user!.id,
-              })
-              .returning();
-
-            let createdTask = null;
-            if (body.createFollowUpTask && body.nextAction && body.taskDueAt) {
-              const [newTask] = await tx
-                .insert(tasks)
-                .values({
-                  personId,
-                  title: `Follow-up: ${body.nextAction}`,
-                  priority: body.taskPriority,
-                  status: 'pending',
-                  ownerUserId: ctx.user!.id,
-                  assignedBy: ctx.user!.id,
-                  dueAt: new Date(body.taskDueAt),
-                })
-                .returning();
-              createdTask = newTask;
-            }
-
-            await tx.insert(auditLogs).values({
-              actorUserId: ctx.user!.id,
-              action: 'create_interaction',
-              entityType: 'interactions',
-              entityId: interaction!.id,
-              reason: 'Interaksi dan tindak lanjut jamaah',
-              requestId: ctx.requestId,
-            });
-            return successResponse(
-              { interaction, createdTask },
-              { requestId: ctx.requestId },
-              201,
-            );
-          });
-        }),
-      ),
-    ),
-  );
+  router.post('/api/persons/:id/interactions', createPersonInteractionHandler);
 
   // POST /api/persons/:id/sensitive-notes
   router.post(

@@ -758,6 +758,7 @@ export const PersonDetailPage = () => {
                           {item.outcome && (
                             <p>{item.outcome.replaceAll('_', ' ')}</p>
                           )}
+                          <Link className="people-inline-link" to={'/interactions?interactionId='+item.id+'&personId='+id}>Detail & tindak lanjut<ArrowRight/></Link>
                         </div>
                       </article>
                     ))}

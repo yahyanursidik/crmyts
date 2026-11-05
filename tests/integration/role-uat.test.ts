@@ -306,6 +306,9 @@ describe('Role-by-Role Comprehensive UAT Suite (CRM YTS)', () => {
       };
 
       const mockTx = {
+      execute: vi.fn().mockResolvedValue({rows:[]}),
+      query: {persons:{findFirst:vi.fn().mockResolvedValue({id:'018f0000-0000-0000-0000-000000000001',isActive:true})},appUsers:{findFirst:vi.fn().mockResolvedValue({isActive:true,userRoles:[{role:{code:ROLES.CS_OFFICER}}]})}},
+
         insert: vi.fn().mockImplementation(() => ({
           values: vi.fn().mockImplementation(() => ({
             returning: vi.fn().mockResolvedValue([mockInteraction]),
@@ -348,7 +351,10 @@ describe('Role-by-Role Comprehensive UAT Suite (CRM YTS)', () => {
         completedAt: new Date(),
       };
 
-      const mockDb = {
+      const mockTx = {
+        execute:vi.fn().mockResolvedValue({rows:[]}),
+        query:{tasks:{findFirst:vi.fn().mockResolvedValue({...completedTask,status:'pending',completedAt:null,ownerUserId:csUser.id,relatedType:null})}},
+        insert:vi.fn().mockReturnValue({values:vi.fn().mockResolvedValue(undefined)}),
         update: vi.fn().mockReturnValue({
           set: vi.fn().mockReturnValue({
             where: vi.fn().mockReturnValue({
@@ -357,6 +363,7 @@ describe('Role-by-Role Comprehensive UAT Suite (CRM YTS)', () => {
           }),
         }),
       };
+      const mockDb={query:mockTx.query,transaction:vi.fn().mockImplementation(async cb=>cb(mockTx))};
       vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
 
       const res = await router.handle({
@@ -373,6 +380,8 @@ describe('Role-by-Role Comprehensive UAT Suite (CRM YTS)', () => {
       expect(res.statusCode).toBe(200);
       const json = JSON.parse(res.body);
       expect(json.data.status).toBe('completed');
+      expect(mockDb.transaction).toHaveBeenCalledOnce();
+      expect(mockTx.insert).toHaveBeenCalledOnce();
     });
   });
 

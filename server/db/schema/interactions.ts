@@ -2,6 +2,7 @@ import { pgTable, uuid, text, timestamp, index } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import { appUsers } from './identity';
 import { persons } from './people';
+import { events } from './events';
 import { interactionChannelEnum, taskStatusEnum, taskPriorityEnum } from './enums';
 
 /**
@@ -14,6 +15,7 @@ export const interactions = pgTable(
     personId: uuid('person_id')
       .references(() => persons.id, { onDelete: 'cascade' })
       .notNull(),
+    eventId: uuid('event_id').references(() => events.id, { onDelete: 'set null' }),
     channel: interactionChannelEnum('channel').default('whatsapp').notNull(),
     summary: text('summary').notNull(),
     outcome: text('outcome'),
@@ -24,10 +26,15 @@ export const interactions = pgTable(
       .references(() => appUsers.id)
       .notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    archivedBy: uuid('archived_by').references(() => appUsers.id, { onDelete: 'set null' }),
+    archiveReason: text('archive_reason'),
   },
   (t) => ({
     personIdx: index('idx_interactions_person').on(t.personId),
     occurredAtIdx: index('idx_interactions_occurred_at').on(t.occurredAt),
+    eventIdx: index('idx_interactions_event').on(t.eventId),
   })
 );
 
@@ -59,11 +66,13 @@ export const tasks = pgTable(
     dueAtIdx: index('idx_tasks_due_at').on(t.dueAt),
     statusIdx: index('idx_tasks_status').on(t.status),
     personIdx: index('idx_tasks_person').on(t.personId),
+    relatedIdx: index('idx_tasks_related').on(t.relatedType, t.relatedId),
   })
 );
 
 // Relations
 export const interactionsRelations = relations(interactions, ({ one }) => ({
+  event: one(events, { fields: [interactions.eventId], references: [events.id] }),
   person: one(persons, {
     fields: [interactions.personId],
     references: [persons.id],

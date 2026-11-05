@@ -1,6 +1,16 @@
 [
   {
     "date": "2026-11-05",
+    "macrostructure": "Workbench / communication log and linked follow-up",
+    "theme": "tarbiyah-official-logo",
+    "enrichment": "none",
+    "scope": "Interactions / shared form, history, archive and follow-up",
+    "brief": "Concise communication records, reusable person form, reversible archives, private linked tasks and event context",
+    "visualVerification": "Staging desktop and 320 / 375 / 414 / 768 px; no horizontal document overflow, clip scroll lock, nested Escape/focus, creation/correction/archive/restore, task completion/cancel/restore, WIB deadline and date filters, person context and two-way task links verified",
+    "critique": {"philosophy":4,"hierarchy":4,"execution":4,"specificity":5,"restraint":5,"variety":4}
+  },
+  {
+    "date": "2026-11-05",
     "macrostructure": "Workbench / event bazaar, tenant directory and import",
     "theme": "tarbiyah-official-logo",
     "enrichment": "none",
