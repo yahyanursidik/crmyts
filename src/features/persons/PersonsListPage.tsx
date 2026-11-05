@@ -1,792 +1,827 @@
-import { useCreateIntent } from '@/lib/useCreateIntent';
-import { PermissionGate } from '@/components/common/PermissionGate';
-import { PERMISSIONS } from '@server/permissions/constants';
-import React, { useEffect, useRef, useState } from 'react';
+/* Hallmark · pre-emit critique: P4 H5 E4 S5 R5 V4 · Workbench · DESIGN.md */
+import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { apiClient } from '@/lib/apiClient';
-import { 
-  Search, 
-  Plus, 
-  MapPin, 
-  MessageSquare, 
-  Calendar, 
-  CheckSquare, 
-  ChevronLeft, 
-  ChevronRight, 
-  AlertCircle,
-  Eye,
-  IdCard,
-  Trash2,
-  Coins,
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
+import { usePermissions } from '@refinedev/core';
+import {
+  Archive,
+  ArrowRight,
+  CalendarDays,
+  CheckSquare,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  HeartHandshake,
+  Landmark,
+  Loader2,
+  MessageSquare,
+  Plus,
   RefreshCw,
+  RotateCcw,
+  Search,
+  ShieldCheck,
+  Users,
   X,
-  Building,
 } from 'lucide-react';
-import { formatPhoneDisplay, getWhatsAppLink } from '@/lib/phone';
-import { LoadingState } from '@/components/common/LoadingState';
+import {
+  PERMISSIONS,
+  type PermissionCode,
+} from '@server/permissions/constants';
+import { canViewReport } from '@server/permissions/navigation';
+import { apiClient } from '@/lib/apiClient';
+import { useCreateIntent } from '@/lib/useCreateIntent';
+import { formatPhoneDisplay } from '@/lib/phone';
 import { PersonFormModal } from './components/PersonFormModal';
-import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { PeopleDialog } from './components/PeopleDialog';
+import {
+  ENGAGEMENT_LABELS,
+  ROLE_LABELS,
+  formatDate,
+  formatNumber,
+  initials,
+  personWhatsApp,
+  personModuleLink,
+} from './model';
+import type { PaginationMeta, PersonListItem, PersonOptions } from './types';
+import './people.css';
 
-interface PersonListItem {
-  id: string;
-  fullName: string;
-  phoneE164?: string | null;
-  email?: string | null;
-  gender?: 'ikhwan' | 'akhwat' | null;
-  province?: string | null;
-  cityRegency?: string | null;
-  engagementStatus: string;
-  preferredChannel: string;
-  createdAt: string;
-  owner?: { id: string; fullName: string } | null;
-  roles: string[];
-  tags: Array<{ id: string; name: string; category: string }>;
-  lastAttendance?: { eventTitle: string; startAt: string } | null;
-  attendanceCount?: number;
-  nextTask?: { id: string; title: string; dueAt: string; priority: string; isOverdue: boolean } | null;
+interface Stats {
+  totalMaster: number;
+  multiKajian: number;
+  donorsCount: number;
+  waqfCount: number;
+  archivedCount?: number;
 }
-
-interface PaginationMeta {
-  page: number;
-  pageSize: number;
-  totalCount: number;
-  totalPages: number;
-}
-
-const ENGAGEMENT_BADGES: Record<string, { label: string; bg: string; text: string; border: string }> = {
-  baru: { label: 'Baru', bg: 'bg-[#0F4C4A]/10', text: 'text-[#0F4C4A]', border: 'border-[#0F4C4A]/25' },
-  aktif: { label: 'Aktif', bg: 'bg-[#2F7D4F]/10', text: 'text-[#2F7D4F]', border: 'border-[#2F7D4F]/25' },
-  rutin: { label: 'Rutin Kajian', bg: 'bg-[#1B4332]/10', text: 'text-[#14352A]', border: 'border-[#1B4332]/25' },
-  sangat_aktif: { label: 'Sangat Aktif', bg: 'bg-[#B58B3C]/15', text: 'text-[#8E6B22]', border: 'border-[#B58B3C]/30' },
-  dorman: { label: 'Dorman (>60h)', bg: 'bg-[#F2EEE4]', text: 'text-[#6B7A72]', border: 'border-[#1B4332]/12' },
-  kembali_aktif: { label: 'Kembali Aktif', bg: 'bg-purple-50', text: 'text-purple-800', border: 'border-purple-200' },
-};
-
-function getInitials(name: string): string {
-  if (!name || typeof name !== 'string') return 'JM';
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return 'JM';
-  if (parts.length === 1) return (parts[0] || 'JM').substring(0, 2).toUpperCase();
-  const first = parts[0] || 'J';
-  const last = parts[parts.length - 1] || 'M';
-  return ((first[0] || 'J') + (last[0] || 'M')).toUpperCase();
-}
-
-export const PersonsListPage: React.FC = () => {
-  const [pageParams] = useSearchParams();
-  const listRequest = useRef(0);
-  const [personsList, setPersonsList] = useState<PersonListItem[]>([]);
-  const [pagination, setPagination] = useState<PaginationMeta>({
-    page: 1,
-    pageSize: 15,
-    totalCount: 0,
-    totalPages: 1,
-  });
-
-  const [search, setSearch] = useState(() => pageParams.get('search') || '');
-  const [debouncedSearch, setDebouncedSearch] = useState(() => pageParams.get('search') || '');
-  const [engagementFilter, setEngagementFilter] = useState(() => ['baru', 'aktif', 'rutin', 'dorman', 'jarang', 'sangat_aktif', 'kembali_aktif'].includes(pageParams.get('engagement') || '') ? pageParams.get('engagement')! : '');
-  useEffect(() => {
-    const engagement = pageParams.get('engagement') || '';
-    setEngagementFilter(['baru', 'aktif', 'rutin', 'dorman', 'jarang', 'sangat_aktif', 'kembali_aktif'].includes(engagement) ? engagement : '');
-    setSearch(pageParams.get('search') || '');
-  }, [pageParams]);
-  const [domisiliFilter, setDomisiliFilter] = useState('');
-  const [debouncedDomisili, setDebouncedDomisili] = useState('');
-  const [roleFilter, setRoleFilter] = useState('');
-  const [attendanceFilter, setAttendanceFilter] = useState('');
-  const [kpiStats, setKpiStats] = useState<{ totalMaster: number; multiKajian: number; donorsCount: number; waqfCount?: number }>({
-    totalMaster: 0,
-    multiKajian: 0,
-    donorsCount: 0,
-    waqfCount: 0,
-  });
-
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const createIntent = useCreateIntent(PERMISSIONS.PERSONS_CREATE);
-  const closeCreateModal = () => { setIsCreateModalOpen(false); createIntent.clear(); };
-  const [personToDelete, setPersonToDelete] = useState<PersonListItem | null>(null);
-  const [deleteLoading, setDeleteLoading] = useState(false);
-  const [selectedPersonIds, setSelectedPersonIds] = useState<Set<string>>(new Set());
-  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
-  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
-  const selectAllRef = useRef<HTMLInputElement>(null);
-
-  // Debounce search input for instant snappy filtering
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedSearch(search);
-    }, 350);
-    return () => clearTimeout(handler);
-  }, [search]);
-
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedDomisili(domisiliFilter);
-    }, 350);
-    return () => clearTimeout(handler);
-  }, [domisiliFilter]);
-
-  const handleDeletePerson = async () => {
-    if (!personToDelete) return;
-    try {
-      setDeleteLoading(true);
-      await apiClient(`/persons/${personToDelete.id}`, { method: 'DELETE' });
-      setPersonToDelete(null);
-      setSelectedPersonIds((current) => {
-        const next = new Set(current);
-        next.delete(personToDelete.id);
-        return next;
-      });
-      fetchPersons(pagination.page, true);
-    } catch (err: any) {
-      alert(err.message || 'Gagal menghapus data jamaah');
-    } finally {
-      setDeleteLoading(false);
-    }
-  };
-
-  const fetchPersons = async (pageToFetch = 1, forceStatsRefresh = false) => {
-    const request = ++listRequest.current;
-    try {
-      setLoading(true);
-      setError(null);
-
-      const params = new URLSearchParams();
-      params.append('page', pageToFetch.toString());
-      params.append('pageSize', pagination.pageSize.toString());
-      if (debouncedSearch.trim()) params.append('search', debouncedSearch.trim());
-      if (engagementFilter) params.append('engagementStatus', engagementFilter);
-      if (debouncedDomisili.trim()) params.append('domisili', debouncedDomisili.trim());
-      if (roleFilter) params.append('roleCode', roleFilter);
-      if (attendanceFilter) params.append('attendanceFilter', attendanceFilter);
-      if (forceStatsRefresh) params.append('refreshStats', '1');
-
-      const res = await apiClient<PersonListItem[]>(`/persons?${params.toString()}`);
-      if (request !== listRequest.current) return;
-      setPersonsList(res.data || []);
-      setSelectedPersonIds(new Set());
-      if (res.meta?.pagination) {
-        setPagination(res.meta.pagination as PaginationMeta);
-      }
-      if ((res.meta as any)?.stats) {
-        setKpiStats((res.meta as any).stats);
-      }
-    } catch (err: any) {
-      if (request !== listRequest.current) return;
-      setError(err.message || 'Gagal memuat data jamaah');
-    } finally {
-      if (request === listRequest.current) setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchPersons(1);
-  }, [debouncedSearch, debouncedDomisili, engagementFilter, roleFilter, attendanceFilter, pagination.pageSize]);
-
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    fetchPersons(1);
-  };
-
-  const resetAllFilters = () => {
-    setSearch('');
-    setDebouncedSearch('');
-    setEngagementFilter('');
-    setDomisiliFilter('');
-    setDebouncedDomisili('');
-    setRoleFilter('');
-    setAttendanceFilter('');
-  };
-
-  const isAnyFilterActive = Boolean(
-    debouncedSearch || engagementFilter || domisiliFilter || roleFilter || attendanceFilter
+export const PersonsListPage = () => {
+  const [params, setParams] = useSearchParams();
+  const urlSearch = params.get('search') || '';
+  const queryClient = useQueryClient();
+  const { data: permissions = [] } = usePermissions<PermissionCode[]>({});
+  const canArchive = permissions.includes(PERMISSIONS.PERSONS_DELETE);
+  const canProfile = permissions.some((permission) =>
+    [PERMISSIONS.PERSONS_VIEW, PERMISSIONS.PERSONS_VIEW_OPERATIONAL].includes(
+      permission as any,
+    ),
   );
-  const selectedCount = selectedPersonIds.size;
-  const allVisibleSelected = personsList.length > 0 && personsList.every((person) => selectedPersonIds.has(person.id));
-
+  const [search, setSearch] = useState(urlSearch);
+  const createIntent = useCreateIntent(PERMISSIONS.PERSONS_CREATE);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [archiveIds, setArchiveIds] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{
+    text: string;
+    error?: boolean;
+  } | null>(null);
+  const value = (key: string, fallback = '') => params.get(key) || fallback;
+  const status = value('status', 'active');
+  const page = Math.max(1, Number(value('page', '1')) || 1);
+  const size = Number(value('size', '15')) || 15;
+  const update = (values: Record<string, string>, resetPage = true) =>
+    setParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        const commitSearch =
+          !('search' in values) &&
+          search.trim() !== (previous.get('search') || '');
+        if (commitSearch)
+          search.trim()
+            ? next.set('search', search.trim())
+            : next.delete('search');
+        for (const [key, input] of Object.entries(values))
+          input ? next.set(key, input) : next.delete(key);
+        if (resetPage || commitSearch) next.delete('page');
+        return next;
+      },
+      { replace: true },
+    );
   useEffect(() => {
-    if (selectAllRef.current) {
-      selectAllRef.current.indeterminate = selectedCount > 0 && !allVisibleSelected;
-    }
-  }, [selectedCount, allVisibleSelected]);
-
-  const togglePersonSelection = (personId: string) => {
-    setSelectedPersonIds((current) => {
-      const next = new Set(current);
-      if (next.has(personId)) next.delete(personId);
-      else next.add(personId);
-      return next;
+    setSearch(urlSearch);
+  }, [urlSearch]);
+  useEffect(() => {
+    if (search === (params.get('search') || '')) return;
+    const timer = setTimeout(() => update({ search: search.trim() }), 350);
+    return () => clearTimeout(timer);
+  }, [search, params]);
+  const apiParams = new URLSearchParams({
+    page: String(page),
+    pageSize: String(size),
+    status,
+    refreshStats: '1',
+  });
+  for (const [urlKey, apiKey] of Object.entries({
+    search: 'search',
+    engagement: 'engagementStatus',
+    city: 'domisili',
+    role: 'roleCode',
+    attendance: 'attendanceFilter',
+    owner: 'ownerUserId',
+    tag: 'tagId',
+  }))
+    if (value(urlKey)) apiParams.set(apiKey, value(urlKey));
+  if (value('sort') === 'name') {
+    apiParams.set('sortBy', 'fullName');
+    apiParams.set('sortOrder', 'asc');
+  }
+  if (value('sort') === 'oldest') apiParams.set('sortOrder', 'asc');
+  const queryString = apiParams.toString();
+  const list = useQuery({
+    queryKey: ['persons', 'directory', queryString],
+    queryFn: ({ signal }) =>
+      apiClient<PersonListItem[]>(`/persons?${queryString}`, { signal }),
+    placeholderData: keepPreviousData,
+    staleTime: 15000,
+  });
+  const options = useQuery({
+    queryKey: ['persons', 'options'],
+    queryFn: () => apiClient<PersonOptions>('/persons/options'),
+    staleTime: 60000,
+  });
+  const rows = list.data?.data || [];
+  const pagination = list.data?.meta?.pagination as PaginationMeta | undefined;
+  const stats = list.data?.meta?.stats as Stats | undefined;
+  const total = pagination?.totalCount || 0;
+  const pages = pagination?.totalPages || 1;
+  useEffect(() => {
+    setSelected(new Set());
+  }, [queryString, list.data]);
+  const reset = () =>
+    setParams(status === 'archived' ? { status: 'archived' } : {}, {
+      replace: true,
     });
+  const hasFilters = [
+    'search',
+    'engagement',
+    'city',
+    'role',
+    'attendance',
+    'owner',
+    'tag',
+  ].some((key) => Boolean(value(key)));
+  const closeCreate = () => {
+    createIntent.clear();
   };
-
-  const toggleAllVisibleSelections = () => {
-    setSelectedPersonIds((current) => {
-      const next = new Set(current);
-      if (allVisibleSelected) personsList.forEach((person) => next.delete(person.id));
-      else personsList.forEach((person) => next.add(person.id));
-      return next;
-    });
-  };
-
-  const handleBulkDelete = async () => {
-    const personIds = Array.from(selectedPersonIds);
-    if (personIds.length === 0) return;
+  const refresh = () =>
+    queryClient.invalidateQueries({ queryKey: ['persons', 'directory'] });
+  const archive = async () => {
+    setBusy(true);
+    setNotice(null);
     try {
-      setBulkDeleteLoading(true);
       await apiClient('/persons/bulk-delete', {
         method: 'POST',
-        body: JSON.stringify({ personIds, confirmation: 'HAPUS' }),
+        body: JSON.stringify({
+          personIds: archiveIds,
+          confirmation: 'ARSIPKAN',
+        }),
       });
-      setIsBulkDeleteOpen(false);
-      setSelectedPersonIds(new Set());
-      const nextPage = personIds.length >= personsList.length && pagination.page > 1 ? pagination.page - 1 : pagination.page;
-      fetchPersons(nextPage, true);
-    } catch (err: any) {
-      alert(err.message || 'Gagal menghapus data jamaah pilihan');
+      setNotice({
+        text: `${archiveIds.length} jamaah diarsipkan. Riwayat tetap tersimpan.`,
+      });
+      setArchiveIds([]);
+      setSelected(new Set());
+      update({ page: '' });
+      await refresh();
+    } catch (error) {
+      setNotice({ text: (error as Error).message, error: true });
     } finally {
-      setBulkDeleteLoading(false);
+      setBusy(false);
     }
   };
-
-  return (
-    <div className="space-y-6 max-w-[1400px] mx-auto pb-16">
-      {/* 1. Header Page */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#1B4332]/12 pb-4">
-        <div>
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#1C2321] font-display">
-              Database Master Jamaah YTS
-            </h1>
-            <span className="text-[10.5px] font-mono font-semibold px-2.5 py-0.5 rounded-md bg-[#1B4332]/10 text-[#14352A] border border-[#1B4332]/20 uppercase">
-              KONTAK INDUK · 360° PROFIL · SEGMENTASI
+  const restore = async (person: PersonListItem) => {
+    setBusy(true);
+    setNotice(null);
+    try {
+      await apiClient(`/persons/${person.id}/restore`, { method: 'POST' });
+      setNotice({ text: `${person.fullName} dipulihkan.` });
+      await refresh();
+    } catch (error) {
+      setNotice({ text: (error as Error).message, error: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const toggle = (id: string) =>
+    setSelected((old) => {
+      const next = new Set(old);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  const allSelected =
+    rows.length > 0 && rows.every((row) => selected.has(row.id));
+  const toggleAll = () =>
+    setSelected(allSelected ? new Set() : new Set(rows.map((row) => row.id)));
+  const profile = (person: PersonListItem) =>
+    `/people/${person.id}?${new URLSearchParams({ back: `/people?${params.toString()}` })}`;
+  const kpis = [
+    {
+      label: 'Jamaah aktif',
+      count: stats?.totalMaster,
+      icon: Users,
+      tone: 'forest',
+      filter: {},
+    },
+    {
+      label: 'Hadir ≥ 2 kegiatan',
+      count: stats?.multiKajian,
+      icon: CalendarDays,
+      tone: 'blue',
+      filter: { attendance: 'multi' },
+    },
+    {
+      label: 'Donatur',
+      count: stats?.donorsCount,
+      icon: HeartHandshake,
+      tone: 'gold',
+      filter: { role: 'donatur' },
+    },
+    {
+      label: 'Wakif & relawan',
+      count: stats?.waqfCount,
+      icon: Landmark,
+      tone: 'warm',
+      filter: { role: 'wakif_relawan' },
+    },
+  ];
+  const personName = (person: PersonListItem) => (
+    <div className="people-person">
+      <span className="people-avatar">{initials(person.fullName)}</span>
+      <div>
+        {canProfile ? (
+          <Link to={profile(person)} className="people-name">
+            {person.fullName}
+          </Link>
+        ) : (
+          <strong className="people-name">{person.fullName}</strong>
+        )}
+        <span className={`people-status ${person.engagementStatus}`}>
+          {ENGAGEMENT_LABELS[person.engagementStatus] ||
+            person.engagementStatus}
+        </span>
+        <div className="people-tags">
+          {person.roles.map((role) => (
+            <span key={role} className="people-tag">
+              {ROLE_LABELS[role] || role}
             </span>
-          </div>
-          <p className="text-xs text-[#6B7A72] mt-1 font-normal">
-            Pusat data induk terintegrasi: Jamaah Majelis Ilmu, Donatur Infaq &amp; Wakaf, Relawan, dan Asatidz Yayasan.
-          </p>
+          ))}
+          {person.tags.map((tag) => (
+            <span key={tag.id} className="people-tag">
+              {tag.name}
+            </span>
+          ))}
         </div>
-
-        <div className="flex items-center gap-2.5">
-          <PermissionGate permission={PERMISSIONS.PERSONS_CREATE}><button
-            onClick={() => setIsCreateModalOpen(true)}
-            className="px-4 py-2.5 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-semibold transition-all flex items-center gap-2 shadow-xs active:scale-98"
+      </div>
+    </div>
+  );
+  const contact = (person: PersonListItem) => {
+    const link = personWhatsApp(
+      person.phoneE164,
+      `Assalamu’alaikum, ${person.fullName}`,
+    );
+    return (
+      <>
+        <div className="people-contact">
+          <span>{formatPhoneDisplay(person.phoneE164)}</span>
+          {link && (
+            <a
+              className="people-inline-link"
+              href={link}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`WhatsApp ${person.fullName}`}
+            >
+              <MessageSquare />
+            </a>
+          )}
+        </div>
+        {person.email && (
+          <span className="people-secondary">{person.email}</span>
+        )}
+      </>
+    );
+  };
+  const actions = (person: PersonListItem) => (
+    <div className="people-row-actions">
+      {canProfile && (
+        <Link
+          to={profile(person)}
+          className="people-icon-button"
+          aria-label={`Buka profil ${person.fullName}`}
+        >
+          <ArrowRight />
+        </Link>
+      )}
+      {canArchive &&
+        (status === 'archived' ? (
+          <button
+            className="people-icon-button"
+            disabled={busy}
+            onClick={() => void restore(person)}
+            aria-label={`Pulihkan ${person.fullName}`}
           >
-            <Plus className="w-4 h-4 text-[#E0B970]" />
-            <span>+ Tambah Jamaah Baru</span>
-          </button></PermissionGate>
+            <RotateCcw />
+          </button>
+        ) : (
+          <button
+            className="people-icon-button"
+            disabled={busy}
+            onClick={() => setArchiveIds([person.id])}
+            aria-label={`Arsipkan ${person.fullName}`}
+          >
+            <Archive />
+          </button>
+        ))}
+    </div>
+  );
+  const filter = (
+    key: string,
+    label: string,
+    choices: Array<[string, string]>,
+  ) => (
+    <div className="people-field">
+      <label htmlFor={`people-${key}`}>{label}</label>
+      <select
+        className="people-input"
+        id={`people-${key}`}
+        value={value(key)}
+        onChange={(event) => update({ [key]: event.target.value })}
+      >
+        {choices.map(([id, text]) => (
+          <option key={id} value={id}>
+            {text}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+  const selectRow = (person: PersonListItem) =>
+    canArchive && status !== 'archived' ? (
+      <input
+        type="checkbox"
+        checked={selected.has(person.id)}
+        onChange={() => toggle(person.id)}
+        aria-label={`Pilih ${person.fullName}`}
+      />
+    ) : null;
+  return (
+    <div className="people-workspace">
+      <header className="people-heading">
+        <div>
+          <p className="people-eyebrow">Jamaah · kegiatan · layanan</p>
+          <h1>Jamaah</h1>
         </div>
+        <div className="people-heading-actions">
+          {canViewReport('import_export', permissions) && (
+            <Link className="people-button" to="/reports?tab=import_export">
+              Impor CSV
+            </Link>
+          )}
+          {permissions.includes(PERMISSIONS.DATA_QUALITY_MANAGE) && (
+            <Link to="/data-quality" className="people-button">
+              <ShieldCheck />
+              Kualitas data
+            </Link>
+          )}
+          {permissions.includes(PERMISSIONS.PERSONS_CREATE) && (
+            <button
+              className="people-button is-primary"
+              onClick={() => update({ action: 'create' }, false)}
+            >
+              <Plus />
+              Tambah jamaah
+            </button>
+          )}
+        </div>
+      </header>
+      {notice && (
+        <div
+          className={`people-notice ${notice.error ? 'is-error' : 'is-success'}`}
+          role="status"
+        >
+          <span>{notice.text}</span>
+          <button
+            aria-label="Tutup pemberitahuan"
+            onClick={() => setNotice(null)}
+          >
+            <X />
+          </button>
+        </div>
+      )}
+      <div className="people-kpis">
+        {kpis.map(
+          ({ label, count, icon: Icon, tone, filter: selectedFilter }) => (
+            <button
+              key={label}
+              className={`people-kpi people-tone-${tone}`}
+              onClick={() => {
+                setSearch('');
+                setParams(
+                  Object.fromEntries(
+                    Object.entries(selectedFilter).filter(
+                      (entry): entry is [string, string] =>
+                        typeof entry[1] === 'string',
+                    ),
+                  ),
+                  { replace: true },
+                );
+              }}
+              aria-label={`${label}: ${count === undefined ? 'belum dimuat' : formatNumber(count)}`}
+            >
+              <span>
+                {label}
+                <Icon />
+              </span>
+              <strong>{count === undefined ? '—' : formatNumber(count)}</strong>
+            </button>
+          ),
+        )}
       </div>
-
-      {/* 2. KPI Quick Metrics Bar (Strip Alert Cards) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {/* 1. Total Master Jamaah */}
-        <div
-          onClick={() => { resetAllFilters(); }}
-          className={`p-4 bg-[#FBF9F4] border rounded-xl shadow-2xs border-l-[3px] border-l-[#1B4332] space-y-1 transition-all cursor-pointer ${
-            !isAnyFilterActive ? 'ring-2 ring-[#1B4332]/30 border-[#1B4332]' : 'border-[#1B4332]/12 hover:border-[#1B4332]/40'
-          }`}
-        >
-          <div className="font-mono text-[10.5px] font-semibold text-[#1B4332] tracking-wider uppercase flex items-center justify-between">
-            <span>TOTAL MASTER JAMAAH</span>
-            <IdCard className="w-3.5 h-3.5 text-[#1B4332]" />
+      <section
+        className="people-panel people-toolbar"
+        aria-label="Cari dan filter jamaah"
+      >
+        <div className="people-toolbar-top">
+          <div className="people-view-switch">
+            <button
+              aria-pressed={status !== 'archived'}
+              onClick={() => update({ status: '' })}
+            >
+              Aktif
+            </button>
+            <button
+              aria-pressed={status === 'archived'}
+              onClick={() => update({ status: 'archived' })}
+            >
+              Arsip
+              {stats?.archivedCount !== undefined && (
+                <span>{formatNumber(stats.archivedCount)}</span>
+              )}
+            </button>
           </div>
-          <div className="text-2xl sm:text-[28px] font-bold font-display text-[#1C2321] leading-none">
-            {kpiStats.totalMaster.toLocaleString('id-ID')}
-          </div>
-          <div className="text-[11.5px] text-[#6B7A72]">
-            Kontak Induk Terdata
-          </div>
+          <button
+            className="people-icon-button"
+            disabled={list.isFetching}
+            onClick={() => void refresh()}
+            aria-label="Segarkan jamaah"
+          >
+            <RefreshCw className={list.isFetching ? 'animate-spin' : ''} />
+          </button>
         </div>
-
-        {/* 2. Multi-Kajian (>=2x) */}
-        <div
-          onClick={() => setAttendanceFilter(attendanceFilter === 'multi' ? '' : 'multi')}
-          className={`p-4 bg-[#FBF9F4] border rounded-xl shadow-2xs border-l-[3px] border-l-[#B58B3C] space-y-1 transition-all cursor-pointer ${
-            attendanceFilter === 'multi' ? 'ring-2 ring-[#B58B3C]/50 border-[#B58B3C]' : 'border-[#1B4332]/12 hover:border-[#B58B3C]/50'
-          }`}
-        >
-          <div className="font-mono text-[10.5px] font-semibold text-[#8E6B22] tracking-wider uppercase flex items-center justify-between">
-            <span>MULTI-KAJIAN (≥2X)</span>
-            <Calendar className="w-3.5 h-3.5 text-[#B58B3C]" />
-          </div>
-          <div className="text-2xl sm:text-[28px] font-bold font-display text-[#1C2321] leading-none">
-            {kpiStats.multiKajian.toLocaleString('id-ID')}
-          </div>
-          <div className="text-[11.5px] text-[#6B7A72] flex items-center justify-between">
-            <span>Jamaah Rutin Majelis</span>
-            {attendanceFilter === 'multi' && (
-              <span className="text-[9.5px] font-mono font-bold text-[#8E6B22]">✓ Filter Aktif</span>
-            )}
-          </div>
-        </div>
-
-        {/* 3. Donatur & Dermawan */}
-        <div
-          onClick={() => setRoleFilter(roleFilter === 'donatur' ? '' : 'donatur')}
-          className={`p-4 bg-[#FBF9F4] border rounded-xl shadow-2xs border-l-[3px] border-l-[#2F7D4F] space-y-1 transition-all cursor-pointer ${
-            roleFilter === 'donatur' ? 'ring-2 ring-[#2F7D4F]/50 border-[#2F7D4F]' : 'border-[#1B4332]/12 hover:border-[#2F7D4F]/50'
-          }`}
-        >
-          <div className="font-mono text-[10.5px] font-semibold text-[#2F7D4F] tracking-wider uppercase flex items-center justify-between">
-            <span>DONATUR TERDAFTAR</span>
-            <Coins className="w-3.5 h-3.5 text-[#2F7D4F]" />
-          </div>
-          <div className="text-2xl sm:text-[28px] font-bold font-display text-[#1C2321] leading-none">
-            {kpiStats.donorsCount.toLocaleString('id-ID')}
-          </div>
-          <div className="text-[11.5px] text-[#6B7A72] flex items-center justify-between">
-            <span>Dermawan Infaq</span>
-            {roleFilter === 'donatur' && (
-              <span className="text-[9.5px] font-mono font-bold text-[#2F7D4F]">✓ Filter Aktif</span>
-            )}
-          </div>
-        </div>
-
-        {/* 4. Wakif & Relawan */}
-        <div
-          onClick={() => setRoleFilter(roleFilter === 'wakif_relawan' ? '' : 'wakif_relawan')}
-          className={`p-4 bg-[#FBF9F4] border rounded-xl shadow-2xs border-l-[3px] border-l-[#0F4C4A] space-y-1 transition-all cursor-pointer ${
-            roleFilter === 'wakif_relawan' ? 'ring-2 ring-[#0F4C4A]/50 border-[#0F4C4A]' : 'border-[#1B4332]/12 hover:border-[#0F4C4A]/50'
-          }`}
-        >
-          <div className="font-mono text-[10.5px] font-semibold text-[#0F4C4A] tracking-wider uppercase flex items-center justify-between">
-            <span>WAKIF &amp; RELAWAN</span>
-            <Building className="w-3.5 h-3.5 text-[#0F4C4A]" />
-          </div>
-          <div className="text-2xl sm:text-[28px] font-bold font-display text-[#1C2321] leading-none">
-            {(kpiStats.waqfCount || 0).toLocaleString('id-ID')}
-          </div>
-          <div className="text-[11.5px] text-[#6B7A72] flex items-center justify-between">
-            <span>Amanah Wakaf &amp; Kerelawanan</span>
-            {roleFilter === 'wakif_relawan' && (
-              <span className="text-[9.5px] font-mono font-bold text-[#0F4C4A]">✓ Filter Aktif</span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* 3. Search & Filter Bar */}
-      <div className="bg-[#FBF9F4] p-4 rounded-2xl border border-[#1B4332]/12 shadow-2xs space-y-3">
-        <form onSubmit={handleSearchSubmit} className="flex flex-col sm:flex-row gap-2.5">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-[#8A9690] absolute left-3.5 top-1/2 -translate-y-1/2" />
+        <div className="people-search-row">
+          <div className="people-search">
+            <Search />
             <input
-              type="text"
+              className="people-input"
+              aria-label="Cari jamaah"
+              placeholder="Nama, WhatsApp, atau email"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Cari nama jamaah, nomor WA (+62 / 08xx), atau email..."
-              className="w-full pl-10 pr-9 py-2 text-xs font-medium border border-[#1B4332]/14 rounded-xl focus:ring-2 focus:ring-[#1B4332] bg-[#F2EEE4] text-[#1C2321] placeholder-[#8A9690] outline-none"
+              onChange={(event) => setSearch(event.target.value)}
             />
             {search && (
               <button
-                type="button"
                 onClick={() => setSearch('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A9690] hover:text-[#1C2321] p-0.5"
+                aria-label="Bersihkan pencarian"
               >
-                <X className="w-3.5 h-3.5" />
+                <X />
               </button>
             )}
-          </div>
-
-          <button
-            type="submit"
-            className="px-4 py-2 bg-[#1B4332] hover:bg-[#14352A] text-white rounded-xl text-xs font-bold transition-all shadow-2xs whitespace-nowrap"
-          >
-            Cari Data
-          </button>
-
-          <button
-            type="button"
-            onClick={() => fetchPersons(pagination.page, true)}
-            disabled={loading}
-            className="p-2 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#3D4A44] rounded-xl border border-[#1B4332]/12 transition-all"
-            title="Segarkan Data"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          </button>
-        </form>
-
-        {/* Quick Filter Selectors */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-2 border-t border-[#1B4332]/8 text-xs">
-          {/* 1. Filter Frekuensi Kajian */}
-          <div>
-            <select
-              value={attendanceFilter}
-              onChange={(e) => setAttendanceFilter(e.target.value)}
-              className="w-full px-2.5 py-1.5 border border-[#1B4332]/14 bg-[#FBF9F4] rounded-lg text-xs font-semibold text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
-            >
-              <option value="">Semua Frekuensi Kajian</option>
-              <option value="multi">✨ Multi-Kajian (≥ 2x Kajian)</option>
-              <option value="single">1x Hadir Kajian</option>
-              <option value="none">Belum Pernah Hadir</option>
-            </select>
-          </div>
-
-          {/* 2. Filter Status Engagement */}
-          <div>
-            <select
-              value={engagementFilter}
-              onChange={(e) => setEngagementFilter(e.target.value)}
-              className="w-full px-2.5 py-1.5 border border-[#1B4332]/14 bg-[#FBF9F4] rounded-lg text-xs font-semibold text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
-            >
-              <option value="">Semua Status Engagement</option>
-              <option value="baru">Baru Terdaftar</option>
-              <option value="aktif">Aktif</option>
-              <option value="rutin">Rutin Kajian</option>
-              <option value="sangat_aktif">Sangat Aktif</option>
-              <option value="dorman">Dorman (&gt;60 hari)</option>
-              <option value="kembali_aktif">Kembali Aktif</option>
-            </select>
-          </div>
-
-          {/* 3. Filter Peran Jamaah */}
-          <div>
-            <select
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value)}
-              className="w-full px-2.5 py-1.5 border border-[#1B4332]/14 bg-[#FBF9F4] rounded-lg text-xs font-semibold text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
-            >
-              <option value="">Semua Peran Jamaah</option>
-              <option value="jamaah">Jamaah Kajian</option>
-              <option value="donatur">Donatur</option>
-              <option value="wakif">Wakif</option>
-              <option value="relawan">Relawan</option>
-              <option value="wakif_relawan">Wakif &amp; Relawan</option>
-              <option value="tokoh">Tokoh / Asatidz</option>
-            </select>
-          </div>
-
-          {/* 4. Filter Domisili */}
-          <div className="relative">
-            <MapPin className="w-3.5 h-3.5 text-[#8A9690] absolute left-2.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={domisiliFilter}
-              onChange={(e) => setDomisiliFilter(e.target.value)}
-              placeholder="Filter Kota / Provinsi..."
-              className="w-full pl-8 pr-2.5 py-1.5 border border-[#1B4332]/14 bg-[#FBF9F4] rounded-lg text-xs font-semibold text-[#1C2321] focus:ring-2 focus:ring-[#1B4332] outline-none"
-            />
           </div>
         </div>
-      </div>
-
-      {/* 4. Enterprise Data Table */}
-      <div className="bg-[#FBF9F4] rounded-2xl border border-[#1B4332]/12 shadow-2xs overflow-hidden">
-        {selectedCount > 0 && (
-          <div className="flex flex-col gap-3 border-b border-rose-200 bg-rose-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs font-semibold text-rose-900"><strong>{selectedCount}</strong> jamaah dipilih pada halaman ini.</p>
-            <div className="flex items-center gap-2">
-              <button type="button" onClick={() => setSelectedPersonIds(new Set())} className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-800 hover:bg-rose-100"><X className="w-3.5 h-3.5" /> Bersihkan</button>
-              <button type="button" onClick={() => setIsBulkDeleteOpen(true)} className="inline-flex items-center gap-1 rounded-lg bg-rose-700 px-3 py-2 text-xs font-bold text-white hover:bg-rose-800"><Trash2 className="w-3.5 h-3.5" /> Hapus {selectedCount} Data</button>
+        <div className="people-filters">
+          {filter('engagement', 'Keterlibatan', [
+            ['', 'Semua status'],
+            ...Object.entries(ENGAGEMENT_LABELS),
+          ])}
+          {filter('role', 'Peran jamaah', [
+            ['', 'Semua peran'],
+            ...Object.entries(ROLE_LABELS),
+            ['wakif_relawan', 'Wakif & relawan'],
+          ])}
+          {filter('attendance', 'Kehadiran', [
+            ['', 'Semua kehadiran'],
+            ['multi', 'Hadir ≥ 2 kegiatan'],
+            ['single', 'Hadir 1 kegiatan'],
+            ['none', 'Belum pernah hadir'],
+          ])}
+          {filter('sort', 'Urutan', [
+            ['', 'Terbaru'],
+            ['name', 'Nama A–Z'],
+            ['oldest', 'Terlama'],
+          ])}
+        </div>
+        <details className="people-more-filters">
+          <summary>
+            <Filter className="inline" /> Filter lainnya
+          </summary>
+          <div>
+            <div className="people-field">
+              <label htmlFor="people-city">Domisili</label>
+              <input
+                id="people-city"
+                className="people-input"
+                value={value('city')}
+                onChange={(event) => update({ city: event.target.value })}
+                placeholder="Kota atau provinsi"
+              />
             </div>
+            {filter('owner', 'PIC', [
+              ['', 'Semua PIC'],
+              ['unassigned', 'Belum ada PIC'],
+              ...(options.data?.data.staff || []).map(
+                (staff) => [staff.id, staff.fullName] as [string, string],
+              ),
+            ])}
+            {filter('tag', 'Tag', [
+              ['', 'Semua tag'],
+              ...(options.data?.data.tags || []).map(
+                (tag) => [tag.id, tag.name] as [string, string],
+              ),
+            ])}
           </div>
+        </details>
+        {options.isError && (
+          <p className="people-form-hint">
+            Pilihan PIC/tag belum dapat dimuat.{' '}
+            <button
+              className="people-inline-link"
+              onClick={() => void options.refetch()}
+            >
+              Coba lagi
+            </button>
+          </p>
         )}
-        {loading ? (
-          <div className="py-16">
-            <LoadingState message="Memuat database jamaah..." />
+      </section>
+      <div className="people-result-row">
+        <span role="status">
+          {list.isFetching
+            ? 'Memuat jamaah…'
+            : `${formatNumber(total)} jamaah${status === 'archived' ? ' dalam arsip' : ' ditemukan'}`}
+        </span>
+        {hasFilters && (
+          <button className="people-inline-link" onClick={reset}>
+            Reset filter
+            <X />
+          </button>
+        )}
+      </div>
+      {selected.size > 0 && (
+        <div className="people-selection-bar">
+          <span>{selected.size} jamaah dipilih</span>
+          <div className="people-heading-actions">
+            <button
+              className="people-inline-link"
+              onClick={() => setSelected(new Set())}
+            >
+              Batal pilih
+            </button>
+            <button
+              className="people-button is-small is-warning"
+              onClick={() => setArchiveIds([...selected])}
+            >
+              <Archive />
+              Arsipkan pilihan
+            </button>
           </div>
-        ) : error ? (
-          <div className="p-6 text-rose-700 text-xs bg-rose-50 border-b border-rose-200">{error}</div>
-        ) : personsList.length === 0 ? (
-          <div className="py-16 text-center text-[#6B7A72] text-xs space-y-3">
-            <div className="w-12 h-12 bg-[#F2EEE4] rounded-xl flex items-center justify-center mx-auto text-[#6B7A72]">
-              <IdCard className="w-6 h-6" />
-            </div>
-            <p className="font-bold text-sm text-[#1C2321]">Tidak ada data jamaah yang sesuai</p>
-            <p className="text-xs text-[#6B7A72] max-w-sm mx-auto">
-              Silakan sesuaikan kata kunci pencarian atau reset filter untuk menampilkan seluruh data.
-            </p>
-            {isAnyFilterActive && (
+        </div>
+      )}
+      {list.isError && (
+        <div className="people-notice is-error" role="alert">
+          <span>{(list.error as Error).message}</span>
+          <button
+            className="people-inline-link"
+            onClick={() => void list.refetch()}
+          >
+            Coba lagi
+          </button>
+        </div>
+      )}
+      {list.isPending || list.isPlaceholderData ? (
+        <div className="people-panel people-empty" role="status">
+          <Loader2 className="animate-spin" />
+          Memuat daftar jamaah…
+        </div>
+      ) : !rows.length ? (
+        <div className="people-panel people-empty">
+          <Users />
+          <p>
+            {hasFilters
+              ? 'Tidak ada jamaah yang cocok.'
+              : status === 'archived'
+                ? 'Belum ada jamaah dalam arsip.'
+                : 'Belum ada jamaah.'}
+          </p>
+          {hasFilters ? (
+            <button className="people-button" onClick={reset}>
+              Reset filter
+            </button>
+          ) : (
+            status !== 'archived' &&
+            permissions.includes(PERMISSIONS.PERSONS_CREATE) && (
               <button
-                onClick={resetAllFilters}
-                className="px-4 py-2 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#1C2321] rounded-lg text-xs font-semibold border border-[#1B4332]/12"
+                className="people-button"
+                onClick={() => update({ action: 'create' }, false)}
               >
-                Reset Semua Filter
+                <Plus />
+                Tambah jamaah
               </button>
-            )}
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
+            )
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="people-panel people-table-scroll">
+            <table className="people-table">
               <thead>
-                <tr className="border-b border-[#1B4332]/12 bg-[#F2EEE4] text-[#14352A] text-[10.5px] font-mono font-bold uppercase tracking-wider">
-                  <th className="w-10 py-3 px-3 text-center"><input ref={selectAllRef} type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisibleSelections} aria-label="Pilih semua jamaah pada halaman ini" className="h-4 w-4 rounded border-[#1B4332]/30 accent-[#1B4332]" /></th>
-                  <th className="py-3 px-4">Nama Jamaah</th>
-                  <th className="py-3 px-3">Kontak WhatsApp</th>
-                  <th className="py-3 px-3">Domisili</th>
-                  <th className="py-3 px-3">Status Engagement</th>
-                  <th className="py-3 px-3">Peran Amanah</th>
-                  <th className="py-3 px-3">Riwayat Majelis</th>
-                  <th className="py-3 px-3">PIC</th>
-                  <th className="py-3 px-3">Follow-Up</th>
-                  <th className="py-3 px-4 text-right">Aksi</th>
+                <tr>
+                  <th>
+                    {canArchive && status !== 'archived' && (
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={toggleAll}
+                        aria-label="Pilih semua jamaah pada halaman ini"
+                      />
+                    )}
+                  </th>
+                  <th>Jamaah</th>
+                  <th>Kontak</th>
+                  <th>Domisili</th>
+                  <th>Kehadiran</th>
+                  <th>PIC</th>
+                  <th>Tindak lanjut</th>
+                  <th>
+                    <span className="sr-only">Aksi</span>
+                  </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#1B4332]/8 font-medium text-[#1C2321]">
-                {personsList.map((p) => {
-                  const defaultBadge = { label: 'Baru', bg: 'bg-[#0F4C4A]/10', text: 'text-[#0F4C4A]', border: 'border-[#0F4C4A]/25' };
-                  const badge = ENGAGEMENT_BADGES[p.engagementStatus] || defaultBadge;
-                  const waLink = getWhatsAppLink(p.phoneE164, `Assalamu'alaikum Warahmatullahi Wabarakatuh, Bapak/Ibu ${p.fullName}`);
-                  const initials = getInitials(p.fullName);
-
-                  return (
-                    <tr key={p.id} className="hover:bg-[#F2EEE4]/50 transition-colors">
-                      <td className="py-3 px-3 text-center"><input type="checkbox" checked={selectedPersonIds.has(p.id)} onChange={() => togglePersonSelection(p.id)} aria-label={`Pilih ${p.fullName}`} className="h-4 w-4 rounded border-[#1B4332]/30 accent-[#1B4332]" /></td>
-                      {/* Nama & Gender with Avatar Initial */}
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-lg bg-[#1B4332]/10 border border-[#1B4332]/20 flex items-center justify-center font-mono text-xs font-bold text-[#14352A] shrink-0">
-                            {initials}
-                          </div>
-                          <div>
-                            <Link
-                              to={`/people/${p.id}`}
-                              className="font-bold text-[#1C2321] hover:text-[#1B4332] block font-display"
-                            >
-                              {p.fullName}
-                            </Link>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              {p.gender === 'ikhwan' && (
-                                <span className="text-[10px] text-sky-800 font-semibold">
-                                  🕌 Ikhwan
-                                </span>
-                              )}
-                              {p.gender === 'akhwat' && (
-                                <span className="text-[10px] text-rose-800 font-semibold">
-                                  🌸 Akhwat
-                                </span>
-                              )}
-                              {p.email && (
-                                <span className="text-[10px] text-[#8A9690] truncate max-w-[120px]" title={p.email}>
-                                  · {p.email}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Nomor WA & Chat */}
-                      <td className="py-3 px-3">
-                        {p.phoneE164 ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-mono text-[#3D4A44] text-[11.5px]">
-                              {formatPhoneDisplay(p.phoneE164)}
-                            </span>
-                            {waLink && (
-                              <a
-                                href={waLink}
-                                target="_blank"
-                                rel="noreferrer"
-                                title="Kirim Pesan WhatsApp Sapaan"
-                                className="p-1 rounded-md text-[#2F7D4F] hover:bg-[#2F7D4F]/10 transition-colors"
-                              >
-                                <MessageSquare className="w-3.5 h-3.5" />
-                              </a>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-[#8A9690] font-mono text-[11px]">-</span>
-                        )}
-                      </td>
-
-                      {/* Domisili */}
-                      <td className="py-3 px-3 text-[#6B7A72]">
-                        {p.cityRegency || p.province ? (
-                          <span className="truncate max-w-[140px] block" title={[p.cityRegency, p.province].filter(Boolean).join(', ')}>
-                            {[p.cityRegency, p.province].filter(Boolean).join(', ')}
-                          </span>
-                        ) : (
-                          <span className="text-[#8A9690]">-</span>
-                        )}
-                      </td>
-
-                      {/* Engagement Status */}
-                      <td className="py-3 px-3">
-                        <span className={`inline-flex px-2 py-0.5 rounded text-[9.5px] font-mono font-bold uppercase border ${badge.bg} ${badge.text} ${badge.border}`}>
-                          {badge.label}
-                        </span>
-                      </td>
-
-                      {/* Peran / Roles */}
-                      <td className="py-3 px-3">
-                        <div className="flex flex-wrap gap-1">
-                          {p.roles.map((r) => (
-                            <span
-                              key={r}
-                              className="px-1.5 py-0.5 rounded text-[9.5px] font-mono font-semibold uppercase bg-[#F2EEE4] text-[#3D4A44] border border-[#1B4332]/10"
-                            >
-                              {r}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-
-                      {/* Kajian Terakhir & Total Frekuensi */}
-                      <td className="py-3 px-3 text-[#6B7A72]">
-                        {p.lastAttendance ? (
-                          <div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-semibold text-[#1C2321] block truncate max-w-[130px]" title={p.lastAttendance.eventTitle}>
-                                {p.lastAttendance.eventTitle}
-                              </span>
-                              {p.attendanceCount && p.attendanceCount > 1 && (
-                                <span
-                                  title={`Total ${p.attendanceCount}x terdaftar di kajian yayasan`}
-                                  className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-[#1B4332]/10 text-[#14352A] shrink-0"
-                                >
-                                  {p.attendanceCount}x
-                                </span>
-                              )}
-                            </div>
-                            <span className="text-[10px] font-mono text-[#8A9690] flex items-center gap-1 mt-0.5">
-                              <Calendar className="w-3 h-3 text-[#1B4332]" />
-                              {new Date(p.lastAttendance.startAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-[#8A9690] text-[11px]">Belum ada</span>
-                        )}
-                      </td>
-
-                      {/* PIC */}
-                      <td className="py-3 px-3 text-[#3D4A44]">
-                        {p.owner?.fullName ? (
-                          <span className="truncate max-w-[100px] block font-medium">
-                            {p.owner.fullName}
-                          </span>
-                        ) : (
-                          <span className="text-[#8A9690]">-</span>
-                        )}
-                      </td>
-
-                      {/* Next Task / Overdue */}
-                      <td className="py-3 px-3">
-                        {p.nextTask ? (
-                          <div className="space-y-0.5">
-                            <span className="font-semibold text-[#1C2321] block truncate max-w-[120px]" title={p.nextTask.title}>
-                              {p.nextTask.title}
-                            </span>
-                            {p.nextTask.isOverdue ? (
-                              <span className="inline-flex items-center gap-0.5 text-[9.5px] font-mono font-bold text-rose-800 bg-rose-50 px-1.5 py-0.2 rounded border border-rose-200">
-                                <AlertCircle className="w-3 h-3" /> Overdue
-                              </span>
-                            ) : (
-                              <span className="text-[10px] font-mono text-[#6B7A72] flex items-center gap-1">
-                                <CheckSquare className="w-3 h-3 text-[#B58B3C]" />
-                                {new Date(p.nextTask.dueAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-[#8A9690] text-[11px]">Selesai</span>
-                        )}
-                      </td>
-
-                      {/* Aksi */}
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <Link
-                            to={`/people/${p.id}`}
-                            className="py-1 px-2.5 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#1C2321] rounded-lg text-xs font-semibold border border-[#1B4332]/12 flex items-center gap-1 active:scale-98"
-                          >
-                            <Eye className="w-3.5 h-3.5 text-[#1B4332]" />
-                            <span>Detail</span>
-                          </Link>
-                          <button
-                            type="button"
-                            onClick={() => setPersonToDelete(p)}
-                            className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg border border-transparent hover:border-rose-200 transition-all"
-                            title={`Hapus data ${p.fullName}`}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+              <tbody>
+                {rows.map((person) => (
+                  <tr key={person.id}>
+                    <td>{selectRow(person)}</td>
+                    <td>{personName(person)}</td>
+                    <td>{contact(person)}</td>
+                    <td>
+                      {person.cityRegency || '—'}
+                      <span className="people-secondary">
+                        {person.province}
+                      </span>
+                    </td>
+                    <td>
+                      <strong>{person.attendanceCount || 0} kegiatan</strong>
+                      <span className="people-secondary">
+                        {person.lastAttendance
+                          ? `${person.lastAttendance.eventTitle} · ${formatDate(person.lastAttendance.startAt)}`
+                          : 'Belum pernah hadir'}
+                      </span>
+                    </td>
+                    <td>{person.owner?.fullName || 'Belum ada PIC'}</td>
+                    <td>
+                      {person.nextTask ? (
+                        <Link
+                          className="people-inline-link"
+                          to={personModuleLink('/tasks', person.id)}
+                        >
+                          <CheckSquare />
+                          {formatDate(person.nextTask.dueAt)}
+                        </Link>
+                      ) : (
+                        '—'
+                      )}
+                      {person.nextTask?.isOverdue && (
+                        <span className="people-secondary">Terlambat</span>
+                      )}
+                    </td>
+                    <td>{actions(person)}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
-        )}
-
-        {/* 5. Pagination Controls */}
-        <div className="px-4 py-3 border-t border-[#1B4332]/10 bg-[#F2EEE4]/60 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-[#6B7A72]">
-          <div>
-            Menampilkan <strong className="text-[#1C2321]">{personsList.length}</strong> dari{' '}
-            <strong className="text-[#1C2321]">{pagination.totalCount.toLocaleString('id-ID')}</strong> total data jamaah
+          <div className="people-cards">
+            {canArchive && status !== 'archived' && (
+              <label className="people-inline-link">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleAll}
+                />
+                Pilih semua di halaman ini
+              </label>
+            )}
+            {rows.map((person) => (
+              <article key={person.id} className="people-panel people-card">
+                <div className="people-card-heading">
+                  {personName(person)}
+                  {selectRow(person)}
+                </div>
+                <div className="mt-3 text-xs">{contact(person)}</div>
+                <dl>
+                  <div>
+                    <dt>Domisili</dt>
+                    <dd>{person.cityRegency || 'Belum diisi'}</dd>
+                  </div>
+                  <div>
+                    <dt>PIC</dt>
+                    <dd>{person.owner?.fullName || 'Belum ada PIC'}</dd>
+                  </div>
+                  <div>
+                    <dt>Kehadiran</dt>
+                    <dd>{person.attendanceCount || 0} kegiatan</dd>
+                  </div>
+                  <div>
+                    <dt>Tindak lanjut</dt>
+                    <dd>
+                      {person.nextTask
+                        ? formatDate(person.nextTask.dueAt)
+                        : 'Tidak ada tugas'}
+                    </dd>
+                  </div>
+                </dl>
+                <div className="people-card-footer">
+                  <span className="people-form-hint">
+                    Terdaftar {formatDate(person.createdAt)}
+                  </span>
+                  {actions(person)}
+                </div>
+              </article>
+            ))}
           </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => fetchPersons(pagination.page - 1)}
-              disabled={pagination.page <= 1 || loading}
-              className="py-1 px-2.5 bg-[#FBF9F4] hover:bg-[#F2EEE4] text-[#1C2321] rounded-lg border border-[#1B4332]/12 font-semibold disabled:opacity-40 flex items-center gap-1"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-              <span>Sebelumnya</span>
-            </button>
-            <span className="font-mono text-xs font-semibold text-[#1C2321] px-2">
-              Halaman {pagination.page} dari {pagination.totalPages || 1}
-            </span>
-            <button
-              onClick={() => fetchPersons(pagination.page + 1)}
-              disabled={pagination.page >= pagination.totalPages || loading}
-              className="py-1 px-2.5 bg-[#FBF9F4] hover:bg-[#F2EEE4] text-[#1C2321] rounded-lg border border-[#1B4332]/12 font-semibold disabled:opacity-40 flex items-center gap-1"
-            >
-              <span>Berikutnya</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
+        </>
+      )}
+      <footer className="people-pagination">
+        <div>
+          <label htmlFor="people-size">Per halaman</label>
+          <select
+            id="people-size"
+            value={size}
+            onChange={(event) => update({ size: event.target.value })}
+          >
+            {[15, 30, 50, 100].map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
         </div>
-      </div>
-
-      {/* CREATE MODAL */}
+        <div>
+          <button
+            className="people-button is-small"
+            disabled={page <= 1 || list.isFetching}
+            onClick={() => update({ page: String(page - 1) }, false)}
+            aria-label="Halaman sebelumnya"
+          >
+            <ChevronLeft />
+          </button>
+          <span>
+            {page} / {pages}
+          </span>
+          <button
+            className="people-button is-small"
+            disabled={page >= pages || list.isFetching}
+            onClick={() => update({ page: String(page + 1) }, false)}
+            aria-label="Halaman berikutnya"
+          >
+            <ChevronRight />
+          </button>
+        </div>
+      </footer>
       <PersonFormModal
-        isOpen={isCreateModalOpen || createIntent.active}
-        onClose={() => closeCreateModal()}
-        onSuccess={() => fetchPersons(1)}
+        isOpen={createIntent.active}
+        onClose={closeCreate}
+        onSuccess={() => {
+          setNotice({ text: 'Jamaah berhasil disimpan.' });
+          void refresh();
+        }}
       />
-
-      {/* DELETE CONFIRMATION DIALOG */}
-      <ConfirmDialog
-        isOpen={Boolean(personToDelete)}
-        title="Hapus Data Jamaah"
-        message={
-          <div className="space-y-2 text-xs">
-            <p>
-              Apakah Anda yakin ingin menghapus data jamaah{' '}
-              <strong className="text-[#1C2321] font-bold">{personToDelete?.fullName}</strong>{' '}
-              ({personToDelete?.phoneE164 || personToDelete?.email || 'Tanpa Kontak'})?
-            </p>
-            <p className="text-[11px] text-rose-800 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
-              ⚠️ Tindakan ini bersifat permanen. Seluruh riwayat presensi kajian, catatan interaksi, dan data terkait jamaah ini akan dihapus dari sistem.
-            </p>
-          </div>
-        }
-        confirmLabel="Ya, Hapus Permanen"
-        cancelLabel="Batal"
-        variant="danger"
-        loading={deleteLoading}
-        onConfirm={handleDeletePerson}
-        onClose={() => setPersonToDelete(null)}
-      />
-
-      <ConfirmDialog
-        isOpen={isBulkDeleteOpen}
-        title="Hapus Data Jamaah Terpilih"
-        message={<div className="space-y-2 text-xs"><p>Anda akan menghapus permanen <strong className="font-bold text-[#1C2321]">{selectedCount} data jamaah</strong> yang dipilih.</p><p className="rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-[11px] text-rose-800">Tindakan ini menghapus riwayat terkait melalui aturan cascade dan tidak dapat dibatalkan. Setiap data tetap dicatat pada audit log.</p></div>}
-        confirmLabel={`Ya, Hapus ${selectedCount} Data`}
-        cancelLabel="Batal"
-        variant="danger"
-        loading={bulkDeleteLoading}
-        onConfirm={handleBulkDelete}
-        onClose={() => setIsBulkDeleteOpen(false)}
-      />
+      <PeopleDialog
+        open={archiveIds.length > 0}
+        title={`Arsipkan ${archiveIds.length} jamaah?`}
+        busy={busy}
+        onClose={() => setArchiveIds([])}
+      >
+        <div className="people-form-body">
+          <p className="text-sm">
+            Riwayat event, interaksi, tugas, donasi, dan wakaf tetap tersimpan.
+            Jamaah dapat dipulihkan dari Arsip.
+          </p>
+        </div>
+        <div className="people-form-footer">
+          <button
+            className="people-button"
+            disabled={busy}
+            onClick={() => setArchiveIds([])}
+          >
+            Batal
+          </button>
+          <button
+            className="people-button is-primary"
+            disabled={busy}
+            onClick={() => void archive()}
+          >
+            {busy ? <Loader2 className="animate-spin" /> : <Archive />}Arsipkan
+          </button>
+        </div>
+      </PeopleDialog>
     </div>
   );
 };

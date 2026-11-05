@@ -1,10 +1,16 @@
 import { z } from 'zod';
 import { Router } from '../../http/router';
-import { requireAuth, requirePermission, validateBody } from '../../http/middleware';
+import {
+  requireAuth,
+  requirePermission,
+  validateBody,
+} from '../../http/middleware';
 import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import {
   persons,
+  appUsers,
+  tags,
   personRoles,
   personTags,
   sensitiveNotes,
@@ -19,14 +25,56 @@ import {
   kajianRutinSessions,
   kajianRutinSeries,
 } from '../../db/schema';
-import { eq, desc, asc, ilike, or, and, sql, inArray } from 'drizzle-orm';
-import { normalizePhoneE164 } from '../../lib/phone';
+import {
+  eq,
+  desc,
+  asc,
+  ilike,
+  or,
+  and,
+  sql,
+  inArray,
+  isNull,
+  gt,
+} from 'drizzle-orm';
+import { normalizePhoneE164, isValidE164 } from '../../lib/phone';
 import { PERMISSIONS, hasPermission } from '../../permissions/constants';
+import {
+  attendedActivityRows,
+  loadAttendanceSummary,
+  routineContactMatch,
+} from './readModel';
+import {
+  registerPersonOperations,
+  setPersonArchive,
+  PersonConflict,
+} from './operations';
+import { interactionVisibility } from '../interactions/visibility';
 
 const createPersonSchema = z.object({
-  fullName: z.string().min(2, 'Nama lengkap minimal 2 karakter'),
-  phoneE164: z.string().optional().nullable(),
-  email: z.string().email('Format email tidak valid').optional().nullable(),
+  fullName: z
+    .string()
+    .trim()
+    .min(2, 'Nama lengkap minimal 2 karakter')
+    .max(160),
+  phoneE164: z
+    .string()
+    .trim()
+    .refine(
+      (value) =>
+        !value ||
+        (!/[a-z]/i.test(value) && isValidE164(normalizePhoneE164(value))),
+      'Nomor WhatsApp tidak valid',
+    )
+    .optional()
+    .nullable(),
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email('Format email tidak valid')
+    .optional()
+    .nullable(),
   gender: z.enum(['ikhwan', 'akhwat']).optional().nullable(),
   province: z.string().optional().nullable(),
   cityRegency: z.string().optional().nullable(),
@@ -34,11 +82,23 @@ const createPersonSchema = z.object({
   occupation: z.string().optional().nullable(),
   educationLevel: z.string().optional().nullable(),
   sourceCode: z.string().optional().nullable(),
-  engagementStatus: z.enum(['baru', 'aktif', 'rutin', 'sangat_aktif', 'dorman', 'kembali_aktif']).default('baru'),
-  preferredChannel: z.enum(['whatsapp', 'phone', 'telegram', 'email', 'in_person']).default('whatsapp'),
+  engagementStatus: z
+    .enum(['baru', 'aktif', 'rutin', 'sangat_aktif', 'dorman', 'kembali_aktif'])
+    .default('baru'),
+  preferredChannel: z
+    .enum(['whatsapp', 'phone', 'telegram', 'email', 'in_person'])
+    .default('whatsapp'),
   ownerUserId: z.string().uuid().optional().nullable(),
-  roleCodes: z.array(z.string()).default(['jamaah']),
-  tagIds: z.array(z.string().uuid()).default([]),
+  roleCodes: z
+    .array(z.string().trim().min(1).max(40))
+    .max(20)
+    .transform((values) => [...new Set(values)])
+    .default(['jamaah']),
+  tagIds: z
+    .array(z.string().uuid())
+    .max(100)
+    .transform((values) => [...new Set(values)])
+    .default([]),
 });
 
 const updatePersonSchema = createPersonSchema.partial();
@@ -48,41 +108,57 @@ const bulkDeletePersonsSchema = z.object({
     .array(z.string().uuid('ID jamaah tidak valid'))
     .min(1, 'Pilih minimal satu jamaah')
     .max(100, 'Maksimal 100 jamaah dapat dihapus dalam satu proses')
-    .refine((ids) => new Set(ids).size === ids.length, 'Daftar jamaah tidak boleh berulang'),
-  confirmation: z.literal('HAPUS', {
-    errorMap: () => ({ message: 'Konfirmasi penghapusan massal tidak valid' }),
-  }),
+    .refine(
+      (ids) => new Set(ids).size === ids.length,
+      'Daftar jamaah tidak boleh berulang',
+    ),
+  confirmation: z.enum(['ARSIPKAN', 'HAPUS']),
 });
 
-class BulkDeleteConflictError extends Error {
-  constructor(readonly missingIds: string[]) {
-    super('Sebagian data jamaah tidak ditemukan');
-    this.name = 'BulkDeleteConflictError';
-  }
-}
-
 const createInteractionSchema = z.object({
-  channel: z.enum(['whatsapp', 'phone_call', 'in_person', 'telegram', 'email', 'other']),
+  channel: z.enum([
+    'whatsapp',
+    'phone_call',
+    'in_person',
+    'telegram',
+    'email',
+    'other',
+  ]),
   summary: z.string().min(3, 'Ringkasan interaksi minimal 3 karakter'),
   outcome: z.string().optional().nullable(),
-  sensitivityLevel: z.enum(['standard', 'confidential', 'restricted']).default('standard'),
+  sensitivityLevel: z
+    .enum(['standard', 'confidential', 'restricted'])
+    .default('standard'),
   nextAction: z.string().optional().nullable(),
   createFollowUpTask: z.boolean().default(false),
-  taskDueAt: z.string().optional().nullable(),
+  taskDueAt: z.string().datetime({ offset: true }).optional().nullable(),
   taskPriority: z.enum(['low', 'medium', 'high', 'urgent']).default('medium'),
 });
 
 const createSensitiveNoteSchema = z.object({
   noteText: z.string().min(3, 'Isi catatan minimal 3 karakter'),
   sensitivityLevel: z.enum(['standard', 'high', 'restricted']).default('high'),
-  reason: z.string().min(3, 'Alasan pencatatan wajib diisi untuk kepatuhan tata kelola'),
-  expiresAt: z.string().optional().nullable(),
+  reason: z
+    .string()
+    .min(3, 'Alasan pencatatan wajib diisi untuk kepatuhan tata kelola'),
+  expiresAt: z.string().datetime({ offset: true }).optional().nullable(),
 });
 
-let cachedPersonsStats: { data: { totalMaster: number; multiKajian: number; donorsCount: number; waqfCount: number }; timestamp: number } | null = null;
+let cachedPersonsStats: {
+  data: {
+    totalMaster: number;
+    multiKajian: number;
+    donorsCount: number;
+    waqfCount: number;
+  };
+  timestamp: number;
+} | null = null;
 const STATS_CACHE_TTL_MS = 60_000;
 
 export function registerPersonsRoutes(router: Router) {
+  registerPersonOperations(router, () => {
+    cachedPersonsStats = null;
+  });
   // GET /api/persons/check-duplicate
   router.get(
     '/api/persons/check-duplicate',
@@ -92,6 +168,13 @@ export function registerPersonsRoutes(router: Router) {
       const rawEmail = ctx.query.email?.trim();
       const excludeId = ctx.query.excludeId?.trim();
 
+      if (excludeId && !z.string().uuid().safeParse(excludeId).success)
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'ID jamaah tidak valid.',
+          400,
+          ctx.requestId,
+        );
       const normalizedPhone = normalizePhoneE164(rawPhone);
 
       const conditions = [];
@@ -103,13 +186,16 @@ export function registerPersonsRoutes(router: Router) {
       }
 
       if (conditions.length === 0) {
-        return successResponse({ isDuplicate: false, candidates: [] }, { requestId: ctx.requestId });
+        return successResponse(
+          { isDuplicate: false, candidates: [] },
+          { requestId: ctx.requestId },
+        );
       }
 
       const candidates = await db.query.persons.findMany({
         where: and(
           or(...conditions),
-          excludeId ? sql`${persons.id} != ${excludeId}::uuid` : undefined
+          excludeId ? sql`${persons.id} != ${excludeId}::uuid` : undefined,
         ),
         limit: 5,
         with: {
@@ -124,15 +210,16 @@ export function registerPersonsRoutes(router: Router) {
           candidates: candidates.map((c) => ({
             id: c.id,
             fullName: c.fullName,
+            isActive: c.isActive,
             phoneE164: c.phoneE164,
             email: c.email,
             engagementStatus: c.engagementStatus,
             ownerName: c.owner?.fullName || null,
           })),
         },
-        { requestId: ctx.requestId }
+        { requestId: ctx.requestId },
       );
-    })
+    }),
   );
 
   // GET /api/persons (Comprehensive Paginated and Filtered List)
@@ -141,26 +228,61 @@ export function registerPersonsRoutes(router: Router) {
     requirePermission(PERMISSIONS.PERSONS_LIST, async (ctx) => {
       const db = getDb();
 
-      // Pagination params
-      const page = Math.max(1, parseInt(ctx.query.page || '1', 10));
-      const pageSize = Math.min(100, Math.max(1, parseInt(ctx.query.pageSize || '10', 10)));
+      const filters = z
+        .object({
+          page: z.coerce.number().int().min(1).max(1000000).default(1),
+          pageSize: z.coerce.number().int().min(1).max(100).default(15),
+          search: z.string().trim().max(160).optional(),
+          engagementStatus: z
+            .enum([
+              'baru',
+              'aktif',
+              'rutin',
+              'sangat_aktif',
+              'dorman',
+              'kembali_aktif',
+            ])
+            .optional(),
+          domisili: z.string().trim().max(160).optional(),
+          roleCode: z.string().max(40).optional(),
+          tagId: z.string().uuid().optional(),
+          ownerUserId: z
+            .union([z.string().uuid(), z.literal('unassigned')])
+            .optional(),
+          attendanceFilter: z.enum(['multi', 'single', 'none']).optional(),
+          status: z.enum(['active', 'archived', 'all']).default('active'),
+          sortBy: z
+            .enum(['createdAt', 'fullName', 'engagementStatus'])
+            .default('createdAt'),
+          sortOrder: z.enum(['asc', 'desc']).default('desc'),
+        })
+        .safeParse(ctx.query);
+      if (!filters.success)
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Filter jamaah tidak valid.',
+          400,
+          ctx.requestId,
+        );
+      const {
+        page,
+        pageSize,
+        search,
+        engagementStatus,
+        domisili,
+        roleCode,
+        tagId,
+        ownerUserId,
+        attendanceFilter,
+        status,
+        sortBy,
+        sortOrder,
+      } = filters.data;
       const offset = (page - 1) * pageSize;
-
-      // Filter params
-      const search = ctx.query.search?.trim();
-      const engagementStatus = ctx.query.engagementStatus?.trim();
-      const domisili = ctx.query.domisili?.trim();
-      const roleCode = ctx.query.roleCode?.trim();
-      const tagId = ctx.query.tagId?.trim();
-      const ownerUserId = ctx.query.ownerUserId?.trim();
-      const attendanceFilter = ctx.query.attendanceFilter?.trim();
       const forceStatsRefresh = ctx.query.refreshStats === '1';
-
-      // Sorting
-      const sortBy = ctx.query.sortBy || 'createdAt';
-      const sortOrder = ctx.query.sortOrder === 'asc' ? 'asc' : 'desc';
-
       const whereConditions = [];
+      if (status !== 'all')
+        whereConditions.push(eq(persons.isActive, status === 'active'));
 
       if (search) {
         const normalizedSearchPhone = normalizePhoneE164(search);
@@ -176,20 +298,26 @@ export function registerPersonsRoutes(router: Router) {
       }
 
       if (engagementStatus) {
-        whereConditions.push(eq(persons.engagementStatus, engagementStatus as any));
+        whereConditions.push(
+          eq(persons.engagementStatus, engagementStatus as any),
+        );
       }
 
       if (domisili) {
         whereConditions.push(
           or(
             ilike(persons.cityRegency, `%${domisili}%`),
-            ilike(persons.province, `%${domisili}%`)
-          )
+            ilike(persons.province, `%${domisili}%`),
+          ),
         );
       }
 
       if (ownerUserId) {
-        whereConditions.push(eq(persons.ownerUserId, ownerUserId));
+        whereConditions.push(
+          ownerUserId === 'unassigned'
+            ? isNull(persons.ownerUserId)
+            : eq(persons.ownerUserId, ownerUserId),
+        );
       }
 
       if (roleCode) {
@@ -198,50 +326,49 @@ export function registerPersonsRoutes(router: Router) {
             sql`(
               EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" = 'donatur')
               OR EXISTS (SELECT 1 FROM "donations" WHERE "donations"."person_id" = "persons"."id")
-            )`
+            )`,
           );
         } else if (roleCode === 'wakif') {
           whereConditions.push(
             sql`(
               EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" = 'wakif')
               OR EXISTS (SELECT 1 FROM "waqf_cases" WHERE "waqf_cases"."person_id" = "persons"."id")
-            )`
+            )`,
           );
         } else if (roleCode === 'wakif_relawan') {
           whereConditions.push(
             sql`(
               EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" IN ('wakif', 'relawan'))
               OR EXISTS (SELECT 1 FROM "waqf_cases" WHERE "waqf_cases"."person_id" = "persons"."id")
-            )`
+            )`,
           );
         } else {
           whereConditions.push(
-            sql`EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" = ${roleCode})`
+            sql`EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" = ${roleCode})`,
           );
         }
       }
 
       if (tagId) {
         whereConditions.push(
-          sql`EXISTS (SELECT 1 FROM "person_tags" WHERE "person_tags"."person_id" = "persons"."id" AND "person_tags"."tag_id" = ${tagId}::uuid)`
+          sql`EXISTS (SELECT 1 FROM "person_tags" WHERE "person_tags"."person_id" = "persons"."id" AND "person_tags"."tag_id" = ${tagId}::uuid)`,
         );
       }
 
-      if (attendanceFilter === 'multi') {
+      if (attendanceFilter) {
+        const comparator =
+          attendanceFilter === 'multi'
+            ? sql`>= 2`
+            : attendanceFilter === 'single'
+              ? sql`= 1`
+              : sql`= 0`;
         whereConditions.push(
-          sql`"persons"."id" IN (SELECT "event_attendance"."person_id" FROM "event_attendance" GROUP BY "event_attendance"."person_id" HAVING count("event_attendance"."id") >= 2)`
-        );
-      } else if (attendanceFilter === 'single') {
-        whereConditions.push(
-          sql`"persons"."id" IN (SELECT "event_attendance"."person_id" FROM "event_attendance" GROUP BY "event_attendance"."person_id" HAVING count("event_attendance"."id") = 1)`
-        );
-      } else if (attendanceFilter === 'none') {
-        whereConditions.push(
-          sql`"persons"."id" NOT IN (SELECT "event_attendance"."person_id" FROM "event_attendance")`
+          sql`(SELECT count(*) FROM (${attendedActivityRows()}) activity WHERE activity.person_id=${persons.id}) ${comparator}`,
         );
       }
 
-      const combinedWhere = whereConditions.length > 0 ? and(...whereConditions) : undefined;
+      const combinedWhere =
+        whereConditions.length > 0 ? and(...whereConditions) : undefined;
 
       // Total count query
       const [countResult] = await db
@@ -250,22 +377,29 @@ export function registerPersonsRoutes(router: Router) {
         .where(combinedWhere);
 
       const totalCount = countResult?.count || 0;
-      const totalPages = Math.ceil(totalCount / pageSize);
+      const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
       // Order By
       let orderByClause;
       if (sortBy === 'fullName') {
-        orderByClause = sortOrder === 'asc' ? asc(persons.fullName) : desc(persons.fullName);
+        orderByClause =
+          sortOrder === 'asc' ? asc(persons.fullName) : desc(persons.fullName);
       } else if (sortBy === 'engagementStatus') {
-        orderByClause = sortOrder === 'asc' ? asc(persons.engagementStatus) : desc(persons.engagementStatus);
+        orderByClause =
+          sortOrder === 'asc'
+            ? asc(persons.engagementStatus)
+            : desc(persons.engagementStatus);
       } else {
-        orderByClause = sortOrder === 'asc' ? asc(persons.createdAt) : desc(persons.createdAt);
+        orderByClause =
+          sortOrder === 'asc'
+            ? asc(persons.createdAt)
+            : desc(persons.createdAt);
       }
 
       // Fetch Paginated Persons
       const personsList = await db.query.persons.findMany({
         where: combinedWhere,
-        orderBy: [orderByClause],
+        orderBy: [orderByClause, asc(persons.id)],
         limit: pageSize,
         offset,
         with: {
@@ -287,36 +421,29 @@ export function registerPersonsRoutes(router: Router) {
       // Enrich with last attendance and next pending task
       const personIds = personsList.map((p) => p.id);
 
-      const attendancesMap = new Map<string, { eventTitle: string; startAt: Date; count: number }>();
-      const tasksMap = new Map<string, { id: string; title: string; dueAt: Date; priority: string; isOverdue: boolean }>();
-
-      if (personIds.length > 0) {
-        // Last attendance and total attendance count per person
-        const rawAttendances = await db
-          .select({
-            personId: eventAttendance.personId,
-            eventTitle: events.title,
-            startAt: events.startAt,
-          })
-          .from(eventAttendance)
-          .innerJoin(events, eq(eventAttendance.eventId, events.id))
-          .where(inArray(eventAttendance.personId, personIds))
-          .orderBy(desc(events.startAt));
-
-        for (const att of rawAttendances) {
-          const existing = attendancesMap.get(att.personId);
-          if (!existing) {
-            attendancesMap.set(att.personId, { eventTitle: att.eventTitle, startAt: att.startAt, count: 1 });
-          } else {
-            existing.count += 1;
-          }
+      const attendancesMap = await loadAttendanceSummary(db, personIds);
+      const tasksMap = new Map<
+        string,
+        {
+          id: string;
+          title: string;
+          dueAt: Date;
+          priority: string;
+          isOverdue: boolean;
         }
-
+      >();
+      const canReadTasks =
+        hasPermission(ctx.user!.roles, PERMISSIONS.TASKS_VIEW_OWN) ||
+        hasPermission(ctx.user!.roles, PERMISSIONS.TASKS_VIEW_ALL);
+      if (personIds.length > 0 && canReadTasks) {
         // Next pending task per person
         const rawTasks = await db.query.tasks.findMany({
           where: and(
             inArray(tasks.personId, personIds),
-            eq(tasks.status, 'pending')
+            inArray(tasks.status, ['pending', 'in_progress', 'waiting']),
+            hasPermission(ctx.user!.roles, PERMISSIONS.TASKS_VIEW_ALL)
+              ? undefined
+              : eq(tasks.ownerUserId, ctx.user!.id),
           ),
           orderBy: [asc(tasks.dueAt)],
         });
@@ -342,6 +469,7 @@ export function registerPersonsRoutes(router: Router) {
         return {
           id: p.id,
           fullName: p.fullName,
+          isActive: p.isActive,
           phoneE164: p.phoneE164,
           email: p.email,
           gender: p.gender,
@@ -353,72 +481,41 @@ export function registerPersonsRoutes(router: Router) {
           engagementStatus: p.engagementStatus,
           preferredChannel: p.preferredChannel,
           createdAt: p.createdAt,
-          owner: p.owner ? { id: p.owner.id, fullName: p.owner.fullName } : null,
+          owner: p.owner
+            ? { id: p.owner.id, fullName: p.owner.fullName }
+            : null,
           roles: p.roles.map((r) => r.roleCode),
-          tags: p.tags.map((t) => ({ id: t.tag.id, name: t.tag.name, category: t.tag.category })),
-          lastAttendance: lastAtt ? { eventTitle: lastAtt.eventTitle, startAt: lastAtt.startAt } : null,
+          tags: p.tags.map((t) => ({
+            id: t.tag.id,
+            name: t.tag.name,
+            category: t.tag.category,
+          })),
+          lastAttendance: lastAtt || null,
           attendanceCount: lastAtt ? lastAtt.count : 0,
           nextTask: nextTsk || null,
         };
       });
 
-      // Quick stats for KPI cards (cached to avoid repeated heavy queries)
-      let stats = {
-        totalMaster: totalCount,
-        multiKajian: 0,
-        donorsCount: 0,
-        waqfCount: 0,
-      };
-
-      const nowTime = Date.now();
-      if (!forceStatsRefresh && cachedPersonsStats && nowTime - cachedPersonsStats.timestamp < STATS_CACHE_TTL_MS) {
+      let stats;
+      if (
+        !forceStatsRefresh &&
+        cachedPersonsStats &&
+        Date.now() - cachedPersonsStats.timestamp < STATS_CACHE_TTL_MS
+      )
         stats = cachedPersonsStats.data;
-      } else {
-        // Keep the core engagement and wakaf/relawan figures independent. A future
-        // schema issue in one data source must not turn every KPI card into zero.
-        const [coreStatsResult, waqfAndVolunteerResult] = await Promise.allSettled([
-          db
-            .select({
-              totalMaster: sql<number>`(SELECT count(*)::int FROM "persons")`,
-              multiKajian: sql<number>`(SELECT count(*)::int FROM (SELECT "person_id" FROM "event_attendance" GROUP BY "person_id" HAVING count("id") >= 2) sub)`,
-              donorsCount: sql<number>`(
-                SELECT count(distinct "id")::int FROM "persons" 
-                WHERE EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" = 'donatur')
-                   OR EXISTS (SELECT 1 FROM "donations" WHERE "donations"."person_id" = "persons"."id")
-              )`,
-            })
-            .from(sql`(SELECT 1) stats_seed`),
-          db
-            .select({
-              waqfCount: sql<number>`(
-                SELECT count(distinct "id")::int FROM "persons"
-                WHERE EXISTS (SELECT 1 FROM "person_roles" WHERE "person_roles"."person_id" = "persons"."id" AND "person_roles"."role_code" IN ('wakif', 'relawan'))
-                   OR EXISTS (SELECT 1 FROM "waqf_cases" WHERE "waqf_cases"."person_id" = "persons"."id")
-              )`,
-            })
-            .from(sql`(SELECT 1) stats_seed`),
-        ]);
-
-        if (coreStatsResult.status === 'fulfilled') {
-          const coreStats = coreStatsResult.value[0];
-          if (coreStats) stats = { ...stats, ...coreStats };
-        } else {
-          console.warn('[Persons Core Stats Query Warn]:', coreStatsResult.reason);
-        }
-
-        if (waqfAndVolunteerResult.status === 'fulfilled') {
-          const waqfAndVolunteerStats = waqfAndVolunteerResult.value[0];
-          if (waqfAndVolunteerStats) stats = { ...stats, ...waqfAndVolunteerStats };
-        } else {
-          console.warn('[Persons Wakaf & Relawan Stats Query Warn]:', waqfAndVolunteerResult.reason);
-        }
-
-        if (coreStatsResult.status === 'fulfilled' && waqfAndVolunteerResult.status === 'fulfilled') {
-          cachedPersonsStats = { data: stats, timestamp: nowTime };
-        } else {
-          // Do not cache fallback zeros after a transient database/schema failure.
-          cachedPersonsStats = null;
-        }
+      else {
+        const result = await db.execute(sql`
+          WITH activity AS (${attendedActivityRows()}), repeats AS (SELECT person_id FROM activity GROUP BY person_id HAVING count(*) >= 2)
+          SELECT count(*) FILTER(WHERE p.is_active)::int AS "totalMaster",
+            count(*) FILTER(WHERE NOT p.is_active)::int AS "archivedCount",
+            count(*) FILTER(WHERE p.is_active AND p.id IN (SELECT person_id FROM repeats))::int AS "multiKajian",
+            count(*) FILTER(WHERE p.is_active AND (EXISTS(SELECT 1 FROM person_roles r WHERE r.person_id=p.id AND r.role_code='donatur') OR EXISTS(SELECT 1 FROM donations d WHERE d.person_id=p.id)))::int AS "donorsCount",
+            count(*) FILTER(WHERE p.is_active AND (EXISTS(SELECT 1 FROM person_roles r WHERE r.person_id=p.id AND r.role_code IN ('wakif','relawan')) OR EXISTS(SELECT 1 FROM waqf_cases w WHERE w.person_id=p.id)))::int AS "waqfCount"
+          FROM persons p`);
+        stats = (
+          Array.isArray(result) ? result : (result as { rows: any[] }).rows
+        )[0];
+        cachedPersonsStats = { data: stats, timestamp: Date.now() };
       }
 
       return successResponse(formatted, {
@@ -431,7 +528,7 @@ export function registerPersonsRoutes(router: Router) {
         },
         stats,
       });
-    })
+    }),
   );
 
   // GET /api/persons/:id (Person 360 View)
@@ -439,19 +536,43 @@ export function registerPersonsRoutes(router: Router) {
     '/api/persons/:id',
     requireAuth(async (ctx) => {
       const roles = ctx.user!.roles;
-      if (![PERMISSIONS.PERSONS_VIEW, PERMISSIONS.PERSONS_VIEW_OPERATIONAL].some((permission) => hasPermission(roles, permission))) return errorResponse('FORBIDDEN', 'Izin melihat profil jamaah diperlukan.', 403, ctx.requestId);
+      if (
+        ![PERMISSIONS.PERSONS_VIEW, PERMISSIONS.PERSONS_VIEW_OPERATIONAL].some(
+          (permission) => hasPermission(roles, permission),
+        )
+      )
+        return errorResponse(
+          'FORBIDDEN',
+          'Izin melihat profil jamaah diperlukan.',
+          403,
+          ctx.requestId,
+        );
       const db = getDb();
-      const personId = ctx.params.id;
+      const personId = ctx.params.id!;
 
-      if (!personId) {
-        return errorResponse('VALIDATION_ERROR', 'ID Jamaah diperlukan', 400, ctx.requestId);
-      }
+      if (!z.string().uuid().safeParse(personId).success)
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'ID jamaah tidak valid.',
+          400,
+          ctx.requestId,
+        );
 
       // Check if user has permission to view sensitive notes
-      const canViewSensitiveNotes = hasPermission(roles, PERMISSIONS.SENSITIVE_NOTES_VIEW);
-      const canInteractions = hasPermission(roles, PERMISSIONS.INTERACTIONS_VIEW);
-      const canTasks = hasPermission(roles, PERMISSIONS.TASKS_VIEW_OWN) || hasPermission(roles, PERMISSIONS.TASKS_VIEW_ALL);
-      const canDonations = hasPermission(roles, PERMISSIONS.DONATIONS_VIEW_DETAIL) || hasPermission(roles, PERMISSIONS.DONATIONS_VIEW_UNVERIFIED);
+      const canViewSensitiveNotes = hasPermission(
+        roles,
+        PERMISSIONS.SENSITIVE_NOTES_VIEW,
+      );
+      const canInteractions = hasPermission(
+        roles,
+        PERMISSIONS.INTERACTIONS_VIEW,
+      );
+      const canTasks =
+        hasPermission(roles, PERMISSIONS.TASKS_VIEW_OWN) ||
+        hasPermission(roles, PERMISSIONS.TASKS_VIEW_ALL);
+      const canDonations =
+        hasPermission(roles, PERMISSIONS.DONATIONS_VIEW_DETAIL) ||
+        hasPermission(roles, PERMISSIONS.DONATIONS_VIEW_UNVERIFIED);
       const canWaqf = hasPermission(roles, PERMISSIONS.WAQF_VIEW_DETAIL);
 
       const person = await db.query.persons.findFirst({
@@ -480,6 +601,13 @@ export function registerPersonsRoutes(router: Router) {
                     },
                   },
                 },
+                where: and(
+                  isNull(sensitiveNotes.deletedAt),
+                  or(
+                    isNull(sensitiveNotes.expiresAt),
+                    gt(sensitiveNotes.expiresAt, new Date()),
+                  ),
+                ),
                 orderBy: [desc(sensitiveNotes.createdAt)],
               }
             : undefined,
@@ -487,15 +615,27 @@ export function registerPersonsRoutes(router: Router) {
       });
 
       if (!person) {
-        return errorResponse('NOT_FOUND', 'Data Jamaah tidak ditemukan', 404, ctx.requestId);
+        return errorResponse(
+          'NOT_FOUND',
+          'Data Jamaah tidak ditemukan',
+          404,
+          ctx.requestId,
+        );
       }
 
       // Fetch Kajian, Interactions, Tasks, Donations, Waqf in parallel
-      const [attendances, personInteractions, personTasks, personDonations, personWaqf] = await Promise.all([
+      const [
+        attendances,
+        personInteractions,
+        personTasks,
+        personDonations,
+        personWaqf,
+      ] = await Promise.all([
         db
           .select({
             id: eventAttendance.id,
             status: eventAttendance.status,
+            ticketCode: eventAttendance.ticketCode,
             source: eventAttendance.source,
             checkInAt: eventAttendance.checkInAt,
             event: {
@@ -513,58 +653,79 @@ export function registerPersonsRoutes(router: Router) {
           .where(eq(eventAttendance.personId, personId))
           .orderBy(desc(events.startAt)),
 
-        canInteractions ? db.query.interactions.findMany({
-          where: eq(interactions.personId, personId),
-          orderBy: [desc(interactions.occurredAt)],
-          with: {
-            creator: {
-              columns: {
-                id: true,
-                fullName: true,
+        canInteractions
+          ? db.query.interactions.findMany({
+              where: and(
+                eq(interactions.personId, personId),
+                interactionVisibility(roles, ctx.user!.id),
+              ),
+              orderBy: [desc(interactions.occurredAt)],
+              with: {
+                creator: {
+                  columns: {
+                    id: true,
+                    fullName: true,
+                  },
+                },
               },
-            },
-          },
-        }) : [],
+            })
+          : [],
 
-        canTasks ? db.query.tasks.findMany({
-          where: and(eq(tasks.personId, personId), hasPermission(roles, PERMISSIONS.TASKS_VIEW_ALL) ? undefined : eq(tasks.ownerUserId, ctx.user!.id)),
-          orderBy: [desc(tasks.dueAt)],
-          with: {
-            owner: {
-              columns: {
-                id: true,
-                fullName: true,
+        canTasks
+          ? db.query.tasks.findMany({
+              where: and(
+                eq(tasks.personId, personId),
+                hasPermission(roles, PERMISSIONS.TASKS_VIEW_ALL)
+                  ? undefined
+                  : eq(tasks.ownerUserId, ctx.user!.id),
+              ),
+              orderBy: [desc(tasks.dueAt)],
+              with: {
+                owner: {
+                  columns: {
+                    id: true,
+                    fullName: true,
+                  },
+                },
               },
-            },
-          },
-        }) : [],
+            })
+          : [],
 
-        canDonations ? db.query.donations.findMany({
-          where: and(eq(donations.personId, personId), hasPermission(roles, PERMISSIONS.DONATIONS_VIEW_DETAIL) ? undefined : eq(donations.verificationStatus, 'unverified')),
-          orderBy: [desc(donations.donationDate)],
-          with: {
-            program: true,
-            verifier: {
-              columns: {
-                id: true,
-                fullName: true,
+        canDonations
+          ? db.query.donations.findMany({
+              where: and(
+                eq(donations.personId, personId),
+                hasPermission(roles, PERMISSIONS.DONATIONS_VIEW_DETAIL)
+                  ? undefined
+                  : eq(donations.verificationStatus, 'unverified'),
+              ),
+              orderBy: [desc(donations.donationDate)],
+              with: {
+                program: true,
+                verifier: {
+                  columns: {
+                    id: true,
+                    fullName: true,
+                  },
+                },
               },
-            },
-          },
-        }) : [],
+            })
+          : [],
 
-        canWaqf ? db.query.waqfCases.findMany({
-          where: eq(waqfCases.personId, personId),
-          orderBy: [desc(waqfCases.openedAt)],
-          with: {
-            owner: {
-              columns: {
-                id: true,
-                fullName: true,
+        canWaqf
+          ? db.query.waqfCases.findMany({
+              where: eq(waqfCases.personId, personId),
+              orderBy: [desc(waqfCases.openedAt)],
+              with: {
+                owner: {
+                  columns: {
+                    id: true,
+                    fullName: true,
+                  },
+                },
               },
-            },
-          },
-        }) : [],
+            })
+          : [],
       ]);
 
       // Calculate aggregated metrics
@@ -573,34 +734,62 @@ export function registerPersonsRoutes(router: Router) {
         .reduce((sum, d) => sum + Number(d.amountRupiah), 0);
 
       // Match both verified portal email and the normalized contact used by staff.
-      const routineContacts = [
-        person.email ? sql`lower(${kajianRutinAttendance.email}) = ${person.email.toLowerCase()}` : undefined,
-        person.phoneE164 ? sql`regexp_replace(coalesce(${kajianRutinAttendance.phone}, ''), '[^0-9]', '', 'g') = ${person.phoneE164.replace(/\D/g, '')}` : undefined,
-      ].filter(Boolean);
-      const routineAttendance = routineContacts.length
-        ? await db
-            .select({
-              id: kajianRutinAttendance.id,
-              seriesTitle: kajianRutinSeries.title,
-              speaker: kajianRutinSessions.speaker,
-              sessionDate: kajianRutinSessions.sessionDate,
-              startAt: kajianRutinSessions.startAt,
-              checkInAt: kajianRutinAttendance.checkInAt,
-              source: kajianRutinAttendance.source,
-              status: kajianRutinAttendance.status,
-            })
-            .from(kajianRutinAttendance)
-            .innerJoin(kajianRutinSessions, eq(kajianRutinAttendance.sessionId, kajianRutinSessions.id))
-            .innerJoin(kajianRutinSeries, eq(kajianRutinAttendance.seriesId, kajianRutinSeries.id))
-            .where(or(...routineContacts))
-            .orderBy(desc(kajianRutinAttendance.checkInAt))
-            .limit(20)
-        : [];
+      const routineRows =
+        person.email?.trim() || person.phoneE164?.trim()
+          ? await db
+              .selectDistinctOn([kajianRutinAttendance.sessionId], {
+                id: kajianRutinAttendance.id,
+                sessionId: kajianRutinAttendance.sessionId,
+                seriesId: kajianRutinAttendance.seriesId,
+                seriesTitle: kajianRutinSeries.title,
+                speaker: kajianRutinSessions.speaker,
+                sessionDate: kajianRutinSessions.sessionDate,
+                startAt: kajianRutinSessions.startAt,
+                checkInAt: kajianRutinAttendance.checkInAt,
+                source: kajianRutinAttendance.source,
+                status: kajianRutinAttendance.status,
+              })
+              .from(kajianRutinAttendance)
+              .innerJoin(
+                kajianRutinSessions,
+                eq(kajianRutinAttendance.sessionId, kajianRutinSessions.id),
+              )
+              .innerJoin(
+                kajianRutinSeries,
+                eq(kajianRutinAttendance.seriesId, kajianRutinSeries.id),
+              )
+              .where(
+                routineContactMatch(
+                  sql`${person.email}::text`,
+                  sql`${person.phoneE164}::text`,
+                  sql`${kajianRutinAttendance.email}`,
+                  sql`${kajianRutinAttendance.phone}`,
+                ),
+              )
+              .orderBy(
+                asc(kajianRutinAttendance.sessionId),
+                sql`CASE WHEN ${kajianRutinAttendance.status}='present' THEN 0 ELSE 1 END`,
+                desc(kajianRutinAttendance.checkInAt),
+              )
+          : [];
+      const routineAttendance = routineRows
+        .sort((a, b) => b.startAt.getTime() - a.startAt.getTime())
+        .slice(0, 100);
+
+      const attendanceSummary = (
+        await loadAttendanceSummary(db, [personId])
+      ).get(personId);
 
       // Build unified 360 chronological timeline
       const timelineItems: Array<{
         id: string;
-        type: 'attendance' | 'interaction' | 'task' | 'donation' | 'waqf' | 'sensitive_note';
+        type:
+          | 'attendance'
+          | 'interaction'
+          | 'task'
+          | 'donation'
+          | 'waqf'
+          | 'sensitive_note';
         date: string;
         title: string;
         description: string;
@@ -612,8 +801,10 @@ export function registerPersonsRoutes(router: Router) {
         timelineItems.push({
           id: `att_${att.id}`,
           type: 'attendance',
-          date: att.checkInAt ? att.checkInAt.toISOString() : att.event.startAt.toISOString(),
-          title: `Hadir Kajian: ${att.event.title}`,
+          date: att.checkInAt
+            ? att.checkInAt.toISOString()
+            : att.event.startAt.toISOString(),
+          title: `${att.status === 'attended' ? 'Hadir' : 'Pendaftaran'}: ${att.event.title}`,
           description: `Pemateri: ${att.event.speaker} (${att.event.category})`,
           status: att.status,
           extra: { eventId: att.event.id },
@@ -625,10 +816,10 @@ export function registerPersonsRoutes(router: Router) {
           id: `rutin_${routine.id}`,
           type: 'attendance',
           date: routine.checkInAt.toISOString(),
-          title: `Hadir Kajian Rutin: ${routine.seriesTitle}`,
+          title: `${routine.status === 'present' ? 'Hadir' : 'Izin'} kajian rutin: ${routine.seriesTitle}`,
           description: `Absensi mandiri (${routine.source === 'manual_input' ? 'input panitia' : 'portal jamaah'})${routine.speaker ? ` • Pemateri: ${routine.speaker}` : ''}`,
           status: routine.status,
-          extra: { sessionId: routine.id },
+          extra: { sessionId: routine.sessionId, seriesId: routine.seriesId },
         });
       }
 
@@ -664,7 +855,11 @@ export function registerPersonsRoutes(router: Router) {
           title: `Kasus Wakaf: ${w.waqfType.toUpperCase()}`,
           description: w.notesSummary || 'Inisiasi amanah wakaf aset',
           status: w.currentStage,
-          extra: { estimatedValue: w.estimatedValueRupiah ? Number(w.estimatedValueRupiah) : null },
+          extra: {
+            estimatedValue: w.estimatedValueRupiah
+              ? Number(w.estimatedValueRupiah)
+              : null,
+          },
         });
       }
 
@@ -680,13 +875,19 @@ export function registerPersonsRoutes(router: Router) {
       }
 
       // Sort timeline newest first
-      timelineItems.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      timelineItems.sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+      );
 
       return successResponse(
         {
           ...person,
           roles: person.roles.map((r) => r.roleCode),
-          tags: person.tags.map((t) => ({ id: t.tag.id, name: t.tag.name, category: t.tag.category })),
+          tags: person.tags.map((t) => ({
+            id: t.tag.id,
+            name: t.tag.name,
+            category: t.tag.category,
+          })),
           attendances,
           routineAttendance,
           interactions: personInteractions,
@@ -697,23 +898,37 @@ export function registerPersonsRoutes(router: Router) {
           })),
           waqfCases: personWaqf.map((w) => ({
             ...w,
-            estimatedValueRupiah: w.estimatedValueRupiah ? Number(w.estimatedValueRupiah) : null,
+            estimatedValueRupiah: w.estimatedValueRupiah
+              ? Number(w.estimatedValueRupiah)
+              : null,
           })),
-          sensitiveNotes: canViewSensitiveNotes ? person.sensitiveNotes || [] : [],
+          sensitiveNotes: canViewSensitiveNotes
+            ? person.sensitiveNotes || []
+            : [],
           metrics: {
-            totalAttendances: attendances.length + routineAttendance.length,
+            totalAttendances: attendanceSummary?.count || 0,
             totalInteractions: personInteractions.length,
             totalTasks: personTasks.length,
-            pendingTasksCount: personTasks.filter((t) => t.status === 'pending').length,
+            pendingTasksCount: personTasks.filter((t) =>
+              ['pending', 'in_progress', 'waiting'].includes(t.status),
+            ).length,
             totalDonationsCount: personDonations.length,
             verifiedTotalDonationsRupiah,
-            activeWaqfCasesCount: personWaqf.filter((w) => w.currentStage !== 'completed').length,
+            activeWaqfCasesCount: personWaqf.filter((w) =>
+              [
+                'interested',
+                'consulted',
+                'pledged',
+                'document_preparation',
+                'in_progress',
+              ].includes(w.currentStage),
+            ).length,
           },
           timeline: timelineItems,
         },
-        { requestId: ctx.requestId }
+        { requestId: ctx.requestId },
       );
-    })
+    }),
   );
 
   // POST /api/persons (Create Person)
@@ -724,56 +939,104 @@ export function registerPersonsRoutes(router: Router) {
         PERMISSIONS.PERSONS_CREATE,
         validateBody(createPersonSchema, async (ctx, body) => {
           const db = getDb();
-          const normalizedPhone = normalizePhoneE164(body.phoneE164);
+          return db.transaction(async (tx) => {
+            if (body.ownerUserId) {
+              const owner = await tx.query.appUsers.findFirst({
+                where: and(
+                  eq(appUsers.id, body.ownerUserId),
+                  eq(appUsers.isActive, true),
+                ),
+                columns: { id: true },
+              });
+              if (!owner)
+                return errorResponse(
+                  'VALIDATION_ERROR',
+                  'PIC staf tidak aktif atau tidak ditemukan.',
+                  400,
+                  ctx.requestId,
+                );
+            }
+            if (body.tagIds?.length) {
+              const existingTags = await tx.query.tags.findMany({
+                where: inArray(tags.id, body.tagIds),
+                columns: { id: true },
+              });
+              if (existingTags.length !== body.tagIds.length)
+                return errorResponse(
+                  'VALIDATION_ERROR',
+                  'Sebagian tag tidak ditemukan.',
+                  400,
+                  ctx.requestId,
+                );
+            }
+            const normalizedPhone = normalizePhoneE164(body.phoneE164);
 
-          const [created] = await db
-            .insert(persons)
-            .values({
-              fullName: body.fullName,
-              phoneE164: normalizedPhone,
-              email: body.email || null,
-              gender: body.gender || null,
-              province: body.province || null,
-              cityRegency: body.cityRegency || null,
-              district: body.district || null,
-              occupation: body.occupation || null,
-              educationLevel: body.educationLevel || null,
-              sourceCode: body.sourceCode || 'direct_input',
-              engagementStatus: body.engagementStatus,
-              preferredChannel: body.preferredChannel,
-              ownerUserId: body.ownerUserId || ctx.user?.id,
-            })
-            .returning();
+            const [created] = await tx
+              .insert(persons)
+              .values({
+                fullName: body.fullName,
+                phoneE164: normalizedPhone,
+                email: body.email || null,
+                gender: body.gender || null,
+                province: body.province || null,
+                cityRegency: body.cityRegency || null,
+                district: body.district || null,
+                occupation: body.occupation || null,
+                educationLevel: body.educationLevel || null,
+                sourceCode: body.sourceCode || 'direct_input',
+                engagementStatus: body.engagementStatus,
+                preferredChannel: body.preferredChannel,
+                ownerUserId:
+                  body.ownerUserId === undefined
+                    ? ctx.user!.id
+                    : body.ownerUserId,
+              })
+              .returning();
 
-          if (!created) {
-            return errorResponse('INTERNAL_ERROR', 'Gagal membuat data jamaah', 500, ctx.requestId);
-          }
+            if (!created) {
+              return errorResponse(
+                'INTERNAL_ERROR',
+                'Gagal membuat data jamaah',
+                500,
+                ctx.requestId,
+              );
+            }
 
-          // Insert Person Roles
-          if (body.roleCodes && body.roleCodes.length > 0) {
-            await db.insert(personRoles).values(
-              body.roleCodes.map((rc) => ({
-                personId: created.id,
-                roleCode: rc,
-              }))
-            );
-          }
+            // Insert Person Roles
+            if (body.roleCodes && body.roleCodes.length > 0) {
+              await tx.insert(personRoles).values(
+                body.roleCodes.map((rc) => ({
+                  personId: created.id,
+                  roleCode: rc,
+                })),
+              );
+            }
 
-          // Insert Person Tags
-          if (body.tagIds && body.tagIds.length > 0) {
-            await db.insert(personTags).values(
-              body.tagIds.map((tid) => ({
-                personId: created.id,
-                tagId: tid,
-              }))
-            );
-          }
+            // Insert Person Tags
+            if (body.tagIds && body.tagIds.length > 0) {
+              await tx.insert(personTags).values(
+                body.tagIds.map((tid) => ({
+                  personId: created.id,
+                  tagId: tid,
+                })),
+              );
+            }
 
-          cachedPersonsStats = null;
-          return successResponse(created, { requestId: ctx.requestId }, 201);
-        })
-      )
-    )
+            await tx.insert(auditLogs).values({
+              actorUserId: ctx.user!.id,
+              action: 'create_person',
+              entityType: 'persons',
+              entityId: created.id,
+              afterJson: created,
+              reason: 'Pencatatan jamaah',
+              requestId: ctx.requestId,
+            });
+            cachedPersonsStats = null;
+            return successResponse(created, { requestId: ctx.requestId }, 201);
+          });
+        }),
+      ),
+    ),
   );
 
   // PUT /api/persons/:id (Update Person)
@@ -784,70 +1047,168 @@ export function registerPersonsRoutes(router: Router) {
         PERMISSIONS.PERSONS_EDIT,
         validateBody(updatePersonSchema, async (ctx, body) => {
           const db = getDb();
-          const personId = ctx.params.id;
+          const personId = ctx.params.id!;
 
-          if (!personId) {
-            return errorResponse('VALIDATION_ERROR', 'ID Jamaah diperlukan', 400, ctx.requestId);
+          if (!z.string().uuid().safeParse(personId).success) {
+            return errorResponse(
+              'VALIDATION_ERROR',
+              'ID Jamaah diperlukan',
+              400,
+              ctx.requestId,
+            );
           }
 
-          const normalizedPhone = body.phoneE164 !== undefined ? normalizePhoneE164(body.phoneE164) : undefined;
+          return db.transaction(async (tx) => {
+            if (body.ownerUserId) {
+              const owner = await tx.query.appUsers.findFirst({
+                where: and(
+                  eq(appUsers.id, body.ownerUserId),
+                  eq(appUsers.isActive, true),
+                ),
+                columns: { id: true },
+              });
+              if (!owner)
+                return errorResponse(
+                  'VALIDATION_ERROR',
+                  'PIC staf tidak aktif atau tidak ditemukan.',
+                  400,
+                  ctx.requestId,
+                );
+            }
+            if (body.tagIds?.length) {
+              const existingTags = await tx.query.tags.findMany({
+                where: inArray(tags.id, body.tagIds),
+                columns: { id: true },
+              });
+              if (existingTags.length !== body.tagIds.length)
+                return errorResponse(
+                  'VALIDATION_ERROR',
+                  'Sebagian tag tidak ditemukan.',
+                  400,
+                  ctx.requestId,
+                );
+            }
+            const previous = await tx.query.persons.findFirst({
+              where: eq(persons.id, personId),
+              with: { roles: true, tags: true },
+            });
+            if (!previous)
+              return errorResponse(
+                'NOT_FOUND',
+                'Data jamaah tidak ditemukan.',
+                404,
+                ctx.requestId,
+              );
+            const normalizedPhone =
+              body.phoneE164 !== undefined
+                ? normalizePhoneE164(body.phoneE164)
+                : undefined;
 
-          const [updated] = await db
-            .update(persons)
-            .set({
-              ...(body.fullName !== undefined && { fullName: body.fullName }),
-              ...(body.phoneE164 !== undefined && { phoneE164: normalizedPhone }),
-              ...(body.email !== undefined && { email: body.email }),
-              ...(body.gender !== undefined && { gender: body.gender }),
-              ...(body.province !== undefined && { province: body.province }),
-              ...(body.cityRegency !== undefined && { cityRegency: body.cityRegency }),
-              ...(body.district !== undefined && { district: body.district }),
-              ...(body.occupation !== undefined && { occupation: body.occupation }),
-              ...(body.educationLevel !== undefined && { educationLevel: body.educationLevel }),
-              ...(body.sourceCode !== undefined && { sourceCode: body.sourceCode }),
-              ...(body.engagementStatus !== undefined && { engagementStatus: body.engagementStatus }),
-              ...(body.preferredChannel !== undefined && { preferredChannel: body.preferredChannel }),
-              ...(body.ownerUserId !== undefined && { ownerUserId: body.ownerUserId }),
-              updatedAt: new Date(),
-            })
-            .where(eq(persons.id, personId))
-            .returning();
+            const [updated] = await tx
+              .update(persons)
+              .set({
+                ...(body.fullName !== undefined && { fullName: body.fullName }),
+                ...(body.phoneE164 !== undefined && {
+                  phoneE164: normalizedPhone,
+                }),
+                ...(body.email !== undefined && { email: body.email }),
+                ...(body.gender !== undefined && { gender: body.gender }),
+                ...(body.province !== undefined && { province: body.province }),
+                ...(body.cityRegency !== undefined && {
+                  cityRegency: body.cityRegency,
+                }),
+                ...(body.district !== undefined && { district: body.district }),
+                ...(body.occupation !== undefined && {
+                  occupation: body.occupation,
+                }),
+                ...(body.educationLevel !== undefined && {
+                  educationLevel: body.educationLevel,
+                }),
+                ...(body.sourceCode !== undefined && {
+                  sourceCode: body.sourceCode,
+                }),
+                ...(body.engagementStatus !== undefined && {
+                  engagementStatus: body.engagementStatus,
+                }),
+                ...(body.preferredChannel !== undefined && {
+                  preferredChannel: body.preferredChannel,
+                }),
+                ...(body.ownerUserId !== undefined && {
+                  ownerUserId: body.ownerUserId,
+                }),
+                updatedAt: new Date(),
+              })
+              .where(eq(persons.id, personId))
+              .returning();
 
-          if (!updated) {
-            return errorResponse('NOT_FOUND', 'Data Jamaah tidak ditemukan', 404, ctx.requestId);
-          }
-
-          // Sync Person Roles if provided
-          if (body.roleCodes) {
-            await db.delete(personRoles).where(eq(personRoles.personId, personId));
-            if (body.roleCodes.length > 0) {
-              await db.insert(personRoles).values(
-                body.roleCodes.map((rc) => ({
-                  personId,
-                  roleCode: rc,
-                }))
+            if (!updated) {
+              return errorResponse(
+                'NOT_FOUND',
+                'Data Jamaah tidak ditemukan',
+                404,
+                ctx.requestId,
               );
             }
-          }
 
-          // Sync Person Tags if provided
-          if (body.tagIds) {
-            await db.delete(personTags).where(eq(personTags.personId, personId));
-            if (body.tagIds.length > 0) {
-              await db.insert(personTags).values(
-                body.tagIds.map((tid) => ({
-                  personId,
-                  tagId: tid,
-                }))
+            if (body.roleCodes) {
+              const oldRoles = previous.roles.map((role) => role.roleCode);
+              const removed = oldRoles.filter(
+                (role) => !body.roleCodes!.includes(role),
               );
+              const added = body.roleCodes.filter(
+                (role) => !oldRoles.includes(role),
+              );
+              if (removed.length)
+                await tx
+                  .delete(personRoles)
+                  .where(
+                    and(
+                      eq(personRoles.personId, personId),
+                      inArray(personRoles.roleCode, removed),
+                    ),
+                  );
+              if (added.length)
+                await tx
+                  .insert(personRoles)
+                  .values(added.map((roleCode) => ({ personId, roleCode })));
             }
-          }
+            if (body.tagIds) {
+              const oldTags = previous.tags.map((tag) => tag.tagId);
+              const removed = oldTags.filter(
+                (tag) => !body.tagIds!.includes(tag),
+              );
+              const added = body.tagIds.filter((tag) => !oldTags.includes(tag));
+              if (removed.length)
+                await tx
+                  .delete(personTags)
+                  .where(
+                    and(
+                      eq(personTags.personId, personId),
+                      inArray(personTags.tagId, removed),
+                    ),
+                  );
+              if (added.length)
+                await tx
+                  .insert(personTags)
+                  .values(added.map((tagId) => ({ personId, tagId })));
+            }
 
-          cachedPersonsStats = null;
-          return successResponse(updated, { requestId: ctx.requestId });
-        })
-      )
-    )
+            await tx.insert(auditLogs).values({
+              actorUserId: ctx.user!.id,
+              action: 'update_person',
+              entityType: 'persons',
+              entityId: personId,
+              beforeJson: previous,
+              afterJson: updated,
+              reason: 'Pembaruan profil jamaah',
+              requestId: ctx.requestId,
+            });
+            cachedPersonsStats = null;
+            return successResponse(updated, { requestId: ctx.requestId });
+          });
+        }),
+      ),
+    ),
   );
 
   // POST /api/persons/:id/interactions (Log Interaction & Optional Follow-up Task)
@@ -858,48 +1219,101 @@ export function registerPersonsRoutes(router: Router) {
         PERMISSIONS.INTERACTIONS_CREATE,
         validateBody(createInteractionSchema, async (ctx, body) => {
           const db = getDb();
-          const personId = ctx.params.id;
-          if (!ctx.user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
-          if (!personId) return errorResponse('VALIDATION_ERROR', 'ID Jamaah diperlukan', 400, ctx.requestId);
+          const personId = ctx.params.id!;
+          if (!ctx.user)
+            return errorResponse(
+              'UNAUTHENTICATED',
+              'Login diperlukan',
+              401,
+              ctx.requestId,
+            );
+          if (!personId)
+            return errorResponse(
+              'VALIDATION_ERROR',
+              'ID Jamaah diperlukan',
+              400,
+              ctx.requestId,
+            );
 
-          const [interaction] = await db
-            .insert(interactions)
-            .values({
-              personId,
-              channel: body.channel,
-              summary: body.summary,
-              outcome: body.outcome || null,
-              sensitivityLevel: body.sensitivityLevel,
-              ownerUserId: ctx.user.id,
-              createdBy: ctx.user.id,
-            })
-            .returning();
-
-          let createdTask = null;
-          if (body.createFollowUpTask && body.nextAction && body.taskDueAt) {
-            const [newTask] = await db
-              .insert(tasks)
+          if (
+            body.createFollowUpTask &&
+            !hasPermission(ctx.user.roles, PERMISSIONS.TASKS_CREATE)
+          )
+            return errorResponse(
+              'FORBIDDEN',
+              'Izin membuat tugas diperlukan.',
+              403,
+              ctx.requestId,
+            );
+          if (
+            body.createFollowUpTask &&
+            (!body.nextAction?.trim() || !body.taskDueAt)
+          )
+            return errorResponse(
+              'VALIDATION_ERROR',
+              'Isi tindak lanjut dan tanggal tugas.',
+              400,
+              ctx.requestId,
+            );
+          return db.transaction(async (tx) => {
+            const person = await tx.query.persons.findFirst({
+              where: eq(persons.id, personId),
+              columns: { id: true },
+            });
+            if (!person)
+              return errorResponse(
+                'NOT_FOUND',
+                'Jamaah tidak ditemukan.',
+                404,
+                ctx.requestId,
+              );
+            const [interaction] = await tx
+              .insert(interactions)
               .values({
                 personId,
-                title: `Follow-up: ${body.nextAction}`,
-                priority: body.taskPriority,
-                status: 'pending',
-                ownerUserId: ctx.user.id,
-                assignedBy: ctx.user.id,
-                dueAt: new Date(body.taskDueAt),
+                channel: body.channel,
+                summary: body.summary,
+                outcome: body.outcome || null,
+                sensitivityLevel: body.sensitivityLevel,
+                ownerUserId: ctx.user!.id,
+                createdBy: ctx.user!.id,
               })
               .returning();
-            createdTask = newTask;
-          }
 
-          return successResponse(
-            { interaction, createdTask },
-            { requestId: ctx.requestId },
-            201
-          );
-        })
-      )
-    )
+            let createdTask = null;
+            if (body.createFollowUpTask && body.nextAction && body.taskDueAt) {
+              const [newTask] = await tx
+                .insert(tasks)
+                .values({
+                  personId,
+                  title: `Follow-up: ${body.nextAction}`,
+                  priority: body.taskPriority,
+                  status: 'pending',
+                  ownerUserId: ctx.user!.id,
+                  assignedBy: ctx.user!.id,
+                  dueAt: new Date(body.taskDueAt),
+                })
+                .returning();
+              createdTask = newTask;
+            }
+
+            await tx.insert(auditLogs).values({
+              actorUserId: ctx.user!.id,
+              action: 'create_interaction',
+              entityType: 'interactions',
+              entityId: interaction!.id,
+              reason: 'Interaksi dan tindak lanjut jamaah',
+              requestId: ctx.requestId,
+            });
+            return successResponse(
+              { interaction, createdTask },
+              { requestId: ctx.requestId },
+              201,
+            );
+          });
+        }),
+      ),
+    ),
   );
 
   // POST /api/persons/:id/sensitive-notes
@@ -910,142 +1324,169 @@ export function registerPersonsRoutes(router: Router) {
         PERMISSIONS.SENSITIVE_NOTES_CREATE,
         validateBody(createSensitiveNoteSchema, async (ctx, body) => {
           const db = getDb();
-          const personId = ctx.params.id;
-          if (!ctx.user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
-          if (!personId) return errorResponse('VALIDATION_ERROR', 'ID Jamaah diperlukan', 400, ctx.requestId);
-
-          const [note] = await db
-            .insert(sensitiveNotes)
-            .values({
-              personId,
-              noteText: body.noteText,
-              sensitivityLevel: body.sensitivityLevel,
+          const personId = ctx.params.id!;
+          if (!ctx.user)
+            return errorResponse(
+              'UNAUTHENTICATED',
+              'Login diperlukan',
+              401,
+              ctx.requestId,
+            );
+          if (!z.string().uuid().safeParse(personId).success)
+            return errorResponse(
+              'VALIDATION_ERROR',
+              'ID jamaah tidak valid.',
+              400,
+              ctx.requestId,
+            );
+          if (
+            body.expiresAt &&
+            new Date(body.expiresAt).getTime() <= Date.now()
+          )
+            return errorResponse(
+              'VALIDATION_ERROR',
+              'Batas berlaku harus setelah waktu saat ini.',
+              400,
+              ctx.requestId,
+            );
+          return db.transaction(async (tx) => {
+            if (
+              !(await tx.query.persons.findFirst({
+                where: eq(persons.id, personId),
+                columns: { id: true },
+              }))
+            )
+              return errorResponse(
+                'NOT_FOUND',
+                'Jamaah tidak ditemukan.',
+                404,
+                ctx.requestId,
+              );
+            const [note] = await tx
+              .insert(sensitiveNotes)
+              .values({
+                personId,
+                noteText: body.noteText,
+                sensitivityLevel: body.sensitivityLevel,
+                reason: body.reason,
+                expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+                createdBy: ctx.user!.id,
+              })
+              .returning();
+            await tx.insert(auditLogs).values({
+              actorUserId: ctx.user!.id,
+              action: 'create_sensitive_note',
+              entityType: 'sensitive_notes',
+              entityId: note!.id,
               reason: body.reason,
-              expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
-              createdBy: ctx.user.id,
-            })
-            .returning();
-
-          return successResponse(note, { requestId: ctx.requestId }, 201);
-        })
-      )
-    )
+              requestId: ctx.requestId,
+            });
+            return successResponse(note, { requestId: ctx.requestId }, 201);
+          });
+        }),
+      ),
+    ),
   );
 
-  // DELETE /api/persons/:id (Delete a jamaah and cascade records)
+  // DELETE compatibility route archives a person without cascading history.
   router.delete(
     '/api/persons/:id',
     requireAuth(
       requirePermission(PERMISSIONS.PERSONS_DELETE, async (ctx) => {
-        const db = getDb();
         const id = ctx.params.id;
         if (!id) {
-          return errorResponse('VALIDATION_ERROR', 'ID Jamaah diperlukan', 400, ctx.requestId);
+          return errorResponse(
+            'VALIDATION_ERROR',
+            'ID Jamaah diperlukan',
+            400,
+            ctx.requestId,
+          );
         }
 
-        const person = await db.query.persons.findFirst({
-          where: eq(persons.id, id),
-        });
-
-        if (!person) {
-          return errorResponse('NOT_FOUND', 'Data jamaah tidak ditemukan', 404, ctx.requestId);
+        if (!z.string().uuid().safeParse(id).success)
+          return errorResponse(
+            'VALIDATION_ERROR',
+            'ID jamaah tidak valid.',
+            400,
+            ctx.requestId,
+          );
+        try {
+          const people = await setPersonArchive(
+            [id],
+            false,
+            ctx.user!.id,
+            ctx.requestId,
+          );
+          cachedPersonsStats = null;
+          return successResponse(
+            {
+              success: true,
+              archived: true,
+              message: `Jamaah ${people[0]!.fullName} diarsipkan; riwayat tetap tersimpan.`,
+            },
+            { requestId: ctx.requestId },
+          );
+        } catch (error) {
+          if (error instanceof PersonConflict)
+            return errorResponse(
+              'NOT_FOUND',
+              error.message,
+              404,
+              ctx.requestId,
+            );
+          throw error;
         }
-
-        // Delete person record (Cascades to related records)
-        await db.delete(persons).where(eq(persons.id, id));
-        cachedPersonsStats = null;
-
-        // Audit Trail
-        if (ctx.user) {
-          try {
-            await db.insert(auditLogs).values({
-              actorUserId: ctx.user.id,
-              action: 'delete_person',
-              entityType: 'persons',
-              entityId: id,
-              beforeJson: person,
-              reason: `Penghapusan data jamaah: ${person.fullName} (${person.phoneE164 || person.email || '-'})`,
-              requestId: ctx.requestId,
-            });
-          } catch (auditErr) {
-            console.error('Failed to log audit for person deletion:', auditErr);
-          }
-        }
-
-        return successResponse(
-          { success: true, message: `Data jamaah ${person.fullName} berhasil dihapus` },
-          { requestId: ctx.requestId }
-        );
-      })
-    )
+      }),
+    ),
   );
 
-  // POST /api/persons/bulk-delete (transactional, permissioned permanent deletion)
+  // Legacy bulk-delete route now performs a reversible, audited archive.
   router.post(
     '/api/persons/bulk-delete',
     requireAuth(
       requirePermission(
         PERMISSIONS.PERSONS_DELETE,
         validateBody(bulkDeletePersonsSchema, async (ctx, body) => {
-          const db = getDb();
           const user = ctx.user;
-          if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
-
-          const deletedPeople = await db.transaction(async (tx) => {
-            const existingPeople = await tx.query.persons.findMany({
-              where: inArray(persons.id, body.personIds),
-              columns: { id: true, fullName: true, phoneE164: true, email: true },
-            });
-
-            if (existingPeople.length !== body.personIds.length) {
-              const existingIds = new Set(existingPeople.map((person) => person.id));
-              const missingIds = body.personIds.filter((personId) => !existingIds.has(personId));
-              throw new BulkDeleteConflictError(missingIds);
-            }
-
-            // The same foreign-key cascade semantics as single-person deletion apply here.
-            await tx.delete(persons).where(inArray(persons.id, body.personIds));
-            await tx.insert(auditLogs).values(
-              existingPeople.map((person) => ({
-                actorUserId: user.id,
-                action: 'bulk_delete_person',
-                entityType: 'persons',
-                entityId: person.id,
-                beforeJson: person,
-                afterJson: { bulkOperation: true, batchSize: body.personIds.length },
-                reason: `Penghapusan massal data jamaah: ${person.fullName} (${person.phoneE164 || person.email || '-'})`,
-                requestId: ctx.requestId,
-              }))
+          if (!user)
+            return errorResponse(
+              'UNAUTHENTICATED',
+              'Login diperlukan',
+              401,
+              ctx.requestId,
             );
 
-            return existingPeople;
-          }).catch((error) => {
-            if (error instanceof BulkDeleteConflictError) return error;
+          const deletedPeople = await setPersonArchive(
+            body.personIds,
+            false,
+            user.id,
+            ctx.requestId,
+          ).catch((error) => {
+            if (error instanceof PersonConflict) return error;
             throw error;
           });
-
-          if (deletedPeople instanceof BulkDeleteConflictError) {
+          if (deletedPeople instanceof PersonConflict)
             return errorResponse(
               'CONFLICT',
-              'Sebagian data jamaah tidak lagi tersedia. Segarkan daftar lalu pilih kembali.',
+              'Sebagian jamaah tidak ditemukan. Segarkan daftar.',
               409,
               ctx.requestId,
-              { missingIds: deletedPeople.missingIds }
+              { missingIds: deletedPeople.missingIds },
             );
-          }
 
           cachedPersonsStats = null;
           return successResponse(
             {
               success: true,
-              deletedCount: deletedPeople.length,
-              deletedPersonIds: deletedPeople.map((person) => person.id),
-              message: `${deletedPeople.length} data jamaah berhasil dihapus permanen.`,
+              archived: true,
+              archivedCount: deletedPeople.length,
+              archivedPersonIds: deletedPeople.map((person) => person.id),
+              message: `${deletedPeople.length} jamaah diarsipkan; seluruh riwayat tetap tersimpan.`,
             },
-            { requestId: ctx.requestId }
+            { requestId: ctx.requestId },
           );
-        })
-      )
-    )
+        }),
+      ),
+    ),
   );
 }

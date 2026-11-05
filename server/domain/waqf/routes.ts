@@ -72,6 +72,7 @@ export function registerWaqfRoutes(router: Router) {
       const stage = ctx.query.stage?.trim();
       const waqfType = ctx.query.waqfType?.trim();
       const personId = ctx.query.personId?.trim();
+      if (personId && !z.string().uuid().safeParse(personId).success) return errorResponse('VALIDATION_ERROR', 'ID jamaah tidak valid.', 400, ctx.requestId);
       const ownerUserId = ctx.query.ownerUserId?.trim();
 
       const conditions = [];
@@ -144,18 +145,17 @@ export function registerWaqfRoutes(router: Router) {
         inProgressCases: 0,
       };
 
-      if (cachedWaqfStats && now - cachedWaqfStats.timestamp < STATS_CACHE_TTL_MS) {
+      if (!personId && cachedWaqfStats && now - cachedWaqfStats.timestamp < STATS_CACHE_TTL_MS) {
         stats = cachedWaqfStats.data;
       } else {
         try {
           const [statsRes] = await db
             .select({
-              totalCases: sql<number>`(SELECT count(*)::int FROM "waqf_cases")`,
-              totalEstimatedValueRupiah: sql<number>`COALESCE((SELECT SUM("estimated_value_rupiah")::bigint FROM "waqf_cases"), 0)`,
-              completedCases: sql<number>`(SELECT count(*)::int FROM "waqf_cases" WHERE "current_stage" IN ('completed', 'stewardship'))`,
-              inProgressCases: sql<number>`(SELECT count(*)::int FROM "waqf_cases" WHERE "current_stage" IN ('in_progress', 'document_preparation', 'pledged'))`,
-            })
-            .from(sql`(SELECT 1) dummy`);
+              totalCases: sql<number>`count(*)::int`,
+              totalEstimatedValueRupiah: sql<number>`coalesce(sum(${waqfCases.estimatedValueRupiah}),0)::bigint`,
+              completedCases: sql<number>`count(*) filter(where ${waqfCases.currentStage} IN ('completed','stewardship'))::int`,
+              inProgressCases: sql<number>`count(*) filter(where ${waqfCases.currentStage} IN ('in_progress','document_preparation','pledged'))::int`,
+            }).from(waqfCases).where(personId ? eq(waqfCases.personId,personId) : undefined);
 
           if (statsRes) {
             stats = {
@@ -164,7 +164,7 @@ export function registerWaqfRoutes(router: Router) {
               completedCases: Number(statsRes.completedCases || 0),
               inProgressCases: Number(statsRes.inProgressCases || 0),
             };
-            cachedWaqfStats = { data: stats, timestamp: now };
+            if (!personId) cachedWaqfStats = { data: stats, timestamp: now };
           }
         } catch (err) {
           console.warn('[Waqf Stats Warn]:', err);

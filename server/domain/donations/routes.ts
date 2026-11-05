@@ -5,7 +5,7 @@ import { successResponse, errorResponse } from '../../http/response';
 import { getDb } from '../../db/client';
 import { donations, donationPrograms, persons, personRoles, auditLogs } from '../../db/schema';
 import { eq, desc, and, sql, inArray, or, ilike, gte, lt } from 'drizzle-orm';
-import { PERMISSIONS } from '../../permissions/constants';
+import { PERMISSIONS, hasPermission } from '../../permissions/constants';
 import { defaultAttachmentService } from '../../storage/service';
 import { sendDonationVerifiedReceiptEmail } from '../../email/service';
 
@@ -81,6 +81,7 @@ export function registerDonationsRoutes(router: Router) {
 
       const search = ctx.query.search?.trim();
       const personId = ctx.query.personId?.trim();
+      if (personId && !z.string().uuid().safeParse(personId).success) return errorResponse('VALIDATION_ERROR', 'ID jamaah tidak valid.', 400, ctx.requestId);
       const programId = ctx.query.programId?.trim();
       const verificationStatus = ctx.query.verificationStatus?.trim();
       const paymentMethod = ctx.query.paymentMethod?.trim();
@@ -89,7 +90,9 @@ export function registerDonationsRoutes(router: Router) {
         return errorResponse('VALIDATION_ERROR', 'Bulan donasi tidak valid.', 400, ctx.requestId);
       }
 
+      const canViewVerified = hasPermission(ctx.user!.roles, PERMISSIONS.DONATIONS_VIEW_DETAIL);
       const conditions = [];
+      if (!canViewVerified) conditions.push(eq(donations.verificationStatus, 'unverified'));
       if (month) {
         const [year, monthNumber] = month.split('-').map(Number);
         const offset = 7 * 60 * 60 * 1000;
@@ -161,18 +164,17 @@ export function registerDonationsRoutes(router: Router) {
       };
 
       const nowTime = Date.now();
-      if (cachedDonationsStats && nowTime - cachedDonationsStats.timestamp < STATS_CACHE_TTL_MS) {
+      if (!personId && canViewVerified && cachedDonationsStats && nowTime - cachedDonationsStats.timestamp < STATS_CACHE_TTL_MS) {
         stats = cachedDonationsStats.data;
       } else {
         try {
           const [statsRes] = await db
             .select({
-              totalVerifiedNominalRupiah: sql<number>`COALESCE((SELECT SUM("amount_rupiah")::bigint FROM "donations" WHERE "verification_status" = 'verified'), 0)`,
-              unverifiedCount: sql<number>`(SELECT count(*)::int FROM "donations" WHERE "verification_status" = 'unverified')`,
-              verifiedCount: sql<number>`(SELECT count(*)::int FROM "donations" WHERE "verification_status" = 'verified')`,
-              needReviewCount: sql<number>`(SELECT count(*)::int FROM "donations" WHERE "verification_status" = 'need_review')`,
-            })
-            .from(sql`(SELECT 1) dummy`);
+              totalVerifiedNominalRupiah: sql<number>`coalesce(sum(${donations.amountRupiah}) filter(where ${donations.verificationStatus}='verified'),0)::bigint`,
+              unverifiedCount: sql<number>`count(*) filter(where ${donations.verificationStatus}='unverified')::int`,
+              verifiedCount: sql<number>`count(*) filter(where ${donations.verificationStatus}='verified')::int`,
+              needReviewCount: sql<number>`count(*) filter(where ${donations.verificationStatus}='need_review')::int`,
+            }).from(donations).where(and(personId ? eq(donations.personId,personId) : undefined, canViewVerified ? undefined : eq(donations.verificationStatus,'unverified')));
 
           if (statsRes) {
             stats = {
@@ -181,7 +183,7 @@ export function registerDonationsRoutes(router: Router) {
               verifiedCount: Number(statsRes.verifiedCount || 0),
               needReviewCount: Number(statsRes.needReviewCount || 0),
             };
-            cachedDonationsStats = { data: stats, timestamp: nowTime };
+            if (!personId && canViewVerified) cachedDonationsStats = { data: stats, timestamp: nowTime };
           }
         } catch (err) {
           console.warn('[Donations Stats Warn]:', err);

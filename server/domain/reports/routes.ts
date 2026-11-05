@@ -11,13 +11,15 @@ import {
   donationPrograms,
   waqfCases,
   tasks,
+  personRoles,
+  auditLogs,
 } from '../../db/schema';
 import { eq, and, sql, desc, gte, lte, ilike, or } from 'drizzle-orm';
 import { canViewReport, type ReportTab } from '../../permissions/navigation';
 import { type Handler } from '../../http/middleware';
 import { recordsToCsv } from '../../lib/csv';
 import { PERMISSIONS, ROLE_PERMISSIONS, hasPermission } from '../../permissions/constants';
-import { logExportEvent, logAuditEvent } from '../../audit/service';
+import { logExportEvent } from '../../audit/service';
 import { normalizeIndonesianPhone, isValidE164 } from '../../lib/phone';
 
 // In-memory cache for fast report metric loading (TTL: 60s)
@@ -54,31 +56,107 @@ const exportReportSchema = z.object({
 });
 
 const dryRunImportSchema = z.object({
-  rows: z.array(
-    z.object({
-      fullName: z.string().min(2),
-      phone: z.string(),
-      email: z.string().optional().nullable(),
-      cityRegency: z.string().optional().nullable(),
-      gender: z.string().optional().nullable(),
-      sourceCode: z.string().optional().nullable(),
-    })
-  ).min(1, 'Data impor minimal 1 baris'),
+  rows: z
+    .array(
+      z.object({
+        fullName: z.string(),
+        phone: z.string(),
+        email: z.string().optional().nullable(),
+        cityRegency: z.string().optional().nullable(),
+        gender: z.string().optional().nullable(),
+        sourceCode: z.string().optional().nullable(),
+      }),
+    )
+    .min(1, 'Data impor minimal 1 baris')
+    .max(1000, 'Maksimal 1.000 baris per impor'),
 });
 
 const commitImportSchema = z.object({
-  rows: z.array(
-    z.object({
-      fullName: z.string().min(2),
-      phoneE164: z.string(),
-      email: z.string().optional().nullable(),
-      cityRegency: z.string().optional().nullable(),
-      gender: z.enum(['ikhwan', 'akhwat']).optional().nullable(),
-      sourceCode: z.string().optional().nullable(),
-    })
-  ).min(1, 'Data impor minimal 1 baris'),
+  rows: z
+    .array(
+      z.object({
+        fullName: z.string().min(2),
+        phoneE164: z.string(),
+        email: z.string().optional().nullable(),
+        cityRegency: z.string().optional().nullable(),
+        gender: z.enum(['ikhwan', 'akhwat']).optional().nullable(),
+        sourceCode: z.string().optional().nullable(),
+      }),
+    )
+    .min(1, 'Data impor minimal 1 baris')
+    .max(1000, 'Maksimal 1.000 baris per impor'),
   reason: z.string().min(5, 'Alasan impor data massal wajib diisi'),
 });
+
+function previewPersonImport(
+  rows: z.infer<typeof dryRunImportSchema>['rows'],
+  existing: Array<{ phoneE164: string | null; email: string | null }>,
+) {
+  const phones = new Set(
+    existing
+      .filter((row) => row.phoneE164 && !/[a-z]/i.test(row.phoneE164))
+      .map((row) => normalizeIndonesianPhone(row.phoneE164)),
+  );
+  const emails = new Set(
+    existing.map((row) => row.email?.trim().toLowerCase()).filter(Boolean),
+  );
+  return rows.map((row, index) => {
+    const rawPhone = row.phone.trim();
+    const normalizedPhone = normalizeIndonesianPhone(rawPhone);
+    const email = row.email?.trim().toLowerCase() || null;
+    const duplicatePhone = phones.has(normalizedPhone);
+    const duplicateEmail = Boolean(email && emails.has(email));
+    const issues: string[] = [];
+    if (row.fullName.trim().length < 2 || row.fullName.trim().length > 160)
+      issues.push('Nama lengkap harus 2–160 karakter');
+    if (/[a-z]/i.test(rawPhone) || !isValidE164(normalizedPhone))
+      issues.push('Nomor HP tidak valid');
+    if (email && !z.string().email().safeParse(email).success)
+      issues.push('Email tidak valid');
+    if (duplicatePhone)
+      issues.push('Nomor HP sudah terdaftar atau berulang dalam file');
+    if (duplicateEmail)
+      issues.push('Email sudah terdaftar atau berulang dalam file');
+    const genderInput = row.gender?.toLowerCase() || '';
+    let gender: 'ikhwan' | 'akhwat' | null = null;
+    if (
+      genderInput.includes('ikhwan') ||
+      genderInput.includes('laki') ||
+      ['l', 'm'].includes(genderInput)
+    )
+      gender = 'ikhwan';
+    if (
+      genderInput.includes('akhwat') ||
+      genderInput.includes('perempuan') ||
+      ['p', 'f'].includes(genderInput)
+    )
+      gender = 'akhwat';
+    if (!issues.length) {
+      phones.add(normalizedPhone);
+      if (email) emails.add(email);
+    }
+    return {
+      rowNumber: index + 1,
+      fullName: row.fullName.trim(),
+      rawPhone,
+      normalizedPhone,
+      email,
+      cityRegency: row.cityRegency?.trim() || null,
+      gender,
+      sourceCode: row.sourceCode || 'CSV_IMPORT',
+      isValid: !issues.length,
+      isWarning: duplicatePhone || duplicateEmail,
+      issues,
+    };
+  });
+}
+class PersonImportError extends Error {
+  constructor(readonly preview: ReturnType<typeof previewPersonImport>) {
+    super(
+      'Sebagian kontak tidak valid atau sudah tercatat. Jalankan validasi CSV kembali. Tidak ada data yang disimpan.',
+    );
+  }
+}
 
 function reportAccess(tab: ReportTab, handler: Handler): Handler {
   return requireAuth(async (ctx) => {
@@ -553,42 +631,7 @@ export function registerReportsRoutes(router: Router) {
             columns: { phoneE164: true, email: true },
           });
 
-          const existingPhones = new Set(existingPersons.map((p) => p.phoneE164));
-          const existingEmails = new Set(existingPersons.filter((p) => p.email).map((p) => p.email!.toLowerCase()));
-
-          const processed = body.rows.map((row, idx) => {
-            const rawPhone = row.phone || '';
-            const normalizedPhone = normalizeIndonesianPhone(rawPhone);
-            const isValidPhone = isValidE164(normalizedPhone);
-            const isDuplicatePhone = existingPhones.has(normalizedPhone);
-            const isDuplicateEmail = row.email ? existingEmails.has(row.email.toLowerCase().trim()) : false;
-
-            let genderParsed: 'ikhwan' | 'akhwat' | null = null;
-            if (row.gender) {
-              const g = row.gender.toLowerCase();
-              if (g.includes('ikhwan') || g.includes('laki') || g === 'l' || g === 'm') genderParsed = 'ikhwan';
-              if (g.includes('akhwat') || g.includes('perempuan') || g === 'p' || g === 'f') genderParsed = 'akhwat';
-            }
-
-            const issues: string[] = [];
-            if (!isValidPhone) issues.push('Nomor HP tidak valid format Indonesia');
-            if (isDuplicatePhone) issues.push('Nomor HP sudah terdaftar (Duplikat Exact)');
-            if (isDuplicateEmail) issues.push('Email sudah terdaftar');
-
-            return {
-              rowNumber: idx + 1,
-              fullName: row.fullName.trim(),
-              rawPhone,
-              normalizedPhone,
-              email: row.email ? row.email.toLowerCase().trim() : null,
-              cityRegency: row.cityRegency ? row.cityRegency.trim() : null,
-              gender: genderParsed,
-              sourceCode: row.sourceCode || 'CSV_IMPORT',
-              isValid: issues.length === 0,
-              isWarning: isDuplicatePhone || isDuplicateEmail,
-              issues,
-            };
-          });
+          const processed = previewPersonImport(body.rows, existingPersons);
 
           const validCount = processed.filter((p) => p.isValid).length;
           const duplicateCount = processed.filter((p) => p.isWarning).length;
@@ -603,11 +646,11 @@ export function registerReportsRoutes(router: Router) {
               canCommit: errorCount === 0 || validCount > 0,
               preview: processed,
             },
-            { requestId: ctx.requestId }
+            { requestId: ctx.requestId },
           );
-        })
-      )
-    )
+        }),
+      ),
+    ),
   );
 
   // 7. POST /api/reports/import-csv/commit (Commit valid rows)
@@ -619,48 +662,95 @@ export function registerReportsRoutes(router: Router) {
         validateBody(commitImportSchema, async (ctx, body) => {
           const db = getDb();
           const user = ctx.user;
-          if (!user) return errorResponse('UNAUTHENTICATED', 'Login diperlukan', 401, ctx.requestId);
+          if (!user)
+            return errorResponse(
+              'UNAUTHENTICATED',
+              'Login diperlukan',
+              401,
+              ctx.requestId,
+            );
 
-          const insertedPersons = await db.transaction(async (tx) => {
-            const results = [];
-            for (const row of body.rows) {
-              const [p] = await tx
+          let importedCount = 0;
+          try {
+            importedCount = await db.transaction(async (tx) => {
+              await tx.execute(
+                sql`SELECT pg_advisory_xact_lock(hashtext('yts.persons.csv-import'))`,
+              );
+              const existing = await tx.query.persons.findMany({
+                columns: { phoneE164: true, email: true },
+              });
+              const preview = previewPersonImport(
+                body.rows.map((row) => ({ ...row, phone: row.phoneE164 })),
+                existing,
+              );
+              if (preview.some((row) => !row.isValid))
+                throw new PersonImportError(preview);
+              const created = await tx
                 .insert(persons)
+                .values(
+                  preview.map((row) => ({
+                    fullName: row.fullName,
+                    phoneE164: row.normalizedPhone,
+                    email: row.email,
+                    cityRegency: row.cityRegency,
+                    gender: row.gender,
+                    sourceCode: row.sourceCode,
+                    ownerUserId: user.id,
+                  })),
+                )
+                .returning({ id: persons.id });
+              await tx
+                .insert(personRoles)
+                .values(
+                  created.map((person) => ({
+                    personId: person.id,
+                    roleCode: 'jamaah',
+                  })),
+                );
+              await tx
+                .insert(auditLogs)
                 .values({
-                  fullName: row.fullName,
-                  phoneE164: row.phoneE164,
-                  email: row.email || null,
-                  cityRegency: row.cityRegency || null,
-                  gender: row.gender || null,
-                  sourceCode: row.sourceCode || 'CSV_IMPORT',
-                  ownerUserId: user.id,
-                })
-                .returning();
-              results.push(p);
-            }
-
-            await logAuditEvent({
-              actorUserId: user.id,
-              action: 'bulk_import_persons',
-              entityType: 'persons_batch',
-              afterJson: { count: results.length, reason: body.reason },
-              reason: body.reason,
-              requestId: ctx.requestId,
+                  actorUserId: user.id,
+                  action: 'bulk_import_persons',
+                  entityType: 'persons_batch',
+                  afterJson: { count: created.length },
+                  reason: body.reason,
+                  requestId: ctx.requestId,
+                });
+              return created.length;
             });
-
-            return results;
-          });
+          } catch (error) {
+            if (error instanceof PersonImportError)
+              return errorResponse(
+                error.preview.some((row) => row.isWarning)
+                  ? 'CONFLICT'
+                  : 'VALIDATION_ERROR',
+                error.message,
+                error.preview.some((row) => row.isWarning) ? 409 : 400,
+                ctx.requestId,
+                {
+                  issues: error.preview
+                    .filter((row) => !row.isValid)
+                    .map((row) => ({
+                      rowNumber: row.rowNumber,
+                      issues: row.issues,
+                    })),
+                },
+              );
+            throw error;
+          }
+          reportCache.clear();
 
           return successResponse(
             {
-              importedCount: insertedPersons.length,
-              message: `Berhasil mengimpor ${insertedPersons.length} data jamaah baru ke sistem.`,
+              importedCount: importedCount,
+              message: `Berhasil mengimpor ${importedCount} data jamaah baru ke sistem.`,
             },
             { requestId: ctx.requestId },
-            201
+            201,
           );
-        })
-      )
-    )
+        }),
+      ),
+    ),
   );
 }

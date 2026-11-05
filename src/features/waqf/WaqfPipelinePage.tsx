@@ -1,3 +1,4 @@
+import { usePersonContext } from '@/lib/usePersonContext';
 import { PERMISSIONS } from '@server/permissions/constants';
 import { useCreateIntent } from '@/lib/useCreateIntent';
 import React, { useEffect, useState } from 'react';
@@ -91,6 +92,7 @@ function getInitials(name: string): string {
 }
 
 export const WaqfPipelinePage: React.FC = () => {
+  const personContext = usePersonContext();
   const [cases, setCases] = useState<WaqfCaseItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -145,6 +147,7 @@ export const WaqfPipelinePage: React.FC = () => {
       setError(null);
 
       const params = new URLSearchParams();
+      if (personContext.personId) params.append('personId', personContext.personId);
       if (debouncedSearch.trim()) params.append('search', debouncedSearch.trim());
       if (stageFilter) params.append('stage', stageFilter);
       if (typeFilter) params.append('waqfType', typeFilter);
@@ -172,7 +175,7 @@ export const WaqfPipelinePage: React.FC = () => {
 
   useEffect(() => {
     fetchCases(1);
-  }, [debouncedSearch, stageFilter, typeFilter, viewMode, pagination.pageSize]);
+  }, [debouncedSearch, stageFilter, typeFilter, viewMode, pagination.pageSize, personContext.personId]);
 
   const resetAllFilters = () => {
     setSearch('');
@@ -214,6 +217,7 @@ export const WaqfPipelinePage: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto pb-16">
+      {personContext.personId && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-900"><span>{personContext.person ? `Jamaah: ${personContext.person.fullName}` : personContext.loading ? 'Memuat jamaah…' : 'Jamaah belum dapat dimuat.'}</span><div className="flex flex-wrap items-center gap-3">{personContext.canProfile&&personContext.person&&<Link className="whitespace-nowrap text-xs font-semibold underline" to={`/people/${personContext.personId}?tab=waqf`}>Profil jamaah</Link>}<button type="button" className="whitespace-nowrap text-xs font-semibold underline" onClick={personContext.clear}>Tampilkan semua</button></div></div>}
       {/* 1. Header Page */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#1B4332]/12 pb-4">
         <div>
@@ -304,7 +308,7 @@ export const WaqfPipelinePage: React.FC = () => {
             <span className="text-[10px] font-mono font-bold text-[#2F7D4F]">VALUASI</span>
           </div>
           <div className="text-xl sm:text-2xl font-bold font-mono text-[#1C2321] leading-none truncate" title={`Rp ${totalPortfolioValue.toLocaleString('id-ID')}`}>
-            Rp {(totalPortfolioValue / 1000000000).toFixed(1)} Milyar
+            Rp {totalPortfolioValue >= 1000000000 ? `${(totalPortfolioValue / 1000000000).toLocaleString('id-ID', { maximumFractionDigits: 1 })} miliar` : totalPortfolioValue.toLocaleString('id-ID')}
           </div>
           <div className="text-[11.5px] text-[#6B7A72]">
             Taksiran Total Aset &amp; Bangunan
@@ -797,7 +801,9 @@ export const WaqfPipelinePage: React.FC = () => {
 
       {/* Create Waqf Modal */}
       <CreateWaqfModal
-        isOpen={createModalOpen || createIntent.active}
+        initialPersonId={personContext.person?.id}
+        initialPersonName={personContext.person?.fullName}
+        isOpen={(createModalOpen || createIntent.active) && (!personContext.personId || Boolean(personContext.person))}
         onClose={() => closeCreateModal()}
         onSuccess={() => {
           fetchCases(1);

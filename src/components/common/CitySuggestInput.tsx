@@ -136,6 +136,7 @@ export function CitySuggestInput({
             <button
               type="button"
               onClick={clearValue}
+              aria-label="Bersihkan kota"
               className="p-1 text-slate-400 hover:text-slate-600 rounded-md transition-colors"
               title="Hapus"
             >
@@ -145,6 +146,8 @@ export function CitySuggestInput({
           <button
             type="button"
             onClick={() => setIsOpen((prev) => !prev)}
+            aria-label="Tampilkan pilihan kota"
+            aria-expanded={isOpen}
             disabled={disabled}
             className="p-1 text-slate-400 hover:text-slate-600 rounded-md transition-colors"
           >

@@ -170,6 +170,7 @@ describe('Staging & UAT Test Suite — CRM Yayasan Tarbiyah Sunnah (CRM YTS)', (
         }),
       }),
     };
+    Object.assign(mockDb, { transaction: vi.fn(async (fn: any) => fn(mockDb)) });
     vi.spyOn(client, 'getDb').mockReturnValue(mockDb as any);
 
     const res = await router.handle({

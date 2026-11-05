@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { Link, useSearchParams } from 'react-router';
+import { parsePersonCsv } from '@/features/persons/importModel';
 import {
   FileBarChart2,
   Calendar,
@@ -145,9 +147,18 @@ const WAQF_TYPE_LABELS: Record<string, string> = {
 };
 
 export function ReportsPage() {
+  const [reportParams, setReportParams] = useSearchParams();
   const { data: permissions = [], isLoading: permissionsLoading } = usePermissions<PermissionCode[]>({});
   const permitted = (tab: ReportTab) => canViewReport(tab, permissions);
   const [activeTab, setActiveTab] = useState<'executive' | 'donations' | 'waqf' | 'attendance' | 'import_export'>('executive');
+  const selectTab = (tab: ReportTab) => {
+    setActiveTab(tab);
+    setReportParams((previous) => { const next = new URLSearchParams(previous); next.set('tab',tab); return next; }, { replace: true });
+  };
+  useEffect(() => {
+    const requested = reportParams.get('tab') as ReportTab | null;
+    if (requested && ['executive','donations','waqf','attendance','import_export'].includes(requested) && canViewReport(requested, permissions)) setActiveTab(requested);
+  }, [reportParams, permissions]);
   
   // 1. Executive Tab State
   const [selectedMonth, setSelectedMonth] = useState<string>(new Date().toISOString().substring(0, 7));
@@ -191,7 +202,7 @@ export function ReportsPage() {
 
   // 6. Import State
   const [csvText, setCsvText] = useState(
-    'Nama,No_HP,Email,Kota,Gender\nUstadz Fulan,+6281298765432,fulan@example.com,Bandung,ikhwan\nFatimah Az-Zahra,081311223344,fatimah@example.com,Cimahi,akhwat'
+    'Nama,No_HP,Email,Kota,Gender'
   );
   const [dryRunResult, setDryRunResult] = useState<any | null>(null);
   const [importing, setImporting] = useState(false);
@@ -336,27 +347,10 @@ export function ReportsPage() {
     }
   };
 
-  // Parse CSV Helper
-  const parseCsvToRows = (text: string) => {
-    const lines = text.trim().split('\n');
-    if (lines.length <= 1) return [];
-    
-    return lines.slice(1).map((line) => {
-      const parts = line.split(',').map((p) => p.trim());
-      return {
-        fullName: parts[0] || '',
-        phone: parts[1] || '',
-        email: parts[2] || null,
-        cityRegency: parts[3] || null,
-        gender: parts[4] || null,
-        sourceCode: 'CSV_IMPORT_HUB',
-      };
-    }).filter((r) => r.fullName.length > 0 && r.phone.length > 0);
-  };
-
   // Dry Run Import
   const handleDryRun = async () => {
-    const rows = parseCsvToRows(csvText);
+    let rows: ReturnType<typeof parsePersonCsv>;
+    try { rows = parsePersonCsv(csvText); } catch (error) { setDryRunResult(null); showToast((error as Error).message); return; }
     if (rows.length === 0) {
       showToast('Tidak ada baris data CSV yang valid untuk diuji.');
       return;
@@ -476,7 +470,7 @@ export function ReportsPage() {
       {/* 5 CATEGORY TABS */}
       <div className="flex border-b border-[#1B4332]/12 gap-2 overflow-x-auto pb-0.5">
         {permitted('executive') && (<button
-          onClick={() => setActiveTab('executive')}
+          onClick={() => selectTab('executive')}
           className={`pb-3 px-3 text-xs font-bold flex items-center gap-2 border-b-2 whitespace-nowrap transition-all ${
             activeTab === 'executive'
               ? 'border-[#1B4332] text-[#14352A]'
@@ -488,7 +482,7 @@ export function ReportsPage() {
         </button>)}
 
         {permitted('donations') && (<button
-          onClick={() => setActiveTab('donations')}
+          onClick={() => selectTab('donations')}
           className={`pb-3 px-3 text-xs font-bold flex items-center gap-2 border-b-2 whitespace-nowrap transition-all ${
             activeTab === 'donations'
               ? 'border-[#1B4332] text-[#14352A]'
@@ -500,7 +494,7 @@ export function ReportsPage() {
         </button>)}
 
         {permitted('waqf') && (<button
-          onClick={() => setActiveTab('waqf')}
+          onClick={() => selectTab('waqf')}
           className={`pb-3 px-3 text-xs font-bold flex items-center gap-2 border-b-2 whitespace-nowrap transition-all ${
             activeTab === 'waqf'
               ? 'border-[#1B4332] text-[#14352A]'
@@ -512,7 +506,7 @@ export function ReportsPage() {
         </button>)}
 
         {permitted('attendance') && (<button
-          onClick={() => setActiveTab('attendance')}
+          onClick={() => selectTab('attendance')}
           className={`pb-3 px-3 text-xs font-bold flex items-center gap-2 border-b-2 whitespace-nowrap transition-all ${
             activeTab === 'attendance'
               ? 'border-[#1B4332] text-[#14352A]'
@@ -524,7 +518,7 @@ export function ReportsPage() {
         </button>)}
 
         {permitted('import_export') && (<button
-          onClick={() => setActiveTab('import_export')}
+          onClick={() => selectTab('import_export')}
           className={`pb-3 px-3 text-xs font-bold flex items-center gap-2 border-b-2 whitespace-nowrap transition-all ${
             activeTab === 'import_export'
               ? 'border-[#1B4332] text-[#14352A]'
@@ -1203,6 +1197,7 @@ export function ReportsPage() {
       ========================================================================= */}
       {activeTab === 'import_export' && permitted('import_export') && (
         <div className="space-y-6 animate-in fade-in duration-200">
+          {permissions.includes(PERMISSIONS.PERSONS_LIST) && <Link to="/people" className="inline-flex whitespace-nowrap text-xs font-semibold text-brand-900 underline">Kembali ke jamaah</Link>}
           <div className="bg-[#FBF9F4] border border-[#1B4332]/12 rounded-3xl p-6 sm:p-8 shadow-xs space-y-5">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-2xl bg-[#1B4332]/10 flex items-center justify-center text-[#14352A]">
@@ -1210,10 +1205,10 @@ export function ReportsPage() {
               </div>
               <div>
                 <h3 className="text-base sm:text-lg font-bold font-display text-[#1C2321]">
-                  Impor Massal Data Jamaah via CSV (dengan Uji Validasi Dry Run)
+                  Impor jamaah dari CSV
                 </h3>
                 <p className="text-xs text-[#6B7A72]">
-                  Tempelkan data CSV. Sistem otomatis memvalidasi normalisasi E.164 dan mendeteksi duplikat kontak sebelum disimpan.
+                  Tempel data, periksa hasilnya, lalu simpan baris yang valid.
                 </p>
               </div>
             </div>
@@ -1226,9 +1221,11 @@ export function ReportsPage() {
             )}
 
             <div>
+              <label htmlFor="people-import-csv" className="mb-2 block text-xs font-semibold text-brand-900">Data CSV</label>
               <textarea
+                id="people-import-csv"
                 value={csvText}
-                onChange={(e) => setCsvText(e.target.value)}
+                onChange={(e) => { setCsvText(e.target.value); setDryRunResult(null); setImportSuccessMsg(null); }}
                 rows={5}
                 className="w-full p-4 font-mono text-xs bg-white border border-[#1B4332]/14 rounded-2xl focus:ring-2 focus:ring-[#1B4332] outline-none text-[#1C2321]"
               />
@@ -1239,7 +1236,7 @@ export function ReportsPage() {
                 onClick={handleDryRun}
                 className="px-4 py-2.5 text-xs font-bold rounded-xl border border-[#1B4332]/18 text-[#14352A] bg-white hover:bg-[#F2EEE4] transition-all shadow-2xs active:scale-98"
               >
-                Uji Validasi (Dry Run)
+                Periksa data
               </button>
             </div>
 
@@ -1247,7 +1244,7 @@ export function ReportsPage() {
             {dryRunResult && (
               <div className="pt-4 border-t border-[#1B4332]/10 space-y-4">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold text-[#1C2321] font-display">Hasil Uji Validasi Baris Data</h4>
+                  <h4 className="text-xs font-bold text-[#1C2321] font-display">Hasil pemeriksaan</h4>
                   <div className="flex gap-2 text-[10.5px] font-mono font-bold">
                     <span className="px-2.5 py-1 bg-[#2F7D4F]/15 text-[#2F7D4F] rounded-lg">
                       {dryRunResult.validCount} Valid
@@ -1305,7 +1302,7 @@ export function ReportsPage() {
                         <span>Mengimpor Data...</span>
                       </>
                     ) : (
-                      <span>Simpan {dryRunResult.validCount} Data Jamaah ke Sistem</span>
+                      <span>Impor {dryRunResult.validCount} jamaah</span>
                     )}
                   </button>
                 </div>

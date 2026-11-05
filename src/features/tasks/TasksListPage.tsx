@@ -1,3 +1,4 @@
+import { usePersonContext } from '@/lib/usePersonContext';
 import { useCreateIntent } from '@/lib/useCreateIntent';
 import { PermissionGate } from '@/components/common/PermissionGate';
 import { PERMISSIONS } from '@server/permissions/constants';
@@ -84,6 +85,7 @@ function getInitials(name: string): string {
 }
 
 export const TasksListPage: React.FC = () => {
+  const personContext = usePersonContext();
   const [pageParams] = useSearchParams();
   const listRequest = useRef(0);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -131,6 +133,7 @@ export const TasksListPage: React.FC = () => {
   const closeCreateModal = () => { setShowModal(false); createIntent.clear(); };
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [selectedPerson, setSelectedPerson] = useState<PersonOption | null>(null);
+  useEffect(() => { setSelectedPerson(personContext.person ? { ...personContext.person, phoneE164: personContext.person.phoneE164 || undefined, cityRegency: personContext.person.cityRegency || undefined } : null); }, [personContext.person, showModal, createIntent.active]);
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
@@ -138,7 +141,7 @@ export const TasksListPage: React.FC = () => {
     personId: '',
     ownerUserId: '',
     priority: 'high' as 'urgent' | 'high' | 'medium' | 'low',
-    dueAt: new Date(Date.now() + 86400000).toISOString().substring(0, 16),
+    dueAt: new Date(Date.now() + 86400000 + 7 * 3600000).toISOString().substring(0, 16),
     visitLocation: '',
   });
 
@@ -177,6 +180,7 @@ export const TasksListPage: React.FC = () => {
       setError(null);
 
       const params = new URLSearchParams();
+      if (personContext.personId) params.append('personId', personContext.personId);
       params.append('page', pageToFetch.toString());
       params.append('pageSize', pagination.pageSize.toString());
       if (debouncedSearch.trim()) params.append('search', debouncedSearch.trim());
@@ -229,6 +233,7 @@ export const TasksListPage: React.FC = () => {
     activeStaffFilter,
     onlyOverdue,
     pagination.pageSize,
+    personContext.personId,
   ]);
 
   // Live Autocomplete for Person in Create Modal
@@ -267,6 +272,7 @@ export const TasksListPage: React.FC = () => {
 
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (personContext.personId && (personContext.loading || personContext.error)) { setError('Data jamaah belum dapat dimuat. Coba kembali.'); return; }
     try {
       setCreateSubmitting(true);
       const payload: any = {
@@ -274,10 +280,11 @@ export const TasksListPage: React.FC = () => {
         description: newTask.description?.trim() || null,
         taskType: newTask.taskType,
         priority: newTask.priority,
-        dueAt: new Date(newTask.dueAt).toISOString(),
+        dueAt: new Date(`${newTask.dueAt}+07:00`).toISOString(),
       };
 
-      if (selectedPerson) payload.personId = selectedPerson.id;
+      if (personContext.personId) payload.personId = personContext.personId;
+      else if (selectedPerson) payload.personId = selectedPerson.id;
       if (newTask.ownerUserId) payload.ownerUserId = newTask.ownerUserId;
       if (newTask.visitLocation) payload.visitLocation = newTask.visitLocation.trim();
 
@@ -296,7 +303,7 @@ export const TasksListPage: React.FC = () => {
         personId: '',
         ownerUserId: '',
         priority: 'high',
-        dueAt: new Date(Date.now() + 86400000).toISOString().substring(0, 16),
+        dueAt: new Date(Date.now() + 86400000 + 7 * 3600000).toISOString().substring(0, 16),
         visitLocation: '',
       });
       loadTasks(1);
@@ -504,6 +511,7 @@ export const TasksListPage: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto pb-16">
+      {personContext.personId && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-900"><span>{personContext.person ? `Jamaah: ${personContext.person.fullName}` : personContext.loading ? 'Memuat jamaah…' : 'Jamaah belum dapat dimuat.'}</span><div className="flex flex-wrap items-center gap-3">{personContext.canProfile&&personContext.person&&<Link className="whitespace-nowrap text-xs font-semibold underline" to={`/people/${personContext.personId}?tab=tasks`}>Profil jamaah</Link>}<button type="button" className="whitespace-nowrap text-xs font-semibold underline" onClick={personContext.clear}>Tampilkan semua</button></div></div>}
       {/* 1. Header Page */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#1B4332]/12 pb-4">
         <div>
@@ -1109,6 +1117,7 @@ export const TasksListPage: React.FC = () => {
                     </div>
                     <button
                       type="button"
+                      hidden={Boolean(personContext.personId)}
                       onClick={() => { setSelectedPerson(null); setPersonSearch(''); }}
                       className="text-xs text-[#6B7A72] hover:text-rose-700 font-semibold underline"
                     >
@@ -1179,7 +1188,7 @@ export const TasksListPage: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-semibold text-[#1C2321] mb-1">
-                    Batas Waktu (Due Date) <span className="text-rose-600">*</span>
+                    Batas waktu (WIB) <span className="text-rose-600">*</span>
                   </label>
                   <input
                     type="datetime-local"
