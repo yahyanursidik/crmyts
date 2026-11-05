@@ -56,7 +56,7 @@ async function request(
   const json = (await response.json().catch(() => null)) as any;
   const passed = response.status === expected && !!json;
   checks.push({ role, feature, passed, actual: response.status });
-  return passed ? json : null;
+  return passed && response.ok ? json : null;
 }
 try {
   const before = await fingerprint(pool, tables);
