@@ -150,3 +150,4 @@ html:has(.jr), body:has(.jr) { overflow-x: clip; }
 @media (prefers-reduced-motion: reduce) {
   .jr__primary-link:active, .jr__submit:active, .jr__secondary-button:active { transform: none; }
 }
+.jr__submission-fields{display:contents}

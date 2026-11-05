@@ -9,6 +9,8 @@ import {
   eventAttendance,
   appUsers,
   auditLogs,
+  jamaahRoomEntries,
+  jamaahRoomActivity,
 } from "../../db/schema";
 import {
   type RequestContext,
@@ -424,6 +426,10 @@ export async function changeTaskStatus(
       await tx.execute(
         sql`SELECT id FROM interactions WHERE id=${initial.relatedId} FOR UPDATE`,
       );
+    if (initial.relatedType === "jamaah_room_entry" && initial.relatedId)
+      await tx.execute(
+        sql`SELECT id FROM jamaah_room_entries WHERE id=${initial.relatedId} FOR UPDATE`,
+      );
     await tx.execute(sql`SELECT id FROM tasks WHERE id=${taskId} FOR UPDATE`);
     const current = await tx.query.tasks.findFirst({
       where: and(
@@ -437,13 +443,15 @@ export async function changeTaskStatus(
     if (!current) throw new InteractionError("Tugas tidak ditemukan.", 404);
     if (current.status === status) return current;
     if (
-      current.relatedType === "interaction" &&
+      ["interaction", "jamaah_room_entry"].includes(
+        current.relatedType || "",
+      ) &&
       current.relatedId &&
       ["pending", "in_progress", "waiting"].includes(status)
     ) {
       const another = await tx.query.tasks.findFirst({
         where: and(
-          eq(tasks.relatedType, "interaction"),
+          eq(tasks.relatedType, current.relatedType!),
           eq(tasks.relatedId, current.relatedId),
           sql`${tasks.id}<>${taskId}`,
           sql`${tasks.status} IN ('pending','in_progress','waiting')`,
@@ -451,9 +459,39 @@ export async function changeTaskStatus(
       });
       if (another)
         throw new InteractionError(
-          "Interaksi sudah memiliki tugas aktif lainnya.",
+          "Pesan asal sudah memiliki tugas aktif lainnya.",
           409,
         );
+    }
+    if (current.relatedType === "jamaah_room_entry" && current.relatedId) {
+      const source = await tx.query.jamaahRoomEntries.findFirst({
+        where: eq(jamaahRoomEntries.id, current.relatedId),
+      });
+      if (!source)
+        throw new InteractionError("Pesan asal tidak ditemukan.", 404);
+      if (
+        ["pending", "in_progress", "waiting"].includes(status) &&
+        (source.archivedAt ||
+          source.status === "closed" ||
+          source.ownerUserId !== current.ownerUserId)
+      )
+        throw new InteractionError(
+          "Buka kembali pesan dan samakan PIC sebelum memulihkan tugas.",
+          409,
+        );
+      await tx
+        .insert(jamaahRoomActivity)
+        .values({
+          entryId: source.id,
+          actorUserId: user.id,
+          action: "task_status_changed",
+          details: { previousStatus: current.status, status },
+          taskId,
+        });
+      await tx
+        .update(jamaahRoomEntries)
+        .set({ updatedAt: new Date(), updatedBy: user.id })
+        .where(eq(jamaahRoomEntries.id, source.id));
     }
     const [updated] = await tx
       .update(tasks)
@@ -464,26 +502,24 @@ export async function changeTaskStatus(
       })
       .where(eq(tasks.id, taskId))
       .returning();
-    await tx
-      .insert(auditLogs)
-      .values({
-        actorUserId: user.id,
-        action: "update_task_status",
-        entityType: "task",
-        entityId: taskId,
-        beforeJson: {
-          status: current.status,
-          completedAt: current.completedAt,
-        },
-        afterJson: {
-          status,
-          completedAt: updated!.completedAt,
-          interactionId:
-            current.relatedType === "interaction" ? current.relatedId : null,
-        },
-        reason: "Perubahan status tindak lanjut",
-        requestId: ctx.requestId,
-      });
+    await tx.insert(auditLogs).values({
+      actorUserId: user.id,
+      action: "update_task_status",
+      entityType: "task",
+      entityId: taskId,
+      beforeJson: {
+        status: current.status,
+        completedAt: current.completedAt,
+      },
+      afterJson: {
+        status,
+        completedAt: updated!.completedAt,
+        interactionId:
+          current.relatedType === "interaction" ? current.relatedId : null,
+      },
+      reason: "Perubahan status tindak lanjut",
+      requestId: ctx.requestId,
+    });
     taskStatsCache.clear();
     return updated;
   });
@@ -579,14 +615,12 @@ export async function correctInteraction(ctx: RequestContext) {
       );
     if (values.occurredAt && +new Date(values.occurredAt) > Date.now() + 300000)
       throw new InteractionError("Waktu interaksi belum terjadi.");
-    const {occurredAt:correctedTime,...correctedFields}=values;
+    const { occurredAt: correctedTime, ...correctedFields } = values;
     const [updated] = await tx
       .update(interactions)
       .set({
         ...correctedFields,
-        ...(correctedTime
-          ? { occurredAt: new Date(correctedTime) }
-          : {}),
+        ...(correctedTime ? { occurredAt: new Date(correctedTime) } : {}),
         updatedAt: new Date(),
       })
       .where(eq(interactions.id, current.id))

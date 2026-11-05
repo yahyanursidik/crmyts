@@ -36,17 +36,22 @@ export function JamaahRoomPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [reference, setReference] = useState('');
+  const [submissionId,setSubmissionId]=useState(()=>crypto.randomUUID());
+  const [contextEvent,setContextEvent]=useState('');
   usePageMetadata({ title: 'Ruang Jamaah | Yayasan Tarbiyah Sunnah', description: 'Ruang untuk didengar, disapa, dan tetap terhubung dengan ilmu serta program Yayasan Tarbiyah Sunnah.' });
 
   useEffect(() => {
     apiClient<Story[]>('/public/jamaah-room/stories').then(({ data }) => setStories(data)).catch(() => setStoriesError(true));
   }, []);
   useEffect(() => {
+    const controller=new AbortController();
+    setEventTitle('');setEventError('');setContextEvent('');
     if (!eventId) return;
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(eventId)) { setEventError('Tautan kajian tidak valid.'); return; }
-    apiClient<{ title: string }>(`/public/jamaah-room/event/${eventId}`)
-      .then(({ data }) => setEventTitle(data.title))
-      .catch(() => setEventError('Kajian pada tautan ini tidak ditemukan. Anda tetap dapat mengirim pesan umum.'));
+    apiClient<{ title: string }>(`/public/jamaah-room/event/${eventId}`,{signal:controller.signal})
+      .then(({ data }) => {if(!controller.signal.aborted){setEventTitle(data.title);setContextEvent(eventId);}})
+      .catch(() => {if(!controller.signal.aborted)setEventError('Kajian pada tautan ini tidak ditemukan. Anda tetap dapat mengirim pesan umum.');});
+    return ()=>controller.abort();
   }, [eventId]);
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) => setForm((current) => ({ ...current, [key]: value }));
@@ -65,11 +70,12 @@ export function JamaahRoomPage() {
     setSending(true);
     try {
       const { data } = await apiClient<{ reference?: string }>('/public/jamaah-room', {
-        method: 'POST', body: JSON.stringify({ ...form, eventId: eventTitle ? eventId : null,
+        method: 'POST', body: JSON.stringify({ ...form, submissionId,eventId: contextEvent===eventId ? contextEvent : null,
           publicationConsent: isStory && form.publicationConsent }),
       });
       setReference(data.reference || 'DITERIMA');
       setForm(EMPTY);
+      setSubmissionId(crypto.randomUUID());
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Pesan belum terkirim. Silakan coba lagi.');
     } finally { setSending(false); }
@@ -132,6 +138,7 @@ export function JamaahRoomPage() {
                 </div>
               ) : (
                 <form onSubmit={submit} className="jr__form">
+                  <fieldset disabled={sending} className="jr__submission-fields">
                   <fieldset className="jr__pathways">
                     <legend>Hari ini Anda ingin...</legend>
                     <div className="jr__path-list">
@@ -188,6 +195,7 @@ export function JamaahRoomPage() {
                   <div className="jr__honeypot" aria-hidden="true"><label htmlFor="room-website">Website</label><input id="room-website" tabIndex={-1} autoComplete="off" value={form.website} onChange={(e) => set('website', e.target.value)} /></div>
                   {error && <p className="jr__error" role="alert">{error}</p>}
                   <div className="jr__form-end"><button type="submit" disabled={sending} className="jr__submit"><Send size={17} aria-hidden="true" />{sending ? 'Mengirim pesan...' : isStory ? 'Kirim cerita saya' : 'Kirim pesan saya'}</button><p>Pesan ini masuk ke tim YTS, bukan langsung tampil di publik.</p></div>
+                  </fieldset>
                 </form>
               )}
             </div>

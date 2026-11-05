@@ -184,6 +184,7 @@ export const TasksListPage: React.FC = () => {
       const params = new URLSearchParams();
       if (personContext.personId) params.append('personId', personContext.personId);
       if (pageParams.get('interactionId')) params.append('interactionId',pageParams.get('interactionId')!);
+      if(pageParams.get('roomEntryId'))params.append('roomEntryId',pageParams.get('roomEntryId')!);
       params.append('page', pageToFetch.toString());
       params.append('pageSize', pagination.pageSize.toString());
       if (debouncedSearch.trim()) params.append('search', debouncedSearch.trim());
@@ -238,6 +239,7 @@ export const TasksListPage: React.FC = () => {
     pagination.pageSize,
     personContext.personId,
     pageParams.get('interactionId'),
+    pageParams.get('roomEntryId'),
   ]);
 
   // Live Autocomplete for Person in Create Modal
@@ -517,6 +519,7 @@ export const TasksListPage: React.FC = () => {
     <div className="space-y-6 max-w-[1400px] mx-auto pb-16">
       {personContext.personId && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-900"><span>{personContext.person ? `Jamaah: ${personContext.person.fullName}` : personContext.loading ? 'Memuat jamaah…' : 'Jamaah belum dapat dimuat.'}</span><div className="flex flex-wrap items-center gap-3">{personContext.canProfile&&personContext.person&&<Link className="whitespace-nowrap text-xs font-semibold underline" to={`/people/${personContext.personId}?tab=tasks`}>Profil jamaah</Link>}<button type="button" className="whitespace-nowrap text-xs font-semibold underline" onClick={personContext.clear}>Tampilkan semua</button></div></div>}
       {pageParams.get('interactionId')&&<div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-900"><span>Tugas dari interaksi yang dipilih</span><Link className="whitespace-nowrap text-xs font-semibold underline" to={'/interactions?interactionId='+pageParams.get('interactionId')+(personContext.personId?'&personId='+personContext.personId:'')}>Kembali ke interaksi</Link></div>}
+      {pageParams.get('roomEntryId')&&<div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-900"><span>Tugas dari Ruang Jamaah</span><Link className="whitespace-nowrap text-xs font-semibold underline" to={'/ruang-jamaah/kelola?pesan='+pageParams.get('roomEntryId')}>Kembali ke pesan</Link></div>}
       {/* 1. Header Page */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#1B4332]/12 pb-4">
         <div>
@@ -859,6 +862,7 @@ export const TasksListPage: React.FC = () => {
 
                       {/* Target Jamaah */}
                       <td className="py-3.5 px-4">
+                        {task.relatedType==='jamaah_room_entry'&&task.relatedId&&<Link className="block text-xs font-semibold text-brand-800 underline mb-2" to={'/ruang-jamaah/kelola?pesan='+task.relatedId}>Pesan asal</Link>}
                         {task.relatedType==='interaction'&&task.relatedId&&<Link className="block text-xs font-semibold text-brand-800 underline mb-2" to={'/interactions?interactionId='+task.relatedId+(task.person?.id?'&personId='+task.person.id:'')}>Interaksi asal</Link>}
                         {task.person ? (
                           <div className="flex items-center gap-2">
@@ -958,7 +962,7 @@ export const TasksListPage: React.FC = () => {
                               type="button"
                               onClick={() => handleCopyMessage(task.id, task.waVisitationMessage!)}
                               className="p-1.5 bg-[#F2EEE4] hover:bg-[#EAE4D6] text-[#1C2321] rounded-lg border border-[#1B4332]/12 transition-all text-xs flex items-center gap-1"
-                              title={task.relatedType==='interaction'?'Salin draf tindak lanjut':'Salin Pesan Konfirmasi Silaturahmi WA'}
+                              title={['interaction','jamaah_room_entry'].includes(task.relatedType||'')?'Salin draf tindak lanjut':'Salin Pesan Konfirmasi Silaturahmi WA'}
                             >
                               {copiedId === task.id ? (
                                 <Check className="w-3.5 h-3.5 text-[#2F7D4F]" />
@@ -984,7 +988,7 @@ export const TasksListPage: React.FC = () => {
                             <Mail className="w-3.5 h-3.5 text-[#0F4C4A]" />
                           </button>
 
-                          {task.relatedType==='interaction'?<button type="button" className="p-1.5 rounded-lg border border-brand-200 text-brand-800" disabled={task.status==='completed'} aria-label={task.status==='cancelled'?'Pulihkan tugas':'Batalkan tugas'} title={task.status==='cancelled'?'Pulihkan tugas':'Batalkan tugas'} onClick={()=>handleUpdateStatus(task.id,task.status==='cancelled'?'pending':'cancelled')}>{task.status==='cancelled'?<RefreshCw className="w-3.5 h-3.5"/>:<X className="w-3.5 h-3.5"/>}</button>:<button type="button" onClick={()=>setTaskToDelete(task)} className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg" title="Hapus tugas"><Trash2 className="w-3.5 h-3.5"/></button>}
+                          {['interaction','jamaah_room_entry'].includes(task.relatedType||'')?<button type="button" className="p-1.5 rounded-lg border border-brand-200 text-brand-800" disabled={task.status==='completed'} aria-label={task.status==='cancelled'?'Pulihkan tugas':'Batalkan tugas'} title={task.status==='cancelled'?'Pulihkan tugas':'Batalkan tugas'} onClick={()=>handleUpdateStatus(task.id,task.status==='cancelled'?'pending':'cancelled')}>{task.status==='cancelled'?<RefreshCw className="w-3.5 h-3.5"/>:<X className="w-3.5 h-3.5"/>}</button>:<button type="button" onClick={()=>setTaskToDelete(task)} className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg" title="Hapus tugas"><Trash2 className="w-3.5 h-3.5"/></button>}
                         </div>
                       </td>
                     </tr>

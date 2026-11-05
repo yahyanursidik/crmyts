@@ -82,10 +82,10 @@ describe('Ruang Jamaah', () => {
   it('refuses publication when the jamaah did not consent', async () => {
     const id = '018f0000-0000-7000-8000-000000000001';
     const before = { id, category: 'cerita', publicationConsent: false, publicTitle: null,
-      publicText: null, status: 'new', response: null, publishedAt: null };
+      publicText: null, status: 'new', response: null, publishedAt: null,ownerUserId:id,updatedAt:new Date() };
     const update = vi.fn();
-    const db = { execute: vi.fn().mockResolvedValue({ rows: [] }), update,
-      select: vi.fn(() => ({ from: () => ({ where: () => ({ limit: () => Promise.resolve([before]) }) }) })) };
+    const tx={execute:vi.fn().mockResolvedValue({rows:[]}),update,query:{jamaahRoomEntries:{findFirst:vi.fn().mockResolvedValue(before)},appUsers:{findFirst:vi.fn().mockResolvedValue({userRoles:[{role:{code:ROLES.CRM_ADMIN}}]})}}};
+    const db={transaction:vi.fn(async cb=>cb(tx))};
     vi.spyOn(client, 'getDb').mockReturnValue(db as any);
     const result = await router.handle({ requestId: 'test', method: 'PATCH', path: `/api/jamaah-room/${id}`,
       headers: {}, query: {}, params: {}, body: { published: true, publicTitle: 'Cerita kajian',

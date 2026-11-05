@@ -12,6 +12,7 @@ import { sendEmail, renderEmailLayout } from '../../email/service';
 import {taskStatsCache} from './cache';
 import {linkedInteractionTaskVisibility} from '../interactions/visibility';
 import {moveInteractionTask,InteractionError,changeTaskStatus} from '../interactions/service';
+import {moveRoomTask,RoomError} from '../jamaah-room/service';
 const STATS_CACHE_TTL_MS = 60_000;
 
 const createTaskSchema = z.object({
@@ -50,11 +51,12 @@ export function registerTasksRoutes(router: Router) {
 
       const viewAll = hasPermission(user.roles, PERMISSIONS.TASKS_VIEW_ALL);
       if (!viewAll && !hasPermission(user.roles, PERMISSIONS.TASKS_VIEW_OWN)) return errorResponse('FORBIDDEN', 'Izin melihat tugas diperlukan.', 403, ctx.requestId);
-      const statsKey = `${viewAll ? 'all' : user.id}:${ctx.query.personId || 'all-people'}:${ctx.query.interactionId||'all-interactions'}`;
+      if(ctx.query.roomEntryId&&!z.string().uuid().safeParse(ctx.query.roomEntryId).success)return errorResponse('VALIDATION_ERROR','ID pesan tidak valid.',400,ctx.requestId);
+      const statsKey = `${viewAll ? 'all' : user.id}:${ctx.query.personId || 'all-people'}:${ctx.query.interactionId||'all-interactions'}:${ctx.query.roomEntryId||'all-room'}`;
       const cachedTasksStats = taskStatsCache.get(statsKey);
       const ownerScope = viewAll ? sql`true` : sql`owner_user_id = ${user.id}`;
       const personScope=ctx.query.personId?sql`${ownerScope} AND person_id=${ctx.query.personId}::uuid`:ownerScope;
-      const sourceScope=ctx.query.interactionId?sql`${tasks.relatedType}='interaction' AND ${tasks.relatedId}=${ctx.query.interactionId}::uuid`:sql`true`;
+      const sourceScope=ctx.query.interactionId?sql`${tasks.relatedType}='interaction' AND ${tasks.relatedId}=${ctx.query.interactionId}::uuid`:ctx.query.roomEntryId?sql`${tasks.relatedType}='jamaah_room_entry' AND ${tasks.relatedId}=${ctx.query.roomEntryId}::uuid`:sql`true`;
       const ownerFilter=sql`${personScope} AND ${sourceScope} AND ${linkedInteractionTaskVisibility(user.roles,user.id)}`;
 
       const page = ctx.query.page ? Math.max(1, parseInt(ctx.query.page, 10)) : 1;
@@ -69,6 +71,7 @@ export function registerTasksRoutes(router: Router) {
       const isOverdue = ctx.query.isOverdue === 'true';
 
       const conditions: Array<SQL|undefined> = [linkedInteractionTaskVisibility(user.roles,user.id)];
+      if(ctx.query.roomEntryId)conditions.push(eq(tasks.relatedType,'jamaah_room_entry'),eq(tasks.relatedId,ctx.query.roomEntryId));
       if(ctx.query.interactionId){
         if(!z.string().uuid().safeParse(ctx.query.interactionId).success)return errorResponse('VALIDATION_ERROR','ID interaksi tidak valid.',400,ctx.requestId);
         conditions.push(eq(tasks.relatedType,'interaction'),eq(tasks.relatedId,ctx.query.interactionId));
@@ -181,7 +184,7 @@ export function registerTasksRoutes(router: Router) {
         });
         const locationText = visitLocation || (t.person ? t.person.cityRegency || 'Kediaman / Lokasi yang disepakati' : 'Lokasi yang disepakati');
 
-        const waVisitationMessage = t.relatedType==='interaction' ? `Assalamu'alaikum ${jamaahName}. Kami dari Yayasan Tarbiyah Sunnah ingin menindaklanjuti ${t.title.replace(/^Follow-up: /,'')}. Petugas kami ${staffName} akan menghubungi sesuai waktu yang disepakati. Barakallahu fiikum.` : `Bismillah, Assalamu'alaikum Warahmatullahi Wabarakatuh.\n\nYth. Bapak/Ibu ${jamaahName},\n\nKami dari Yayasan Tarbiyah Sunnah menugaskan ${staffName} untuk bersilaturahmi dan bertemu dengan Bapak/Ibu pada:\n📅 Waktu: ${dueFormatted} WIB\n📍 Tempat: ${locationText}\n📌 Agenda: ${t.title}\n\nTerima kasih banyak sudah berkenan menerima kami. Semoga Allah memberkahi waktu dan urusan kita semua. Barakallahu fiikum.\n\n— Yayasan Tarbiyah Sunnah`;
+        const waVisitationMessage = ['interaction','jamaah_room_entry'].includes(t.relatedType||'') ? `Assalamu'alaikum ${jamaahName}. Kami dari Yayasan Tarbiyah Sunnah ingin menindaklanjuti ${t.title.replace(/^Follow-up: /,'')}. Petugas kami ${staffName} akan menghubungi sesuai waktu yang disepakati. Barakallahu fiikum.` : `Bismillah, Assalamu'alaikum Warahmatullahi Wabarakatuh.\n\nYth. Bapak/Ibu ${jamaahName},\n\nKami dari Yayasan Tarbiyah Sunnah menugaskan ${staffName} untuk bersilaturahmi dan bertemu dengan Bapak/Ibu pada:\n📅 Waktu: ${dueFormatted} WIB\n📍 Tempat: ${locationText}\n📌 Agenda: ${t.title}\n\nTerima kasih banyak sudah berkenan menerima kami. Semoga Allah memberkahi waktu dan urusan kita semua. Barakallahu fiikum.\n\n— Yayasan Tarbiyah Sunnah`;
 
         const waPhoneClean = t.person?.phoneE164 ? t.person.phoneE164.replace(/[^0-9]/g, '') : null;
         const waDirectUrl = waPhoneClean
@@ -332,9 +335,9 @@ export function registerTasksRoutes(router: Router) {
 
         if (!current) return errorResponse('NOT_FOUND', 'Tugas tidak ditemukan', 404, ctx.requestId);
 
-        if(current.relatedType==='interaction'){
-          try{return successResponse(await moveInteractionTask(ctx,taskId,body.newOwnerUserId,body.reason),{requestId:ctx.requestId});}
-          catch(error){if(error instanceof InteractionError)return errorResponse(error.status===404?'NOT_FOUND':error.status===409?'CONFLICT':'VALIDATION_ERROR',error.message,error.status,ctx.requestId);throw error;}
+        if(['interaction','jamaah_room_entry'].includes(current.relatedType||'')){
+          try{return successResponse(await (current.relatedType==='interaction'?moveInteractionTask:moveRoomTask)(ctx,taskId,body.newOwnerUserId,body.reason),{requestId:ctx.requestId});}
+          catch(error){if(error instanceof InteractionError||error instanceof RoomError)return errorResponse(error.status===403?'FORBIDDEN':error.status===404?'NOT_FOUND':error.status===409?'CONFLICT':'VALIDATION_ERROR',error.message,error.status,ctx.requestId);throw error;}
         }
 
         const [updated] = await db
@@ -445,7 +448,7 @@ export function registerTasksRoutes(router: Router) {
 
       if (!hasPermission(actor.roles, PERMISSIONS.TASKS_MANAGE_OWN) && !hasPermission(actor.roles, PERMISSIONS.TASKS_UPDATE_OWN)) return errorResponse('FORBIDDEN', 'Izin mengelola tugas diperlukan.', 403, ctx.requestId);
       if (!hasPermission(actor.roles, PERMISSIONS.TASKS_VIEW_ALL) && current.ownerUserId !== actor.id) return errorResponse('FORBIDDEN', 'Anda hanya dapat mengelola tugas sendiri.', 403, ctx.requestId);
-      if(current.relatedType==='interaction')return errorResponse('CONFLICT','Gunakan status Dibatalkan agar riwayat tindak lanjut tetap terhubung.',409,ctx.requestId);
+      if(['interaction','jamaah_room_entry'].includes(current.relatedType||''))return errorResponse('CONFLICT','Gunakan status Dibatalkan agar riwayat tindak lanjut tetap terhubung.',409,ctx.requestId);
       await db.delete(tasks).where(and(eq(tasks.id, taskId), hasPermission(actor.roles, PERMISSIONS.TASKS_VIEW_ALL) ? undefined : eq(tasks.ownerUserId, actor.id)));
       taskStatsCache.clear();
 
