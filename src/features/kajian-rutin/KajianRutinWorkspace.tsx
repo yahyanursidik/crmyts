@@ -60,6 +60,7 @@ export function KajianRutinWorkspace() {
   const sessionId = params.get("sessionId");
   const panel = params.get("panel");
   const q = params.get("q") || "";
+  const [search, setSearch] = useState(q);
   const status = params.get("status") || "active";
   const [list, setList] = useState<KajianRutinSeries[] | null>(null);
   const [unique, setUnique] = useState<number | null>(null);
@@ -108,6 +109,26 @@ export function KajianRutinWorkspace() {
       }
       return next;
     });
+  useEffect(() => {
+    setSearch(q);
+  }, [q]);
+  useEffect(() => {
+    if (search === q) return;
+    const timer = window.setTimeout(
+      () =>
+        setParams(
+          (previous) => {
+            const next = new URLSearchParams(previous);
+            search.trim() ? next.set("q", search.trim()) : next.delete("q");
+            next.delete("page");
+            return next;
+          },
+          { replace: true },
+        ),
+      350,
+    );
+    return () => window.clearTimeout(timer);
+  }, [search, q, setParams]);
   const loadList = useCallback(async () => {
     const request = ++listEpoch.current;
     try {
@@ -201,9 +222,9 @@ export function KajianRutinWorkspace() {
           ]
             .join(" ")
             .toLowerCase()
-            .includes(q.trim().toLowerCase()),
+            .includes(search.trim().toLowerCase()),
       ),
-    [list, q, status],
+    [list, search, status],
   );
   const page = Math.max(1, Number(params.get("page")) || 1);
   const pages = Math.max(1, Math.ceil(filtered.length / 12));
@@ -457,9 +478,9 @@ export function KajianRutinWorkspace() {
           <Search size={17} />
           <input
             aria-label="Cari seri kajian"
-            value={q}
+            value={search}
             placeholder="Cari kajian, pemateri, lokasi…"
-            onChange={(e) => change({ q: e.target.value, page: null })}
+            onChange={(e) => setSearch(e.target.value)}
           />
         </label>
         <select
