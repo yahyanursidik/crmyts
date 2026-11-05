@@ -57,3 +57,7 @@ Staging memakai branch database terpisah; seluruh mutasi UAT diberi penanda dan 
 5. **Verifikasi lapangan:** penerimaan email/WhatsApp nyata, unggah berkas ke penyimpanan eksternal, serta transaksi ke rekening resmi tidak dijalankan dalam audit ini. UAT bukti memakai URL fixture; tidak ada dana atau pesan dikirim.
 
 Hallmark · pre-emit critique: P4 H4 E4 S5 R4 V4. Workbench, warna resmi YTS dan tipografi yang ada dipertahankan. Dekorasi dikurangi; fokus pada daftar, status nyata, dan tindakan yang terhubung.
+
+## Target rilis
+
+PR [#31](https://github.com/yahyanursidik/crmyts/pull/31); preview staging [Bazar YTS](https://deploy-preview-31--crmyts.netlify.app/bazaar). Konteks deploy-preview memakai database dan kunci sesi staging; produksi tetap [app.yts.web.id](https://app.yts.web.id/bazaar). Rekening bazar akan diatur kemudian, sehingga instruksi transfer tetap ditutup sampai diaktifkan pengelola.
