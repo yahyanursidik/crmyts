@@ -22,6 +22,7 @@ Modul ini mencatat komunikasi Jamaah dan menghubungkannya dengan PIC, tugas tind
 ## Fitur dan hubungan yang tersedia
 
 - **Catat:** pilih Jamaah aktif, kanal, waktu interaksi, ringkasan, hasil, tingkat akses, PIC dan event bila berizin. Tugas opsional memiliki tindakan, tenggat WIB dan prioritas; interaksi dan tugas tersimpan dalam satu transaksi.
+- **Pintasan global:** setelah simpan dari sidebar, pengguna membuka detail catatan yang baru dibuat; cache profil Jamaah terkait diperbarui.
 - **Riwayat:** pencarian, filter tujuh bidang, statistik berdasarkan filter, paginasi 25 catatan, detail lengkap, profil Jamaah, event dan daftar tugas sumber.
 - **Tindak lanjut:** antrean berdasarkan hasil yang membutuhkan tindakan atau tugas terbuka. Detail menampilkan tugas beserta status/tenggat. Tugas berikutnya dapat dibuat setelah tugas lama selesai/dibatalkan; tugas lama tetap ada.
 - **Koreksi:** pencatat atau administrator mengoreksi dengan alasan. Kolom yang tidak diubah tidak dikirim ulang oleh form; waktu historis dengan detik aslinya tetap dipertahankan.
